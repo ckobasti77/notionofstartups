@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { AppProviders } from "@/components/app-providers";
 
+import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
 const themeBootScript = `(() => { const preferred = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; let theme = preferred; try { const saved = localStorage.getItem('notion-clone-theme'); if (saved === 'light' || saved === 'dark') theme = saved; } catch (_) {} document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; })();`;

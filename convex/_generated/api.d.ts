@@ -16,6 +16,7 @@ import type * as invites from "../invites.js";
 import type * as lib_activity from "../lib/activity.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_onboarding from "../lib/onboarding.js";
+import type * as lib_page_creation from "../lib/page_creation.js";
 import type * as lib_pages from "../lib/pages.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as pages from "../pages.js";
@@ -24,6 +25,7 @@ import type * as search from "../search.js";
 import type * as startups from "../startups.js";
 import type * as storage from "../storage.js";
 import type * as tasks from "../tasks.js";
+import type * as thoughts from "../thoughts.js";
 
 import type {
   ApiFromModules,
@@ -40,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   "lib/activity": typeof lib_activity;
   "lib/auth": typeof lib_auth;
   "lib/onboarding": typeof lib_onboarding;
+  "lib/page_creation": typeof lib_page_creation;
   "lib/pages": typeof lib_pages;
   "lib/validators": typeof lib_validators;
   pages: typeof pages;
@@ -48,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   startups: typeof startups;
   storage: typeof storage;
   tasks: typeof tasks;
+  thoughts: typeof thoughts;
 }>;
 
 /**

@@ -43,11 +43,13 @@ export function AdminDialog({
   onOpenChange,
   startup,
   onStartupCreated,
+  onCreateStartup,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   startup?: StartupWithAreas;
   onStartupCreated: (startupId: Id<"startups">) => void;
+  onCreateStartup?: () => void;
 }) {
   const createStartup = useMutation(api.startups.create);
   const updateStartup = useMutation(api.startups.update);
@@ -151,8 +153,13 @@ export function AdminDialog({
           <DialogDescription>
             {startup
               ? `Startup ${startup.name}: podešavanja, ljudi i pozivi.`
-              : "Kreiraj prvi privatni prostor za svoj tim."}
+              : "Kreiraj novi privatni prostor za svoj tim."}
           </DialogDescription>
+          {startup && onCreateStartup ? (
+            <Button type="button" variant="outline" size="sm" className="mt-3 w-fit" onClick={onCreateStartup}>
+              <Plus /> Dodaj startup
+            </Button>
+          ) : null}
         </DialogHeader>
         <Tabs defaultValue="startup" className="px-6 pb-6">
           <TabsList className="mt-5 grid w-full grid-cols-3">

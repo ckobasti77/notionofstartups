@@ -1,9 +1,17 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
 import { recordActivity } from "./lib/activity";
-import { requireProfileInStartup, requireStartupMember } from "./lib/auth";
+import { requireStartupMember } from "./lib/auth";
+import {
+  cleanPageContent,
+  cleanPagePosition,
+  insertWorkspacePage,
+  prepareWorkspacePage,
+  requirePageArea,
+  requirePageParent,
+  validateWorkspacePageTarget,
+} from "./lib/page_creation";
 import {
   getActivePageDescendants,
   pageSearchText,
@@ -18,43 +26,6 @@ import {
   taskStatusValidator,
 } from "./lib/validators";
 
-function cleanContent(content: string) {
-  if (content.length > 80_000) throw new Error("Sadržaj može imati najviše 80.000 znakova.");
-  return content;
-}
-
-function cleanPosition(position: number | undefined) {
-  if (position === undefined) return Date.now();
-  if (!Number.isFinite(position)) throw new Error("Pozicija stranice nije ispravna.");
-  return position;
-}
-
-async function requireArea(
-  ctx: Parameters<typeof requireStartupMember>[0],
-  startupId: Id<"startups">,
-  areaId: Id<"startupAreas">,
-) {
-  const area = await ctx.db.get("startupAreas", areaId);
-  if (area === null || area.startupId !== startupId) {
-    throw new Error("Oblast nije pronađena u ovom startupu.");
-  }
-  return area;
-}
-
-async function requireParent(
-  ctx: Parameters<typeof requireStartupMember>[0],
-  startupId: Id<"startups">,
-  areaId: Id<"startupAreas">,
-  parentPageId: Id<"pages"> | null,
-) {
-  if (parentPageId === null) return null;
-  const parent = await requireVisiblePage(ctx, parentPageId);
-  if (parent.startupId !== startupId || parent.areaId !== areaId) {
-    throw new Error("Roditeljska stranica mora biti u istoj oblasti.");
-  }
-  return parent;
-}
-
 export const listChildren = query({
   args: {
     startupId: v.id("startups"),
@@ -64,8 +35,8 @@ export const listChildren = query({
   },
   handler: async (ctx, args) => {
     await requireStartupMember(ctx, args.startupId);
-    await requireArea(ctx, args.startupId, args.areaId);
-    await requireParent(ctx, args.startupId, args.areaId, args.parentPageId);
+    await requirePageArea(ctx, args.startupId, args.areaId);
+    await requirePageParent(ctx, args.startupId, args.areaId, args.parentPageId);
     const result = await ctx.db
       .query("pages")
       .withIndex(
@@ -135,60 +106,29 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
-    await requireArea(ctx, args.startupId, args.areaId);
-    await requireParent(ctx, args.startupId, args.areaId, args.parentPageId);
-    if (args.kind === "note" && (
-      args.taskStatus !== undefined ||
-      args.taskPriority !== undefined ||
-      args.assigneeProfileId !== undefined ||
-      args.dueDate !== undefined
-    )) {
-      throw new Error("Task podaci se mogu dodati samo task stranici.");
-    }
-    if (args.assigneeProfileId !== undefined) {
-      await requireProfileInStartup(ctx, args.startupId, args.assigneeProfileId);
-    }
-    if (args.dueDate !== undefined && (!Number.isFinite(args.dueDate) || args.dueDate < 0)) {
-      throw new Error("Rok nije ispravan.");
-    }
-
-    const title = cleanRequiredText(args.title, "Naslov", 200);
-    const content = cleanContent(args.content ?? "");
     const now = Date.now();
-    const pageId = await ctx.db.insert("pages", {
+    const target = await validateWorkspacePageTarget(ctx, {
       startupId: args.startupId,
       areaId: args.areaId,
       parentPageId: args.parentPageId,
       kind: args.kind,
-      title,
-      searchText: pageSearchText(title, content),
-      revision: 0,
-      position: cleanPosition(args.position),
-      taskStatus: args.kind === "task" ? args.taskStatus ?? "backlog" : null,
-      taskPriority: args.kind === "task" ? args.taskPriority ?? "medium" : null,
-      assigneeProfileId:
-        args.kind === "task" ? args.assigneeProfileId ?? null : null,
-      dueDate: args.kind === "task" ? args.dueDate ?? null : null,
-      taskSortAt: pageTaskSortAt(
-        args.kind === "task" ? args.dueDate ?? null : null,
-        now,
-      ),
-      createdByProfileId: profile._id,
-      updatedByProfileId: profile._id,
-      archivedAt: null,
-      createdAt: now,
-      updatedAt: now,
+      taskStatus: args.taskStatus,
+      taskPriority: args.taskPriority,
+      assigneeProfileId: args.assigneeProfileId,
+      dueDate: args.dueDate,
     });
-    await ctx.db.insert("pageBodies", { pageId, content, updatedAt: now });
-    await recordActivity(ctx, {
-      startupId: args.startupId,
+    const page = prepareWorkspacePage(target, {
+      title: args.title,
+      content: args.content ?? "",
+      position: args.position,
+      now,
+    });
+    return await insertWorkspacePage(ctx, {
+      target,
+      page,
       actorProfileId: profile._id,
-      action: "page_created",
-      targetType: "page",
-      targetId: pageId,
-      title: `${args.kind === "task" ? "Task" : "Stranica"} „${title}” je kreiran/a`,
+      now,
     });
-    return pageId;
   },
 });
 
@@ -213,7 +153,7 @@ export const update = mutation({
       ? page.title
       : cleanRequiredText(args.title, "Naslov", 200);
     const currentContent = body?.content ?? "";
-    const content = args.content === undefined ? currentContent : cleanContent(args.content);
+    const content = args.content === undefined ? currentContent : cleanPageContent(args.content);
     if (title === page.title && content === currentContent) {
       return { pageId: page._id, revision: page.revision, updatedAt: page.updatedAt };
     }
@@ -256,9 +196,9 @@ export const move = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);
-    await requireArea(ctx, page.startupId, args.areaId);
+    await requirePageArea(ctx, page.startupId, args.areaId);
     if (args.parentPageId === page._id) throw new Error("Stranica ne može biti sopstveni roditelj.");
-    const parent = await requireParent(ctx, page.startupId, args.areaId, args.parentPageId);
+    const parent = await requirePageParent(ctx, page.startupId, args.areaId, args.parentPageId);
     let cursor = parent;
     for (let depth = 0; cursor !== null && depth < 64; depth += 1) {
       if (cursor._id === page._id) throw new Error("Premeštanje bi napravilo kružnu hijerarhiju.");
@@ -272,7 +212,7 @@ export const move = mutation({
     await ctx.db.patch("pages", page._id, {
       areaId: args.areaId,
       parentPageId: args.parentPageId,
-      position: cleanPosition(args.position),
+      position: cleanPagePosition(args.position, now),
       updatedByProfileId: profile._id,
       updatedAt: now,
     });

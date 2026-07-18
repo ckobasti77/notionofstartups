@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Activity,
+  Brain,
   CalendarDays,
   CheckSquare2,
   ChevronDown,
@@ -28,6 +29,7 @@ import type {
   StartupWithAreas,
   WorkspaceRoute,
 } from "@/components/workspace/types";
+import type { ThoughtDropTarget } from "@/components/workspace/thought-sharing";
 import {
   AREA_ICONS,
   AREA_TINTS,
@@ -66,18 +68,30 @@ type WorkspaceSidebarProps = {
   startup: StartupWithAreas;
   route: WorkspaceRoute;
   collapsed: boolean;
+  temporarilyExpanded?: boolean;
+  expandedAreas: Readonly<Record<string, boolean>>;
+  expandedPageIds: ReadonlySet<Id<"pages">>;
+  transientExpandedAreaIds: ReadonlySet<Id<"startupAreas">>;
+  transientExpandedPageIds: ReadonlySet<Id<"pages">>;
+  activeThoughtDropTarget: ThoughtDropTarget | null;
   onCollapsedChange: (collapsed: boolean) => void;
+  onAreaExpandedChange: (areaId: Id<"startupAreas">, expanded: boolean) => void;
+  onPageExpandedChange: (pageId: Id<"pages">, expanded: boolean) => void;
   onStartupChange: (startupId: Id<"startups">) => void;
   onRouteChange: (route: WorkspaceRoute) => void;
   onCreate: (target?: CreatePageTarget) => void;
   onSearch: () => void;
   onAdmin: () => void;
+  onCreateStartup: () => void;
+  onLoadMoreStartups: () => void;
+  startupsStatus: "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
   onProfile: () => void;
   onSignOut: () => void;
 };
 
 const primaryNav = [
   { kind: "home" as const, label: "Početna", icon: Home },
+  { kind: "thoughts" as const, label: "Moje misli", icon: Brain, hint: "Samo ti" },
   { kind: "today" as const, label: "Danas", icon: CalendarDays },
   { kind: "my-tasks" as const, label: "Moji zadaci", icon: CheckSquare2 },
   { kind: "activity" as const, label: "Aktivnost", icon: Activity },
@@ -88,12 +102,14 @@ function SidebarButton({
   icon: Icon,
   active,
   collapsed,
+  hint,
   onClick,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   collapsed: boolean;
+  hint?: string;
   onClick: () => void;
 }) {
   const button = (
@@ -118,7 +134,16 @@ function SidebarButton({
         />
       ) : null}
       <Icon className="size-[1.05rem] shrink-0" />
-      {collapsed ? null : <span>{label}</span>}
+      {collapsed ? null : (
+        <>
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          {hint ? (
+            <span className="shrink-0 rounded-md border border-primary/15 bg-primary/8 px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase tracking-[0.08em] text-primary">
+              {hint}
+            </span>
+          ) : null}
+        </>
+      )}
     </motion.button>
   );
 
@@ -126,7 +151,10 @@ function SidebarButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side="right">
+        <span className="block font-medium">{label}</span>
+        {hint ? <span className="block text-[0.6875rem] text-muted-foreground">{hint}</span> : null}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -136,11 +164,17 @@ function StartupPicker({
   startup,
   collapsed,
   onChange,
+  onCreate,
+  onLoadMore,
+  startupsStatus,
 }: {
   startups: Array<StartupWithAreas>;
   startup: StartupWithAreas;
   collapsed: boolean;
   onChange: (startupId: Id<"startups">) => void;
+  onCreate: () => void;
+  onLoadMore: () => void;
+  startupsStatus: "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
 }) {
   return (
     <DropdownMenu>
@@ -189,6 +223,16 @@ function StartupPicker({
             <span className="truncate">{item.name}</span>
           </DropdownMenuItem>
         ))}
+        {startupsStatus === "CanLoadMore" || startupsStatus === "LoadingMore" ? (
+          <DropdownMenuItem disabled={startupsStatus === "LoadingMore"} onSelect={onLoadMore}>
+            <ChevronDown className={cn("size-4", startupsStatus === "LoadingMore" && "animate-bounce")} />
+            {startupsStatus === "LoadingMore" ? "Učitavam startupove…" : "Učitaj još startupova"}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onCreate}>
+          <Plus className="size-4" /> Dodaj startup
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -196,12 +240,11 @@ function StartupPicker({
 
 function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
   const { profile, startups, startup, route, collapsed, mobile = false } = props;
-  const compact = collapsed && !mobile;
-  const [expandedAreas, setExpandedAreas] = useState<Record<string, boolean>>({});
+  const compact = collapsed && !props.temporarilyExpanded && !mobile;
   const selectedPageId = route.kind === "page" ? route.pageId : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+    <div data-thought-sidebar-root className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className={cn("flex items-center gap-2 p-3", compact && "flex-col px-2")}>
         <div className={cn("flex min-w-0 flex-1 items-center gap-2", compact && "flex-none")}>
           <AppMark className="size-8" />
@@ -233,6 +276,9 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
           startup={startup}
           collapsed={compact}
           onChange={props.onStartupChange}
+          onCreate={props.onCreateStartup}
+          onLoadMore={props.onLoadMoreStartups}
+          startupsStatus={props.startupsStatus}
         />
       </div>
 
@@ -249,6 +295,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
             key={item.kind}
             label={item.label}
             icon={item.icon}
+            hint={item.hint}
             active={route.kind === item.kind}
             collapsed={compact}
             onClick={() => props.onRouteChange({ kind: item.kind })}
@@ -280,14 +327,15 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
         </>
       )}
 
-      <ScrollArea className="min-h-0 flex-1 px-3 pb-3">
+      <ScrollArea data-thought-sidebar-scroll className="min-h-0 flex-1 px-3 pb-3">
         <div className={cn("space-y-1", compact && "px-0")}>
           {startup.areas.map((area) => {
             const key = area.key as AreaKey;
             const Icon = AREA_ICONS[key];
             const expanded =
-              expandedAreas[area._id]
-              ?? (route.kind === "area" && route.areaId === area._id);
+              (props.expandedAreas[area._id]
+                ?? (route.kind === "area" && route.areaId === area._id))
+              || props.transientExpandedAreaIds.has(area._id);
             if (compact) {
               return (
                 <SidebarButton
@@ -303,11 +351,17 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
             return (
               <div key={area._id}>
                 <div
+                  data-thought-drop-target="area"
+                  data-thought-area-id={area._id}
+                  data-thought-drop-label={area.label}
                   className={cn(
-                    "group flex min-h-10 items-center rounded-xl",
+                    "group flex min-h-10 items-center rounded-xl transition-[background-color,box-shadow]",
                     route.kind === "area" && route.areaId === area._id
                       ? "bg-sidebar-accent/70"
                       : "hover:bg-sidebar-accent/45",
+                    props.activeThoughtDropTarget?.kind === "area"
+                      && props.activeThoughtDropTarget.areaId === area._id
+                      && "bg-primary/12 ring-2 ring-inset ring-primary/55",
                   )}
                 >
                   <button
@@ -316,9 +370,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                     className="ml-1 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
                     aria-expanded={expanded}
                     aria-label={expanded ? `Sakrij ${area.label}` : `Prikaži ${area.label}`}
-                    onClick={() =>
-                      setExpandedAreas((current) => ({ ...current, [area._id]: !expanded }))
-                    }
+                    onClick={() => props.onAreaExpandedChange(area._id, !expanded)}
                   >
                     <ChevronDown
                       className={cn("size-3.5 transition-transform", !expanded && "-rotate-90")}
@@ -351,6 +403,12 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                     startupId={startup._id}
                     areaId={area._id}
                     selectedPageId={selectedPageId}
+                    expandedPageIds={props.expandedPageIds}
+                    transientExpandedPageIds={props.transientExpandedPageIds}
+                    activeDropPageId={props.activeThoughtDropTarget?.kind === "page"
+                      ? props.activeThoughtDropTarget.pageId ?? undefined
+                      : undefined}
+                    onPageExpandedChange={props.onPageExpandedChange}
                     onOpenPage={(pageId) => props.onRouteChange({ kind: "page", pageId })}
                     onCreate={props.onCreate}
                   />
@@ -418,11 +476,12 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
+  const compact = props.collapsed && !props.temporarilyExpanded;
   return (
     <aside
       className={cn(
         "hidden h-dvh shrink-0 overflow-visible border-r border-sidebar-border bg-sidebar transition-[width] duration-300 lg:block",
-        props.collapsed ? "w-[4.5rem]" : "w-[18.5rem]",
+        compact ? "w-[4.5rem]" : "w-[18.5rem]",
       )}
     >
       <SidebarContent {...props} />

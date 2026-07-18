@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import { pageTaskSortAt } from "./lib/pages";
@@ -26,25 +27,28 @@ async function getAreas(
 }
 
 export const listForCurrent = query({
-  args: { limit: v.optional(v.number()) },
+  args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
-    const limit = boundedLimit(args.limit, 12, 20);
     const memberships = await ctx.db
       .query("startupMembers")
-      .withIndex("by_profileId_and_startupId", (q) =>
+      .withIndex("by_profileId_and_createdAt", (q) =>
         q.eq("profileId", profile._id),
       )
-      .take(limit);
+      .order("desc")
+      .paginate(args.paginationOpts);
     const result = [];
-    for (const membership of memberships) {
+    for (const membership of memberships.page) {
       if (membership.archivedAt !== null) continue;
       const startup = await ctx.db.get("startups", membership.startupId);
       if (startup !== null && startup.archivedAt === null) {
         result.push({ ...startup, areas: await getAreas(ctx, startup._id) });
       }
     }
-    return result.sort((a, b) => b.updatedAt - a.updatedAt);
+    return {
+      ...memberships,
+      page: result.sort((a, b) => b.updatedAt - a.updatedAt),
+    };
   },
 });
 

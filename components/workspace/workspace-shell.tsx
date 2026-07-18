@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "convex/react";
 import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
@@ -15,6 +15,14 @@ import { HomeView } from "@/components/workspace/home-view";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { TasksView } from "@/components/workspace/tasks-view";
+import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
+import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
+import type {
+  ThoughtDestination,
+  ThoughtDestinationRequest,
+  ThoughtDropTarget,
+  ThoughtSidebarDragRequest,
+} from "@/components/workspace/thought-sharing";
 import type { CreatePageTarget, ProfileWithAvatar, WorkspaceRoute } from "@/components/workspace/types";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
@@ -35,15 +43,43 @@ const PageEditorView = dynamic(
   },
 );
 
+const ThoughtsCanvasView = dynamic(
+  () => import("@/components/workspace/thoughts/thoughts-canvas-view").then((module) => module.ThoughtsCanvasView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
+        <LoaderCircle className="mr-2 size-4 animate-spin text-primary" /> Otvaram privatni kanvas…
+      </div>
+    ),
+  },
+);
+
 export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAvatar; onSignOut: () => void }) {
-  const startups = useQuery(api.startups.listForCurrent, { limit: 20 });
+  const {
+    results: startups,
+    status: startupsStatus,
+    loadMore: loadMoreStartups,
+  } = usePaginatedQuery(
+    api.startups.listForCurrent,
+    {},
+    { initialNumItems: 50 },
+  );
   const [selectedStartupId, setSelectedStartupId] = useState<Id<"startups"> | null>(null);
   const [route, setRoute] = useState<WorkspaceRoute>({ kind: "home" });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [expandedAreas, setExpandedAreas] = useState<Record<string, boolean>>({});
+  const [expandedPageIds, setExpandedPageIds] = useState<Set<Id<"pages">>>(new Set());
+  const [transientExpandedAreaIds, setTransientExpandedAreaIds] = useState<Set<Id<"startupAreas">>>(new Set());
+  const [transientExpandedPageIds, setTransientExpandedPageIds] = useState<Set<Id<"pages">>>(new Set());
+  const [activeThoughtDropTarget, setActiveThoughtDropTarget] = useState<ThoughtDropTarget | null>(null);
+  const [destinationRequest, setDestinationRequest] = useState<ThoughtDestinationRequest | null>(null);
+  const [sidebarDragRequest, setSidebarDragRequest] = useState<ThoughtSidebarDragRequest | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createTarget, setCreateTarget] = useState<CreatePageTarget | undefined>();
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
   const [profileOpen, setProfileOpen] = useState(false);
   const startup = startups?.find((item) => item._id === selectedStartupId) ?? startups?.[0];
 
@@ -55,36 +91,161 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [startup]);
 
-  function selectStartup(startupId: Id<"startups">) { setSelectedStartupId(startupId); setRoute({ kind: "home" }); }
+  function selectStartup(startupId: Id<"startups">) {
+    setSelectedStartupId(startupId);
+    setRoute((current) => current.kind === "thoughts" ? current : { kind: "home" });
+    setExpandedAreas({});
+    setExpandedPageIds(new Set());
+    setTransientExpandedAreaIds(new Set());
+    setTransientExpandedPageIds(new Set());
+    setActiveThoughtDropTarget(null);
+    destinationRequest?.cancel?.();
+    setDestinationRequest(null);
+    sidebarDragRequest?.cancel?.();
+    setSidebarDragRequest(null);
+  }
+
+  function setAreaExpanded(areaId: Id<"startupAreas">, expanded: boolean) {
+    setExpandedAreas((current) => ({ ...current, [areaId]: expanded }));
+  }
+
+  function setPageExpanded(pageId: Id<"pages">, expanded: boolean) {
+    setExpandedPageIds((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(pageId);
+      else next.delete(pageId);
+      return next;
+    });
+  }
+
+  function requestThoughtDestination(request: ThoughtDestinationRequest) {
+    sidebarDragRequest?.cancel?.();
+    setSidebarDragRequest(null);
+    setActiveThoughtDropTarget(null);
+    setTransientExpandedAreaIds(new Set());
+    setTransientExpandedPageIds(new Set());
+    destinationRequest?.cancel?.();
+    setDestinationRequest(request);
+  }
+
+  function beginThoughtSidebarDrag(request: ThoughtSidebarDragRequest) {
+    destinationRequest?.cancel?.();
+    setDestinationRequest(null);
+    sidebarDragRequest?.cancel?.();
+    setTransientExpandedAreaIds(new Set());
+    setTransientExpandedPageIds(new Set());
+    setActiveThoughtDropTarget(null);
+    setSidebarDragRequest(request);
+  }
+
+  function cancelThoughtSidebarDrag() {
+    const request = sidebarDragRequest;
+    setSidebarDragRequest(null);
+    setActiveThoughtDropTarget(null);
+    setTransientExpandedAreaIds(new Set());
+    setTransientExpandedPageIds(new Set());
+    request?.cancel?.();
+  }
+
+  function dwellThoughtTarget(target: ThoughtDropTarget) {
+    setTransientExpandedAreaIds((current) => new Set(current).add(target.areaId));
+    if (target.pageId !== null) {
+      setTransientExpandedPageIds((current) => new Set(current).add(target.pageId as Id<"pages">));
+    }
+  }
+
+  function completeThoughtSidebarDrag(target: ThoughtDropTarget) {
+    const request = sidebarDragRequest;
+    setExpandedAreas((current) => {
+      const next = { ...current };
+      for (const areaId of transientExpandedAreaIds) next[areaId] = true;
+      return next;
+    });
+    setExpandedPageIds((current) => new Set([...current, ...transientExpandedPageIds]));
+    setSidebarDragRequest(null);
+    setActiveThoughtDropTarget(null);
+    setTransientExpandedAreaIds(new Set());
+    setTransientExpandedPageIds(new Set());
+    request?.complete(target);
+  }
+
+  function cancelDestinationPicker() {
+    const request = destinationRequest;
+    setDestinationRequest(null);
+    request?.cancel?.();
+  }
+
+  function completeDestinationPicker(destination: ThoughtDestination) {
+    const request = destinationRequest;
+    setDestinationRequest(null);
+    request?.complete(destination);
+  }
   function openCreate(target?: CreatePageTarget) {
     if (!startup) return;
     setCreateTarget(target);
     setCreateOpen(true);
   }
 
-  if (startups === undefined) return <WorkspaceLoading />;
-  if (!startup) return <EmptyWorkspace profile={profile} onAdmin={() => setAdminOpen(true)} onSignOut={onSignOut} adminOpen={adminOpen} setAdminOpen={setAdminOpen} onStartupCreated={setSelectedStartupId} />;
+  function openAdmin() {
+    setAdminMode("edit");
+    setAdminOpen(true);
+  }
 
-  const sidebarProps = { profile, startups, startup, route, collapsed: sidebarCollapsed, onCollapsedChange: setSidebarCollapsed, onStartupChange: selectStartup, onRouteChange: setRoute, onCreate: openCreate, onSearch: () => setSearchOpen(true), onAdmin: () => setAdminOpen(true), onProfile: () => setProfileOpen(true), onSignOut };
+  function openCreateStartup() {
+    setAdminMode("create");
+    setAdminOpen(true);
+  }
+
+  if (startupsStatus === "LoadingFirstPage") return <WorkspaceLoading />;
+  if (!startup) return <EmptyWorkspace profile={profile} onAdmin={openCreateStartup} onSignOut={onSignOut} adminOpen={adminOpen} setAdminOpen={setAdminOpen} onStartupCreated={setSelectedStartupId} />;
+
+  const sidebarProps = {
+    profile,
+    startups,
+    startup,
+    route,
+    collapsed: sidebarCollapsed,
+    temporarilyExpanded: sidebarDragRequest !== null,
+    expandedAreas,
+    expandedPageIds,
+    transientExpandedAreaIds,
+    transientExpandedPageIds,
+    activeThoughtDropTarget,
+    onCollapsedChange: setSidebarCollapsed,
+    onAreaExpandedChange: setAreaExpanded,
+    onPageExpandedChange: setPageExpanded,
+    onStartupChange: selectStartup,
+    onRouteChange: setRoute,
+    onCreate: openCreate,
+    onSearch: () => setSearchOpen(true),
+    onAdmin: openAdmin,
+    onCreateStartup: openCreateStartup,
+    onLoadMoreStartups: () => loadMoreStartups(50),
+    startupsStatus,
+    onProfile: () => setProfileOpen(true),
+    onSignOut,
+  };
   const routeKey = route.kind === "page" ? `page:${route.pageId}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
   return (
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
       <WorkspaceSidebar {...sidebarProps} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
-        <WorkspaceStage key={routeKey} viewKey={routeKey}>
-          {route.kind === "home" ? <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={(kind) => openCreate({ initialKind: kind })} /> : route.kind === "today" ? <TasksView startup={startup} profile={profile} mode="today" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} /> : route.kind === "my-tasks" ? <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} /> : route.kind === "activity" ? <ActivityView startup={startup} /> : route.kind === "area" ? <AreaView startup={startup} areaId={route.areaId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={openCreate} /> : <PageEditorView startup={startup} pageId={route.pageId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateChild={openCreate} onArchived={() => setRoute({ kind: "home" })} />}
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
+        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts"}>
+          {route.kind === "home" ? <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={(kind) => openCreate({ initialKind: kind })} /> : route.kind === "thoughts" ? <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} onRequestDestination={requestThoughtDestination} onBeginSidebarDrag={beginThoughtSidebarDrag} /> : route.kind === "today" ? <TasksView startup={startup} profile={profile} mode="today" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} /> : route.kind === "my-tasks" ? <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} /> : route.kind === "activity" ? <ActivityView startup={startup} /> : route.kind === "area" ? <AreaView startup={startup} areaId={route.areaId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={openCreate} /> : <PageEditorView startup={startup} pageId={route.pageId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateChild={openCreate} onArchived={() => setRoute({ kind: "home" })} />}
         </WorkspaceStage>
       </div>
+      {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
       <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={(pageId) => setRoute({ kind: "page", pageId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} />
       <ProfileDialog key={`${profileOpen}-${profile.updatedAt}`} open={profileOpen} onOpenChange={setProfileOpen} profile={profile} />
-      {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={startup} onStartupCreated={selectStartup} /> : null}
+      {destinationRequest ? <ThoughtDestinationPicker key={`${startup._id}-${destinationRequest.nodeIds.join("-")}`} open startup={startup} selectedCount={destinationRequest.nodeIds.length} onOpenChange={(open) => { if (!open) cancelDestinationPicker(); }} onSelect={completeDestinationPicker} /> : null}
+      {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${adminMode}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={adminMode === "create" ? undefined : startup} onStartupCreated={selectStartup} onCreateStartup={openCreateStartup} /> : null}
     </div>
   );
 }
 
-function WorkspaceStage({ children, viewKey }: { children: React.ReactNode; viewKey: string }) {
+function WorkspaceStage({ children, viewKey, contained = false }: { children: React.ReactNode; viewKey: string; contained?: boolean }) {
   const ref = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const context = gsap.context(() => {
@@ -97,7 +258,7 @@ function WorkspaceStage({ children, viewKey }: { children: React.ReactNode; view
     }, ref);
     return () => context.revert();
   }, [viewKey]);
-  return <main ref={ref} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">{children}</main>;
+  return <main ref={ref} className={contained ? "min-h-0 flex-1 overflow-hidden" : "scrollbar-thin min-h-0 flex-1 overflow-y-auto"}>{children}</main>;
 }
 
 function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary" /> Otvaram radni prostor…</div></main></div>; }

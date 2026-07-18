@@ -23,6 +23,14 @@ const taskPriority = v.union(
   v.literal("high"),
   v.literal("urgent"),
 );
+const thoughtColor = v.union(
+  v.literal("neutral"),
+  v.literal("violet"),
+  v.literal("blue"),
+  v.literal("green"),
+  v.literal("amber"),
+  v.literal("rose"),
+);
 
 export default defineSchema({
   ...authTables,
@@ -79,7 +87,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_startupId_and_profileId", ["startupId", "profileId"])
-    .index("by_profileId_and_startupId", ["profileId", "startupId"]),
+    .index("by_profileId_and_startupId", ["profileId", "startupId"])
+    .index("by_profileId_and_createdAt", ["profileId", "createdAt"]),
 
   startupAreas: defineTable({
     startupId: v.id("startups"),
@@ -105,6 +114,80 @@ export default defineSchema({
     .index("by_codeHash", ["codeHash"])
     .index("by_startupId_and_createdAt", ["startupId", "createdAt"])
     .index("by_email_and_startupId", ["email", "startupId"]),
+
+  thoughtCanvases: defineTable({
+    startupId: v.id("startups"),
+    ownerProfileId: v.id("profiles"),
+    x: v.number(),
+    y: v.number(),
+    zoom: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_ownerProfileId_and_startupId", [
+    "ownerProfileId",
+    "startupId",
+  ]),
+
+  thoughtNodes: defineTable({
+    startupId: v.id("startups"),
+    ownerProfileId: v.id("profiles"),
+    title: v.union(v.string(), v.null()),
+    text: v.string(),
+    x: v.number(),
+    y: v.number(),
+    color: thoughtColor,
+    conversionCount: v.number(),
+    lastConvertedPageId: v.union(v.id("pages"), v.null()),
+    lastConvertedAt: v.union(v.number(), v.null()),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index(
+    "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
+    ["ownerProfileId", "startupId", "archivedAt", "updatedAt"],
+  ),
+
+  thoughtEdges: defineTable({
+    startupId: v.id("startups"),
+    ownerProfileId: v.id("profiles"),
+    nodeAId: v.id("thoughtNodes"),
+    nodeBId: v.id("thoughtNodes"),
+    pairKey: v.string(),
+    label: v.union(v.string(), v.null()),
+    archivedAt: v.union(v.number(), v.null()),
+    // Only edges hidden as a consequence of archiving nodes carry these
+    // markers. A manually archived edge keeps them empty and stays archived
+    // when either endpoint is restored later.
+    archivedByNode: v.optional(v.boolean()),
+    archivedForNodeIds: v.optional(v.array(v.id("thoughtNodes"))),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_ownerProfileId_and_startupId_and_pairKey", [
+      "ownerProfileId",
+      "startupId",
+      "pairKey",
+    ])
+    .index(
+      "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
+      ["ownerProfileId", "startupId", "archivedAt", "updatedAt"],
+    )
+    .index(
+      "by_ownerProfileId_and_startupId_and_nodeAId_and_archivedAt",
+      ["ownerProfileId", "startupId", "nodeAId", "archivedAt"],
+    )
+    .index(
+      "by_ownerProfileId_and_startupId_and_nodeBId_and_archivedAt",
+      ["ownerProfileId", "startupId", "nodeBId", "archivedAt"],
+    )
+    .index(
+      "by_ownerProfileId_and_startupId_and_nodeAId_and_archivedByNode",
+      ["ownerProfileId", "startupId", "nodeAId", "archivedByNode"],
+    )
+    .index(
+      "by_ownerProfileId_and_startupId_and_nodeBId_and_archivedByNode",
+      ["ownerProfileId", "startupId", "nodeBId", "archivedByNode"],
+    ),
 
   pageBodies: defineTable({
     pageId: v.id("pages"),

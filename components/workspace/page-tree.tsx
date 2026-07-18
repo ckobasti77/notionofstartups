@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -21,6 +20,10 @@ type PageTreeProps = {
   startupId: Id<"startups">;
   areaId: Id<"startupAreas">;
   selectedPageId?: Id<"pages">;
+  expandedPageIds: ReadonlySet<Id<"pages">>;
+  transientExpandedPageIds: ReadonlySet<Id<"pages">>;
+  activeDropPageId?: Id<"pages">;
+  onPageExpandedChange: (pageId: Id<"pages">, expanded: boolean) => void;
   onOpenPage: (pageId: Id<"pages">) => void;
   onCreate: (target: CreatePageTarget) => void;
 };
@@ -29,6 +32,10 @@ export function PageTree({
   startupId,
   areaId,
   selectedPageId,
+  expandedPageIds,
+  transientExpandedPageIds,
+  activeDropPageId,
+  onPageExpandedChange,
   onOpenPage,
   onCreate,
 }: PageTreeProps) {
@@ -67,6 +74,10 @@ export function PageTree({
           startupId={startupId}
           areaId={areaId}
           selectedPageId={selectedPageId}
+          expandedPageIds={expandedPageIds}
+          transientExpandedPageIds={transientExpandedPageIds}
+          activeDropPageId={activeDropPageId}
+          onPageExpandedChange={onPageExpandedChange}
           onOpenPage={onOpenPage}
           onCreate={onCreate}
         />
@@ -98,10 +109,14 @@ function PageTreeNode({
   startupId,
   areaId,
   selectedPageId,
+  expandedPageIds,
+  transientExpandedPageIds,
+  activeDropPageId,
+  onPageExpandedChange,
   onOpenPage,
   onCreate,
 }: PageTreeNodeProps) {
-  const [expanded, setExpanded] = useState(false);
+  const expanded = expandedPageIds.has(page._id) || transientExpandedPageIds.has(page._id);
   const { results: children, status: childrenStatus, loadMore: loadMoreChildren } = usePaginatedQuery(
     api.pages.listChildren,
     expanded
@@ -111,12 +126,18 @@ function PageTreeNode({
   );
   const Icon = page.kind === "task" ? CheckSquare2 : FileText;
   const selected = selectedPageId === page._id;
+  const activeDropTarget = activeDropPageId === page._id;
 
   return (
     <div className="threadline-item group/node pr-1">
       <div
+        data-thought-drop-target="page"
+        data-thought-area-id={areaId}
+        data-thought-page-id={page._id}
+        data-thought-drop-label={page.title}
         className={cn(
-          "relative flex min-h-8 items-center rounded-lg text-muted-foreground transition-colors",
+          "relative flex min-h-8 items-center rounded-lg text-muted-foreground transition-[background-color,color,box-shadow]",
+          activeDropTarget && "bg-primary/12 text-sidebar-foreground ring-2 ring-inset ring-primary/55",
           selected
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "hover:bg-sidebar-accent/55 hover:text-sidebar-foreground",
@@ -128,7 +149,7 @@ function PageTreeNode({
           aria-label={expanded ? `Sakrij podstranice za ${page.title}` : `Prikaži podstranice za ${page.title}`}
           aria-expanded={expanded}
           className="ml-1 grid size-7 shrink-0 place-items-center rounded-md hover:bg-background/65 focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => onPageExpandedChange(page._id, !expanded)}
         >
           <ChevronRight
             className={cn("size-3.5 transition-transform duration-200", expanded && "rotate-90")}
@@ -177,6 +198,10 @@ function PageTreeNode({
                   startupId={startupId}
                   areaId={areaId}
                   selectedPageId={selectedPageId}
+                  expandedPageIds={expandedPageIds}
+                  transientExpandedPageIds={transientExpandedPageIds}
+                  activeDropPageId={activeDropPageId}
+                  onPageExpandedChange={onPageExpandedChange}
                   onOpenPage={onOpenPage}
                   onCreate={onCreate}
                 />

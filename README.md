@@ -28,24 +28,19 @@ Pokreni dva terminala:
 
 ```bash
 # Terminal 1
-npm run dev:convex
+npm run dev
 
 # Terminal 2
-npm run dev
+npx convex dev
 ```
 
-Otvori [http://localhost:3100](http://localhost:3100). Notion Clone namerno koristi svoj port kako ne bi nasledio service worker i sačuvane rute drugih lokalnih aplikacija na portu 3000. `npm run dev` koristi podrazumevani Turbopack iz Next.js 16, ograničava Node heap i automatski gasi samo svoj procesni lanac ako slobodna sistemska memorija duže ostane ispod bezbednog praga. Za dijagnostički Webpack fallback postoji `npm run dev:webpack`.
-
-`npm run dev:convex` odbija drugi paralelni Convex watcher i ne ponavlja skupi TypeScript check pri svakoj filesystem promeni; kompletan TypeScript check ostaje deo `npm run check`.
-
-Nemoj dodatno pokretati `npx convex dev` dok `npm run dev:convex` već radi.
-Nemoj ni preusmeravati Convex izlaz u `.log` fajl unutar ovog foldera, jer promena tog fajla može ponovo aktivirati watcher; za logove koristi sistemski temp folder.
+Otvori [http://localhost:3000](http://localhost:3000). `npm run dev` pokreće standardni Next.js razvojni server sa podrazumevanim Turbopack bundlerom i portom 3000. `npx convex dev` zasebno pokreće standardni Convex watcher.
 
 Aktuelno lokalno Convex okruženje je već povezano kroz `.env.local`. Za potpuno nov Convex deployment prvo pokreni:
 
 ```bash
 npx convex dev --once
-npx @convex-dev/auth --web-server-url http://localhost:3100
+npx @convex-dev/auth --web-server-url http://localhost:3000
 npx convex env set BOOTSTRAP_ADMIN_CODE "izaberi-dug-slucajan-kod"
 ```
 
@@ -60,7 +55,7 @@ npm run check
 Komanda pokreće ESLint i production build. Convex funkcije i schema se proveravaju i objavljuju na dev deployment komandom:
 
 ```bash
-npm run convex:push
+npx convex dev --once
 ```
 
 ## Tehnologije
