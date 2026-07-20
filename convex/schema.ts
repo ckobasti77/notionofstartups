@@ -68,6 +68,7 @@ export default defineSchema({
   startups: defineTable({
     name: v.string(),
     description: v.string(),
+    logoStorageId: v.optional(v.id("_storage")),
     createdByProfileId: v.id("profiles"),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),

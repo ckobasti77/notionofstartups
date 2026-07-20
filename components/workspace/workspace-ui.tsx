@@ -60,6 +60,25 @@ export function ProfileAvatar({
   );
 }
 
+export function StartupLogo({
+  startup,
+  className,
+}: {
+  startup: { name: string; logoUrl?: string | null };
+  className?: string;
+}) {
+  return (
+    <Avatar className={cn("size-8 rounded-lg", className)}>
+      {startup.logoUrl ? (
+        <AvatarImage src={startup.logoUrl} alt={`Logo startupa ${startup.name}`} />
+      ) : null}
+      <AvatarFallback className="bg-primary text-primary-foreground">
+        {startup.name.slice(0, 1).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
 const statusVariants: Record<
   TaskStatus,
   "secondary" | "outline" | "warning" | "success"

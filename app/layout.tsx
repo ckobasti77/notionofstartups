@@ -19,10 +19,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  applicationName: "Notion Clone",
+  applicationName: "Notion on Startups.",
   title: {
-    default: "Notion Clone — startup beleške i zadaci",
-    template: "%s · Notion Clone",
+    default: "Notion on Startups. — startup beleške i zadaci",
+    template: "%s · Notion on Startups.",
   },
   description: "Privatni zajednički prostor za startup beleške, odluke i zadatke.",
   robots: { index: false, follow: false },

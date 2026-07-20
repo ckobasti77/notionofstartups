@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { recordActivity } from "./lib/activity";
 import { pageTaskSortAt } from "./lib/pages";
 import {
@@ -26,6 +27,34 @@ async function getAreas(
     .take(4);
 }
 
+async function withStartupDetails(
+  ctx: Parameters<typeof requireProfile>[0],
+  startup: Doc<"startups">,
+) {
+  return {
+    ...startup,
+    logoUrl:
+      startup.logoStorageId === undefined
+        ? null
+        : await ctx.storage.getUrl(startup.logoStorageId),
+    areas: await getAreas(ctx, startup._id),
+  };
+}
+
+async function validateLogo(
+  ctx: Parameters<typeof requireProfile>[0],
+  storageId: Id<"_storage">,
+) {
+  const metadata = await ctx.db.system.get("_storage", storageId);
+  if (metadata === null) throw new Error("Logo nije pronađen.");
+  if (!metadata.contentType?.startsWith("image/")) {
+    throw new Error("Logo mora biti slika.");
+  }
+  if (metadata.size > 2 * 1024 * 1024) {
+    throw new Error("Logo može imati najviše 2 MB.");
+  }
+}
+
 export const listForCurrent = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
@@ -42,7 +71,7 @@ export const listForCurrent = query({
       if (membership.archivedAt !== null) continue;
       const startup = await ctx.db.get("startups", membership.startupId);
       if (startup !== null && startup.archivedAt === null) {
-        result.push({ ...startup, areas: await getAreas(ctx, startup._id) });
+        result.push(await withStartupDetails(ctx, startup));
       }
     }
     return {
@@ -56,20 +85,80 @@ export const get = query({
   args: { startupId: v.id("startups") },
   handler: async (ctx, args) => {
     const { startup } = await requireStartupMember(ctx, args.startupId);
-    return { ...startup, areas: await getAreas(ctx, startup._id) };
+    return await withStartupDetails(ctx, startup);
+  },
+});
+
+export const generateLogoUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const setLogo = mutation({
+  args: { startupId: v.id("startups"), storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const startup = await ctx.db.get("startups", args.startupId);
+    if (startup === null || startup.archivedAt !== null) {
+      throw new Error("Startup nije pronađen.");
+    }
+    await validateLogo(ctx, args.storageId);
+    if (
+      startup.logoStorageId !== undefined &&
+      startup.logoStorageId !== args.storageId
+    ) {
+      await ctx.storage.delete(startup.logoStorageId);
+    }
+    await ctx.db.patch("startups", startup._id, {
+      logoStorageId: args.storageId,
+      updatedAt: Date.now(),
+    });
+    return await ctx.storage.getUrl(args.storageId);
+  },
+});
+
+export const removeLogo = mutation({
+  args: { startupId: v.id("startups") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const startup = await ctx.db.get("startups", args.startupId);
+    if (startup === null || startup.archivedAt !== null) {
+      throw new Error("Startup nije pronađen.");
+    }
+    if (startup.logoStorageId !== undefined) {
+      await ctx.storage.delete(startup.logoStorageId);
+      await ctx.db.patch("startups", startup._id, {
+        logoStorageId: undefined,
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
   },
 });
 
 export const create = mutation({
-  args: { name: v.string(), description: v.optional(v.string()) },
+  args: {
+    name: v.string(),
+    description: v.optional(v.string()),
+    logoStorageId: v.optional(v.id("_storage")),
+  },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const name = cleanRequiredText(args.name, "Naziv startupa", 100);
     const description = cleanOptionalText(args.description, "Opis", 500) ?? "";
+    if (args.logoStorageId !== undefined) {
+      await validateLogo(ctx, args.logoStorageId);
+    }
     const now = Date.now();
     const startupId = await ctx.db.insert("startups", {
       name,
       description,
+      ...(args.logoStorageId === undefined
+        ? {}
+        : { logoStorageId: args.logoStorageId }),
       createdByProfileId: admin._id,
       archivedAt: null,
       createdAt: now,

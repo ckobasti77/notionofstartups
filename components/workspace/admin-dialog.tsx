@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   Copy,
+  ImageUp,
   LoaderCircle,
   MailPlus,
   Plus,
@@ -34,7 +35,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { StartupWithAreas } from "@/components/workspace/types";
-import { ProfileAvatar } from "@/components/workspace/workspace-ui";
+import { ProfileAvatar, StartupLogo } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -53,6 +54,9 @@ export function AdminDialog({
 }) {
   const createStartup = useMutation(api.startups.create);
   const updateStartup = useMutation(api.startups.update);
+  const generateLogoUploadUrl = useMutation(api.startups.generateLogoUploadUrl);
+  const setLogo = useMutation(api.startups.setLogo);
+  const removeLogo = useMutation(api.startups.removeLogo);
   const addMember = useMutation(api.startups.addMember);
   const removeMember = useMutation(api.startups.removeMember);
   const createInvite = useMutation(api.invites.create);
@@ -71,11 +75,25 @@ export function AdminDialog({
   );
   const [name, setName] = useState(startup?.name ?? "");
   const [description, setDescription] = useState(startup?.description ?? "");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [profileId, setProfileId] = useState<string>("");
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now] = useState(() => Date.now());
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (logoPreviewUrl) URL.revokeObjectURL(logoPreviewUrl);
+    };
+  }, [logoPreviewUrl]);
+
+  function chooseLogo(file: File | null) {
+    setLogoFile(file);
+    setLogoPreviewUrl(file ? URL.createObjectURL(file) : null);
+  }
 
   const availableProfiles = useMemo(
     () =>
@@ -103,20 +121,44 @@ export function AdminDialog({
     if (!name.trim()) return;
     await run(
       async () => {
-        if (startup)
+        if (logoFile && logoFile.size > 2 * 1024 * 1024) {
+          throw new Error("Logo može imati najviše 2 MB.");
+        }
+        let uploadedLogoStorageId: Id<"_storage"> | undefined;
+        if (logoFile) {
+          const uploadUrl = await generateLogoUploadUrl({});
+          const response = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": logoFile.type || "application/octet-stream" },
+            body: logoFile,
+          });
+          if (!response.ok) throw new Error("Slanje logotipa nije uspelo.");
+          const upload = (await response.json()) as { storageId: Id<"_storage"> };
+          uploadedLogoStorageId = upload.storageId;
+        }
+        if (startup) {
           await updateStartup({
             startupId: startup._id,
             name: name.trim(),
             description: description.trim(),
           });
-        else {
+          if (uploadedLogoStorageId) {
+            await setLogo({
+              startupId: startup._id,
+              storageId: uploadedLogoStorageId,
+            });
+          }
+        } else {
           const startupId = await createStartup({
             name: name.trim(),
             description: description.trim(),
+            logoStorageId: uploadedLogoStorageId,
           });
           onStartupCreated(startupId);
           onOpenChange(false);
         }
+        chooseLogo(null);
+        if (logoInputRef.current) logoInputRef.current.value = "";
       },
       startup ? "Startup je ažuriran." : "Startup je kreiran.",
     );
@@ -173,6 +215,55 @@ export function AdminDialog({
           </TabsList>
           <TabsContent value="startup" className="mt-5">
             <form className="space-y-4" onSubmit={saveStartup}>
+              <div className="flex items-center gap-4 rounded-2xl border border-border/70 bg-muted/35 p-3.5">
+                <StartupLogo
+                  startup={{
+                    name: name || "Startup",
+                    logoUrl: logoPreviewUrl ?? startup?.logoUrl ?? null,
+                  }}
+                  className="size-14 rounded-xl"
+                />
+                <div className="min-w-0 flex-1">
+                  <Label htmlFor="startup-logo">Logo startupa</Label>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    PNG, JPG, WebP ili SVG do 2 MB. Najbolje izgleda kvadratna slika.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      <ImageUp /> {startup?.logoUrl || logoFile ? "Promeni logo" : "Dodaj logo"}
+                    </Button>
+                    {startup?.logoUrl && !logoFile ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          run(
+                            () => removeLogo({ startupId: startup._id }),
+                            "Logo startupa je uklonjen.",
+                          )
+                        }
+                      >
+                        <Trash2 /> Ukloni
+                      </Button>
+                    ) : null}
+                  </div>
+                  <input
+                    ref={logoInputRef}
+                    id="startup-logo"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="sr-only"
+                    onChange={(event) => chooseLogo(event.target.files?.[0] ?? null)}
+                  />
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="startup-name">Naziv</Label>
                 <Input

@@ -34,6 +34,7 @@ import {
   AREA_ICONS,
   AREA_TINTS,
   ProfileAvatar,
+  StartupLogo,
 } from "@/components/workspace/workspace-ui";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -187,9 +188,7 @@ function StartupPicker({
             collapsed && "justify-center border-transparent bg-transparent px-0 shadow-none",
           )}
         >
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground shadow-sm">
-            {startup.name.slice(0, 1).toUpperCase()}
-          </span>
+          <StartupLogo startup={startup} className="shadow-sm" />
           {collapsed ? null : (
             <>
               <span className="min-w-0 flex-1">
@@ -210,16 +209,7 @@ function StartupPicker({
         <DropdownMenuSeparator />
         {startups.map((item) => (
           <DropdownMenuItem key={item._id} onSelect={() => onChange(item._id)}>
-            <span
-              className={cn(
-                "grid size-7 place-items-center rounded-md text-xs font-bold",
-                item._id === startup._id
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground",
-              )}
-            >
-              {item.name.slice(0, 1).toUpperCase()}
-            </span>
+            <StartupLogo startup={item} className="size-7 rounded-md" />
             <span className="truncate">{item.name}</span>
           </DropdownMenuItem>
         ))}
@@ -250,7 +240,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
           <AppMark className="size-8" />
           {compact ? null : (
             <div className="min-w-0">
-              <p className="truncate text-sm font-bold tracking-[-0.02em]">Notion Clone</p>
+              <p className="truncate text-sm font-bold tracking-[-0.02em]">Notion on Startups.</p>
               <p className="truncate text-[0.6875rem] text-muted-foreground">Tim u jednom toku</p>
             </div>
           )}
@@ -552,7 +542,7 @@ export function StartupEmptyRail({
       <div className="flex items-center gap-2.5">
         <AppMark />
         <div>
-          <p className="text-sm font-bold">Notion Clone</p>
+          <p className="text-sm font-bold">Notion on Startups.</p>
           <p className="text-xs text-muted-foreground">Tim u jednom toku</p>
         </div>
       </div>

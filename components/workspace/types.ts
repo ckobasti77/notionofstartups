@@ -2,6 +2,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 export type ProfileWithAvatar = Doc<"profiles"> & { avatarUrl: string | null };
 export type StartupWithAreas = Doc<"startups"> & {
+  logoUrl: string | null;
   areas: Array<Doc<"startupAreas">>;
 };
 export type StartupMember = {

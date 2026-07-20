@@ -25,6 +25,7 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
   const archivePage = useMutation(api.pages.archive);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [draftPageId, setDraftPageId] = useState<Id<"pages"> | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "dirty" | "error" | "conflict">("saved");
   const [autosaveTick, setAutosaveTick] = useState(0);
   const loadedPageId = useRef<string | null>(null);
@@ -52,6 +53,7 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
       latestDraftRef.current = remoteDraft;
       setTitle(remoteDraft.title);
       setContent(remoteDraft.content);
+      setDraftPageId(page._id);
       setSaveState("saved");
       return;
     }
@@ -189,7 +191,10 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
     catch (error) { toast.error(error instanceof Error ? error.message : "Stranica nije arhivirana."); }
   }
 
-  if (page === undefined) return <EditorSkeleton />;
+  // Tiptap must not mount with the empty local defaults. Its initial update can
+  // otherwise mark that placeholder as a user edit and autosave it over the
+  // body that was just created (notably after converting a private thought).
+  if (!page || page._id !== pageId || draftPageId !== page._id) return <EditorSkeleton />;
   const pageArea = startup.areas.find((area) => area._id === page.areaId);
   const status = (page.taskStatus ?? "backlog") as TaskStatus;
   const priority = (page.taskPriority ?? "medium") as TaskPriority;
