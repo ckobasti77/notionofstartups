@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -26,6 +27,13 @@ type PageTreeProps = {
   onPageExpandedChange: (pageId: Id<"pages">, expanded: boolean) => void;
   onOpenPage: (pageId: Id<"pages">) => void;
   onCreate: (target: CreatePageTarget) => void;
+  // Drag and drop:
+  path?: Array<Id<"pages">>;
+  draggedPageId: Id<"pages"> | null;
+  onDragPageStart: (pageId: Id<"pages">) => void;
+  onDragPageEnd: () => void;
+  onDragPageOver: (pageId: Id<"pages"> | null, areaId: Id<"startupAreas">) => void;
+  onDropPage: (draggedPageId: Id<"pages">, targetParentPageId: Id<"pages"> | null, targetAreaId: Id<"startupAreas">) => void;
 };
 
 export function PageTree({
@@ -38,6 +46,12 @@ export function PageTree({
   onPageExpandedChange,
   onOpenPage,
   onCreate,
+  path = [],
+  draggedPageId,
+  onDragPageStart,
+  onDragPageEnd,
+  onDragPageOver,
+  onDropPage,
 }: PageTreeProps) {
   const { results: pages, status, loadMore } = usePaginatedQuery(
     api.pages.listChildren,
@@ -66,7 +80,21 @@ export function PageTree({
   }
 
   return (
-    <div className="threadline ml-1 space-y-0.5 py-1">
+    <div
+      className="threadline ml-1 space-y-0.5 py-1"
+      onDragOver={(e) => {
+        if (draggedPageId) {
+          e.preventDefault();
+          onDragPageOver(null, areaId);
+        }
+      }}
+      onDrop={(e) => {
+        if (draggedPageId) {
+          e.preventDefault();
+          onDropPage(draggedPageId, null, areaId);
+        }
+      }}
+    >
       {pages.map((page) => (
         <PageTreeNode
           key={page._id}
@@ -80,6 +108,12 @@ export function PageTree({
           onPageExpandedChange={onPageExpandedChange}
           onOpenPage={onOpenPage}
           onCreate={onCreate}
+          path={path}
+          draggedPageId={draggedPageId}
+          onDragPageStart={onDragPageStart}
+          onDragPageEnd={onDragPageEnd}
+          onDragPageOver={onDragPageOver}
+          onDropPage={onDropPage}
         />
       ))}
       {status === "CanLoadMore" || status === "LoadingMore" ? (
@@ -102,6 +136,7 @@ export function PageTree({
 type PageTreeNodeProps = Omit<PageTreeProps, "areaId"> & {
   areaId: Id<"startupAreas">;
   page: Doc<"pages">;
+  path: Array<Id<"pages">>;
 };
 
 function PageTreeNode({
@@ -115,6 +150,12 @@ function PageTreeNode({
   onPageExpandedChange,
   onOpenPage,
   onCreate,
+  path,
+  draggedPageId,
+  onDragPageStart,
+  onDragPageEnd,
+  onDragPageOver,
+  onDropPage,
 }: PageTreeNodeProps) {
   const expanded = expandedPageIds.has(page._id) || transientExpandedPageIds.has(page._id);
   const { results: children, status: childrenStatus, loadMore: loadMoreChildren } = usePaginatedQuery(
@@ -124,13 +165,67 @@ function PageTreeNode({
       : "skip",
     { initialNumItems: 50 },
   );
+
+  const dragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (dragTimerRef.current) {
+        clearTimeout(dragTimerRef.current);
+      }
+    };
+  }, []);
+
   const Icon = page.kind === "task" ? CheckSquare2 : FileText;
   const selected = selectedPageId === page._id;
   const activeDropTarget = activeDropPageId === page._id;
+  const currentPath = [...path, page._id];
 
   return (
     <div className="threadline-item group/node pr-1">
       <div
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          onDragPageStart(page._id);
+          e.dataTransfer.setData("application/x-page-id", page._id);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragEnd={(e) => {
+          e.stopPropagation();
+          onDragPageEnd();
+        }}
+        onDragOver={(e) => {
+          if (draggedPageId && draggedPageId !== page._id && !path.includes(draggedPageId)) {
+            e.preventDefault();
+            e.stopPropagation();
+            onDragPageOver(page._id, areaId);
+
+            if (!expanded && !dragTimerRef.current) {
+              dragTimerRef.current = setTimeout(() => {
+                onPageExpandedChange(page._id, true);
+              }, 600);
+            }
+          }
+        }}
+        onDragLeave={(e) => {
+          e.stopPropagation();
+          if (dragTimerRef.current) {
+            clearTimeout(dragTimerRef.current);
+            dragTimerRef.current = null;
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (dragTimerRef.current) {
+            clearTimeout(dragTimerRef.current);
+            dragTimerRef.current = null;
+          }
+          if (draggedPageId && draggedPageId !== page._id && !path.includes(draggedPageId)) {
+            onDropPage(draggedPageId, page._id, areaId);
+          }
+        }}
         data-thought-drop-target="page"
         data-thought-area-id={areaId}
         data-thought-page-id={page._id}
@@ -141,6 +236,7 @@ function PageTreeNode({
           selected
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "hover:bg-sidebar-accent/55 hover:text-sidebar-foreground",
+          draggedPageId === page._id && "opacity-40",
         )}
       >
         <button
@@ -204,6 +300,12 @@ function PageTreeNode({
                   onPageExpandedChange={onPageExpandedChange}
                   onOpenPage={onOpenPage}
                   onCreate={onCreate}
+                  path={currentPath}
+                  draggedPageId={draggedPageId}
+                  onDragPageStart={onDragPageStart}
+                  onDragPageEnd={onDragPageEnd}
+                  onDragPageOver={onDragPageOver}
+                  onDropPage={onDropPage}
                 />
               ))}
               {childrenStatus === "CanLoadMore" || childrenStatus === "LoadingMore" ? (

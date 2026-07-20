@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { usePaginatedQuery } from "convex/react";
+import { useMutation, usePaginatedQuery } from "convex/react";
+import { toast } from "sonner";
 import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
@@ -82,6 +83,11 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
   const [profileOpen, setProfileOpen] = useState(false);
+  // Drag and drop state for pages in sidebar
+  const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
+  const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
+  const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
+  const movePage = useMutation(api.pages.move);
   const startup = startups?.find((item) => item._id === selectedStartupId) ?? startups?.[0];
 
   useEffect(() => {
@@ -146,6 +152,46 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     setTransientExpandedAreaIds(new Set());
     setTransientExpandedPageIds(new Set());
     request?.cancel?.();
+  }
+
+  function handleDragPageStart(pageId: Id<"pages">) {
+    setDraggedPageId(pageId);
+  }
+
+  function handleDragPageEnd() {
+    setDraggedPageId(null);
+    setActiveDropPageId(null);
+    setActiveDropAreaId(null);
+  }
+
+  function handleDragPageOver(pageId: Id<"pages"> | null, areaId: Id<"startupAreas">) {
+    setActiveDropPageId(pageId);
+    setActiveDropAreaId(areaId);
+  }
+
+  async function handleDropPage(
+    pageId: Id<"pages">,
+    targetParentPageId: Id<"pages"> | null,
+    targetAreaId: Id<"startupAreas">
+  ) {
+    if (pageId === targetParentPageId) return;
+    try {
+      await movePage({
+        pageId,
+        areaId: targetAreaId,
+        parentPageId: targetParentPageId,
+      });
+      toast.success("Stranica je uspešno premeštena.");
+      if (targetParentPageId) {
+        setExpandedPageIds((current) => {
+          const next = new Set(current);
+          next.add(targetParentPageId);
+          return next;
+        });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Premeštanje stranice nije uspelo.");
+    }
   }
 
   function dwellThoughtTarget(target: ThoughtDropTarget) {
@@ -225,6 +271,13 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     startupsStatus,
     onProfile: () => setProfileOpen(true),
     onSignOut,
+    draggedPageId,
+    activeDropPageId,
+    activeDropAreaId,
+    onDragPageStart: handleDragPageStart,
+    onDragPageEnd: handleDragPageEnd,
+    onDragPageOver: handleDragPageOver,
+    onDropPage: handleDropPage,
   };
   const routeKey = route.kind === "page" ? `page:${route.pageId}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
   return (

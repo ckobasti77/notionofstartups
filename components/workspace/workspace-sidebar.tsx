@@ -88,6 +88,13 @@ type WorkspaceSidebarProps = {
   startupsStatus: "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
   onProfile: () => void;
   onSignOut: () => void;
+  draggedPageId: Id<"pages"> | null;
+  activeDropPageId: Id<"pages"> | null;
+  activeDropAreaId: Id<"startupAreas"> | null;
+  onDragPageStart: (pageId: Id<"pages">) => void;
+  onDragPageEnd: () => void;
+  onDragPageOver: (pageId: Id<"pages"> | null, areaId: Id<"startupAreas">) => void;
+  onDropPage: (draggedPageId: Id<"pages">, targetParentPageId: Id<"pages"> | null, targetAreaId: Id<"startupAreas">) => void;
 };
 
 const primaryNav = [
@@ -349,10 +356,24 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                     route.kind === "area" && route.areaId === area._id
                       ? "bg-sidebar-accent/70"
                       : "hover:bg-sidebar-accent/45",
-                    props.activeThoughtDropTarget?.kind === "area"
-                      && props.activeThoughtDropTarget.areaId === area._id
-                      && "bg-primary/12 ring-2 ring-inset ring-primary/55",
+                    (props.activeThoughtDropTarget?.kind === "area"
+                      && props.activeThoughtDropTarget.areaId === area._id)
+                      || (props.activeDropAreaId === area._id && !props.activeDropPageId)
+                      ? "bg-primary/12 ring-2 ring-inset ring-primary/55"
+                      : "",
                   )}
+                  onDragOver={(e) => {
+                    if (props.draggedPageId) {
+                      e.preventDefault();
+                      props.onDragPageOver(null, area._id);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (props.draggedPageId) {
+                      props.onDropPage(props.draggedPageId, null, area._id);
+                    }
+                  }}
                 >
                   <button
                     type="button"
@@ -395,12 +416,17 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                     selectedPageId={selectedPageId}
                     expandedPageIds={props.expandedPageIds}
                     transientExpandedPageIds={props.transientExpandedPageIds}
-                    activeDropPageId={props.activeThoughtDropTarget?.kind === "page"
+                    activeDropPageId={props.activeDropPageId || (props.activeThoughtDropTarget?.kind === "page"
                       ? props.activeThoughtDropTarget.pageId ?? undefined
-                      : undefined}
+                      : undefined)}
                     onPageExpandedChange={props.onPageExpandedChange}
                     onOpenPage={(pageId) => props.onRouteChange({ kind: "page", pageId })}
                     onCreate={props.onCreate}
+                    draggedPageId={props.draggedPageId}
+                    onDragPageStart={props.onDragPageStart}
+                    onDragPageEnd={props.onDragPageEnd}
+                    onDragPageOver={props.onDragPageOver}
+                    onDropPage={props.onDropPage}
                   />
                 ) : null}
               </div>
