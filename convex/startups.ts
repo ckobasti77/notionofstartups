@@ -24,7 +24,7 @@ async function getAreas(
   return await ctx.db
     .query("startupAreas")
     .withIndex("by_startupId_and_position", (q) => q.eq("startupId", startupId))
-    .take(4);
+    .take(50);
 }
 
 async function withStartupDetails(
@@ -378,3 +378,94 @@ export const listMembers = query({
     return result;
   },
 });
+
+export const createArea = mutation({
+  args: {
+    startupId: v.id("startups"),
+    label: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const cleanedLabel = cleanRequiredText(args.label, "Naziv oblasti", 100);
+
+    const existingAreas = await ctx.db
+      .query("startupAreas")
+      .withIndex("by_startupId_and_position", (q) => q.eq("startupId", args.startupId))
+      .take(50);
+
+    const maxPosition = existingAreas.reduce((max, area) => Math.max(max, area.position), -1);
+    const key = `custom_${Date.now()}`;
+    const now = Date.now();
+
+    const areaId = await ctx.db.insert("startupAreas", {
+      startupId: args.startupId,
+      key,
+      label: cleanedLabel,
+      position: maxPosition + 1,
+      createdAt: now,
+    });
+
+    await recordActivity(ctx, {
+      startupId: args.startupId,
+      actorProfileId: profile._id,
+      action: "startup_updated",
+      targetType: "startup",
+      targetId: args.startupId,
+      title: `Nova oblast „${cleanedLabel}“ je kreirana`,
+    });
+
+    return areaId;
+  },
+});
+
+export const updateArea = mutation({
+  args: {
+    areaId: v.id("startupAreas"),
+    label: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const area = await ctx.db.get("startupAreas", args.areaId);
+    if (area === null) {
+      throw new Error("Oblast nije pronađena.");
+    }
+    const { profile } = await requireStartupMember(ctx, area.startupId);
+    const cleanedLabel = cleanRequiredText(args.label, "Naziv oblasti", 100);
+
+    await ctx.db.patch("startupAreas", area._id, {
+      label: cleanedLabel,
+    });
+
+    await recordActivity(ctx, {
+      startupId: area.startupId,
+      actorProfileId: profile._id,
+      action: "startup_updated",
+      targetType: "startup",
+      targetId: area.startupId,
+      title: `Naziv oblasti je promenjen u „${cleanedLabel}“`,
+    });
+
+    return area._id;
+  },
+});
+
+export const reorderAreas = mutation({
+  args: {
+    startupId: v.id("startups"),
+    orderedAreaIds: v.array(v.id("startupAreas")),
+  },
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    for (let i = 0; i < args.orderedAreaIds.length; i++) {
+      const areaId = args.orderedAreaIds[i];
+      const area = await ctx.db.get("startupAreas", areaId);
+      if (area && area.startupId === args.startupId) {
+        await ctx.db.patch("startupAreas", areaId, {
+          position: i,
+        });
+      }
+    }
+    return true;
+  },
+});
+
+

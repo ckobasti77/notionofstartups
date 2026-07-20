@@ -25,7 +25,7 @@ export const getOverview = query({
         .withIndex("by_startupId_and_position", (q) =>
           q.eq("startupId", startup._id),
         )
-        .take(4);
+        .take(50);
       startups.push({ ...startup, areas });
     }
 

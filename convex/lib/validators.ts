@@ -5,12 +5,7 @@ export const roleValidator = v.union(
   v.literal("member"),
 );
 
-export const areaKeyValidator = v.union(
-  v.literal("dev"),
-  v.literal("marketing"),
-  v.literal("sales"),
-  v.literal("other"),
-);
+export const areaKeyValidator = v.string();
 
 export const pageKindValidator = v.union(
   v.literal("note"),
@@ -31,6 +26,12 @@ export const taskPriorityValidator = v.union(
   v.literal("high"),
   v.literal("urgent"),
 );
+
+export const checkpointItemValidator = v.object({
+  id: v.string(),
+  text: v.string(),
+  completed: v.boolean(),
+});
 
 export const AREA_DEFINITIONS = [
   { key: "dev", label: "Dev notes", position: 0 },

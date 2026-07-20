@@ -10,6 +10,7 @@ import {
 import { pageTaskSortAt, requireVisiblePage, summarizePage } from "./lib/pages";
 import {
   boundedLimit,
+  checkpointItemValidator,
   taskPriorityValidator,
   taskStatusValidator,
 } from "./lib/validators";
@@ -147,6 +148,8 @@ export const updateMetadata = mutation({
     priority: v.optional(taskPriorityValidator),
     assigneeProfileId: v.optional(v.union(v.id("profiles"), v.null())),
     dueDate: v.optional(v.union(v.number(), v.null())),
+    instructions: v.optional(v.union(v.string(), v.null())),
+    checkpoints: v.optional(v.union(v.array(checkpointItemValidator), v.null())),
   },
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
@@ -171,6 +174,8 @@ export const updateMetadata = mutation({
         ? {}
         : { assigneeProfileId: args.assigneeProfileId }),
       ...(args.dueDate === undefined ? {} : { dueDate: args.dueDate }),
+      ...(args.instructions === undefined ? {} : { instructions: args.instructions ?? undefined }),
+      ...(args.checkpoints === undefined ? {} : { checkpoints: args.checkpoints ?? undefined }),
       taskSortAt: pageTaskSortAt(dueDate, now),
       updatedByProfileId: profile._id,
       updatedAt: now,

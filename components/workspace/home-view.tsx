@@ -17,14 +17,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { ProfileWithAvatar, StartupWithAreas } from "@/components/workspace/types";
 import {
   AREA_ICONS,
-  AREA_TINTS,
+  getAreaTint,
+  getAreaDescription,
   ProfileAvatar,
   TaskStatusBadge,
 } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-import { AREA_META, formatShortDate, type AreaKey, type TaskStatus } from "@/lib/workspace";
+import { formatShortDate, type AreaKey, type TaskStatus } from "@/lib/workspace";
 
 export function HomeView({
   startup,
@@ -87,16 +88,17 @@ export function HomeView({
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {startup.areas.map((area) => {
-            const key = area.key as AreaKey;
-            const Icon = AREA_ICONS[key];
+            const Icon = AREA_ICONS[area.key as AreaKey] || Blocks;
+            const tintClass = getAreaTint(area.key);
+            const description = getAreaDescription(area.key);
             return (
               <button key={area._id} type="button" className="group rounded-2xl border border-border/75 bg-card p-4 text-left shadow-[0_16px_32px_-30px_rgba(15,23,42,0.55)] transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_22px_42px_-30px_rgba(79,70,229,0.35)]" onClick={() => onOpenArea(area._id)}>
-                <span className={cn("grid size-9 place-items-center rounded-xl", AREA_TINTS[key])}><Icon className="size-4.5" /></span>
+                <span className={cn("grid size-9 place-items-center rounded-xl", tintClass)}><Icon className="size-4.5" /></span>
                 <span className="mt-5 flex items-center justify-between gap-2">
                   <span className="font-semibold">{area.label}</span>
                   <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </span>
-                <span className="mt-1 block text-xs leading-5 text-muted-foreground">{AREA_META[key].description}</span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span>
               </button>
             );
           })}

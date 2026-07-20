@@ -103,6 +103,8 @@ export const create = mutation({
     taskPriority: v.optional(taskPriorityValidator),
     assigneeProfileId: v.optional(v.id("profiles")),
     dueDate: v.optional(v.number()),
+    instructions: v.optional(v.string()),
+    checkpoints: v.optional(v.array(v.object({ id: v.string(), text: v.string(), completed: v.boolean() }))),
   },
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
@@ -116,6 +118,8 @@ export const create = mutation({
       taskPriority: args.taskPriority,
       assigneeProfileId: args.assigneeProfileId,
       dueDate: args.dueDate,
+      instructions: args.instructions,
+      checkpoints: args.checkpoints,
     });
     const page = prepareWorkspacePage(target, {
       title: args.title,

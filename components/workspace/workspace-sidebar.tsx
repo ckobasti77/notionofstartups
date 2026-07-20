@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "convex/react";
+import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
   Activity,
@@ -9,11 +11,13 @@ import {
   CheckSquare2,
   ChevronDown,
   ChevronsUpDown,
+  GripVertical,
   Home,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   Search,
   Settings2,
@@ -32,12 +36,14 @@ import type {
 import type { ThoughtDropTarget } from "@/components/workspace/thought-sharing";
 import {
   AREA_ICONS,
-  AREA_TINTS,
+  getAreaTint,
   ProfileAvatar,
   StartupLogo,
 } from "@/components/workspace/workspace-ui";
+import { Blocks } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,6 +65,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import type { AreaKey } from "@/lib/workspace";
@@ -81,6 +88,7 @@ type WorkspaceSidebarProps = {
   onStartupChange: (startupId: Id<"startups">) => void;
   onRouteChange: (route: WorkspaceRoute) => void;
   onCreate: (target?: CreatePageTarget) => void;
+  onCreateArea: () => void;
   onSearch: () => void;
   onAdmin: () => void;
   onCreateStartup: () => void;
@@ -240,6 +248,50 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
   const compact = collapsed && !props.temporarilyExpanded && !mobile;
   const selectedPageId = route.kind === "page" ? route.pageId : undefined;
 
+  const updateArea = useMutation(api.startups.updateArea);
+  const reorderAreas = useMutation(api.startups.reorderAreas);
+
+  const [editingAreaId, setEditingAreaId] = useState<Id<"startupAreas"> | null>(null);
+  const [editingAreaLabel, setEditingAreaLabel] = useState("");
+
+  const [draggedAreaId, setDraggedAreaId] = useState<Id<"startupAreas"> | null>(null);
+  const [activeDropAreaTargetId, setActiveDropAreaTargetId] = useState<Id<"startupAreas"> | null>(null);
+
+  async function handleSaveAreaLabel(areaId: Id<"startupAreas">, currentLabel: string) {
+    const trimmed = editingAreaLabel.trim();
+    if (trimmed && trimmed !== currentLabel) {
+      try {
+        await updateArea({ areaId, label: trimmed });
+        toast.success("Naziv oblasti je sačuvan.");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Neuspešna izmena naziva.");
+      }
+    }
+    setEditingAreaId(null);
+  }
+
+  async function handleDropArea(targetAreaId: Id<"startupAreas">) {
+    if (!draggedAreaId || draggedAreaId === targetAreaId) return;
+    const areas = [...startup.areas];
+    const fromIndex = areas.findIndex((a) => a._id === draggedAreaId);
+    const toIndex = areas.findIndex((a) => a._id === targetAreaId);
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const [movedArea] = areas.splice(fromIndex, 1);
+    areas.splice(toIndex, 0, movedArea);
+
+    const orderedIds = areas.map((a) => a._id);
+    try {
+      await reorderAreas({ startupId: startup._id, orderedAreaIds: orderedIds });
+      toast.success("Redosled oblasti je promenjen.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Neuspešna promena redosleda.");
+    } finally {
+      setDraggedAreaId(null);
+      setActiveDropAreaTargetId(null);
+    }
+  }
+
   return (
     <div data-thought-sidebar-root className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className={cn("flex items-center gap-2 p-3", compact && "flex-col px-2")}>
@@ -315,8 +367,8 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
               size="icon"
               data-compact="true"
               className="size-7"
-              aria-label="Nova stranica"
-              onClick={() => props.onCreate()}
+              aria-label="Nova oblast"
+              onClick={props.onCreateArea}
             >
               <Plus className="size-3.5" />
             </Button>
@@ -327,8 +379,8 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
       <ScrollArea data-thought-sidebar-scroll className="min-h-0 flex-1 px-3 pb-3">
         <div className={cn("space-y-1", compact && "px-0")}>
           {startup.areas.map((area) => {
-            const key = area.key as AreaKey;
-            const Icon = AREA_ICONS[key];
+            const Icon = AREA_ICONS[area.key as AreaKey] || Blocks;
+            const tintClass = getAreaTint(area.key);
             const expanded =
               (props.expandedAreas[area._id]
                 ?? (route.kind === "area" && route.areaId === area._id))
@@ -346,7 +398,37 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
               );
             }
             return (
-              <div key={area._id}>
+              <div
+                key={area._id}
+                draggable={!editingAreaId}
+                onDragStart={(e) => {
+                  if (!props.draggedPageId) {
+                    e.stopPropagation();
+                    setDraggedAreaId(area._id);
+                  }
+                }}
+                onDragEnd={() => {
+                  setDraggedAreaId(null);
+                  setActiveDropAreaTargetId(null);
+                }}
+                onDragOver={(e) => {
+                  if (draggedAreaId && draggedAreaId !== area._id) {
+                    e.preventDefault();
+                    setActiveDropAreaTargetId(area._id);
+                  } else if (props.draggedPageId) {
+                    e.preventDefault();
+                    props.onDragPageOver(null, area._id);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (draggedAreaId && draggedAreaId !== area._id) {
+                    handleDropArea(area._id);
+                  } else if (props.draggedPageId) {
+                    props.onDropPage(props.draggedPageId, null, area._id);
+                  }
+                }}
+              >
                 <div
                   data-thought-drop-target="area"
                   data-thought-area-id={area._id}
@@ -359,26 +441,23 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                     (props.activeThoughtDropTarget?.kind === "area"
                       && props.activeThoughtDropTarget.areaId === area._id)
                       || (props.activeDropAreaId === area._id && !props.activeDropPageId)
+                      || activeDropAreaTargetId === area._id
                       ? "bg-primary/12 ring-2 ring-inset ring-primary/55"
                       : "",
+                    draggedAreaId === area._id && "opacity-50",
                   )}
-                  onDragOver={(e) => {
-                    if (props.draggedPageId) {
-                      e.preventDefault();
-                      props.onDragPageOver(null, area._id);
-                    }
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (props.draggedPageId) {
-                      props.onDropPage(props.draggedPageId, null, area._id);
-                    }
-                  }}
                 >
+                  <span
+                    className="ml-1 cursor-grab opacity-0 group-hover:opacity-60 hover:!opacity-100 active:cursor-grabbing"
+                    title="Prevuci da promeniš redosled oblasti"
+                  >
+                    <GripVertical className="size-3.5 text-muted-foreground" />
+                  </span>
+
                   <button
                     type="button"
                     data-compact="true"
-                    className="ml-1 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
+                    className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
                     aria-expanded={expanded}
                     aria-label={expanded ? `Sakrij ${area.label}` : `Prikaži ${area.label}`}
                     onClick={() => props.onAreaExpandedChange(area._id, !expanded)}
@@ -387,27 +466,68 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                       className={cn("size-3.5 transition-transform", !expanded && "-rotate-90")}
                     />
                   </button>
-                  <button
-                    type="button"
-                    className="flex min-h-10 min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium"
-                    onClick={() => props.onRouteChange({ kind: "area", areaId: area._id })}
-                  >
-                    <span className={cn("grid size-6 place-items-center rounded-md", AREA_TINTS[key])}>
-                      <Icon className="size-3.5" />
-                    </span>
-                    <span className="truncate">{area.label}</span>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    data-compact="true"
-                    className="mr-1 size-7 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    aria-label={`Dodaj stranicu u ${area.label}`}
-                    onClick={() => props.onCreate({ areaId: area._id, parentPageId: null })}
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
+                  {editingAreaId === area._id ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
+                      <Input
+                        value={editingAreaLabel}
+                        onChange={(e) => setEditingAreaLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSaveAreaLabel(area._id, area.label);
+                          } else if (e.key === "Escape") {
+                            setEditingAreaId(null);
+                          }
+                        }}
+                        onBlur={() => handleSaveAreaLabel(area._id, area.label)}
+                        autoFocus
+                        className="h-7 px-2 text-xs font-semibold"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex min-h-10 min-w-0 flex-1 items-center gap-2 pr-1 text-left text-sm font-medium"
+                      onClick={() => props.onRouteChange({ kind: "area", areaId: area._id })}
+                    >
+                      <span className={cn("grid size-6 shrink-0 place-items-center rounded-md", tintClass)}>
+                        <Icon className="size-3.5" />
+                      </span>
+                      <span className="truncate">{area.label}</span>
+                    </button>
+                  )}
+
+                  {editingAreaId !== area._id ? (
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        data-compact="true"
+                        className="size-7"
+                        aria-label={`Izmeni naziv ${area.label}`}
+                        title="Izmeni naziv oblasti"
+                        onClick={() => {
+                          setEditingAreaId(area._id);
+                          setEditingAreaLabel(area.label);
+                        }}
+                      >
+                        <Pencil className="size-3.5 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        data-compact="true"
+                        className="mr-1 size-7"
+                        aria-label={`Dodaj stranicu u ${area.label}`}
+                        title="Dodaj novu stranicu"
+                        onClick={() => props.onCreate({ areaId: area._id, parentPageId: null })}
+                      >
+                        <Plus className="size-3.5" />
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
                 {expanded ? (
                   <PageTree
@@ -519,6 +639,10 @@ export function MobileWorkspaceMenu(props: WorkspaceSidebarProps) {
     },
     onCreate: (target) => {
       props.onCreate(target);
+      setOpen(false);
+    },
+    onCreateArea: () => {
+      props.onCreateArea();
       setOpen(false);
     },
     onSearch: () => {

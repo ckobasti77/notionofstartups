@@ -25,6 +25,8 @@ export type WorkspacePageTarget = {
   taskPriority: WorkspaceTaskPriority | null;
   assigneeProfileId: Id<"profiles"> | null;
   dueDate: number | null;
+  instructions: string | null;
+  checkpoints: Array<{ id: string; text: string; completed: boolean }> | null;
 };
 
 export type PreparedWorkspacePage = {
@@ -86,6 +88,8 @@ export async function validateWorkspacePageTarget(
     taskPriority?: WorkspaceTaskPriority;
     assigneeProfileId?: Id<"profiles"> | null;
     dueDate?: number | null;
+    instructions?: string;
+    checkpoints?: Array<{ id: string; text: string; completed: boolean }>;
   },
 ): Promise<WorkspacePageTarget> {
   await requirePageArea(ctx, args.startupId, args.areaId);
@@ -100,7 +104,9 @@ export async function validateWorkspacePageTarget(
     args.taskStatus !== undefined ||
     args.taskPriority !== undefined ||
     (args.assigneeProfileId !== undefined && args.assigneeProfileId !== null) ||
-    (args.dueDate !== undefined && args.dueDate !== null);
+    (args.dueDate !== undefined && args.dueDate !== null) ||
+    args.instructions !== undefined ||
+    args.checkpoints !== undefined;
   if (args.kind === "note" && hasTaskData) {
     throw new Error("Task podaci se mogu dodati samo task stranici.");
   }
@@ -130,6 +136,8 @@ export async function validateWorkspacePageTarget(
     assigneeProfileId:
       args.kind === "task" ? args.assigneeProfileId ?? null : null,
     dueDate: args.kind === "task" ? args.dueDate ?? null : null,
+    instructions: args.kind === "task" ? args.instructions ?? null : null,
+    checkpoints: args.kind === "task" ? args.checkpoints ?? null : null,
   };
 }
 
@@ -175,6 +183,8 @@ export async function insertWorkspacePage(
     taskPriority: args.target.taskPriority,
     assigneeProfileId: args.target.assigneeProfileId,
     dueDate: args.target.dueDate,
+    ...(args.target.instructions ? { instructions: args.target.instructions } : {}),
+    ...(args.target.checkpoints ? { checkpoints: args.target.checkpoints } : {}),
     taskSortAt: args.page.taskSortAt,
     createdByProfileId: args.actorProfileId,
     updatedByProfileId: args.actorProfileId,

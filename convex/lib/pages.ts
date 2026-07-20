@@ -74,6 +74,8 @@ export function summarizePage(page: Doc<"pages">) {
     taskPriority: page.taskPriority,
     assigneeProfileId: page.assigneeProfileId,
     dueDate: page.dueDate,
+    instructions: page.instructions,
+    checkpoints: page.checkpoints,
     taskSortAt: page.taskSortAt,
     createdByProfileId: page.createdByProfileId,
     updatedByProfileId: page.updatedByProfileId,

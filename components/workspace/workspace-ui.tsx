@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import {
+  AREA_META,
   TASK_PRIORITY_META,
   TASK_STATUS_META,
   type AreaKey,
@@ -32,6 +33,16 @@ export const AREA_TINTS: Record<AreaKey, string> = {
   sales: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   other: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
 };
+
+export function getAreaTint(key: string): string {
+  return AREA_TINTS[key as AreaKey] || "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+}
+
+export function getAreaDescription(key: string): string {
+  return AREA_META[key as AreaKey]?.description || "Korisnički definisana oblast startupa";
+}
+
+
 
 export function getInitials(name: string) {
   return name

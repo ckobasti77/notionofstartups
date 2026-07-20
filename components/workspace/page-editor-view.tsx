@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
 import { ProfileAvatar, TaskPriorityBadge, TaskStatusBadge } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, toDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
 
 export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onArchived }: { startup: StartupWithAreas; pageId: Id<"pages">; onOpenPage: (pageId: Id<"pages">) => void; onCreateChild: (target: CreatePageTarget) => void; onArchived: () => void }) {
@@ -244,7 +244,172 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
         <div className="px-5 sm:px-8"><RichTextEditor key={page._id} documentKey={page._id} content={content} onChange={({ html }) => { setContent(html); markDraftChanged({ ...latestDraftRef.current, content: html }); }} /></div>
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8"><div className="flex items-center gap-2 text-xs text-muted-foreground">{page.creator ? <><ProfileAvatar profile={page.creator} className="size-6" /> Kreirao/la {page.creator.displayName}</> : <><UserRound className="size-4" /> Autor nije dostupan</>}</div><Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}><Plus /> Podstranica</Button></footer>
       </article>
-      {page.kind === "task" ? <div data-workspace-enter className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card/50 px-4 py-3"><TaskStatusBadge status={status} /><TaskPriorityBadge priority={priority} /></div> : null}
+      {page.kind === "task" ? (
+        <div data-workspace-enter className="mt-5 space-y-4">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card/50 px-4 py-3">
+            <TaskStatusBadge status={status} />
+            <TaskPriorityBadge priority={priority} />
+          </div>
+
+          <TaskDetailWidgets page={page} updateMetadata={updateMetadata} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TaskDetailWidgets({
+  page,
+  updateMetadata,
+}: {
+  page: Doc<"pages">;
+  updateMetadata: (args: {
+    pageId: Id<"pages">;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    assigneeProfileId?: Id<"profiles"> | null;
+    dueDate?: number | null;
+    instructions?: string | null;
+    checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
+  }) => Promise<Id<"pages">>;
+}) {
+  const [instructions, setInstructions] = useState(page.instructions ?? "");
+  const [newCpText, setNewCpText] = useState("");
+  const checkpoints: Array<{ id: string; text: string; completed: boolean }> =
+    (page.checkpoints as Array<{ id: string; text: string; completed: boolean }>) ?? [];
+
+  const completedCount = checkpoints.filter((c) => c.completed).length;
+  const totalCount = checkpoints.length;
+
+  async function saveInstructions() {
+    if (instructions === (page.instructions ?? "")) return;
+    try {
+      await updateMetadata({ pageId: page._id, instructions: instructions.trim() });
+      toast.success("Instrukcije sačuvane.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Instrukcije nisu sačuvane.");
+    }
+  }
+
+  async function toggleCheckpoint(cpId: string) {
+    const updated = checkpoints.map((cp) =>
+      cp.id === cpId ? { ...cp, completed: !cp.completed } : cp,
+    );
+    try {
+      await updateMetadata({ pageId: page._id, checkpoints: updated });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greska pri ažuriranju podzadataka.");
+    }
+  }
+
+  async function addCheckpoint() {
+    const text = newCpText.trim();
+    if (!text) return;
+    const newItem = {
+      id: `cp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      text,
+      completed: false,
+    };
+    setNewCpText("");
+    try {
+      await updateMetadata({ pageId: page._id, checkpoints: [...checkpoints, newItem] });
+      toast.success("Podzadatak je dodat.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greska pri dodavanju podzadatka.");
+    }
+  }
+
+  async function removeCheckpoint(cpId: string) {
+    const updated = checkpoints.filter((cp) => cp.id !== cpId);
+    try {
+      await updateMetadata({ pageId: page._id, checkpoints: updated });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Greska pri brisanju podzadatka.");
+    }
+  }
+
+  return (
+    <div className="grid gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm md:grid-cols-2">
+      {/* Checkpoints Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Podzadaci / Checkpointi
+          </h3>
+          {totalCount > 0 ? (
+            <span className="text-xs font-semibold text-primary">
+              {completedCount} / {totalCount} završeno ({Math.round((completedCount / totalCount) * 100)}%)
+            </span>
+          ) : null}
+        </div>
+
+        {totalCount > 0 ? (
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary transition-all duration-300"
+              style={{ width: `${Math.round((completedCount / totalCount) * 100)}%` }}
+            />
+          </div>
+        ) : null}
+
+        <div className="flex gap-2">
+          <Input
+            value={newCpText}
+            onChange={(e) => setNewCpText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
+            placeholder="Dodaj novi podzadatak..."
+            className="h-9 text-xs"
+          />
+          <Button type="button" size="sm" variant="secondary" onClick={addCheckpoint} className="h-9 text-xs">
+            <Plus className="size-3.5" /> Dodaj
+          </Button>
+        </div>
+
+        {checkpoints.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">Još nema podzadataka.</p>
+        ) : (
+          <div className="space-y-1.5 rounded-xl border border-border/60 bg-muted/20 p-2">
+            {checkpoints.map((cp) => (
+              <div key={cp.id} className="flex items-center justify-between gap-2 rounded-lg bg-card px-3 py-2 text-xs border border-border/40">
+                <label className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1">
+                  <input
+                    type="checkbox"
+                    checked={cp.completed}
+                    onChange={() => toggleCheckpoint(cp.id)}
+                    className="size-4 rounded border-primary text-primary accent-primary"
+                  />
+                  <span className={cp.completed ? "line-through text-muted-foreground truncate" : "font-semibold truncate text-foreground"}>
+                    {cp.text}
+                  </span>
+                </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeCheckpoint(cp.id)}
+                >
+                  <Archive className="size-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Instructions Section */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Instrukcije i Uputstva
+        </h3>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          onBlur={saveInstructions}
+          placeholder="Napišite slobodne instrukcije za ovaj zadatak..."
+          className="flex min-h-[8.5rem] w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+      </div>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   FolderInput,
   LoaderCircle,
   Plus,
+  Blocks,
 } from "lucide-react";
 
 import {
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import type { ThoughtDestination } from "@/components/workspace/thought-sharing";
 import type { StartupWithAreas } from "@/components/workspace/types";
-import { AREA_ICONS, AREA_TINTS } from "@/components/workspace/workspace-ui";
+import { AREA_ICONS, getAreaTint } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -62,8 +63,8 @@ export function ThoughtDestinationPicker({
         <div className="scrollbar-thin min-h-0 overflow-y-auto px-3 py-3 sm:px-4" aria-label="Odredišta u radnom prostoru">
           <div className="space-y-1">
             {startup.areas.map((area) => {
-              const areaKey = area.key as AreaKey;
-              const AreaIcon = AREA_ICONS[areaKey];
+              const AreaIcon = AREA_ICONS[area.key as AreaKey] || Blocks;
+              const tintClass = getAreaTint(area.key);
               const expanded = expandedAreaIds.has(area._id);
               return (
                 <section key={area._id} aria-labelledby={`destination-area-${area._id}`}>
@@ -90,7 +91,7 @@ export function ThoughtDestinationPicker({
                       className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 pr-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       onClick={() => onSelect({ areaId: area._id, parentPageId: null, label: area.label })}
                     >
-                      <span className={cn("grid size-7 shrink-0 place-items-center rounded-lg", AREA_TINTS[areaKey])}>
+                      <span className={cn("grid size-7 shrink-0 place-items-center rounded-lg", tintClass)}>
                         <AreaIcon className="size-3.5" />
                       </span>
                       <span className="min-w-0 flex-1">

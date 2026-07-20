@@ -3,12 +3,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 const role = v.union(v.literal("admin"), v.literal("member"));
-const areaKey = v.union(
-  v.literal("dev"),
-  v.literal("marketing"),
-  v.literal("sales"),
-  v.literal("other"),
-);
+const areaKey = v.string();
 const pageKind = v.union(v.literal("note"), v.literal("task"));
 const taskStatus = v.union(
   v.literal("backlog"),
@@ -31,6 +26,12 @@ const thoughtColor = v.union(
   v.literal("amber"),
   v.literal("rose"),
 );
+
+const checkpointItem = v.object({
+  id: v.string(),
+  text: v.string(),
+  completed: v.boolean(),
+});
 
 export default defineSchema({
   ...authTables,
@@ -209,6 +210,8 @@ export default defineSchema({
     taskPriority: v.union(taskPriority, v.null()),
     assigneeProfileId: v.union(v.id("profiles"), v.null()),
     dueDate: v.union(v.number(), v.null()),
+    instructions: v.optional(v.string()),
+    checkpoints: v.optional(v.array(checkpointItem)),
     taskSortAt: v.number(),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
