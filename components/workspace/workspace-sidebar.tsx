@@ -13,6 +13,7 @@ import {
   ChevronsUpDown,
   GripVertical,
   Home,
+  Lightbulb,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -108,6 +109,7 @@ type WorkspaceSidebarProps = {
 const primaryNav = [
   { kind: "home" as const, label: "Početna", icon: Home },
   { kind: "thoughts" as const, label: "Moje misli", icon: Brain, hint: "Samo ti" },
+  { kind: "ideas" as const, label: "Ideje", icon: Lightbulb, hint: "Glasanje" },
   { kind: "today" as const, label: "Danas", icon: CalendarDays },
   { kind: "my-tasks" as const, label: "Moji zadaci", icon: CheckSquare2 },
   { kind: "activity" as const, label: "Aktivnost", icon: Activity },

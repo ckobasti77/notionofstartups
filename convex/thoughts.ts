@@ -60,6 +60,7 @@ const thoughtNodeDocumentValidator = v.object({
   x: v.number(),
   y: v.number(),
   color: thoughtColorValidator,
+  isParent: v.optional(v.boolean()),
   conversionCount: v.number(),
   lastConvertedPageId: v.union(v.id("pages"), v.null()),
   lastConvertedAt: v.union(v.number(), v.null()),
@@ -342,6 +343,7 @@ export const createNode = mutation({
     x: v.number(),
     y: v.number(),
     color: thoughtColorValidator,
+    isParent: v.optional(v.boolean()),
   },
   returns: v.id("thoughtNodes"),
   handler: async (ctx, args) => {
@@ -364,6 +366,7 @@ export const createNode = mutation({
       x,
       y,
       color: args.color,
+      isParent: args.isParent ?? false,
       conversionCount: 0,
       lastConvertedPageId: null,
       lastConvertedAt: null,
@@ -380,6 +383,7 @@ export const updateNode = mutation({
     title: v.optional(v.union(v.string(), v.null())),
     text: v.optional(v.string()),
     color: v.optional(thoughtColorValidator),
+    isParent: v.optional(v.boolean()),
   },
   returns: v.id("thoughtNodes"),
   handler: async (ctx, args) => {
@@ -392,16 +396,41 @@ export const updateNode = mutation({
     const text =
       args.text === undefined ? node.text : cleanThoughtText(args.text);
     const color: ThoughtColor = args.color ?? node.color;
-    if (title === node.title && text === node.text && color === node.color) {
+    const isParent = args.isParent === undefined ? node.isParent : args.isParent;
+    if (
+      title === node.title &&
+      text === node.text &&
+      color === node.color &&
+      isParent === node.isParent
+    ) {
       return node._id;
     }
     await ctx.db.patch("thoughtNodes", node._id, {
       title,
       text,
       color,
+      isParent,
       updatedAt: Date.now(),
     });
     return node._id;
+  },
+});
+
+export const toggleNodeParent = mutation({
+  args: {
+    nodeId: v.id("thoughtNodes"),
+    isParent: v.optional(v.boolean()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const { nodes } = await requireOwnedNodes(ctx, [args.nodeId]);
+    const node = nodes[0];
+    const nextState = args.isParent ?? !node.isParent;
+    await ctx.db.patch("thoughtNodes", node._id, {
+      isParent: nextState,
+      updatedAt: Date.now(),
+    });
+    return nextState;
   },
 });
 
@@ -891,19 +920,34 @@ export const createEdge = mutation({
 export const updateEdge = mutation({
   args: {
     edgeId: v.id("thoughtEdges"),
-    label: v.union(v.string(), v.null()),
+    nodeAId: v.optional(v.id("thoughtNodes")),
+    nodeBId: v.optional(v.id("thoughtNodes")),
+    label: v.optional(v.union(v.string(), v.null())),
   },
   returns: v.id("thoughtEdges"),
   handler: async (ctx, args) => {
     const { edges } = await requireOwnedEdges(ctx, [args.edgeId]);
     const edge = edges[0];
-    const label = cleanNullableText(args.label, "Naziv veze", MAX_EDGE_LABEL);
-    if (label !== edge.label) {
-      await ctx.db.patch("thoughtEdges", edge._id, {
-        label,
-        updatedAt: Date.now(),
+    const nodeAId = args.nodeAId ?? edge.nodeAId;
+    const nodeBId = args.nodeBId ?? edge.nodeBId;
+    if (nodeAId === nodeBId) {
+      throw new Error("Misao ne može biti povezana sama sa sobom.");
+    }
+    if (args.nodeAId !== undefined || args.nodeBId !== undefined) {
+      await requireOwnedNodes(ctx, [nodeAId, nodeBId], {
+        startupId: edge.startupId,
       });
     }
+    const pair = normalizedPair(nodeAId, nodeBId);
+    const label =
+      args.label === undefined
+        ? edge.label
+        : cleanNullableText(args.label, "Naziv veze", MAX_EDGE_LABEL);
+    await ctx.db.patch("thoughtEdges", edge._id, {
+      ...pair,
+      label,
+      updatedAt: Date.now(),
+    });
     return edge._id;
   },
 });
@@ -1005,6 +1049,19 @@ function defaultThoughtTitle(node: Doc<"thoughtNodes">) {
 }
 
 function combinedNoteHtml(nodes: Doc<"thoughtNodes">[]) {
+  const parent = nodes.find((n) => n.isParent);
+  if (parent && nodes.length > 1) {
+    const children = nodes.filter((n) => n._id !== parent._id);
+    const parentTitle = defaultThoughtTitle(parent);
+    const parentHeader = `<h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.5rem;">${escapeHtml(parentTitle)}</h2>${thoughtTextHtml(parent.text)}`;
+    const childrenList = `<ul style="margin-top: 1rem; list-style-type: disc; padding-left: 1.5rem;">${children
+      .map(
+        (child) =>
+          `<li><strong>${escapeHtml(defaultThoughtTitle(child))}</strong>: ${escapeHtml(child.text).replaceAll("\n", "<br>")}</li>`,
+      )
+      .join("")}</ul>`;
+    return parentHeader + childrenList;
+  }
   return nodes
     .map(
       (node) =>
@@ -1014,6 +1071,17 @@ function combinedNoteHtml(nodes: Doc<"thoughtNodes">[]) {
 }
 
 function combinedTaskHtml(nodes: Doc<"thoughtNodes">[]) {
+  const parent = nodes.find((n) => n.isParent);
+  if (parent && nodes.length > 1) {
+    const children = nodes.filter((n) => n._id !== parent._id);
+    const items = children
+      .map(
+        (node) =>
+          `<li data-type="taskItem" data-checked="false"><label><input type="checkbox"><span></span></label><div><p>${escapeHtml(node.text).replaceAll("\n", "<br>")}</p></div></li>`,
+      )
+      .join("");
+    return `<p><strong>${escapeHtml(defaultThoughtTitle(parent))}</strong>: ${escapeHtml(parent.text).replaceAll("\n", "<br>")}</p><ul data-type="taskList">${items}</ul>`;
+  }
   const items = nodes
     .map(
       (node) =>
@@ -1088,6 +1156,25 @@ export const convertToPages = mutation({
         first.x - second.x ||
         first._id.localeCompare(second._id),
     );
+
+    const now = Date.now();
+    const parentNode = sortedNodes.find((n) => n.isParent);
+    const childNodes = parentNode
+      ? sortedNodes.filter((n) => n._id !== parentNode._id)
+      : [];
+
+    const checkpoints =
+      args.pageKind === "task" && parentNode && childNodes.length > 0
+        ? childNodes.map((child, idx) => ({
+            id: `cp-${now}-${idx}`,
+            text: child.title ? `${child.title}: ${child.text}` : child.text,
+            completed: false,
+          }))
+        : undefined;
+
+    const instructions =
+      args.pageKind === "task" && parentNode ? parentNode.text : undefined;
+
     const target = await validateWorkspacePageTarget(ctx, {
       startupId: args.startupId,
       areaId: args.targetAreaId,
@@ -1097,8 +1184,9 @@ export const convertToPages = mutation({
       taskPriority: args.taskPriority,
       assigneeProfileId: args.assigneeProfileId,
       dueDate: args.dueDate,
+      instructions,
+      checkpoints,
     });
-    const now = Date.now();
     const pageInputs =
       args.layoutMode === "combined"
         ? [
@@ -1107,10 +1195,11 @@ export const convertToPages = mutation({
               title: cleanRequiredText(
                 (args.combinedTitle?.trim().length ?? 0) > 0
                   ? args.combinedTitle!
-                  :
-                  (sortedNodes.length === 1
-                    ? defaultThoughtTitle(sortedNodes[0])
-                    : "Misli za radni prostor"),
+                  : parentNode
+                    ? defaultThoughtTitle(parentNode)
+                    : sortedNodes.length === 1
+                      ? defaultThoughtTitle(sortedNodes[0])
+                      : "Misli za radni prostor",
                 "Naslov",
                 MAX_THOUGHT_TITLE,
               ),

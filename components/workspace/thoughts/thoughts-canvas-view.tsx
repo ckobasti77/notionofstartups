@@ -32,6 +32,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Crown,
   Edit3,
   Expand,
   FileInput,
@@ -62,6 +63,7 @@ import { cn } from "@/lib/utils";
 
 import { ThoughtConversionDialog } from "./thought-conversion-dialog";
 import { EdgeEditorDialog, ThoughtEditorDialog } from "./thought-editor-dialog";
+import { ThoughtEdge, ThoughtEdgeActionsProvider } from "./thought-edge";
 import { ThoughtNode, ThoughtNodeActionsProvider } from "./thought-node";
 import styles from "./thoughts-canvas.module.css";
 import type {
@@ -73,7 +75,7 @@ import type {
   ThoughtsCanvasViewProps,
 } from "./types";
 
-type ThoughtFlowEdge = Edge<Record<string, never>, "smoothstep">;
+type ThoughtFlowEdge = Edge<Record<string, never>, "default" | "smoothstep">;
 type ThoughtNodeDoc = Doc<"thoughtNodes">;
 type ThoughtEdgeDoc = Doc<"thoughtEdges">;
 
@@ -103,6 +105,7 @@ type HistoryEntry = {
 };
 
 const NODE_TYPES = { thought: ThoughtNode };
+const EDGE_TYPES = { default: ThoughtEdge };
 
 const MINI_MAP_COLORS: Record<ThoughtNodeColor, string> = {
   neutral: "#94a3b8",
@@ -145,17 +148,18 @@ function toFlowNode(doc: ThoughtNodeDoc): ThoughtFlowNode {
       title: doc.title,
       text: doc.text,
       color: doc.color,
+      isParent: doc.isParent ?? false,
       conversionCount: doc.conversionCount,
       lastConvertedPageId: doc.lastConvertedPageId,
     },
-    ariaLabel: `${doc.title ?? "Misao"}. ${doc.text}`,
+    ariaLabel: `${doc.isParent ? "Roditeljska misao" : "Misao"}: ${doc.title ?? ""}. ${doc.text}`,
   };
 }
 
 function toFlowEdge(doc: ThoughtEdgeDoc): ThoughtFlowEdge {
   return {
     id: doc._id,
-    type: "smoothstep",
+    type: "default",
     source: doc.nodeAId,
     target: doc.nodeBId,
     label: doc.label ?? undefined,
@@ -163,6 +167,7 @@ function toFlowEdge(doc: ThoughtEdgeDoc): ThoughtFlowEdge {
     labelBgPadding: [8, 4],
     labelBgBorderRadius: 8,
     interactionWidth: 22,
+    reconnectable: true,
   };
 }
 
@@ -312,6 +317,7 @@ function ThoughtsCanvasBody({
   const updateEdge = useMutation(api.thoughts.updateEdge);
   const archiveEdges = useMutation(api.thoughts.archiveEdges);
   const restoreEdges = useMutation(api.thoughts.restoreEdges);
+  const toggleNodeParent = useMutation(api.thoughts.toggleNodeParent);
 
   const [nodes, setNodes] = useState<ThoughtFlowNode[]>([]);
   const [edges, setEdges] = useState<ThoughtFlowEdge[]>([]);
@@ -586,6 +592,70 @@ function ThoughtsCanvasBody({
       toast.error(error instanceof Error ? error.message : "Povezane misli nisu učitane.");
     }
   }, [convex, startup._id]);
+
+  const edgeReconnectSuccessfulRef = useRef(false);
+
+  const toggleParent = useCallback(async (nodeId: Id<"thoughtNodes">) => {
+    try {
+      const isParent = await toggleNodeParent({ nodeId });
+      toast.success(
+        isParent
+          ? "Misao je postavljena kao glavna (Parent)."
+          : "Status glavne misli je uklonjen.",
+      );
+    } catch {
+      toast.error("Glavna misao nije izmenjena.");
+    }
+  }, [toggleNodeParent]);
+
+  const onReconnectStart = useCallback(() => {
+    edgeReconnectSuccessfulRef.current = false;
+  }, []);
+
+  const onReconnect = useCallback(async (oldEdge: ThoughtFlowEdge, newConnection: Connection) => {
+    edgeReconnectSuccessfulRef.current = true;
+    if (!newConnection.source || !newConnection.target || newConnection.source === newConnection.target) return;
+    try {
+      await updateEdge({
+        edgeId: oldEdge.id as Id<"thoughtEdges">,
+        nodeAId: newConnection.source as Id<"thoughtNodes">,
+        nodeBId: newConnection.target as Id<"thoughtNodes">,
+      });
+      pushHistory({
+        label: "prevezivanje misli",
+        undo: () => updateEdge({
+          edgeId: oldEdge.id as Id<"thoughtEdges">,
+          nodeAId: oldEdge.source as Id<"thoughtNodes">,
+          nodeBId: oldEdge.target as Id<"thoughtNodes">,
+        }),
+        redo: () => updateEdge({
+          edgeId: oldEdge.id as Id<"thoughtEdges">,
+          nodeAId: newConnection.source as Id<"thoughtNodes">,
+          nodeBId: newConnection.target as Id<"thoughtNodes">,
+        }),
+      });
+      toast.success("Veza je premeštena.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Veza nije promenjena.");
+    }
+  }, [pushHistory, updateEdge]);
+
+  const onReconnectEnd = useCallback(async (_event: MouseEvent | TouchEvent, edge: ThoughtFlowEdge) => {
+    if (!edgeReconnectSuccessfulRef.current) {
+      try {
+        await archiveEdges({ edgeIds: [edge.id as Id<"thoughtEdges">] });
+        pushHistory({
+          label: "prekid veze",
+          undo: () => restoreEdges({ edgeIds: [edge.id as Id<"thoughtEdges">] }),
+          redo: () => archiveEdges({ edgeIds: [edge.id as Id<"thoughtEdges">] }),
+        });
+        toast.success("Veza je prekinuta.");
+      } catch {
+        toast.error("Veza nije mogla da se prekine.");
+      }
+    }
+    edgeReconnectSuccessfulRef.current = false;
+  }, [archiveEdges, pushHistory, restoreEdges]);
 
   const onConnect = useCallback(async (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
@@ -963,13 +1033,20 @@ function ThoughtsCanvasBody({
   const nodeActions = useMemo(() => ({
     connectedNodeIds,
     edit: openEditor,
+    toggleParent,
     send: requestDestination,
     openPage: onOpenPage,
-  }), [connectedNodeIds, onOpenPage, openEditor, requestDestination]);
+  }), [connectedNodeIds, onOpenPage, openEditor, requestDestination, toggleParent]);
+
+  const edgeActions = useMemo(() => ({
+    editLabel: (edgeId: Id<"thoughtEdges">) => setEdgeEditorId(edgeId),
+    archiveEdge: (edgeId: Id<"thoughtEdges">) => void archiveSelection([], [edgeId]),
+  }), [archiveSelection]);
 
   return (
     <ThoughtNodeActionsProvider actions={nodeActions}>
-      <ContextMenu.Root open={contextOpen} onOpenChange={setContextOpen}>
+      <ThoughtEdgeActionsProvider actions={edgeActions}>
+        <ContextMenu.Root open={contextOpen} onOpenChange={setContextOpen}>
         <ContextMenu.Trigger asChild>
           <div
             ref={wrapperRef}
@@ -983,6 +1060,8 @@ function ThoughtsCanvasBody({
               nodes={nodes}
               edges={edges}
               nodeTypes={NODE_TYPES}
+              edgeTypes={EDGE_TYPES}
+              reconnectRadius={25}
               onInit={(instance) => {
                 flowRef.current = instance;
                 setFlowInstance(instance);
@@ -990,6 +1069,9 @@ function ThoughtsCanvasBody({
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={(connection) => void onConnect(connection)}
+              onReconnectStart={onReconnectStart}
+              onReconnect={(oldEdge, newConnection) => void onReconnect(oldEdge, newConnection)}
+              onReconnectEnd={(event, edge) => void onReconnectEnd(event, edge)}
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={(event, node, draggedNodes) => void onNodeDragStop(event, node, draggedNodes)}
@@ -1052,6 +1134,49 @@ function ThoughtsCanvasBody({
                 size={1.15}
                 color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
               />
+              <style>{`
+                .canvas :global(.react-flow__edge-path) {
+                  stroke: color-mix(in oklab, var(--muted-foreground) 54%, transparent);
+                  stroke-width: 2;
+                  transition: stroke 140ms ease, stroke-width 140ms ease;
+                }
+                .canvas :global(.react-flow__edge.selected .react-flow__edge-path),
+                .canvas :global(.react-flow__edge:hover .react-flow__edge-path),
+                .canvas :global(.react-flow__edge:focus-visible .react-flow__edge-path) {
+                  stroke: var(--primary);
+                  stroke-width: 2.75;
+                }
+                .canvas :global(.react-flow__edge-reconnecthandle) {
+                  fill: var(--primary);
+                  stroke: var(--card);
+                  stroke-width: 2.5px;
+                  r: 7px;
+                  cursor: grab;
+                  opacity: 0.6;
+                  transition: opacity 140ms ease, r 140ms ease, transform 140ms ease;
+                }
+                .canvas :global(.react-flow__edge:hover .react-flow__edge-reconnecthandle),
+                .canvas :global(.react-flow__edge.selected .react-flow__edge-reconnecthandle) {
+                  opacity: 1;
+                  r: 9px;
+                }
+                .canvas :global(.react-flow__edge-reconnecthandle:hover) {
+                  cursor: grabbing;
+                  transform: scale(1.35);
+                  fill: var(--primary);
+                }
+                .canvas :global(.react-flow__edge-text) {
+                  fill: var(--muted-foreground);
+                  font-size: 0.6875rem;
+                  font-weight: 600;
+                }
+                .canvas :global(.react-flow__edge-textbg) {
+                  fill: var(--card);
+                  fill-opacity: 0.94;
+                  stroke: var(--border);
+                  stroke-width: 0.5;
+                }
+              `}</style>
               <Controls
                 position="bottom-left"
                 showInteractive={false}
@@ -1221,6 +1346,9 @@ function ThoughtsCanvasBody({
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => openEditor(contextTarget.nodeId)}>
                   <Edit3 className="size-4" /> Uredi
                 </ContextMenu.Item>
+                <ContextMenu.Item className={styles.contextItem} onSelect={() => void toggleParent(contextTarget.nodeId)}>
+                  <Crown className="size-4" /> {nodeDocsById.get(contextTarget.nodeId)?.isParent ? "Ukloni status Parent misli" : "Postavi kao Parent misao"}
+                </ContextMenu.Item>
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => openRelatedThought(contextTarget.nodeId)}>
                   <Link2 className="size-4" /> Nova povezana misao
                 </ContextMenu.Item>
@@ -1341,6 +1469,7 @@ function ThoughtsCanvasBody({
           }}
         />
       ) : null}
+      </ThoughtEdgeActionsProvider>
     </ThoughtNodeActionsProvider>
   );
 }

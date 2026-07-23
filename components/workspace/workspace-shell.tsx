@@ -14,6 +14,7 @@ import { AreaView } from "@/components/workspace/area-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
 import { HomeView } from "@/components/workspace/home-view";
+import { IdeasView } from "@/components/workspace/ideas-view";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { TasksView } from "@/components/workspace/tasks-view";
@@ -288,8 +289,24 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
       <WorkspaceSidebar {...sidebarProps} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
-        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts"}>
-          {route.kind === "home" ? <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={(kind) => openCreate({ initialKind: kind })} /> : route.kind === "thoughts" ? <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} onRequestDestination={requestThoughtDestination} onBeginSidebarDrag={beginThoughtSidebarDrag} /> : route.kind === "today" ? <TasksView startup={startup} profile={profile} mode="today" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} /> : route.kind === "my-tasks" ? <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} /> : route.kind === "activity" ? <ActivityView startup={startup} /> : route.kind === "area" ? <AreaView startup={startup} profile={profile} areaId={route.areaId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={openCreate} onCreateArea={() => setCreateAreaOpen(true)} /> : <PageEditorView startup={startup} pageId={route.pageId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateChild={openCreate} onArchived={() => setRoute({ kind: "home" })} />}
+        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas"}>
+          {route.kind === "home" ? (
+            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={(kind) => openCreate({ initialKind: kind })} />
+          ) : route.kind === "thoughts" ? (
+            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} onRequestDestination={requestThoughtDestination} onBeginSidebarDrag={beginThoughtSidebarDrag} />
+          ) : route.kind === "ideas" ? (
+            <IdeasView startup={startup} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} />
+          ) : route.kind === "today" ? (
+            <TasksView startup={startup} profile={profile} mode="today" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} />
+          ) : route.kind === "my-tasks" ? (
+            <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} />
+          ) : route.kind === "activity" ? (
+            <ActivityView startup={startup} />
+          ) : route.kind === "area" ? (
+            <AreaView startup={startup} profile={profile} areaId={route.areaId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={openCreate} onCreateArea={() => setCreateAreaOpen(true)} />
+          ) : (
+            <PageEditorView startup={startup} pageId={route.pageId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateChild={openCreate} onArchived={() => setRoute({ kind: "home" })} />
+          )}
         </WorkspaceStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}

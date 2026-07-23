@@ -30,14 +30,37 @@
 
 .canvas :global(.react-flow__edge-path) {
   stroke: color-mix(in oklab, var(--muted-foreground) 54%, transparent);
-  stroke-width: 1.5;
+  stroke-width: 2;
   transition: stroke 140ms ease, stroke-width 140ms ease;
 }
 
 .canvas :global(.react-flow__edge.selected .react-flow__edge-path),
+.canvas :global(.react-flow__edge:hover .react-flow__edge-path),
 .canvas :global(.react-flow__edge:focus-visible .react-flow__edge-path) {
   stroke: var(--primary);
-  stroke-width: 2.25;
+  stroke-width: 2.75;
+}
+
+.canvas :global(.react-flow__edge-reconnecthandle) {
+  fill: var(--primary);
+  stroke: var(--card);
+  stroke-width: 2.5px;
+  r: 7px;
+  cursor: grab;
+  opacity: 0.6;
+  transition: opacity 140ms ease, r 140ms ease, transform 140ms ease;
+}
+
+.canvas :global(.react-flow__edge:hover .react-flow__edge-reconnecthandle),
+.canvas :global(.react-flow__edge.selected .react-flow__edge-reconnecthandle) {
+  opacity: 1;
+  r: 9px;
+}
+
+.canvas :global(.react-flow__edge-reconnecthandle:hover) {
+  cursor: grabbing;
+  transform: scale(1.35);
+  fill: var(--primary);
 }
 
 .canvas :global(.react-flow__edge-text) {
@@ -100,6 +123,29 @@
     0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
     0 12px 28px color-mix(in oklab, var(--cloud-accent) 9%, transparent);
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.parentBox {
+  position: relative;
+  width: 15rem;
+  min-height: 8.75rem;
+  border: 2px solid color-mix(in oklab, var(--cloud-accent) 60%, var(--primary));
+  background: color-mix(in oklab, var(--cloud-accent) 14%, var(--card));
+  border-radius: 1rem !important;
+  box-shadow:
+    0 2px 8px color-mix(in oklab, var(--primary) 14%, transparent),
+    0 16px 36px color-mix(in oklab, var(--cloud-accent) 16%, transparent);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.parentBox::after {
+  position: absolute;
+  inset: 0.35rem;
+  z-index: -1;
+  border: 1.5px solid color-mix(in oklab, var(--primary) 30%, transparent);
+  border-radius: 0.75rem;
+  content: "";
+  pointer-events: none;
 }
 
 .cloud::after {

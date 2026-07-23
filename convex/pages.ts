@@ -58,7 +58,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     await requireStartupMember(ctx, page.startupId);
-    const [body, creator, updater, assignee] = await Promise.all([
+    const [body, creator, updater, assignee, rawEntries] = await Promise.all([
       ctx.db
         .query("pageBodies")
         .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
@@ -68,8 +68,48 @@ export const get = query({
       page.assigneeProfileId === null
         ? Promise.resolve(null)
         : ctx.db.get("profiles", page.assigneeProfileId),
+      ctx.db
+        .query("pageEntries")
+        .withIndex("by_pageId_and_position", (q) => q.eq("pageId", page._id))
+        .collect(),
     ]);
-    return { ...page, content: body?.content ?? "", creator, updater, assignee };
+
+    // Format author avatars and profiles for entries
+    const entries = await Promise.all(
+      rawEntries.map(async (entry) => {
+        const author = await ctx.db.get("profiles", entry.authorProfileId);
+        let avatarUrl = null;
+        if (author?.avatarStorageId) {
+          avatarUrl = await ctx.storage.getUrl(author.avatarStorageId);
+        }
+        return {
+          ...entry,
+          author: author
+            ? {
+                _id: author._id,
+                displayName: author.displayName,
+                email: author.email,
+                avatarUrl,
+              }
+            : null,
+        };
+      })
+    );
+
+    let creatorAvatarUrl = null;
+    if (creator?.avatarStorageId) {
+      creatorAvatarUrl = await ctx.storage.getUrl(creator.avatarStorageId);
+    }
+    const creatorWithAvatar = creator ? { ...creator, avatarUrl: creatorAvatarUrl } : null;
+
+    return {
+      ...page,
+      content: body?.content ?? "",
+      creator: creatorWithAvatar,
+      updater,
+      assignee,
+      entries,
+    };
   },
 });
 
@@ -273,3 +313,151 @@ export const archive = mutation({
     return page._id;
   },
 });
+
+export const addEntry = mutation({
+  args: {
+    pageId: v.id("pages"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const cleaned = cleanPageContent(args.content);
+    if (!cleaned.trim()) throw new Error("Sadržaj unosa ne može biti prazan.");
+
+    const existingEntries = await ctx.db
+      .query("pageEntries")
+      .withIndex("by_pageId_and_position", (q) => q.eq("pageId", page._id))
+      .collect();
+
+    const maxPosition = existingEntries.reduce((max, e) => Math.max(max, e.position), 0);
+    const now = Date.now();
+
+    const entryId = await ctx.db.insert("pageEntries", {
+      pageId: page._id,
+      authorProfileId: profile._id,
+      content: cleaned,
+      position: maxPosition + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.patch("pages", page._id, {
+      updatedByProfileId: profile._id,
+      updatedAt: now,
+    });
+
+    return entryId;
+  },
+});
+
+export const deleteEntry = mutation({
+  args: {
+    pageId: v.id("pages"),
+    entryId: v.id("pageEntries"),
+  },
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const entry = await ctx.db.get("pageEntries", args.entryId);
+    if (entry && entry.pageId === page._id) {
+      if (entry.authorProfileId !== profile._id && profile.role !== "admin") {
+        throw new Error("Samo autor unosa ili administrator može obrisati ovaj unos.");
+      }
+      await ctx.db.delete("pageEntries", args.entryId);
+    }
+  },
+});
+
+export const listAreaCanvasPages = query({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    kind: v.optional(pageKindValidator),
+  },
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    const pagesQuery = ctx.db
+      .query("pages")
+      .withIndex("by_areaId_and_parentPageId_and_archivedAt_and_position", (q) =>
+        q.eq("areaId", args.areaId).eq("parentPageId", null).eq("archivedAt", null)
+      );
+
+    const pages = await pagesQuery.collect();
+    const filteredPages = args.kind ? pages.filter((p) => p.kind === args.kind) : pages;
+
+    const edges = await ctx.db
+      .query("pageEdges")
+      .withIndex("by_areaId", (q) => q.eq("areaId", args.areaId))
+      .collect();
+
+    // Map creator details for each page
+    const pagesWithDetails = await Promise.all(
+      filteredPages.map(async (p) => {
+        const creator = await ctx.db.get("profiles", p.createdByProfileId);
+        let creatorAvatarUrl = null;
+        if (creator?.avatarStorageId) {
+          creatorAvatarUrl = await ctx.storage.getUrl(creator.avatarStorageId);
+        }
+        return {
+          ...p,
+          creator: creator ? { displayName: creator.displayName, avatarUrl: creatorAvatarUrl } : null,
+        };
+      })
+    );
+
+    return {
+      pages: pagesWithDetails,
+      edges,
+    };
+  },
+});
+
+export const connectCanvasPages = mutation({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    nodeAId: v.id("pages"),
+    nodeBId: v.id("pages"),
+    label: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    if (args.nodeAId === args.nodeBId) throw new Error("Ne možete povezati istu stavku.");
+
+    const pairKey = [args.nodeAId, args.nodeBId].sort().join(":");
+    const existing = await ctx.db
+      .query("pageEdges")
+      .withIndex("by_areaId_and_pairKey", (q) =>
+        q.eq("areaId", args.areaId).eq("pairKey", pairKey)
+      )
+      .first();
+
+    if (existing) return existing._id;
+
+    return await ctx.db.insert("pageEdges", {
+      startupId: args.startupId,
+      areaId: args.areaId,
+      nodeAId: args.nodeAId,
+      nodeBId: args.nodeBId,
+      pairKey,
+      label: args.label ? args.label.trim() : null,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const disconnectCanvasPages = mutation({
+  args: {
+    startupId: v.id("startups"),
+    edgeId: v.id("pageEdges"),
+  },
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    const edge = await ctx.db.get("pageEdges", args.edgeId);
+    if (edge && edge.startupId === args.startupId) {
+      await ctx.db.delete("pageEdges", args.edgeId);
+    }
+  },
+});
+

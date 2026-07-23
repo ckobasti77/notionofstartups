@@ -22,6 +22,7 @@ export type MyTask = Doc<"pages"> & {
 export type WorkspaceRoute =
   | { kind: "home" }
   | { kind: "thoughts" }
+  | { kind: "ideas" }
   | { kind: "today" }
   | { kind: "my-tasks" }
   | { kind: "activity" }

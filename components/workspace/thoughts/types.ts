@@ -20,6 +20,7 @@ export type ThoughtNodeData = {
   title: string | null;
   text: string;
   color: ThoughtNodeColor;
+  isParent?: boolean;
   conversionCount: number;
   lastConvertedPageId: Id<"pages"> | null;
 };

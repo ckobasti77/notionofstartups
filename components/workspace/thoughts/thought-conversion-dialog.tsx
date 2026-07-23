@@ -7,6 +7,7 @@ import {
   Eye,
   FileText,
   Layers3,
+  Lightbulb,
   LoaderCircle,
   LockKeyhole,
 } from "lucide-react";
@@ -70,6 +71,7 @@ export function ThoughtConversionDialog({
   onConverted: (pageIds: Id<"pages">[]) => void;
 }) {
   const convertToPages = useMutation(api.thoughts.convertToPages);
+  const createIdeaMutation = useMutation(api.ideas.create);
   const members = useQuery(
     api.startups.listMembers,
     open ? { startupId: startup._id, limit: 50 } : "skip",
@@ -328,22 +330,53 @@ export function ThoughtConversionDialog({
             ) : null}
           </div>
 
-          <DialogFooter className="border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-6">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Otkaži</Button>
+          <DialogFooter className="flex-wrap justify-between gap-2 border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-6">
             <Button
-              type="submit"
-              disabled={
-                submitting ||
-                !destination ||
-                orderedNodes.length === 0 ||
-                (isCombined
-                  ? !combinedTitle.trim()
-                  : orderedNodes.some((node) => !titleOverrides[node._id]?.trim()))
-              }
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                if (orderedNodes.length === 0) return;
+                setSubmitting(true);
+                try {
+                  for (const node of orderedNodes) {
+                    await createIdeaMutation({
+                      startupId: startup._id,
+                      title: titleFromThought(node),
+                      text: node.text,
+                      convertedFromThoughtId: node._id,
+                    });
+                  }
+                  toast.success("Misao je uspešno prebačena u Ideje za glasanje!");
+                  onOpenChange(false);
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Greška pri prebacivanju u ideje.");
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+              className="rounded-xl border-amber-500/40 text-amber-500 hover:bg-amber-500/10 gap-1.5"
             >
-              {submitting ? <LoaderCircle className="animate-spin" /> : pageKind === "task" ? <CheckSquare2 /> : <FileText />}
-              {submitting ? "Kreiram kopiju…" : `Kreiraj ${isCombined ? "stranicu" : orderedNodes.length === 1 ? "stranicu" : `${orderedNodes.length} stranice`}`}
+              <Lightbulb className="size-4" />
+              <span>Pretvori u Ideju (Glasanje)</span>
             </Button>
+
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Otkaži</Button>
+              <Button
+                type="submit"
+                disabled={
+                  submitting ||
+                  !destination ||
+                  orderedNodes.length === 0 ||
+                  (isCombined
+                    ? !combinedTitle.trim()
+                    : orderedNodes.some((node) => !titleOverrides[node._id]?.trim()))
+                }
+              >
+                {submitting ? <LoaderCircle className="animate-spin" /> : pageKind === "task" ? <CheckSquare2 /> : <FileText />}
+                {submitting ? "Kreiram kopiju…" : `Kreiraj ${isCombined ? "stranicu" : orderedNodes.length === 1 ? "stranicu" : `${orderedNodes.length} stranice`}`}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

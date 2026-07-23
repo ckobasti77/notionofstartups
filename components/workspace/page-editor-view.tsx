@@ -241,8 +241,37 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
           <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />}{saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : !title.trim() ? "Unesi naslov za čuvanje" : "Izmene čekaju"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label="Arhiviraj stranicu" onClick={archive}><Archive /></Button></div>
           {page.kind === "task" ? <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4"><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Status</span><Select value={status} onValueChange={(value) => setTaskMetadata({ status: value as TaskStatus })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Prioritet</span><Select value={priority} onValueChange={(value) => setTaskMetadata({ priority: value as TaskPriority })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Dodeljeno</span><Select value={page.assigneeProfileId ?? "none"} onValueChange={(value) => setTaskMetadata({ assigneeProfileId: value === "none" ? null : value as Id<"profiles"> })}><SelectTrigger className="h-9 bg-card"><SelectValue placeholder="Nije dodeljen" /></SelectTrigger><SelectContent><SelectItem value="none">Nije dodeljen</SelectItem>{members?.map(({ profile }) => <SelectItem key={profile._id} value={profile._id}>{profile.displayName}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground" htmlFor="task-due-date">Rok</label><Input id="task-due-date" type="date" className="h-9 bg-card" value={toDateInputValue(page.dueDate)} onChange={(event) => setTaskMetadata({ dueDate: event.target.value ? fromDateInputValue(event.target.value) ?? null : null })} /></div></div> : null}
         </header>
-        <div className="px-5 sm:px-8"><RichTextEditor key={page._id} documentKey={page._id} content={content} onChange={({ html }) => { setContent(html); markDraftChanged({ ...latestDraftRef.current, content: html }); }} /></div>
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8"><div className="flex items-center gap-2 text-xs text-muted-foreground">{page.creator ? <><ProfileAvatar profile={page.creator} className="size-6" /> Kreirao/la {page.creator.displayName}</> : <><UserRound className="size-4" /> Autor nije dostupan</>}</div><Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}><Plus /> Podstranica</Button></footer>
+        <div className="px-5 sm:px-8">
+          <RichTextEditor
+            key={page._id}
+            documentKey={page._id}
+            content={content}
+            onChange={({ html }) => {
+              setContent(html);
+              markDraftChanged({ ...latestDraftRef.current, content: html });
+            }}
+          />
+
+          {/* Block-level Author Entries (Sadržaj sa autorstvom članova) */}
+          <PageAuthorEntries page={page} />
+        </div>
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {page.creator ? (
+              <>
+                <ProfileAvatar profile={page.creator} className="size-6" />
+                <span>Kreirao/la <strong className="font-semibold text-foreground">{page.creator.displayName}</strong></span>
+              </>
+            ) : (
+              <>
+                <UserRound className="size-4" /> Autor nije dostupan
+              </>
+            )}
+          </div>
+          <Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}>
+            <Plus /> Podstranica
+          </Button>
+        </footer>
       </article>
       {page.kind === "task" ? (
         <div data-workspace-enter className="mt-5 space-y-4">
@@ -415,3 +444,144 @@ function TaskDetailWidgets({
 }
 
 function EditorSkeleton() { return <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-7 sm:px-7 lg:px-10"><Skeleton className="h-6 w-72" /><Skeleton className="h-[38rem] rounded-2xl" /></div>; }
+
+type AuthorEntryItem = {
+  _id: Id<"pageEntries">;
+  authorProfileId: Id<"profiles">;
+  content: string;
+  createdAt: number;
+  author: { displayName: string; avatarUrl: string | null } | null;
+};
+
+function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEntryItem[] } }) {
+  const [newEntryText, setNewEntryText] = useState("");
+  const addEntry = useMutation(api.pages.addEntry);
+  const deleteEntry = useMutation(api.pages.deleteEntry);
+
+  const entries: AuthorEntryItem[] = page.entries || [];
+
+  const handleAddEntry = async () => {
+    if (!newEntryText.trim()) return;
+    try {
+      await addEntry({
+        pageId: page._id,
+        content: newEntryText.trim(),
+      });
+      setNewEntryText("");
+      toast.success("Unos sa vašim autorstvom je uspešno dodat!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Greška pri dodavanju unosa.");
+    }
+  };
+
+  const handleDeleteEntry = async (entryId: Id<"pageEntries">) => {
+    try {
+      await deleteEntry({
+        pageId: page._id,
+        entryId,
+      });
+      toast.success("Unos je uklonjen.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Greška pri brisanju.");
+    }
+  };
+
+  return (
+    <div className="my-8 space-y-6 border-t border-border/60 pt-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold tracking-wide uppercase text-muted-foreground">
+          Sadržaji i Doprinosi Članova ({entries.length})
+        </h3>
+        <span className="text-xs text-muted-foreground">
+          Svaki član ima svoj označen blok sa avatarom i vremenom
+        </span>
+      </div>
+
+      {/* Render existing author entries */}
+      <div className="space-y-4">
+        {entries.map((entry: AuthorEntryItem) => {
+          const formattedTime = new Date(entry.createdAt).toLocaleString("sr-RS", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          return (
+            <div
+              key={entry._id}
+              className="flex items-start gap-4 rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all hover:border-primary/30"
+            >
+              {/* Left Side: Avatar with clear spacing */}
+              <div className="shrink-0 pt-0.5">
+                <ProfileAvatar
+                  profile={{
+                    displayName: entry.author?.displayName || "Član",
+                    avatarUrl: entry.author?.avatarUrl || null,
+                  }}
+                  className="size-9 ring-2 ring-primary/20"
+                />
+              </div>
+
+              {/* Main Entry Content */}
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground">
+                    {entry.author?.displayName || "Član Tima"}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDeleteEntry(entry._id)}
+                  >
+                    <Archive className="size-3.5" />
+                  </Button>
+                </div>
+
+                <div
+                  className="text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none"
+                  dangerouslySetInnerHTML={{ __html: entry.content }}
+                />
+
+                {/* Bottom Timestamp */}
+                <div className="pt-1 text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Clock3 className="size-3 text-muted-foreground" />
+                  <span>Napisano: {formattedTime}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add New Entry Box */}
+      <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-4 space-y-3">
+        <label className="text-xs font-semibold text-foreground block">
+          Dodaj svoj doprinos na ovoj stranici (sa tvojim avatarom i pečatom vremena):
+        </label>
+        <textarea
+          value={newEntryText}
+          onChange={(e) => setNewEntryText(e.target.value)}
+          placeholder="Napiši tvoj deo teksta, zapažanja ili izmene..."
+          className="w-full min-h-[90px] rounded-xl border border-input bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleAddEntry}
+            disabled={!newEntryText.trim()}
+            className="rounded-xl text-xs bg-primary text-primary-foreground font-medium gap-1.5"
+          >
+            <Plus className="size-3.5" />
+            <span>Objavi moj unos</span>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

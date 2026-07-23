@@ -138,6 +138,7 @@ export default defineSchema({
     x: v.number(),
     y: v.number(),
     color: thoughtColor,
+    isParent: v.optional(v.boolean()),
     conversionCount: v.number(),
     lastConvertedPageId: v.union(v.id("pages"), v.null()),
     lastConvertedAt: v.union(v.number(), v.null()),
@@ -301,6 +302,85 @@ export default defineSchema({
       filterFields: ["startupId", "kind", "archivedAt"],
     }),
 
+  ideaCanvases: defineTable({
+    startupId: v.id("startups"),
+    ownerProfileId: v.id("profiles"),
+    x: v.number(),
+    y: v.number(),
+    zoom: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_ownerProfileId_and_startupId", [
+    "ownerProfileId",
+    "startupId",
+  ]),
+
+  ideaNodes: defineTable({
+    startupId: v.id("startups"),
+    authorProfileId: v.id("profiles"),
+    title: v.union(v.string(), v.null()),
+    text: v.string(),
+    x: v.number(),
+    y: v.number(),
+    color: thoughtColor,
+    isParent: v.optional(v.boolean()),
+    convertedPageId: v.union(v.id("pages"), v.null()),
+    convertedAt: v.union(v.number(), v.null()),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_startupId_and_archivedAt_and_updatedAt", [
+    "startupId",
+    "archivedAt",
+    "updatedAt",
+  ]),
+
+  ideaVotes: defineTable({
+    startupId: v.id("startups"),
+    ideaId: v.id("ideaNodes"),
+    profileId: v.id("profiles"),
+    voteType: v.union(v.literal("up"), v.literal("down")),
+    createdAt: v.number(),
+  })
+    .index("by_ideaId_and_profileId", ["ideaId", "profileId"])
+    .index("by_ideaId", ["ideaId"])
+    .index("by_startupId", ["startupId"]),
+
+  ideaEdges: defineTable({
+    startupId: v.id("startups"),
+    authorProfileId: v.id("profiles"),
+    nodeAId: v.id("ideaNodes"),
+    nodeBId: v.id("ideaNodes"),
+    pairKey: v.string(),
+    label: v.union(v.string(), v.null()),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_startupId_and_pairKey", ["startupId", "pairKey"])
+    .index("by_startupId_and_archivedAt", ["startupId", "archivedAt"]),
+
+  pageEntries: defineTable({
+    pageId: v.id("pages"),
+    authorProfileId: v.id("profiles"),
+    content: v.string(),
+    position: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_pageId_and_position", ["pageId", "position"]),
+
+  pageEdges: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    nodeAId: v.id("pages"),
+    nodeBId: v.id("pages"),
+    pairKey: v.string(),
+    label: v.union(v.string(), v.null()),
+    createdAt: v.number(),
+  })
+    .index("by_areaId_and_pairKey", ["areaId", "pairKey"])
+    .index("by_areaId", ["areaId"]),
+
   activities: defineTable({
     startupId: v.id("startups"),
     actorProfileId: v.id("profiles"),
@@ -336,3 +416,4 @@ export default defineSchema({
       "createdAt",
     ]),
 });
+

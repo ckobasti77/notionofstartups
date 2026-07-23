@@ -17,6 +17,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { formatShortDate, type AreaKey } from "@/lib/workspace";
 
+import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
+import { LayoutGrid, List } from "lucide-react";
+
 export function AreaView({
   startup,
   profile,
@@ -33,6 +36,7 @@ export function AreaView({
   onCreateArea?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"notes" | "tasks">("notes");
+  const [viewMode, setViewMode] = useState<"list" | "canvas">("list");
   const [selectedTaskAreaId, setSelectedTaskAreaId] = useState<Id<"startupAreas">>(areaId);
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -140,7 +144,7 @@ export function AreaView({
           </div>
         </div>
 
-        {/* View Switch: Notes vs Tasks */}
+        {/* View Switch: Notes vs Tasks & Layout Mode */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="grid grid-cols-2 rounded-xl bg-muted/70 p-1 text-xs font-semibold">
             <button
@@ -165,6 +169,32 @@ export function AreaView({
             </button>
           </div>
 
+          {/* Mode Switch: Lista vs Canvas */}
+          <div className="flex items-center rounded-xl border border-border/60 bg-muted/30 p-1 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1 transition-colors",
+                viewMode === "list" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <List className="size-3.5" />
+              <span>Lista / Tabela</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("canvas")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1 transition-colors",
+                viewMode === "canvas" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <LayoutGrid className="size-3.5" />
+              <span>Canvas (Oblačići)</span>
+            </button>
+          </div>
+
           {activeTab === "notes" ? (
             <Button variant="outline" onClick={() => onCreate({ areaId: currentArea._id, parentPageId: null, initialKind: "note" })}>
               <FilePlus2 className="size-4" /> Nova Beleška
@@ -179,7 +209,17 @@ export function AreaView({
 
       {/* Main Content Area */}
       <div data-workspace-enter className="mt-6">
-        {activeTab === "notes" ? (
+        {viewMode === "canvas" ? (
+          <AreaCanvasView
+            startupId={startup._id}
+            areaId={currentArea._id}
+            kind={activeTab === "notes" ? "note" : "task"}
+            onOpenPage={onOpenPage}
+            onCreatePage={(kind) =>
+              onCreate({ areaId: currentArea._id, parentPageId: null, initialKind: kind })
+            }
+          />
+        ) : activeTab === "notes" ? (
           /* Notes View */
           status === "LoadingFirstPage" ? (
             <div className="space-y-3">{[0, 1, 2].map((item) => <Skeleton key={item} className="h-20 rounded-xl" />)}</div>
