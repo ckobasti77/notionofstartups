@@ -67,7 +67,6 @@ import { ThoughtEdge, ThoughtEdgeActionsProvider } from "./thought-edge";
 import { ThoughtNode, ThoughtNodeActionsProvider } from "./thought-node";
 import styles from "./thoughts-canvas.module.css";
 import type {
-  ThoughtDestination,
   ThoughtDestinationRequest,
   ThoughtEditorValue,
   ThoughtFlowNode,
@@ -95,7 +94,6 @@ type ContextTarget =
 
 type ConversionState = {
   nodeIds: Id<"thoughtNodes">[];
-  destination: ThoughtDestination;
 } | null;
 
 type HistoryEntry = {
@@ -150,6 +148,7 @@ function toFlowNode(doc: ThoughtNodeDoc): ThoughtFlowNode {
       color: doc.color,
       isParent: doc.isParent ?? false,
       conversionCount: doc.conversionCount,
+      lastConvertedIdeaId: doc.lastConvertedIdeaId ?? null,
       lastConvertedPageId: doc.lastConvertedPageId,
     },
     ariaLabel: `${doc.isParent ? "Roditeljska misao" : "Misao"}: ${doc.title ?? ""}. ${doc.text}`,
@@ -275,7 +274,7 @@ function ThoughtsCanvasBody({
   startup,
   profile,
   onOpenPage,
-  onRequestDestination,
+  onOpenIdeas,
   onBeginSidebarDrag,
 }: ThoughtsCanvasViewProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -494,20 +493,20 @@ function ThoughtsCanvasBody({
     const request: ThoughtDestinationRequest = {
       nodeIds: uniqueIds,
       label,
-      complete: (destination) => setConversion({ nodeIds: uniqueIds, destination }),
+      complete: () => setConversion({ nodeIds: uniqueIds }),
       cancel: () => undefined,
     };
     return request;
   }, [nodeDocsById]);
 
-  const requestDestination = useCallback((nodeIds: Id<"thoughtNodes">[]) => {
+  const requestIdeaConversion = useCallback((nodeIds: Id<"thoughtNodes">[]) => {
     if (nodeIds.length === 0) return;
     if (nodeIds.length > 50) {
-      toast.error("Odaberi najviše 50 misli za jednu kopiju.");
+      toast.error("Odaberi najviše 50 misli za slanje u Ideje.");
       return;
     }
-    onRequestDestination(makeDestinationRequest(nodeIds));
-  }, [makeDestinationRequest, onRequestDestination]);
+    setConversion({ nodeIds: Array.from(new Set(nodeIds)) });
+  }, []);
 
   const duplicateSelection = useCallback(async (nodeIds: Id<"thoughtNodes">[]) => {
     if (nodeIds.length === 0) return;
@@ -1034,9 +1033,10 @@ function ThoughtsCanvasBody({
     connectedNodeIds,
     edit: openEditor,
     toggleParent,
-    send: requestDestination,
+    send: requestIdeaConversion,
+    openIdeas: onOpenIdeas,
     openPage: onOpenPage,
-  }), [connectedNodeIds, onOpenPage, openEditor, requestDestination, toggleParent]);
+  }), [connectedNodeIds, onOpenIdeas, onOpenPage, openEditor, requestIdeaConversion, toggleParent]);
 
   const edgeActions = useMemo(() => ({
     editLabel: (edgeId: Id<"thoughtEdges">) => setEdgeEditorId(edgeId),
@@ -1253,10 +1253,10 @@ function ThoughtsCanvasBody({
                             size="sm"
                             variant="ghost"
                             className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-0"
-                            aria-label="Pošalji izabrane misli u radni prostor"
-                            onClick={() => requestDestination(selectedNodeIds)}
+                            aria-label="Pošalji izabrane misli u Ideje"
+                            onClick={() => requestIdeaConversion(selectedNodeIds)}
                           >
-                            <Send /> <span className="hidden lg:inline">Pošalji</span>
+                            <Send /> <span className="hidden lg:inline">U Ideje</span>
                           </Button>
                         ) : null}
                         <Button
@@ -1364,9 +1364,9 @@ function ThoughtsCanvasBody({
                 </ContextMenu.Item>
                 <ContextMenu.Item
                   className={styles.contextItem}
-                  onSelect={() => requestDestination(selectedNodeIds.includes(contextTarget.nodeId) ? selectedNodeIds : [contextTarget.nodeId])}
+                  onSelect={() => requestIdeaConversion(selectedNodeIds.includes(contextTarget.nodeId) ? selectedNodeIds : [contextTarget.nodeId])}
                 >
-                  <FileInput className="size-4" /> Pošalji u radni prostor
+                  <FileInput className="size-4" /> Pošalji u Ideje
                 </ContextMenu.Item>
                 <ContextMenu.Separator className={styles.contextSeparator} />
                 <ContextMenu.Item
@@ -1453,19 +1453,17 @@ function ThoughtsCanvasBody({
           open
           startup={startup}
           nodes={conversionNodes}
-          destination={conversion.destination}
           onOpenChange={(open) => !open && setConversion(null)}
-          onConverted={(pageIds) => {
-          setConversion(null);
-          const firstPageId = pageIds[0];
-          toast.success(
-            pageIds.length === 1
-              ? "Timska kopija je kreirana. Original je ostao privatan."
-              : `${pageIds.length} timske kopije su kreirane. Originali su ostali privatni.`,
-            firstPageId ? {
-              action: { label: "Otvori", onClick: () => onOpenPage(firstPageId) },
-            } : undefined,
-          );
+          onConverted={(ideaIds) => {
+            setConversion(null);
+            toast.success(
+              ideaIds.length === 1
+                ? "Ideja je kreirana. Originalna misao je ostala privatna."
+                : `${ideaIds.length} ideje su kreirane. Originalne misli su ostale privatne.`,
+              {
+                action: { label: "Otvori Ideje", onClick: onOpenIdeas },
+              },
+            );
           }}
         />
       ) : null}

@@ -16,6 +16,7 @@ type ThoughtNodeActions = {
   edit: (nodeId: Id<"thoughtNodes">) => void;
   toggleParent: (nodeId: Id<"thoughtNodes">) => void;
   send: (nodeIds: Id<"thoughtNodes">[]) => void;
+  openIdeas: () => void;
   openPage: (pageId: Id<"pages">) => void;
 };
 
@@ -100,7 +101,7 @@ export function ThoughtNode({ id, data, selected }: NodeProps<ThoughtFlowNode>) 
             size="icon"
             variant="ghost"
             className="size-11 sm:size-8"
-            aria-label="Pošalji misao u radni prostor"
+            aria-label="Pošalji misao u Ideje"
             onClick={() => actions?.send([nodeId])}
           >
             <Send className="size-3.5" />
@@ -132,7 +133,19 @@ export function ThoughtNode({ id, data, selected }: NodeProps<ThoughtFlowNode>) 
         <p className="mt-1 line-clamp-5 whitespace-pre-wrap text-[0.8125rem] leading-[1.55] text-foreground/82">
           {data.text}
         </p>
-        {data.conversionCount > 0 && data.lastConvertedPageId ? (
+        {data.conversionCount > 0 && data.lastConvertedIdeaId ? (
+          <button
+            type="button"
+            className="nodrag mt-auto inline-flex w-fit items-center gap-1.5 pt-3 text-[0.6875rem] font-semibold text-primary hover:underline"
+            onClick={(event) => {
+              event.stopPropagation();
+              actions?.openIdeas();
+            }}
+          >
+            Poslato u Ideje {data.conversionCount > 1 ? `${data.conversionCount}×` : ""}
+            <ExternalLink className="size-3" />
+          </button>
+        ) : data.conversionCount > 0 && data.lastConvertedPageId ? (
           <button
             type="button"
             className="nodrag mt-auto inline-flex w-fit items-center gap-1.5 pt-3 text-[0.6875rem] font-semibold text-primary hover:underline"

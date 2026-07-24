@@ -128,26 +128,6 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     });
   }
 
-  function requestThoughtDestination(request: ThoughtDestinationRequest) {
-    sidebarDragRequest?.cancel?.();
-    setSidebarDragRequest(null);
-    setActiveThoughtDropTarget(null);
-    setTransientExpandedAreaIds(new Set());
-    setTransientExpandedPageIds(new Set());
-    destinationRequest?.cancel?.();
-    setDestinationRequest(request);
-  }
-
-  function beginThoughtSidebarDrag(request: ThoughtSidebarDragRequest) {
-    destinationRequest?.cancel?.();
-    setDestinationRequest(null);
-    sidebarDragRequest?.cancel?.();
-    setTransientExpandedAreaIds(new Set());
-    setTransientExpandedPageIds(new Set());
-    setActiveThoughtDropTarget(null);
-    setSidebarDragRequest(request);
-  }
-
   function cancelThoughtSidebarDrag() {
     const request = sidebarDragRequest;
     setSidebarDragRequest(null);
@@ -293,7 +273,7 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
           {route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
-            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} onRequestDestination={requestThoughtDestination} onBeginSidebarDrag={beginThoughtSidebarDrag} />
+            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} onOpenIdeas={() => setRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
             <IdeasView startup={startup} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} />
           ) : route.kind === "today" ? (

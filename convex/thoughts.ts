@@ -62,6 +62,7 @@ const thoughtNodeDocumentValidator = v.object({
   color: thoughtColorValidator,
   isParent: v.optional(v.boolean()),
   conversionCount: v.number(),
+  lastConvertedIdeaId: v.optional(v.id("ideaNodes")),
   lastConvertedPageId: v.union(v.id("pages"), v.null()),
   lastConvertedAt: v.union(v.number(), v.null()),
   archivedAt: v.union(v.number(), v.null()),
@@ -1091,6 +1092,140 @@ function combinedTaskHtml(nodes: Doc<"thoughtNodes">[]) {
   return `<ul data-type="taskList">${items}</ul>`;
 }
 
+export const convertToIdeas = mutation({
+  args: {
+    startupId: v.id("startups"),
+    nodeIds: v.array(v.id("thoughtNodes")),
+  },
+  returns: v.object({
+    ideaIds: v.array(v.id("ideaNodes")),
+    createdEdgeCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { nodes, profile } = await requireOwnedNodes(ctx, args.nodeIds, {
+      startupId: args.startupId,
+    });
+    const sortedNodes = [...nodes].sort(
+      (first, second) =>
+        first.y - second.y ||
+        first.x - second.x ||
+        first._id.localeCompare(second._id),
+    );
+    const selectedNodeIds = new Set<string>(args.nodeIds);
+    const sourceEdges = new Map<Id<"thoughtEdges">, Doc<"thoughtEdges">>();
+
+    for (const node of sortedNodes) {
+      const [edgesFromA, edgesFromB] = await Promise.all([
+        ctx.db
+          .query("thoughtEdges")
+          .withIndex(
+            "by_ownerProfileId_and_startupId_and_nodeAId_and_archivedAt",
+            (q) =>
+              q
+                .eq("ownerProfileId", profile._id)
+                .eq("startupId", args.startupId)
+                .eq("nodeAId", node._id)
+                .eq("archivedAt", null),
+          )
+          .collect(),
+        ctx.db
+          .query("thoughtEdges")
+          .withIndex(
+            "by_ownerProfileId_and_startupId_and_nodeBId_and_archivedAt",
+            (q) =>
+              q
+                .eq("ownerProfileId", profile._id)
+                .eq("startupId", args.startupId)
+                .eq("nodeBId", node._id)
+                .eq("archivedAt", null),
+          )
+          .collect(),
+      ]);
+
+      for (const edge of [...edgesFromA, ...edgesFromB]) {
+        if (
+          selectedNodeIds.has(edge.nodeAId) &&
+          selectedNodeIds.has(edge.nodeBId)
+        ) {
+          sourceEdges.set(edge._id, edge);
+        }
+      }
+    }
+
+    const now = Date.now();
+    const ideaIdByThoughtId = new Map<
+      Id<"thoughtNodes">,
+      Id<"ideaNodes">
+    >();
+    const ideaIds: Id<"ideaNodes">[] = [];
+
+    for (const node of sortedNodes) {
+      const ideaId = await ctx.db.insert("ideaNodes", {
+        startupId: args.startupId,
+        authorProfileId: profile._id,
+        title: node.title,
+        text: node.text,
+        x: node.x,
+        y: node.y,
+        color: node.color,
+        isParent: node.isParent ?? false,
+        convertedPageId: null,
+        convertedAt: null,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("ideaVotes", {
+        startupId: args.startupId,
+        ideaId,
+        profileId: profile._id,
+        voteType: "up",
+        createdAt: now,
+      });
+      ideaIdByThoughtId.set(node._id, ideaId);
+      ideaIds.push(ideaId);
+    }
+
+    let createdEdgeCount = 0;
+    for (const edge of sourceEdges.values()) {
+      const firstIdeaId = ideaIdByThoughtId.get(edge.nodeAId);
+      const secondIdeaId = ideaIdByThoughtId.get(edge.nodeBId);
+      if (firstIdeaId === undefined || secondIdeaId === undefined) continue;
+      const [nodeAId, nodeBId] =
+        firstIdeaId < secondIdeaId
+          ? [firstIdeaId, secondIdeaId]
+          : [secondIdeaId, firstIdeaId];
+      await ctx.db.insert("ideaEdges", {
+        startupId: args.startupId,
+        authorProfileId: profile._id,
+        nodeAId,
+        nodeBId,
+        pairKey: `${nodeAId}:${nodeBId}`,
+        label: edge.label,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      createdEdgeCount += 1;
+    }
+
+    for (const node of nodes) {
+      const ideaId = ideaIdByThoughtId.get(node._id);
+      if (ideaId === undefined) {
+        throw new Error("Konverzija nije povezala svaku misao sa idejom.");
+      }
+      await ctx.db.patch("thoughtNodes", node._id, {
+        conversionCount: node.conversionCount + 1,
+        lastConvertedIdeaId: ideaId,
+        lastConvertedAt: now,
+        updatedAt: now,
+      });
+    }
+
+    return { ideaIds, createdEdgeCount };
+  },
+});
+
 export const convertToPages = mutation({
   args: {
     startupId: v.id("startups"),
@@ -1118,6 +1253,11 @@ export const convertToPages = mutation({
     const { nodes, profile } = await requireOwnedNodes(ctx, args.nodeIds, {
       startupId: args.startupId,
     });
+    if (args.nodeIds.length > 0) {
+      throw new Error(
+        "Misli se prvo šalju u Ideje. Zadatak ili belešku zatim kreirajte iz odobrene ideje.",
+      );
+    }
 
     if (args.layoutMode === "combined" && (args.titleOverrides?.length ?? 0) > 0) {
       throw new Error("Pojedinačni naslovi se koriste samo za odvojene stranice.");

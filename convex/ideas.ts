@@ -110,7 +110,6 @@ export const create = mutation({
     color: v.optional(ideaColorValidator),
     isParent: v.optional(v.boolean()),
     parentIdeaId: v.optional(v.id("ideaNodes")),
-    convertedFromThoughtId: v.optional(v.id("thoughtNodes")),
   },
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
@@ -157,18 +156,6 @@ export const create = mutation({
           label: null,
           archivedAt: null,
           createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-
-    // If converted from thought, archive original thought and note conversion
-    if (args.convertedFromThoughtId) {
-      const thought = await ctx.db.get(args.convertedFromThoughtId);
-      if (thought && thought.startupId === args.startupId && thought.ownerProfileId === profile._id) {
-        await ctx.db.patch(args.convertedFromThoughtId, {
-          archivedAt: now,
-          conversionCount: (thought.conversionCount || 0) + 1,
           updatedAt: now,
         });
       }

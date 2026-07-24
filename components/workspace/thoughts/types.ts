@@ -22,6 +22,7 @@ export type ThoughtNodeData = {
   color: ThoughtNodeColor;
   isParent?: boolean;
   conversionCount: number;
+  lastConvertedIdeaId: Id<"ideaNodes"> | null;
   lastConvertedPageId: Id<"pages"> | null;
 };
 
@@ -37,7 +38,8 @@ export type ThoughtsCanvasViewProps = {
   startup: StartupWithAreas;
   profile: ProfileWithAvatar;
   onOpenPage: (pageId: Id<"pages">) => void;
-  onRequestDestination: (request: ThoughtDestinationRequest) => void;
+  onOpenIdeas: () => void;
+  onRequestDestination?: (request: ThoughtDestinationRequest) => void;
   onBeginSidebarDrag?: (request: ThoughtSidebarDragRequest) => void;
 };
 

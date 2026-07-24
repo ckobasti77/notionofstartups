@@ -140,6 +140,7 @@ export default defineSchema({
     color: thoughtColor,
     isParent: v.optional(v.boolean()),
     conversionCount: v.number(),
+    lastConvertedIdeaId: v.optional(v.id("ideaNodes")),
     lastConvertedPageId: v.union(v.id("pages"), v.null()),
     lastConvertedAt: v.union(v.number(), v.null()),
     archivedAt: v.union(v.number(), v.null()),
