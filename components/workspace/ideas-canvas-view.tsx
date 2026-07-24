@@ -1,22 +1,46 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import { useMutation } from "convex/react";
 import {
-  ArrowRight,
-  GitCommit,
-  Lightbulb,
-  Plus,
-  RefreshCw,
-  ThumbsDown,
-  ThumbsUp,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Background,
+  BackgroundVariant,
+  ConnectionMode,
+  Controls,
+  MiniMap,
+  Panel,
+  ReactFlow,
+  ReactFlowProvider,
+  SelectionMode,
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type NodeChange,
+  type ReactFlowInstance,
+  type Viewport,
+} from "@xyflow/react";
+import { useMutation } from "convex/react";
+import { Lightbulb, MousePointer2, Plus, SearchX } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { ProfileAvatar } from "@/components/workspace/workspace-ui";
+import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
+import {
+  IdeaFlowNodeCard,
+  IdeaNodeActionsProvider,
+  type IdeaCanvasColor,
+  type IdeaFlowNode,
+} from "@/components/workspace/canvases/idea-flow-node";
+import styles from "@/components/workspace/canvases/connected-canvas.module.css";
+import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -28,7 +52,7 @@ type IdeaNode = {
   text: string;
   x: number;
   y: number;
-  color: "neutral" | "violet" | "blue" | "green" | "amber" | "rose";
+  color: IdeaCanvasColor;
   isParent?: boolean;
   convertedPageId: Id<"pages"> | null;
   convertedAt: number | null;
@@ -58,389 +82,357 @@ type IdeasCanvasViewProps = {
   nodes: IdeaNode[];
   edges: IdeaEdge[];
   canvasState: { x: number; y: number; zoom: number };
-  onSelectIdea: (idea: IdeaNode) => void;
+  searchActive?: boolean;
   onConvertIdea: (idea: IdeaNode) => void;
-  onCreateIdea: (parentIdeaId?: Id<"ideaNodes">) => void;
+  onCreateIdea: (
+    parentIdeaId?: Id<"ideaNodes">,
+    position?: { x: number; y: number },
+  ) => void;
 };
 
-const COLOR_CLASSES: Record<IdeaNode["color"], { bg: string; border: string; glow: string; text: string }> = {
-  neutral: {
-    bg: "bg-slate-900/90 dark:bg-slate-950/90",
-    border: "border-slate-700/60",
-    glow: "shadow-[0_0_20px_rgba(148,163,184,0.15)]",
-    text: "text-slate-200",
-  },
-  violet: {
-    bg: "bg-violet-950/80 dark:bg-violet-950/90",
-    border: "border-violet-500/50",
-    glow: "shadow-[0_0_25px_rgba(139,92,246,0.25)]",
-    text: "text-violet-200",
-  },
-  blue: {
-    bg: "bg-sky-950/80 dark:bg-sky-950/90",
-    border: "border-sky-500/50",
-    glow: "shadow-[0_0_25px_rgba(56,189,248,0.25)]",
-    text: "text-sky-200",
-  },
-  green: {
-    bg: "bg-emerald-950/80 dark:bg-emerald-950/90",
-    border: "border-emerald-500/50",
-    glow: "shadow-[0_0_25px_rgba(52,211,153,0.25)]",
-    text: "text-emerald-200",
-  },
-  amber: {
-    bg: "bg-amber-950/80 dark:bg-amber-950/90",
-    border: "border-amber-500/50",
-    glow: "shadow-[0_0_25px_rgba(251,191,36,0.25)]",
-    text: "text-amber-200",
-  },
-  rose: {
-    bg: "bg-rose-950/80 dark:bg-rose-950/90",
-    border: "border-rose-500/50",
-    glow: "shadow-[0_0_25px_rgba(251,113,133,0.25)]",
-    text: "text-rose-200",
-  },
+type IdeaFlowEdge = Edge<Record<string, never>, "default">;
+
+const NODE_TYPES = { idea: IdeaFlowNodeCard };
+const EDGE_TYPES = { default: ThoughtEdge };
+const MINI_MAP_COLORS: Record<IdeaCanvasColor, string> = {
+  neutral: "#94a3b8",
+  violet: "#8b5cf6",
+  blue: "#3b82f6",
+  green: "#10b981",
+  amber: "#f59e0b",
+  rose: "#f43f5e",
 };
 
-export function IdeasCanvasView({
+const SERBIAN_ARIA_LABELS = {
+  "node.a11yDescription.default":
+    "Pritisni Enter ili Space da izabereš ideju. Strelicama je pomeraš.",
+  "node.a11yDescription.keyboardDisabled": "Ova ideja se ne može pomerati tastaturom.",
+  "node.a11yDescription.ariaLiveMessage": ({
+    direction,
+    x,
+    y,
+  }: {
+    direction: string;
+    x: number;
+    y: number;
+  }) => `Ideja je pomerena ${direction}. Nova pozicija je ${Math.round(x)}, ${Math.round(y)}.`,
+  "edge.a11yDescription.default": "Pritisni Enter ili Space da izabereš vezu.",
+  "controls.ariaLabel": "Kontrole kanvasa ideja",
+  "controls.zoomIn.ariaLabel": "Uvećaj prikaz",
+  "controls.zoomOut.ariaLabel": "Umanji prikaz",
+  "controls.fitView.ariaLabel": "Prikaži sve ideje",
+  "controls.interactive.ariaLabel": "Uključi ili isključi interakciju",
+  "minimap.ariaLabel": "Minimapa ideja",
+  "handle.ariaLabel": "Tačka za povezivanje ideja",
+} as const;
+
+function toFlowNode(node: IdeaNode): IdeaFlowNode {
+  return {
+    id: node._id,
+    type: "idea",
+    position: { x: node.x, y: node.y },
+    data: {
+      title: node.title,
+      text: node.text,
+      color: node.color,
+      authorName: node.author?.displayName ?? "Član tima",
+      authorAvatarUrl: node.author?.avatarUrl ?? null,
+      createdAt: node.createdAt,
+      upvotes: node.upvotes,
+      downvotes: node.downvotes,
+      userVote: node.userVote,
+      isApproved: node.isApproved,
+      convertedPageId: node.convertedPageId,
+    },
+    deletable: false,
+    ariaLabel: `Ideja: ${node.title ?? node.text}`,
+  };
+}
+
+function toFlowEdge(edge: IdeaEdge): IdeaFlowEdge {
+  return {
+    id: edge._id,
+    source: edge.nodeAId,
+    target: edge.nodeBId,
+    type: "default",
+    label: edge.label ?? undefined,
+    interactionWidth: 22,
+    ariaLabel: edge.label ? `Veza: ${edge.label}` : "Veza između dve ideje",
+  };
+}
+
+function adaptEdgeHandles(
+  edge: IdeaFlowEdge,
+  positions: ReadonlyMap<string, { x: number; y: number }>,
+): IdeaFlowEdge {
+  const source = positions.get(edge.source);
+  const target = positions.get(edge.target);
+  if (!source || !target) return edge;
+  const sourceIsLeft = source.x <= target.x;
+  return {
+    ...edge,
+    sourceHandle: sourceIsLeft ? "right" : "left",
+    targetHandle: sourceIsLeft ? "left" : "right",
+  };
+}
+
+export function IdeasCanvasView(props: IdeasCanvasViewProps) {
+  return (
+    <ReactFlowProvider key={props.startupId}>
+      <IdeasCanvasBody {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function IdeasCanvasBody({
   startupId,
-  nodes,
-  edges,
+  nodes: nodeDocs,
+  edges: edgeDocs,
   canvasState,
-  onSelectIdea,
+  searchActive = false,
   onConvertIdea,
   onCreateIdea,
 }: IdeasCanvasViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [viewport, setViewport] = useState({
+  const flowRef = useRef<ReactFlowInstance<IdeaFlowNode, IdeaFlowEdge> | null>(null);
+  const [nodes, setNodes] = useState<IdeaFlowNode[]>(() => nodeDocs.map(toFlowNode));
+  const [edges, setEdges] = useState<IdeaFlowEdge[]>(() => edgeDocs.map(toFlowEdge));
+  const [viewport, setViewport] = useState<Viewport>({
     x: canvasState.x,
     y: canvasState.y,
-    zoom: canvasState.zoom || 1,
+    zoom: Math.min(Math.max(canvasState.zoom || 1, 0.5), 1.6),
   });
-
-  const [draggingNodeId, setDraggingNodeId] = useState<Id<"ideaNodes"> | null>(null);
-  const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [connectingFromId, setConnectingFromId] = useState<Id<"ideaNodes"> | null>(null);
+  const colorMode = useCanvasColorMode();
 
   const voteMutation = useMutation(api.ideas.vote);
   const updatePositionsMutation = useMutation(api.ideas.updatePositions);
   const connectMutation = useMutation(api.ideas.connect);
+  const disconnectMutation = useMutation(api.ideas.disconnect);
   const saveViewportMutation = useMutation(api.ideas.saveViewport);
 
-  const handleVote = async (e: React.MouseEvent, ideaId: Id<"ideaNodes">, voteType: "up" | "down") => {
-    e.stopPropagation();
-    try {
-      await voteMutation({ startupId, ideaId, voteType });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Greška pri glasanju.");
-    }
-  };
-
-  const handleNodeMouseDown = (e: React.MouseEvent, node: IdeaNode) => {
-    if (connectingFromId) {
-      if (connectingFromId !== node._id) {
-        connectMutation({
-          startupId,
-          nodeAId: connectingFromId,
-          nodeBId: node._id,
-        })
-          .then(() => toast.success("Ideje su uspešno povezane!"))
-          .catch((err) => toast.error(err instanceof Error ? err.message : "Greška pri povezivanju."));
-      }
-      setConnectingFromId(null);
-      return;
-    }
-
-    e.stopPropagation();
-    setDraggingNodeId(node._id);
-  };
-
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if (connectingFromId) {
-      setConnectingFromId(null);
-      return;
-    }
-    if (e.button === 0 || e.button === 1) {
-      setIsPanning(true);
-      setPanStart({ x: e.clientX - viewport.x, y: e.clientY - viewport.y });
-    }
-  };
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isPanning) {
-        setViewport((prev) => ({
-          ...prev,
-          x: e.clientX - panStart.x,
-          y: e.clientY - panStart.y,
-        }));
-        return;
-      }
-
-      if (draggingNodeId) {
-        setNodePositions((prev) => ({
-          ...prev,
-          [draggingNodeId]: {
-            x: (prev[draggingNodeId]?.x || 0) + e.movementX / viewport.zoom,
-            y: (prev[draggingNodeId]?.y || 0) + e.movementY / viewport.zoom,
-          },
-        }));
-      }
-    },
-    [draggingNodeId, isPanning, panStart, viewport.zoom]
+  const docsById = useMemo(
+    () => new Map(nodeDocs.map((node) => [node._id, node])),
+    [nodeDocs],
   );
 
-  const handleMouseUp = () => {
-    if (isPanning) {
-      setIsPanning(false);
-      saveViewportMutation({
+  useEffect(() => {
+    // Convex is the source of truth; preserve local selection while live vote data changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNodes((current) => {
+      const selected = new Set(current.filter((node) => node.selected).map((node) => node.id));
+      return nodeDocs.map((doc) => ({ ...toFlowNode(doc), selected: selected.has(doc._id) }));
+    });
+  }, [nodeDocs]);
+
+  useEffect(() => {
+    // Edge selection is local, while the connection list comes from Convex.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEdges((current) => {
+      const selected = new Set(current.filter((edge) => edge.selected).map((edge) => edge.id));
+      return edgeDocs.map((doc) => ({ ...toFlowEdge(doc), selected: selected.has(doc._id) }));
+    });
+  }, [edgeDocs]);
+
+  useEffect(() => {
+    const positions = new Map(nodes.map((node) => [node.id, node.position]));
+    // Handle choice follows node movement so curves always use the nearest sides.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEdges((current) => current.map((edge) => adaptEdgeHandles(edge, positions)));
+  }, [nodes]);
+
+  const handleNodesChange = useCallback((changes: NodeChange<IdeaFlowNode>[]) => {
+    setNodes((current) => applyNodeChanges(changes, current));
+  }, []);
+
+  const handleEdgesChange = useCallback((changes: EdgeChange<IdeaFlowEdge>[]) => {
+    setEdges((current) => applyEdgeChanges(changes, current));
+  }, []);
+
+  const connectIdeas = useCallback(async (connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+    const temporaryId = `pending:${connection.source}:${connection.target}`;
+    setEdges((current) =>
+      addEdge({ ...connection, id: temporaryId, type: "default" }, current),
+    );
+    try {
+      await connectMutation({
         startupId,
-        x: Math.round(viewport.x),
-        y: Math.round(viewport.y),
-        zoom: Number(viewport.zoom.toFixed(2)),
-      }).catch(() => {});
+        nodeAId: connection.source as Id<"ideaNodes">,
+        nodeBId: connection.target as Id<"ideaNodes">,
+      });
+      toast.success("Ideje su povezane.");
+    } catch (error) {
+      setEdges((current) => current.filter((edge) => edge.id !== temporaryId));
+      toast.error(error instanceof Error ? error.message : "Veza nije sačuvana.");
     }
+  }, [connectMutation, startupId]);
 
-    if (draggingNodeId) {
-      const pos = nodePositions[draggingNodeId];
-      if (pos) {
-        updatePositionsMutation({
-          startupId,
-          updates: [{ id: draggingNodeId, x: Math.round(pos.x), y: Math.round(pos.y) }],
-        }).catch(() => {});
-      }
-      setDraggingNodeId(null);
-    }
-  };
+  const vote = useCallback((ideaId: Id<"ideaNodes">, voteType: "up" | "down") => {
+    void voteMutation({ startupId, ideaId, voteType }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : "Glas nije sačuvan.");
+    });
+  }, [startupId, voteMutation]);
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-    const newZoom = Math.min(Math.max(viewport.zoom * zoomFactor, 0.25), 2.5);
-    setViewport((prev) => ({ ...prev, zoom: newZoom }));
-  };
+  const convert = useCallback((ideaId: Id<"ideaNodes">) => {
+    const idea = docsById.get(ideaId);
+    if (idea) onConvertIdea(idea);
+  }, [docsById, onConvertIdea]);
+
+  const handleMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, next: Viewport) => {
+    setViewport(next);
+    void saveViewportMutation({
+      startupId,
+      x: Math.round(next.x),
+      y: Math.round(next.y),
+      zoom: Number(next.zoom.toFixed(2)),
+    });
+  }, [saveViewportMutation, startupId]);
 
   return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleCanvasMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onWheel={handleWheel}
-      className="relative h-full w-full select-none overflow-hidden bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:24px_24px] dark:bg-[radial-gradient(#1e293b_1px,transparent_1px)]"
+    <IdeaNodeActionsProvider
+      actions={{
+        vote,
+        convert,
+        branch: (ideaId) => onCreateIdea(ideaId),
+      }}
     >
-      {/* Top Floating Bar */}
-      <div className="absolute left-6 top-6 z-20 flex items-center gap-3">
-        <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/80 px-4 py-2 backdrop-blur-xl shadow-lg">
-          <Lightbulb className="size-5 text-amber-500 animate-pulse" />
-          <span className="font-semibold text-sm">Ideje Canvas (Oblačići)</span>
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary font-bold">
-            {nodes.length} ideja
-          </span>
-        </div>
-
-        <Button
-          onClick={() => onCreateIdea()}
-          className="rounded-2xl shadow-lg gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-medium"
-        >
-          <Plus className="size-4" /> Nova Ideja
-        </Button>
-      </div>
-
-      {/* Viewport Zoom Controls */}
-      <div className="absolute right-6 top-6 z-20 flex items-center gap-1 rounded-2xl border border-border/60 bg-background/80 p-1.5 backdrop-blur-xl shadow-lg">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 rounded-xl"
-          onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(v.zoom + 0.15, 2.5) }))}
-        >
-          <ZoomIn className="size-4" />
-        </Button>
-        <span className="px-2 text-xs font-mono font-medium">{Math.round(viewport.zoom * 100)}%</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 rounded-xl"
-          onClick={() => setViewport((v) => ({ ...v, zoom: Math.max(v.zoom - 0.15, 0.25) }))}
-        >
-          <ZoomOut className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 rounded-xl"
-          onClick={() => setViewport({ x: 0, y: 0, zoom: 1 })}
-        >
-          <RefreshCw className="size-4" />
-        </Button>
-      </div>
-
-      {/* Canvas Layer */}
       <div
-        className="absolute inset-0 origin-0 transition-transform duration-75 ease-out"
-        style={{
-          transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0px) scale(${viewport.zoom})`,
+        className={cn(styles.canvas, styles.ideasCanvas)}
+        onDoubleClick={(event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement) || !target.classList.contains("react-flow__pane")) {
+            return;
+          }
+          const position = flowRef.current?.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          onCreateIdea(undefined, position);
         }}
       >
-        {/* SVG Edges Connecting Nodes */}
-        <svg className="pointer-events-none absolute inset-0 h-[5000px] w-[5000px] -translate-x-[2500px] -translate-y-[2500px] overflow-visible">
-          {edges.map((edge) => {
-            const posA = nodePositions[edge.nodeAId];
-            const posB = nodePositions[edge.nodeBId];
-            if (!posA || !posB) return null;
+        <ReactFlow<IdeaFlowNode, IdeaFlowEdge>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
+          onInit={(instance) => {
+            flowRef.current = instance;
+          }}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={(connection) => void connectIdeas(connection)}
+          onNodeDragStop={(_event, node) => {
+            void updatePositionsMutation({
+              startupId,
+              updates: [{
+                id: node.id as Id<"ideaNodes">,
+                x: Math.round(node.position.x),
+                y: Math.round(node.position.y),
+              }],
+            }).catch((error) => {
+              toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
+            });
+          }}
+          onEdgesDelete={(deletedEdges) => {
+            deletedEdges.forEach((edge) => {
+              if (edge.id.startsWith("pending:")) return;
+              void disconnectMutation({
+                startupId,
+                edgeId: edge.id as Id<"ideaEdges">,
+              });
+            });
+          }}
+          onMove={(_event, next) => setViewport(next)}
+          onMoveEnd={handleMoveEnd}
+          defaultViewport={viewport}
+          minZoom={0.5}
+          maxZoom={1.6}
+          connectionMode={ConnectionMode.Loose}
+          zoomOnDoubleClick={false}
+          panOnDrag={[0, 1]}
+          selectionOnDrag
+          selectionMode={SelectionMode.Partial}
+          deleteKeyCode={["Backspace", "Delete"]}
+          nodesConnectable
+          nodesFocusable
+          edgesFocusable
+          fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
+          aria-label="Kanvas timskih ideja"
+          ariaLabelConfig={SERBIAN_ARIA_LABELS}
+          colorMode={colorMode}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={24}
+            size={1}
+            color="color-mix(in oklab, var(--muted-foreground) 28%, transparent)"
+          />
+          <Controls position="bottom-left" showInteractive={false} />
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeColor={(node) => MINI_MAP_COLORS[node.data.color as IdeaCanvasColor]}
+            maskColor="color-mix(in oklab, var(--background) 58%, transparent)"
+          />
 
-            const dx = posB.x - posA.x;
-            const cx1 = posA.x + dx * 0.5;
-            const cy1 = posA.y;
-            const cx2 = posA.x + dx * 0.5;
-            const cy2 = posB.y;
-
-            return (
-              <g key={edge._id}>
-                <path
-                  d={`M ${posA.x + 120} ${posA.y + 70} C ${cx1 + 120} ${cy1 + 70}, ${cx2 + 120} ${cy2 + 70}, ${posB.x + 120} ${posB.y + 70}`}
-                  fill="none"
-                  stroke="rgba(139, 92, 246, 0.4)"
-                  strokeWidth="3"
-                  strokeDasharray="6 4"
-                />
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Nodes (Oblačići) */}
-        {nodes.map((node) => {
-          const pos = nodePositions[node._id] || { x: node.x, y: node.y };
-          const style = COLOR_CLASSES[node.color];
-          const isDragging = draggingNodeId === node._id;
-
-          return (
-            <div
-              key={node._id}
-              onMouseDown={(e) => handleNodeMouseDown(e, node)}
-              className={cn(
-                "absolute cursor-grab active:cursor-grabbing rounded-3xl border p-5 backdrop-blur-2xl transition-shadow w-72",
-                style.bg,
-                style.border,
-                style.glow,
-                isDragging && "scale-105 z-30 ring-2 ring-primary/80"
-              )}
-              style={{
-                transform: `translate3d(${pos.x}px, ${pos.y}px, 0px)`,
-              }}
-            >
-              {/* Header: Author & Approval Badge */}
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <ProfileAvatar
-                    profile={{
-                      displayName: node.author?.displayName || "Autor",
-                      avatarUrl: node.author?.avatarUrl || null,
-                    }}
-                    className="size-7 ring-2 ring-primary/20"
-                  />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-semibold leading-tight line-clamp-1">
-                      {node.author?.displayName || "Član"}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {new Date(node.createdAt).toLocaleDateString("sr-RS")}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Status Badge */}
-                {node.isApproved ? (
-                  <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-                    Odobreno
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-                    U razmatranju
-                  </span>
-                )}
+          <Panel position="top-left" className="m-3 sm:m-5">
+            <div className="flex max-w-[calc(100vw-5rem)] flex-wrap items-center gap-2">
+              <div className="flex min-h-10 items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 shadow-md backdrop-blur-xl">
+                <Lightbulb className="size-4 text-amber-500" />
+                <span className="text-xs font-bold">Kanvas ideja</span>
+                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[0.6875rem] font-bold text-amber-700 dark:text-amber-300">
+                  {nodes.length}
+                </span>
               </div>
-
-              {/* Title & Body Text */}
-              {node.title ? (
-                <h4 className={cn("font-bold text-base mb-1 line-clamp-2", style.text)}>
-                  {node.title}
-                </h4>
-              ) : null}
-              <p className="text-sm leading-snug opacity-90 line-clamp-4 font-normal mb-4">
-                {node.text}
-              </p>
-
-              {/* Footer: Voting Bar & Action Buttons */}
-              <div className="flex items-center justify-between border-t border-white/10 pt-3 mt-1">
-                {/* Voting Buttons */}
-                <div className="flex items-center gap-1 bg-black/20 rounded-xl p-1">
-                  <button
-                    type="button"
-                    onClick={(e) => handleVote(e, node._id, "up")}
-                    className={cn(
-                      "flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors",
-                      node.userVote === "up"
-                        ? "bg-emerald-500/30 text-emerald-300 font-bold"
-                        : "hover:bg-white/10 text-muted-foreground"
-                    )}
-                  >
-                    <ThumbsUp className="size-3.5" />
-                    <span>{node.upvotes}</span>
-                  </button>
-
-                  <div className="h-3 w-px bg-white/10" />
-
-                  <button
-                    type="button"
-                    onClick={(e) => handleVote(e, node._id, "down")}
-                    className={cn(
-                      "flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors",
-                      node.userVote === "down"
-                        ? "bg-rose-500/30 text-rose-300 font-bold"
-                        : "hover:bg-white/10 text-muted-foreground"
-                    )}
-                  >
-                    <ThumbsDown className="size-3.5" />
-                    <span>{node.downvotes}</span>
-                  </button>
-                </div>
-
-                {/* Conversion / Action */}
-                {node.isApproved ? (
-                  <Button
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onConvertIdea(node);
-                    }}
-                    className="rounded-xl h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium gap-1"
-                  >
-                    <span>Pretvori</span>
-                    <ArrowRight className="size-3" />
-                  </Button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConnectingFromId(node._id);
-                    }}
-                    className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-                  >
-                    <GitCommit className="size-3.5" />
-                    <span>Poveži</span>
-                  </button>
-                )}
-              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-10 rounded-2xl px-3.5 shadow-md"
+                onClick={() => {
+                  const center = flowRef.current?.screenToFlowPosition({
+                    x: window.innerWidth / 2,
+                    y: window.innerHeight / 2,
+                  });
+                  onCreateIdea(undefined, center);
+                }}
+              >
+                <Plus className="size-4" /> Nova ideja
+              </Button>
             </div>
-          );
-        })}
+          </Panel>
+
+          <Panel position="top-right" className="m-3 hidden sm:block sm:m-5">
+            <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
+              <MousePointer2 className="size-3.5" />
+              Prevuci karticu · spoji tačke · dupli klik za novu
+              <span className="ml-1 font-mono text-foreground">{Math.round(viewport.zoom * 100)}%</span>
+            </div>
+          </Panel>
+        </ReactFlow>
+
+        {nodes.length === 0 ? (
+          <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-6">
+            <div className="pointer-events-auto max-w-sm rounded-3xl border border-border/80 bg-card/94 p-7 text-center shadow-xl backdrop-blur-xl">
+              <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-amber-500/12 text-amber-600 dark:text-amber-300">
+                {searchActive ? <SearchX className="size-5" /> : <Lightbulb className="size-5" />}
+              </span>
+              <h3 className="mt-4 text-base font-bold">
+                {searchActive ? "Nema ideja za ovu pretragu" : "Prva ideja počinje ovde"}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {searchActive
+                  ? "Promeni pojam za pretragu da ponovo vidiš kartice."
+                  : "Dodaj ideju, a zatim je poveži sa srodnim predlozima."}
+              </p>
+              {!searchActive ? (
+                <Button className="mt-5 rounded-xl" onClick={() => onCreateIdea()}>
+                  <Plus className="size-4" /> Dodaj prvu ideju
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
-    </div>
+    </IdeaNodeActionsProvider>
   );
 }

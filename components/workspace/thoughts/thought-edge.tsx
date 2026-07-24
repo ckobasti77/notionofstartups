@@ -81,36 +81,38 @@ export function ThoughtEdge({
             </span>
           )}
 
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-5 rounded-full hover:bg-accent"
-              aria-label="Uredi naziv veze"
-              title="Uredi naziv veze"
-              onClick={(e) => {
-                e.stopPropagation();
-                actions?.editLabel(edgeId);
-              }}
-            >
-              <Pencil className="size-2.5" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-5 rounded-full text-destructive hover:bg-destructive/15 hover:text-destructive"
-              aria-label="Prekini vezu"
-              title="Prekini vezu"
-              onClick={(e) => {
-                e.stopPropagation();
-                actions?.archiveEdge(edgeId);
-              }}
-            >
-              <Scissors className="size-2.5" />
-            </Button>
-          </div>
+          {actions ? (
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-5 rounded-full hover:bg-accent"
+                aria-label="Uredi naziv veze"
+                title="Uredi naziv veze"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.editLabel(edgeId);
+                }}
+              >
+                <Pencil className="size-2.5" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-5 rounded-full text-destructive hover:bg-destructive/15 hover:text-destructive"
+                aria-label="Prekini vezu"
+                title="Prekini vezu"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.archiveEdge(edgeId);
+                }}
+              >
+                <Scissors className="size-2.5" />
+              </Button>
+            </div>
+          ) : null}
         </div>
       </EdgeLabelRenderer>
     </>

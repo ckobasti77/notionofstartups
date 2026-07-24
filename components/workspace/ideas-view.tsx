@@ -67,6 +67,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
   const [newText, setNewText] = useState("");
   const [newColor, setNewColor] = useState<"neutral" | "violet" | "blue" | "green" | "amber" | "rose">("violet");
   const [selectedParentId, setSelectedParentId] = useState<Id<"ideaNodes"> | undefined>(undefined);
+  const [newPosition, setNewPosition] = useState<{ x: number; y: number } | undefined>(undefined);
 
   // Form states for conversion
   const [targetAreaId, setTargetAreaId] = useState<Id<"startupAreas"> | "">(
@@ -78,6 +79,12 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
   const createIdeaMutation = useMutation(api.ideas.create);
   const voteMutation = useMutation(api.ideas.vote);
   const convertMutation = useMutation(api.ideas.convertToPage);
+
+  const closeCreateDialog = () => {
+    setCreateDialogOpen(false);
+    setSelectedParentId(undefined);
+    setNewPosition(undefined);
+  };
 
   if (!ideasData) {
     return (
@@ -110,12 +117,15 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
         text: newText.trim(),
         color: newColor,
         parentIdeaId: selectedParentId,
+        x: newPosition ? Math.round(newPosition.x) : undefined,
+        y: newPosition ? Math.round(newPosition.y) : undefined,
       });
-      toast.success("Ideja je uspešno dodata i glasovi su otvoreni!");
+      toast.success(selectedParentId ? "Nova grana ideje je dodata." : "Ideja je dodata na kanvas.");
       setCreateDialogOpen(false);
       setNewTitle("");
       setNewText("");
       setSelectedParentId(undefined);
+      setNewPosition(undefined);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Greška pri kreiranju ideje.");
     }
@@ -159,9 +169,9 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
             <Lightbulb className="size-5" />
           </div>
           <div>
-            <h2 className="text-lg font-bold tracking-tight">Ideje Startupa</h2>
+            <h2 className="text-lg font-bold tracking-tight">Ideje startupa</h2>
             <p className="text-xs text-muted-foreground">
-              Predlažite i glasajte za ideje. Odobrene ideje prebacite u Taskove ili Notesove!
+              Povežite predloge, glasajte i pretvorite odobrene ideje u konkretan rad.
             </p>
           </div>
         </div>
@@ -189,7 +199,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
               )}
             >
               <LayoutGrid className="size-3.5" />
-              <span>Canvas (Oblačići)</span>
+              <span>Kanvas</span>
             </Button>
             <Button
               variant="ghost"
@@ -201,17 +211,21 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
               )}
             >
               <TableIcon className="size-3.5" />
-              <span>Tabelarni prikaz</span>
+              <span>Tabela</span>
             </Button>
           </div>
 
           <Button
-            onClick={() => setCreateDialogOpen(true)}
+            onClick={() => {
+              setSelectedParentId(undefined);
+              setNewPosition(undefined);
+              setCreateDialogOpen(true);
+            }}
             size="sm"
-            className="rounded-xl h-9 text-xs gap-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-medium"
+            className="rounded-xl h-9 text-xs gap-1.5 font-medium"
           >
             <Plus className="size-4" />
-            <span>Nova Ideja</span>
+            <span>Nova ideja</span>
           </Button>
         </div>
       </div>
@@ -224,10 +238,11 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
             nodes={filteredNodes}
             edges={edges}
             canvasState={canvasState}
-            onSelectIdea={(_idea) => {}}
+            searchActive={searchQuery.trim().length > 0}
             onConvertIdea={(idea) => setConvertIdea(idea)}
-            onCreateIdea={(parentId) => {
+            onCreateIdea={(parentId, position) => {
               setSelectedParentId(parentId);
+              setNewPosition(position);
               setCreateDialogOpen(true);
             }}
           />
@@ -250,7 +265,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                   {filteredNodes.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
-                        Nema pronađenih ideja. Dodajte prvu ideju!
+                        Nema ideja za ovu pretragu.
                       </td>
                     </tr>
                   ) : (
@@ -335,7 +350,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                               onClick={() => setConvertIdea(node)}
                               className="rounded-xl h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium gap-1"
                             >
-                              <span>Pretvori u Task/Note</span>
+                              <span>Pretvori u zadatak ili belešku</span>
                               <ArrowRight className="size-3.5" />
                             </Button>
                           ) : (
@@ -355,41 +370,47 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
       </div>
 
       {/* Dialog: Nova Ideja */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+      <Dialog
+        open={createDialogOpen}
+        onOpenChange={(open) => {
+          if (open) setCreateDialogOpen(true);
+          else closeCreateDialog();
+        }}
+      >
         <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Lightbulb className="size-5 text-amber-500" />
-              <span>Predloži Novu Ideju</span>
+              <span>{selectedParentId ? "Dodaj granu ideje" : "Nova ideja"}</span>
             </DialogTitle>
             <DialogDescription>
-              Vaša ideja će biti vidljiva svim članovima startupa koji mogu da glasaju za nju.
+              Ideja je vidljiva timu. Članovi mogu da glasaju i povežu je sa drugim predlozima.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Naslov ideje (opciono)</label>
+              <label className="text-xs font-semibold">Naslov (opciono)</label>
               <Input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Npr. Automatski AI izveštaji..."
+                placeholder="Na primer: Nedeljni pregled napretka"
                 className="rounded-xl"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Opis / Tekst ideje</label>
+              <label className="text-xs font-semibold">Opiši ideju</label>
               <Textarea
                 value={newText}
                 onChange={(e) => setNewText(e.target.value)}
-                placeholder="Detaljnije opišite ideju..."
+                placeholder="Šta predlažeš i zašto bi to bilo korisno?"
                 className="rounded-xl min-h-[100px]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Boja oblačića na canvasu</label>
+              <label className="text-xs font-semibold">Boja kartice</label>
               <div className="flex items-center gap-2">
                 {(["violet", "blue", "green", "amber", "rose", "neutral"] as const).map((color) => (
                   <button
@@ -413,11 +434,11 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setCreateDialogOpen(false)} className="rounded-xl">
+            <Button variant="ghost" onClick={closeCreateDialog} className="rounded-xl">
               Otkaži
             </Button>
-            <Button onClick={handleCreateIdea} className="rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-medium">
-              Objavi Ideju
+            <Button onClick={handleCreateIdea} className="rounded-xl font-medium">
+              {selectedParentId ? "Dodaj granu" : "Dodaj ideju"}
             </Button>
           </DialogFooter>
         </DialogContent>

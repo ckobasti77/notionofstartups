@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { CheckSquare2, FilePlus2, FileText, Plus, Blocks, Layers, FolderPlus, Pencil } from "lucide-react";
+import { Blocks, CheckSquare2, FilePlus2, FileText, FolderPlus, Layers, LayoutGrid, List, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { formatShortDate, type AreaKey } from "@/lib/workspace";
 
 import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
-import { LayoutGrid, List } from "lucide-react";
 
 export function AreaView({
   startup,
@@ -180,7 +179,7 @@ export function AreaView({
               )}
             >
               <List className="size-3.5" />
-              <span>Lista / Tabela</span>
+              <span>Lista</span>
             </button>
             <button
               type="button"
@@ -191,7 +190,7 @@ export function AreaView({
               )}
             >
               <LayoutGrid className="size-3.5" />
-              <span>Canvas (Oblačići)</span>
+              <span>Kanvas</span>
             </button>
           </div>
 
@@ -213,6 +212,7 @@ export function AreaView({
           <AreaCanvasView
             startupId={startup._id}
             areaId={currentArea._id}
+            areaLabel={currentArea.label}
             kind={activeTab === "notes" ? "note" : "task"}
             onOpenPage={onOpenPage}
             onCreatePage={(kind) =>
@@ -311,4 +311,3 @@ export function AreaView({
     </div>
   );
 }
-

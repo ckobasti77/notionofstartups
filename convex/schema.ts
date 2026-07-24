@@ -220,6 +220,13 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_areaId_and_kind_and_parentPageId_and_archivedAt_and_position", [
+      "areaId",
+      "kind",
+      "parentPageId",
+      "archivedAt",
+      "position",
+    ])
     .index("by_areaId_and_parentPageId_and_archivedAt_and_position", [
       "areaId",
       "parentPageId",
@@ -381,6 +388,33 @@ export default defineSchema({
     .index("by_areaId_and_pairKey", ["areaId", "pairKey"])
     .index("by_areaId", ["areaId"]),
 
+  pageCanvasNodes: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    pageId: v.id("pages"),
+    x: v.number(),
+    y: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_pageId", ["pageId"])
+    .index("by_areaId", ["areaId"]),
+
+  pageCanvases: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    ownerProfileId: v.id("profiles"),
+    kind: pageKind,
+    x: v.number(),
+    y: v.number(),
+    zoom: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_ownerProfileId_and_areaId_and_kind", [
+    "ownerProfileId",
+    "areaId",
+    "kind",
+  ]),
+
   activities: defineTable({
     startupId: v.id("startups"),
     actorProfileId: v.id("profiles"),
@@ -416,4 +450,3 @@ export default defineSchema({
       "createdAt",
     ]),
 });
-

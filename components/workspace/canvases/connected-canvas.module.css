@@ -1,0 +1,188 @@
+.canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 32rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 16% 12%, color-mix(in oklab, var(--canvas-accent, var(--primary)) 7%, transparent), transparent 25rem),
+    radial-gradient(circle at 82% 80%, color-mix(in oklab, var(--canvas-accent, var(--primary)) 4%, transparent), transparent 24rem),
+    var(--background);
+}
+
+.ideasCanvas {
+  --canvas-accent: oklch(0.64 0.17 72);
+}
+
+.notesCanvas {
+  --canvas-accent: oklch(0.64 0.13 232);
+}
+
+.tasksCanvas {
+  --canvas-accent: oklch(0.63 0.14 155);
+}
+
+.canvas :global(.react-flow) {
+  background: transparent;
+}
+
+.canvas :global(.react-flow__pane) {
+  cursor: grab;
+}
+
+.canvas :global(.react-flow__pane.dragging),
+.canvas :global(.react-flow__pane.selection) {
+  cursor: grabbing;
+}
+
+.canvas :global(.react-flow__selection) {
+  border: 1px solid color-mix(in oklab, var(--canvas-accent) 72%, transparent);
+  border-radius: 0.875rem;
+  background: color-mix(in oklab, var(--canvas-accent) 9%, transparent);
+}
+
+.canvas :global(.react-flow__edge-path) {
+  stroke: color-mix(in oklab, var(--muted-foreground) 54%, transparent);
+  stroke-width: 2;
+  transition: stroke 140ms ease, stroke-width 140ms ease;
+}
+
+.canvas :global(.react-flow__edge.selected .react-flow__edge-path),
+.canvas :global(.react-flow__edge:hover .react-flow__edge-path),
+.canvas :global(.react-flow__edge:focus-visible .react-flow__edge-path) {
+  stroke: var(--primary);
+  stroke-width: 2.75;
+}
+
+.canvas :global(.react-flow__connection-path) {
+  stroke: var(--primary);
+  stroke-width: 2.5;
+  stroke-dasharray: 5 4;
+}
+
+.canvas :global(.react-flow__controls) {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  border-radius: 0.875rem;
+  background: color-mix(in oklab, var(--card) 94%, transparent);
+  box-shadow: var(--shadow-desk);
+  backdrop-filter: blur(14px);
+}
+
+.canvas :global(.react-flow__controls-button) {
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+  color: var(--foreground);
+  background: transparent;
+}
+
+.canvas :global(.react-flow__controls-button:last-child) {
+  border-bottom: 0;
+}
+
+.canvas :global(.react-flow__controls-button:hover) {
+  background: var(--accent);
+}
+
+.canvas :global(.react-flow__controls-button svg) {
+  fill: currentColor;
+}
+
+.canvas :global(.react-flow__minimap) {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--card) 94%, transparent);
+  box-shadow: var(--shadow-desk);
+  backdrop-filter: blur(14px);
+}
+
+.canvas :global(.react-flow__attribution) {
+  display: none;
+}
+
+.node {
+  position: relative;
+  width: 17rem;
+  border: 1px solid color-mix(in oklab, var(--node-accent) 30%, var(--border));
+  border-radius: 1.35rem;
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--node-accent) 8%, var(--card));
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
+    0 16px 36px color-mix(in oklab, var(--node-accent) 9%, transparent);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.ideaNode {
+  width: 18rem;
+  min-height: 12.25rem;
+  border-radius: 42% 58% 52% 48% / 46% 44% 56% 54%;
+}
+
+.node:hover,
+.nodeSelected {
+  border-color: color-mix(in oklab, var(--node-accent) 72%, var(--border));
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--node-accent) 12%, transparent),
+    0 18px 42px color-mix(in oklab, var(--node-accent) 15%, transparent);
+}
+
+.handle {
+  width: 0.8rem !important;
+  height: 0.8rem !important;
+  border: 2px solid var(--card) !important;
+  background: color-mix(in oklab, var(--node-accent) 78%, var(--primary)) !important;
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.node:hover .handle,
+.nodeSelected .handle,
+.node:focus-within .handle {
+  opacity: 1;
+}
+
+.handle:hover {
+  transform: scale(1.25);
+}
+
+.neutral { --node-accent: oklch(0.58 0.025 266); }
+.violet { --node-accent: oklch(0.57 0.2 294); }
+.blue { --node-accent: oklch(0.58 0.17 249); }
+.green { --node-accent: oklch(0.57 0.14 155); }
+.amber { --node-accent: oklch(0.68 0.16 78); }
+.rose { --node-accent: oklch(0.61 0.19 18); }
+.note { --node-accent: oklch(0.64 0.13 232); }
+.task { --node-accent: oklch(0.63 0.14 155); }
+
+@media (max-width: 639px), (pointer: coarse) {
+  .canvas :global(.react-flow__controls-button) {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .canvas :global(.react-flow__minimap) {
+    display: none;
+  }
+
+  .handle {
+    width: 1rem !important;
+    height: 1rem !important;
+    opacity: 0.85;
+  }
+
+  .ideaNode {
+    width: 16.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node,
+  .handle,
+  .canvas :global(.react-flow__edge-path) {
+    transition: none;
+  }
+}
