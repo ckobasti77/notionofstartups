@@ -15,6 +15,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  ItemSizePicker,
+  workspaceItemDialogContentClass,
+  type ItemSizePreset,
+} from "@/components/workspace/workspace-item-dialog";
 import { cn } from "@/lib/utils";
 
 import type { ThoughtEditorValue, ThoughtNodeColor } from "./types";
@@ -38,6 +43,8 @@ export function ThoughtEditorDialog({
   initialValue,
   connected = false,
   pending,
+  sizePreset,
+  onSizePresetChange,
   onOpenChange,
   onSubmit,
 }: {
@@ -46,6 +53,8 @@ export function ThoughtEditorDialog({
   initialValue?: ThoughtEditorValue;
   connected?: boolean;
   pending: boolean;
+  sizePreset?: ItemSizePreset;
+  onSizePresetChange?: (preset: ItemSizePreset) => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: (value: ThoughtEditorValue) => void | Promise<void>;
 }) {
@@ -59,10 +68,28 @@ export function ThoughtEditorDialog({
     await onSubmit({ title: title.trim(), text: text.trim(), color });
   }
 
+  const dirty =
+    title !== (initialValue?.title ?? "") ||
+    text !== (initialValue?.text ?? "") ||
+    color !== (initialValue?.color ?? "violet");
+
+  function requestClose() {
+    if (pending) return;
+    if (dirty && !window.confirm("Odbaciti nesačuvane izmene?")) return;
+    onOpenChange(false);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
-        <form onSubmit={submit}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) requestClose();
+      }}
+    >
+      <DialogContent
+        className={`${workspaceItemDialogContentClass} sm:h-auto sm:max-w-xl`}
+      >
+        <form className="flex h-full min-h-0 flex-col" onSubmit={submit}>
           <DialogHeader className="border-b border-border/70 px-5 py-5 sm:px-6">
             <DialogTitle className="flex items-center gap-2">
               <span className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary">
@@ -77,7 +104,7 @@ export function ThoughtEditorDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 px-5 py-5 sm:px-6">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
             <div className="space-y-2">
               <Label htmlFor="thought-title">Naslov <span className="font-normal text-muted-foreground">(opciono)</span></Label>
               <Input
@@ -102,6 +129,12 @@ export function ThoughtEditorDialog({
               />
               <p className="text-right text-[0.6875rem] tabular-nums text-muted-foreground">{text.length}/12.000</p>
             </div>
+            {mode === "edit" && onSizePresetChange ? (
+              <ItemSizePicker
+                value={sizePreset}
+                onChange={onSizePresetChange}
+              />
+            ) : null}
             <fieldset>
               <legend className="mb-2 text-sm font-medium">Boja oblačića</legend>
               <div className="flex flex-wrap gap-2">
@@ -130,7 +163,7 @@ export function ThoughtEditorDialog({
           </div>
 
           <DialogFooter className="border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-6">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
+            <Button type="button" variant="ghost" onClick={requestClose} disabled={pending}>
               Otkaži
             </Button>
             <Button type="submit" disabled={pending || text.trim().length === 0}>
@@ -147,12 +180,16 @@ export function ThoughtEditorDialog({
 export function EdgeEditorDialog({
   open,
   initialLabel,
+  description = "Opciono objasni kako su dve misli povezane.",
+  inputId = "thought-edge-label",
   pending,
   onOpenChange,
   onSubmit,
 }: {
   open: boolean;
   initialLabel: string;
+  description?: string;
+  inputId?: string;
   pending: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (label: string) => void | Promise<void>;
@@ -164,7 +201,7 @@ export function EdgeEditorDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Naziv veze</DialogTitle>
-          <DialogDescription>Opciono objasni kako su dve misli povezane.</DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <form
           className="space-y-5"
@@ -174,9 +211,9 @@ export function EdgeEditorDialog({
           }}
         >
           <div className="space-y-2">
-            <Label htmlFor="thought-edge-label">Naziv</Label>
+            <Label htmlFor={inputId}>Naziv</Label>
             <Input
-              id="thought-edge-label"
+              id={inputId}
               value={label}
               onChange={(event) => setLabel(event.target.value)}
               placeholder="npr. vodi ka, zavisi od…"

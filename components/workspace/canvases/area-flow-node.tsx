@@ -1,7 +1,15 @@
 "use client";
 
 import { createContext, memo, useContext, type ReactNode } from "react";
-import { Handle, NodeToolbar, Position, type Node, type NodeProps } from "@xyflow/react";
+import {
+  Handle,
+  NodeResizer,
+  NodeToolbar,
+  Position,
+  type Node,
+  type NodeProps,
+  type ResizeParams,
+} from "@xyflow/react";
 import { ArrowUpRight, CheckSquare2, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -29,17 +37,20 @@ export type AreaFlowNode = Node<AreaCanvasNodeData, "areaPage">;
 
 const AreaNodeActionsContext = createContext<{
   open: (pageId: Id<"pages">) => void;
+  resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
 } | null>(null);
 
 export function AreaNodeActionsProvider({
   open,
+  resize,
   children,
 }: {
   open: (pageId: Id<"pages">) => void;
+  resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
   children: ReactNode;
 }) {
   return (
-    <AreaNodeActionsContext.Provider value={{ open }}>
+    <AreaNodeActionsContext.Provider value={{ open, resize }}>
       {children}
     </AreaNodeActionsContext.Provider>
   );
@@ -58,6 +69,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
     <article
       className={cn(
         styles.node,
+        styles.areaNode,
         isTask ? styles.task : styles.note,
         selected && styles.nodeSelected,
       )}
@@ -67,6 +79,14 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         actions?.open(pageId);
       }}
     >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={240}
+        minHeight={168}
+        maxWidth={720}
+        maxHeight={1_000}
+        onResizeEnd={(_event, layout) => actions?.resize(pageId, layout)}
+      />
       <NodeToolbar isVisible={selected} position={Position.Top} offset={10}>
         <Button
           type="button"

@@ -22,6 +22,7 @@ import {
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   UserRound,
 } from "lucide-react";
@@ -100,6 +101,7 @@ type WorkspaceSidebarProps = {
   draggedPageId: Id<"pages"> | null;
   activeDropPageId: Id<"pages"> | null;
   activeDropAreaId: Id<"startupAreas"> | null;
+  pendingApprovals: number;
   onDragPageStart: (pageId: Id<"pages">) => void;
   onDragPageEnd: () => void;
   onDragPageOver: (pageId: Id<"pages"> | null, areaId: Id<"startupAreas">) => void;
@@ -110,6 +112,7 @@ const primaryNav = [
   { kind: "home" as const, label: "Početna", icon: Home },
   { kind: "thoughts" as const, label: "Moje misli", icon: Brain, hint: "Samo ti" },
   { kind: "ideas" as const, label: "Ideje", icon: Lightbulb, hint: "Glasanje" },
+  { kind: "approvals" as const, label: "Odobrenja", icon: ShieldCheck },
   { kind: "today" as const, label: "Danas", icon: CalendarDays },
   { kind: "my-tasks" as const, label: "Moji zadaci", icon: CheckSquare2 },
   { kind: "activity" as const, label: "Aktivnost", icon: Activity },
@@ -121,6 +124,7 @@ function SidebarButton({
   active,
   collapsed,
   hint,
+  badge,
   onClick,
 }: {
   label: string;
@@ -128,6 +132,7 @@ function SidebarButton({
   active: boolean;
   collapsed: boolean;
   hint?: string;
+  badge?: number;
   onClick: () => void;
 }) {
   const button = (
@@ -155,7 +160,11 @@ function SidebarButton({
       {collapsed ? null : (
         <>
           <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-          {hint ? (
+          {badge && badge > 0 ? (
+            <span className="grid min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1.5 py-0.5 text-[0.625rem] font-bold text-primary-foreground">
+              {badge > 99 ? "99+" : badge}
+            </span>
+          ) : hint ? (
             <span className="shrink-0 rounded-md border border-primary/15 bg-primary/8 px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase tracking-[0.08em] text-primary">
               {hint}
             </span>
@@ -171,6 +180,11 @@ function SidebarButton({
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent side="right">
         <span className="block font-medium">{label}</span>
+        {badge && badge > 0 ? (
+          <span className="block text-[0.6875rem] text-muted-foreground">
+            {badge} za tvoju reakciju
+          </span>
+        ) : null}
         {hint ? <span className="block text-[0.6875rem] text-muted-foreground">{hint}</span> : null}
       </TooltipContent>
     </Tooltip>
@@ -347,6 +361,9 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
             label={item.label}
             icon={item.icon}
             hint={item.hint}
+            badge={
+              item.kind === "approvals" ? props.pendingApprovals : undefined
+            }
             active={route.kind === item.kind}
             collapsed={compact}
             onClick={() => props.onRouteChange({ kind: item.kind })}

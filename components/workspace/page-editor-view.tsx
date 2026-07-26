@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, LoaderCircle, Plus, RefreshCw, UserRound } from "lucide-react";
+import { AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -15,18 +15,43 @@ import { ProfileAvatar, TaskPriorityBadge, TaskStatusBadge } from "@/components/
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, toDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
+import { cn } from "@/lib/utils";
 
-export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onArchived }: { startup: StartupWithAreas; pageId: Id<"pages">; onOpenPage: (pageId: Id<"pages">) => void; onCreateChild: (target: CreatePageTarget) => void; onArchived: () => void }) {
+export type PageEditorSaveState =
+  | "saved"
+  | "saving"
+  | "dirty"
+  | "error"
+  | "conflict";
+
+export function PageEditorView({
+  startup,
+  pageId,
+  onOpenPage,
+  onCreateChild,
+  onArchived,
+  presentation = "page",
+  onSaveStateChange,
+}: {
+  startup: StartupWithAreas;
+  pageId: Id<"pages">;
+  onOpenPage: (pageId: Id<"pages">) => void;
+  onCreateChild: (target: CreatePageTarget) => void;
+  onArchived: () => void;
+  presentation?: "page" | "dialog";
+  onSaveStateChange?: (state: PageEditorSaveState) => void;
+}) {
   const page = useQuery(api.pages.get, { pageId });
   const breadcrumbs = useQuery(api.pages.getBreadcrumbs, { pageId });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
   const updatePage = useMutation(api.pages.update);
   const updateMetadata = useMutation(api.tasks.updateMetadata);
   const archivePage = useMutation(api.pages.archive);
+  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [draftPageId, setDraftPageId] = useState<Id<"pages"> | null>(null);
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "dirty" | "error" | "conflict">("saved");
+  const [saveState, setSaveState] = useState<PageEditorSaveState>("saved");
   const [autosaveTick, setAutosaveTick] = useState(0);
   const loadedPageId = useRef<string | null>(null);
   const activePageIdRef = useRef<string>(pageId);
@@ -77,7 +102,7 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
   }, [page, saveState]);
 
   useEffect(() => {
-    if (!page || saveState !== "dirty") return;
+    if (!page || !page.permissions.canEdit || saveState !== "dirty") return;
     const timer = window.setTimeout(async () => {
       if (saveInFlightRef.current) {
         saveQueuedRef.current = true;
@@ -144,6 +169,10 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
     return () => window.removeEventListener("beforeunload", warnAboutUnsavedDraft);
   }, [saveState]);
 
+  useEffect(() => {
+    onSaveStateChange?.(saveState);
+  }, [onSaveStateChange, saveState]);
+
   function markDraftChanged(nextDraft: { title: string; content: string }) {
     latestDraftRef.current = nextDraft;
     localVersionRef.current += 1;
@@ -186,7 +215,21 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
   }
 
   async function archive() {
-    if (!window.confirm("Arhivirati ovu stranicu? Njene podstranice više neće biti vidljive.")) return;
+    if (!page) return;
+    if (!page.permissions.canDeleteDirectly) {
+      try {
+        await requestDeletion({
+          target: { kind: "page", id: page._id },
+        });
+        toast.success("Glasanje o brisanju je pokrenuto.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Zahtev nije poslat.",
+        );
+      }
+      return;
+    }
+    if (!window.confirm("Arhivirati ovu stranicu? Podstranice će biti izvučene nivo iznad.")) return;
     try { await archivePage({ pageId }); toast.success("Stranica je arhivirana."); onArchived(); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Stranica nije arhivirana."); }
   }
@@ -194,13 +237,22 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
   // Tiptap must not mount with the empty local defaults. Its initial update can
   // otherwise mark that placeholder as a user edit and autosave it over the
   // body that was just created (notably after converting a private thought).
-  if (!page || page._id !== pageId || draftPageId !== page._id) return <EditorSkeleton />;
+  if (!page || page._id !== pageId || draftPageId !== page._id) {
+    return <EditorSkeleton presentation={presentation} />;
+  }
   const pageArea = startup.areas.find((area) => area._id === page.areaId);
   const status = (page.taskStatus ?? "backlog") as TaskStatus;
   const priority = (page.taskPriority ?? "medium") as TaskPriority;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pb-24 pt-4 sm:px-7 lg:px-10 lg:pt-6">
+    <div
+      className={cn(
+        "mx-auto w-full max-w-5xl",
+        presentation === "dialog"
+          ? "px-4 pb-16 pt-4 sm:px-6 sm:pb-10"
+          : "px-4 pb-24 pt-4 sm:px-7 lg:px-10 lg:pt-6",
+      )}
+    >
       <nav data-workspace-enter className="scrollbar-thin mb-5 flex min-h-9 items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-muted-foreground" aria-label="Putanja stranice">
         <span className="font-semibold text-foreground">{startup.name}</span><ChevronRight className="size-3.5" /><span>{pageArea?.label ?? "Oblast"}</span>
         {breadcrumbs?.slice(0, -1).map((item) => <span key={item._id} className="contents"><ChevronRight className="size-3.5" /><button type="button" className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground" onClick={() => onOpenPage(item._id)}>{item.title}</button></span>)}
@@ -238,7 +290,7 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
           </section>
         ) : null}
         <header className="border-b border-border/65 px-5 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-7">
-          <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />}{saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : !title.trim() ? "Unesi naslov za čuvanje" : "Izmene čekaju"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label="Arhiviraj stranicu" onClick={archive}><Archive /></Button></div>
+          <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input disabled={!page.permissions.canEdit} aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{page.permissions.canEdit ? (saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />) : <UserRound className="size-3.5" />}{page.permissions.canEdit ? (saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : !title.trim() ? "Unesi naslov za čuvanje" : "Izmene čekaju") : "Osnovni sadržaj menja samo kreator"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label={page.permissions.canDeleteDirectly ? "Arhiviraj stranicu" : "Zatraži brisanje stranice"} onClick={archive}><Archive /></Button></div>
           {page.kind === "task" ? <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4"><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Status</span><Select value={status} onValueChange={(value) => setTaskMetadata({ status: value as TaskStatus })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Prioritet</span><Select value={priority} onValueChange={(value) => setTaskMetadata({ priority: value as TaskPriority })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Dodeljeno</span><Select value={page.assigneeProfileId ?? "none"} onValueChange={(value) => setTaskMetadata({ assigneeProfileId: value === "none" ? null : value as Id<"profiles"> })}><SelectTrigger className="h-9 bg-card"><SelectValue placeholder="Nije dodeljen" /></SelectTrigger><SelectContent><SelectItem value="none">Nije dodeljen</SelectItem>{members?.map(({ profile }) => <SelectItem key={profile._id} value={profile._id}>{profile.displayName}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground" htmlFor="task-due-date">Rok</label><Input id="task-due-date" type="date" className="h-9 bg-card" value={toDateInputValue(page.dueDate)} onChange={(event) => setTaskMetadata({ dueDate: event.target.value ? fromDateInputValue(event.target.value) ?? null : null })} /></div></div> : null}
         </header>
         <div className="px-5 sm:px-8">
@@ -246,6 +298,7 @@ export function PageEditorView({ startup, pageId, onOpenPage, onCreateChild, onA
             key={page._id}
             documentKey={page._id}
             content={content}
+            editable={page.permissions.canEditBody}
             onChange={({ html }) => {
               setContent(html);
               markDraftChanged({ ...latestDraftRef.current, content: html });
@@ -443,22 +496,39 @@ function TaskDetailWidgets({
   );
 }
 
-function EditorSkeleton() { return <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-7 sm:px-7 lg:px-10"><Skeleton className="h-6 w-72" /><Skeleton className="h-[38rem] rounded-2xl" /></div>; }
+function EditorSkeleton({
+  presentation = "page",
+}: {
+  presentation?: "page" | "dialog";
+}) {
+  return (
+    <div
+      className={cn(
+        "mx-auto w-full max-w-5xl space-y-4",
+        presentation === "dialog"
+          ? "px-4 py-5 sm:px-6"
+          : "px-4 py-7 sm:px-7 lg:px-10",
+      )}
+    >
+      <Skeleton className="h-6 w-72" />
+      <Skeleton className="h-[38rem] rounded-2xl" />
+    </div>
+  );
+}
 
-type AuthorEntryItem = {
-  _id: Id<"pageEntries">;
-  authorProfileId: Id<"profiles">;
-  content: string;
-  createdAt: number;
-  author: { displayName: string; avatarUrl: string | null } | null;
-};
-
-function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEntryItem[] } }) {
+function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
   const [newEntryText, setNewEntryText] = useState("");
+  const [editingEntryId, setEditingEntryId] =
+    useState<Id<"contentContributions"> | null>(null);
+  const [editingEntryText, setEditingEntryText] = useState("");
+  const entries = useQuery(api.collaboration.listContributions, {
+    target: { kind: "page", id: page._id },
+  });
   const addEntry = useMutation(api.pages.addEntry);
-  const deleteEntry = useMutation(api.pages.deleteEntry);
-
-  const entries: AuthorEntryItem[] = page.entries || [];
+  const updateEntry = useMutation(api.collaboration.updateContribution);
+  const deleteEntry = useMutation(api.collaboration.deleteOwnContribution);
+  const restoreEntry = useMutation(api.collaboration.restoreOwnContribution);
+  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const handleAddEntry = async () => {
     if (!newEntryText.trim()) return;
@@ -474,13 +544,34 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEn
     }
   };
 
-  const handleDeleteEntry = async (entryId: Id<"pageEntries">) => {
+  const handleDeleteEntry = async (
+    entry: NonNullable<typeof entries>[number],
+  ) => {
     try {
+      if (!entry.canDeleteDirectly) {
+        await requestDeletion({
+          target: { kind: "contribution", id: entry._id },
+        });
+        toast.success("Glasanje o brisanju je pokrenuto.");
+        return;
+      }
       await deleteEntry({
-        pageId: page._id,
-        entryId,
+        contributionId: entry._id,
       });
-      toast.success("Unos je uklonjen.");
+      toast.success("Doprinos je uklonjen.", {
+        duration: 8_000,
+        action: {
+          label: "Undo",
+          onClick: () =>
+            void restoreEntry({ contributionId: entry._id }).catch((error) =>
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "Doprinos nije vraćen.",
+              ),
+            ),
+        },
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Greška pri brisanju.");
     }
@@ -490,7 +581,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEn
     <div className="my-8 space-y-6 border-t border-border/60 pt-6">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-wide uppercase text-muted-foreground">
-          Sadržaji i Doprinosi Članova ({entries.length})
+          Sadržaji i Doprinosi Članova ({entries?.length ?? 0})
         </h3>
         <span className="text-xs text-muted-foreground">
           Svaki član ima svoj označen blok sa avatarom i vremenom
@@ -499,7 +590,13 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEn
 
       {/* Render existing author entries */}
       <div className="space-y-4">
-        {entries.map((entry: AuthorEntryItem) => {
+        {entries === undefined ? (
+          <Skeleton className="h-28 rounded-2xl" />
+        ) : entries.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            Još nema doprinosa.
+          </div>
+        ) : entries.map((entry) => {
           const formattedTime = new Date(entry.createdAt).toLocaleString("sr-RS", {
             day: "2-digit",
             month: "short",
@@ -528,23 +625,90 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEn
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-foreground">
-                    {entry.author?.displayName || "Član Tima"}
+                    {entry.author?.displayName ||
+                      (entry.attribution === "legacy_neutral"
+                        ? "Raniji zajednički sadržaj"
+                        : "Član tima")}
                   </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleDeleteEntry(entry._id)}
-                  >
-                    <Archive className="size-3.5" />
-                  </Button>
+                  <div className="flex gap-1">
+                    {entry.canEdit ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={() => {
+                          setEditingEntryId(entry._id);
+                          setEditingEntryText(entry.content);
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      aria-label={
+                        entry.canDeleteDirectly
+                          ? "Obriši moj doprinos"
+                          : "Zatraži brisanje doprinosa"
+                      }
+                      onClick={() => void handleDeleteEntry(entry)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
 
-                <div
-                  className="text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none"
-                  dangerouslySetInnerHTML={{ __html: entry.content }}
-                />
+                {editingEntryId === entry._id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editingEntryText}
+                      onChange={(event) =>
+                        setEditingEntryText(event.target.value)
+                      }
+                      className="min-h-28 w-full rounded-xl border border-input bg-background p-3 text-sm"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingEntryId(null)}
+                      >
+                        <X /> Otkaži
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          void updateEntry({
+                            contributionId: entry._id,
+                            content: editingEntryText,
+                          })
+                            .then(() => {
+                              setEditingEntryId(null);
+                              toast.success("Doprinos je sačuvan.");
+                            })
+                            .catch((error) =>
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Doprinos nije sačuvan.",
+                              ),
+                            )
+                        }
+                      >
+                        Sačuvaj
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none"
+                    dangerouslySetInnerHTML={{ __html: entry.content }}
+                  />
+                )}
 
                 {/* Bottom Timestamp */}
                 <div className="pt-1 text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
@@ -584,4 +748,3 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> & { entries?: AuthorEn
     </div>
   );
 }
-

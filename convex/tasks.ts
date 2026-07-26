@@ -155,6 +155,9 @@ export const updateMetadata = mutation({
     const page = await requireVisiblePage(ctx, args.pageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije task.");
     const { profile } = await requireStartupMember(ctx, page.startupId);
+    if (page.createdByProfileId !== profile._id) {
+      throw new Error("Osnovne podatke zadatka menja samo njegov kreator.");
+    }
     if (args.assigneeProfileId !== undefined && args.assigneeProfileId !== null) {
       await requireProfileInStartup(ctx, page.startupId, args.assigneeProfileId);
     }

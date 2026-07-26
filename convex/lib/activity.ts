@@ -14,9 +14,26 @@ type ActivityAction =
   | "page_updated"
   | "page_moved"
   | "page_archived"
-  | "task_updated";
+  | "task_updated"
+  | "contribution_created"
+  | "contribution_updated"
+  | "deletion_requested"
+  | "deletion_voted"
+  | "deletion_resolved"
+  | "nesting_requested"
+  | "nesting_resolved"
+  | "content_recovered"
+  | "content_soft_deleted";
 
-type ActivityTargetType = "startup" | "profile" | "invite" | "page";
+type ActivityTargetType =
+  | "startup"
+  | "profile"
+  | "invite"
+  | "page"
+  | "idea"
+  | "contribution"
+  | "request"
+  | "recovered";
 
 export async function recordActivity(
   ctx: MutationCtx,
@@ -35,4 +52,3 @@ export async function recordActivity(
     createdAt: Date.now(),
   });
 }
-

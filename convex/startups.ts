@@ -16,6 +16,7 @@ import {
   cleanOptionalText,
   cleanRequiredText,
 } from "./lib/validators";
+import { applyApprovedDeletion } from "./collaboration";
 
 async function getAreas(
   ctx: Parameters<typeof requireProfile>[0],
@@ -335,6 +336,36 @@ export const removeMember = mutation({
         }),
       ),
     );
+    const pendingBallots = await ctx.db
+      .query("deletionBallots")
+      .withIndex("by_profileId_and_vote_and_createdAt", (q) =>
+        q.eq("profileId", profile._id).eq("vote", "pending"),
+      )
+      .take(200);
+    for (const ballot of pendingBallots) {
+      if (ballot.startupId !== startup._id) continue;
+      const request = await ctx.db.get("deletionRequests", ballot.requestId);
+      if (request === null || request.status !== "pending") continue;
+      const eligibleCount = Math.max(0, request.eligibleCount - 1);
+      await ctx.db.patch("deletionBallots", ballot._id, {
+        vote: "excused",
+        updatedAt: now,
+      });
+      if (request.approveCount === eligibleCount) {
+        await applyApprovedDeletion(ctx, request);
+        await ctx.db.patch("deletionRequests", request._id, {
+          status: "approved",
+          eligibleCount,
+          resolvedAt: now,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.patch("deletionRequests", request._id, {
+          eligibleCount,
+          updatedAt: now,
+        });
+      }
+    }
     await ctx.db.patch("startupMembers", membership._id, { archivedAt: now });
     await recordActivity(ctx, {
       startupId: startup._id,
@@ -467,5 +498,3 @@ export const reorderAreas = mutation({
     return true;
   },
 });
-
-

@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
   Check,
   CheckSquare2,
   FileText,
+  FolderInput,
   LayoutGrid,
   Lightbulb,
+  MessageSquareText,
+  Pencil,
   Plus,
   Search,
   Sparkles,
@@ -19,6 +22,7 @@ import {
 import { toast } from "sonner";
 
 import { IdeasCanvasView } from "@/components/workspace/ideas-canvas-view";
+import { IdeaDiscussionDialog } from "@/components/workspace/idea-discussion-dialog";
 import type { StartupWithAreas } from "@/components/workspace/types";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { Button } from "@/components/ui/button";
@@ -40,6 +44,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  ITEM_SIZE_DIMENSIONS,
+  ItemSizePicker,
+  workspaceItemDialogContentClass,
+  type ItemSizePreset,
+} from "@/components/workspace/workspace-item-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -53,19 +63,46 @@ type IdeaNodeItem = {
   _id: Id<"ideaNodes">;
   title: string | null;
   text: string;
+  color: IdeaColor;
   isApproved: boolean;
+  parentIdeaId?: Id<"ideaNodes">;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  upvotes?: number;
+  downvotes?: number;
+  contributionCount?: number;
+  author?: {
+    displayName: string;
+    avatarUrl: string | null;
+  } | null;
+  canEdit: boolean;
+  canDeleteDirectly: boolean;
 };
+
+type IdeaColor = "neutral" | "violet" | "blue" | "green" | "amber" | "rose";
 
 export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
   const [viewMode, setViewMode] = useState<"table" | "canvas">("canvas");
   const [searchQuery, setSearchQuery] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editingIdea, setEditingIdea] = useState<IdeaNodeItem | null>(null);
+  const [editorPending, setEditorPending] = useState(false);
   const [convertIdea, setConvertIdea] = useState<IdeaNodeItem | null>(null);
+  const [discussionIdea, setDiscussionIdea] =
+    useState<IdeaNodeItem | null>(null);
+  const [nestingIdea, setNestingIdea] = useState<IdeaNodeItem | null>(null);
+  const [nestParentId, setNestParentId] =
+    useState<Id<"ideaNodes"> | "">("");
+  const [expandedIdeaIds, setExpandedIdeaIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
 
   // Form states for new idea
   const [newTitle, setNewTitle] = useState("");
   const [newText, setNewText] = useState("");
-  const [newColor, setNewColor] = useState<"neutral" | "violet" | "blue" | "green" | "amber" | "rose">("violet");
+  const [newColor, setNewColor] = useState<IdeaColor>("violet");
   const [selectedParentId, setSelectedParentId] = useState<Id<"ideaNodes"> | undefined>(undefined);
   const [newPosition, setNewPosition] = useState<{ x: number; y: number } | undefined>(undefined);
 
@@ -77,13 +114,72 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
 
   const ideasData = useQuery(api.ideas.list, { startupId: startup._id });
   const createIdeaMutation = useMutation(api.ideas.create);
+  const updateIdeaMutation = useMutation(api.ideas.update);
+  const updateIdeaLayoutMutation = useMutation(api.ideas.updateLayout);
   const voteMutation = useMutation(api.ideas.vote);
   const convertMutation = useMutation(api.ideas.convertToPage);
+  const requestNestingMutation = useMutation(api.collaboration.requestNesting);
 
-  const closeCreateDialog = () => {
+  const closeIdeaEditor = () => {
     setCreateDialogOpen(false);
+    setEditingIdea(null);
     setSelectedParentId(undefined);
     setNewPosition(undefined);
+    setNewTitle("");
+    setNewText("");
+    setNewColor("violet");
+  };
+
+  const openCreateEditor = (
+    parentIdeaId?: Id<"ideaNodes">,
+    position?: { x: number; y: number },
+  ) => {
+    setEditingIdea(null);
+    setSelectedParentId(parentIdeaId);
+    setNewPosition(position);
+    setNewTitle("");
+    setNewText("");
+    setNewColor("violet");
+    setCreateDialogOpen(true);
+  };
+
+  const openEditEditor = (idea: IdeaNodeItem) => {
+    setEditingIdea(idea);
+    setSelectedParentId(undefined);
+    setNewPosition(undefined);
+    setNewTitle(idea.title ?? "");
+    setNewText(idea.text);
+    setNewColor(idea.color);
+    setCreateDialogOpen(true);
+  };
+
+  const ideaEditorDirty = editingIdea
+    ? newTitle !== (editingIdea.title ?? "") ||
+      newText !== editingIdea.text ||
+      newColor !== editingIdea.color
+    : newTitle.trim().length > 0 ||
+      newText.trim().length > 0 ||
+      newColor !== "violet";
+
+  const requestCloseIdeaEditor = () => {
+    if (editorPending) return false;
+    if (
+      ideaEditorDirty &&
+      !window.confirm("Odbaciti nesačuvane izmene ideje?")
+    ) {
+      return false;
+    }
+    closeIdeaEditor();
+    return true;
+  };
+
+  const toggleExpandedRow = (ideaId: Id<"ideaNodes">) => {
+    setExpandedIdeaIds((current) => {
+      const next = new Set(current);
+      if (next.has(ideaId)) next.delete(ideaId);
+      else next.add(ideaId);
+      return next;
+    });
   };
 
   if (!ideasData) {
@@ -105,30 +201,70 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
       n.text.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleCreateIdea = async () => {
+  const handleSaveIdea = async () => {
     if (!newText.trim()) {
       toast.error("Unesite tekst ideje.");
       return;
     }
+    setEditorPending(true);
     try {
-      await createIdeaMutation({
-        startupId: startup._id,
-        title: newTitle.trim() || undefined,
-        text: newText.trim(),
-        color: newColor,
-        parentIdeaId: selectedParentId,
-        x: newPosition ? Math.round(newPosition.x) : undefined,
-        y: newPosition ? Math.round(newPosition.y) : undefined,
-      });
-      toast.success(selectedParentId ? "Nova grana ideje je dodata." : "Ideja je dodata na kanvas.");
-      setCreateDialogOpen(false);
-      setNewTitle("");
-      setNewText("");
-      setSelectedParentId(undefined);
-      setNewPosition(undefined);
+      if (editingIdea) {
+        await updateIdeaMutation({
+          startupId: startup._id,
+          ideaId: editingIdea._id,
+          title: newTitle.trim() || null,
+          text: newText.trim(),
+          color: newColor,
+        });
+        toast.success("Ideja je sačuvana.");
+      } else {
+        await createIdeaMutation({
+          startupId: startup._id,
+          title: newTitle.trim() || undefined,
+          text: newText.trim(),
+          color: newColor,
+          parentIdeaId: selectedParentId,
+          x: newPosition ? Math.round(newPosition.x) : undefined,
+          y: newPosition ? Math.round(newPosition.y) : undefined,
+        });
+        toast.success(
+          selectedParentId
+            ? "Nova grana ideje je dodata."
+            : "Ideja je dodata na kanvas.",
+        );
+      }
+      closeIdeaEditor();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Greška pri kreiranju ideje.");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : editingIdea
+            ? "Ideja nije sačuvana."
+            : "Greška pri kreiranju ideje.",
+      );
+    } finally {
+      setEditorPending(false);
     }
+  };
+
+  const resizeEditingIdea = (preset: ItemSizePreset) => {
+    if (!editingIdea?.canEdit) return;
+    const dimensions = ITEM_SIZE_DIMENSIONS[preset];
+    void updateIdeaLayoutMutation({
+      startupId: startup._id,
+      ideaId: editingIdea._id,
+      x: editingIdea.x,
+      y: editingIdea.y,
+      ...dimensions,
+    })
+      .then(() => toast.success("Veličina oblačića je sačuvana."))
+      .catch((error) =>
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Veličina oblačića nije sačuvana.",
+        ),
+      );
   };
 
   const handleConvert = async () => {
@@ -216,11 +352,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
           </div>
 
           <Button
-            onClick={() => {
-              setSelectedParentId(undefined);
-              setNewPosition(undefined);
-              setCreateDialogOpen(true);
-            }}
+            onClick={() => openCreateEditor()}
             size="sm"
             className="rounded-xl h-9 text-xs gap-1.5 font-medium"
           >
@@ -240,17 +372,19 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
             canvasState={canvasState}
             searchActive={searchQuery.trim().length > 0}
             onConvertIdea={(idea) => setConvertIdea(idea)}
-            onCreateIdea={(parentId, position) => {
-              setSelectedParentId(parentId);
-              setNewPosition(position);
-              setCreateDialogOpen(true);
+            onEditIdea={openEditEditor}
+            onOpenDiscussion={(idea) => setDiscussionIdea(idea)}
+            onNestIdea={(idea) => {
+              setNestingIdea(idea);
+              setNestParentId("");
             }}
+            onCreateIdea={openCreateEditor}
           />
         ) : (
           /* Table View */
           <div className="h-full overflow-y-auto p-6">
-            <div className="rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm">
-              <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-sm">
+              <table className="min-w-[64rem] w-full text-left text-sm">
                 <thead className="bg-muted/40 border-b border-border/60 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   <tr>
                     <th className="px-6 py-3.5">Ideja</th>
@@ -269,98 +403,174 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                       </td>
                     </tr>
                   ) : (
-                    filteredNodes.map((node) => (
-                      <tr key={node._id} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-6 py-4 max-w-xs">
-                          {node.title ? (
-                            <h4 className="font-semibold text-foreground line-clamp-1">
-                              {node.title}
-                            </h4>
+                    filteredNodes.map((node) => {
+                      const expanded = expandedIdeaIds.has(node._id);
+                      return (
+                        <Fragment key={node._id}>
+                          <tr className={cn(
+                            "transition-colors hover:bg-muted/20",
+                            expanded && "bg-muted/15",
+                          )}>
+                            <td className="max-w-xs px-6 py-4">
+                              <button
+                                type="button"
+                                className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                aria-expanded={expanded}
+                                onClick={() => {
+                                  if (expanded) toggleExpandedRow(node._id);
+                                  openEditEditor(node);
+                                }}
+                              >
+                                {node.title ? (
+                                  <h4 className="line-clamp-1 font-semibold text-foreground">
+                                    {node.title}
+                                  </h4>
+                                ) : null}
+                                <p className="line-clamp-2 text-xs text-muted-foreground">
+                                  {node.text}
+                                </p>
+                              </button>
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <ProfileAvatar
+                                  profile={{
+                                    displayName: node.author?.displayName || "Autor",
+                                    avatarUrl: node.author?.avatarUrl || null,
+                                  }}
+                                  className="size-7"
+                                />
+                                <span className="text-xs font-medium">
+                                  {node.author?.displayName || "Član"}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4 text-xs text-muted-foreground">
+                              {new Date(node.createdAt).toLocaleDateString("sr-RS", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleVote(node._id, "up")}
+                                  className={cn(
+                                    "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
+                                    node.userVote === "up"
+                                      ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-400"
+                                      : "border-border/60 text-muted-foreground hover:bg-muted",
+                                  )}
+                                  aria-label={`Glasaj za ideju. Trenutno ${node.upvotes}`}
+                                >
+                                  <ThumbsUp className="size-3.5" />
+                                  <span>{node.upvotes}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleVote(node._id, "down")}
+                                  className={cn(
+                                    "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
+                                    node.userVote === "down"
+                                      ? "border-rose-500/50 bg-rose-500/20 text-rose-400"
+                                      : "border-border/60 text-muted-foreground hover:bg-muted",
+                                  )}
+                                  aria-label={`Glasaj protiv ideje. Trenutno ${node.downvotes}`}
+                                >
+                                  <ThumbsDown className="size-3.5" />
+                                  <span>{node.downvotes}</span>
+                                </button>
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4">
+                              {node.isApproved ? (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                                  <Check className="size-3" /> Odobreno
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+                                  U razmatranju
+                                </span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4 text-right">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 gap-1.5 rounded-xl text-xs"
+                                aria-expanded={expanded}
+                                onClick={() => {
+                                  if (expanded) toggleExpandedRow(node._id);
+                                  openEditEditor(node);
+                                }}
+                              >
+                                Otvori
+                                <ArrowRight className="size-3.5" />
+                              </Button>
+                            </td>
+                          </tr>
+                          {expanded ? (
+                            <tr>
+                              <td colSpan={6} className="bg-muted/10 px-6 pb-5 pt-0">
+                                <div className="rounded-2xl border border-border/70 bg-background/75 p-5 shadow-sm">
+                                  <div className="flex flex-wrap items-start justify-between gap-4">
+                                    <div className="min-w-0 max-w-3xl">
+                                      <p className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                                        Cela ideja
+                                      </p>
+                                      {node.title ? (
+                                        <h4 className="mt-2 text-base font-bold tracking-[-0.02em]">
+                                          {node.title}
+                                        </h4>
+                                      ) : null}
+                                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
+                                        {node.text}
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 flex-wrap gap-2">
+                                      {node.canEdit ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="rounded-xl"
+                                          onClick={() => openEditEditor(node)}
+                                        >
+                                          <Pencil className="size-3.5" /> Uredi moje
+                                        </Button>
+                                      ) : null}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="rounded-xl"
+                                        onClick={() => setDiscussionIdea(node)}
+                                      >
+                                        <MessageSquareText className="size-3.5" />
+                                        Doprinosi
+                                      </Button>
+                                      {node.isApproved && !node.convertedPageId ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-500"
+                                          onClick={() => setConvertIdea(node)}
+                                        >
+                                          Pretvori <ArrowRight className="size-3.5" />
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           ) : null}
-                          <p className="text-xs text-muted-foreground line-clamp-2">
-                            {node.text}
-                          </p>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <ProfileAvatar
-                              profile={{
-                                displayName: node.author?.displayName || "Autor",
-                                avatarUrl: node.author?.avatarUrl || null,
-                              }}
-                              className="size-7"
-                            />
-                            <span className="text-xs font-medium">
-                              {node.author?.displayName || "Član"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-xs text-muted-foreground">
-                          {new Date(node.createdAt).toLocaleDateString("sr-RS", {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric",
-                          })}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleVote(node._id, "up")}
-                              className={cn(
-                                "flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors border",
-                                node.userVote === "up"
-                                  ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
-                                  : "border-border/60 hover:bg-muted text-muted-foreground"
-                              )}
-                            >
-                              <ThumbsUp className="size-3.5" />
-                              <span>{node.upvotes}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleVote(node._id, "down")}
-                              className={cn(
-                                "flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors border",
-                                node.userVote === "down"
-                                  ? "bg-rose-500/20 border-rose-500/50 text-rose-400"
-                                  : "border-border/60 hover:bg-muted text-muted-foreground"
-                              )}
-                            >
-                              <ThumbsDown className="size-3.5" />
-                              <span>{node.downvotes}</span>
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {node.isApproved ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
-                              <Check className="size-3" /> Odobreno
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-xs font-medium text-amber-400">
-                              U razmatranju
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          {node.isApproved ? (
-                            <Button
-                              size="sm"
-                              onClick={() => setConvertIdea(node)}
-                              className="rounded-xl h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium gap-1"
-                            >
-                              <span>Pretvori u zadatak ili belešku</span>
-                              <ArrowRight className="size-3.5" />
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground italic">
-                              Čeka više odobrenja
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                        </Fragment>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -369,26 +579,55 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
         )}
       </div>
 
-      {/* Dialog: Nova Ideja */}
+      {/* Zajednički editor za novu i postojeću ideju */}
       <Dialog
         open={createDialogOpen}
         onOpenChange={(open) => {
           if (open) setCreateDialogOpen(true);
-          else closeCreateDialog();
+          else requestCloseIdeaEditor();
         }}
       >
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
+        <DialogContent
+          className={`${workspaceItemDialogContentClass} sm:h-auto sm:max-w-xl`}
+        >
+          <div className="flex h-full min-h-0 flex-col">
+          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-12 sm:px-6">
             <DialogTitle className="flex items-center gap-2">
               <Lightbulb className="size-5 text-amber-500" />
-              <span>{selectedParentId ? "Dodaj granu ideje" : "Nova ideja"}</span>
+              <span>
+                {editingIdea
+                  ? editingIdea.canEdit
+                    ? "Uredi ideju"
+                    : "Detalji ideje"
+                  : selectedParentId
+                    ? "Dodaj granu ideje"
+                    : "Nova ideja"}
+              </span>
             </DialogTitle>
             <DialogDescription>
-              Ideja je vidljiva timu. Članovi mogu da glasaju i povežu je sa drugim predlozima.
+              {editingIdea
+                ? editingIdea.canEdit
+                  ? "Izmene se odmah vide i u tabeli i na kanvasu."
+                  : "Pročitaj celu ideju ili dodaj svoj doprinos diskusiji."
+                : "Ideja je vidljiva timu. Članovi mogu da glasaju i povežu je sa drugim predlozima."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
+            {editingIdea ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/25 p-3 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  {editingIdea.author?.displayName ?? "Član tima"}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {editingIdea.isApproved ? "Odobrena ideja" : "U razmatranju"}
+                </span>
+                <span className="ml-auto">
+                  {editingIdea.upvotes ?? 0} za · {editingIdea.downvotes ?? 0} protiv
+                </span>
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold">Naslov (opciono)</label>
               <Input
@@ -396,6 +635,9 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="Na primer: Nedeljni pregled napretka"
                 className="rounded-xl"
+                maxLength={200}
+                autoFocus
+                disabled={Boolean(editingIdea && !editingIdea.canEdit)}
               />
             </div>
 
@@ -406,6 +648,8 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                 onChange={(e) => setNewText(e.target.value)}
                 placeholder="Šta predlažeš i zašto bi to bilo korisno?"
                 className="rounded-xl min-h-[100px]"
+                maxLength={12_000}
+                disabled={Boolean(editingIdea && !editingIdea.canEdit)}
               />
             </div>
 
@@ -417,6 +661,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                     key={color}
                     type="button"
                     onClick={() => setNewColor(color)}
+                    disabled={Boolean(editingIdea && !editingIdea.canEdit)}
                     className={cn(
                       "size-7 rounded-full border-2 transition-transform",
                       newColor === color ? "scale-110 ring-2 ring-primary" : "opacity-70 hover:opacity-100",
@@ -431,16 +676,61 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                 ))}
               </div>
             </div>
+            {editingIdea?.canEdit ? (
+              <ItemSizePicker
+                value={
+                  editingIdea.width && editingIdea.width >= 480
+                    ? "large"
+                    : editingIdea.width && editingIdea.width >= 330
+                      ? "standard"
+                      : "compact"
+                }
+                onChange={resizeEditingIdea}
+              />
+            ) : null}
           </div>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={closeCreateDialog} className="rounded-xl">
-              Otkaži
+          <DialogFooter className="border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-6">
+            {editingIdea ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl sm:mr-auto"
+                onClick={() => {
+                  const idea = editingIdea;
+                  if (!requestCloseIdeaEditor()) return;
+                  setDiscussionIdea(idea);
+                }}
+              >
+                <MessageSquareText className="size-4" />
+                Doprinosi
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              onClick={requestCloseIdeaEditor}
+              className="rounded-xl"
+              disabled={editorPending}
+            >
+              {editingIdea && !editingIdea.canEdit ? "Zatvori" : "Otkaži"}
             </Button>
-            <Button onClick={handleCreateIdea} className="rounded-xl font-medium">
-              {selectedParentId ? "Dodaj granu" : "Dodaj ideju"}
-            </Button>
+            {!editingIdea || editingIdea.canEdit ? (
+              <Button
+              onClick={handleSaveIdea}
+              className="rounded-xl font-medium"
+              disabled={editorPending || newText.trim().length === 0}
+            >
+              {editorPending
+                ? "Čuvam…"
+                : editingIdea
+                  ? "Sačuvaj izmene"
+                  : selectedParentId
+                    ? "Dodaj granu"
+                    : "Dodaj ideju"}
+              </Button>
+            ) : null}
           </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -521,6 +811,84 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
             >
               <span>Kreiraj {targetKind === "task" ? "Task" : "Note"}</span>
               <ArrowRight className="size-4" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <IdeaDiscussionDialog
+        idea={discussionIdea}
+        open={discussionIdea !== null}
+        onOpenChange={(open) => !open && setDiscussionIdea(null)}
+      />
+
+      <Dialog
+        open={nestingIdea !== null}
+        onOpenChange={(open) => !open && setNestingIdea(null)}
+      >
+        <DialogContent className="rounded-3xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ubaci karticu u…</DialogTitle>
+            <DialogDescription>
+              Svoj Parent se primenjuje odmah. Za tuđ Parent autor dobija zahtev
+              u odeljku Odobrenja.
+            </DialogDescription>
+          </DialogHeader>
+          <Select
+            value={nestParentId}
+            onValueChange={(value) =>
+              setNestParentId(value as Id<"ideaNodes">)
+            }
+          >
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder="Izaberi Parent karticu" />
+            </SelectTrigger>
+            <SelectContent>
+              {nodes
+                .filter((node) => node._id !== nestingIdea?._id)
+                .map((node) => (
+                  <SelectItem key={node._id} value={node._id}>
+                    {node.title ?? node.text.slice(0, 55)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              className="rounded-xl"
+              onClick={() => setNestingIdea(null)}
+            >
+              Otkaži
+            </Button>
+            <Button
+              className="rounded-xl"
+              disabled={!nestingIdea || !nestParentId}
+              onClick={() => {
+                if (!nestingIdea || !nestParentId) return;
+                void requestNestingMutation({
+                  startupId: startup._id,
+                  childIdeaId: nestingIdea._id,
+                  parentIdeaId: nestParentId as Id<"ideaNodes">,
+                })
+                  .then((result) => {
+                    toast.success(
+                      result.status === "approved"
+                        ? "Kartica je ugnježđena."
+                        : "Zahtev je poslat autoru Parent kartice.",
+                    );
+                    setNestingIdea(null);
+                  })
+                  .catch((error) =>
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : "Ugnježđavanje nije sačuvano.",
+                    ),
+                  );
+              }}
+            >
+              <FolderInput /> Ubaci
             </Button>
           </DialogFooter>
         </DialogContent>

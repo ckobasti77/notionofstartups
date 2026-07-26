@@ -4,6 +4,10 @@ import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import {
+  contributionTargetKey,
+  insertContribution,
+} from "./lib/collaboration";
+import {
   cleanPageContent,
   cleanPagePosition,
   insertWorkspacePage,
@@ -57,8 +61,8 @@ export const get = query({
   args: { pageId: v.id("pages") },
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    await requireStartupMember(ctx, page.startupId);
-    const [body, creator, updater, assignee, rawEntries] = await Promise.all([
+    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const [body, creator, updater, assignee, rawEntries, pageContributions] = await Promise.all([
       ctx.db
         .query("pageBodies")
         .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
@@ -72,12 +76,26 @@ export const get = query({
         .query("pageEntries")
         .withIndex("by_pageId_and_position", (q) => q.eq("pageId", page._id))
         .collect(),
+      ctx.db
+        .query("contentContributions")
+        .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
+          q
+            .eq("targetKey", contributionTargetKey("page", page._id))
+            .eq("archivedAt", null),
+        )
+        .take(200),
     ]);
 
     // Format author avatars and profiles for entries
     const entries = await Promise.all(
       rawEntries.map(async (entry) => {
         const author = await ctx.db.get("profiles", entry.authorProfileId);
+        const contribution = await ctx.db
+          .query("contentContributions")
+          .withIndex("by_sourceKind_and_sourceId", (q) =>
+            q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
+          )
+          .unique();
         let avatarUrl = null;
         if (author?.avatarStorageId) {
           avatarUrl = await ctx.storage.getUrl(author.avatarStorageId);
@@ -92,6 +110,10 @@ export const get = query({
                 avatarUrl,
               }
             : null,
+          canEdit: entry.authorProfileId === profile._id,
+          canDeleteDirectly: entry.authorProfileId === profile._id,
+          canRequestDeletion: entry.authorProfileId !== profile._id,
+          contributionId: contribution?._id ?? null,
         };
       })
     );
@@ -109,6 +131,21 @@ export const get = query({
       updater,
       assignee,
       entries,
+      permissions: {
+        canEdit: page.createdByProfileId === profile._id,
+        canEditBody:
+          page.createdByProfileId === profile._id &&
+          pageContributions.some(
+            (contribution) =>
+              contribution.sourceKind === "page_body" &&
+              contribution.attribution === "author" &&
+              contribution.authorProfileId === profile._id,
+          ),
+        canMove: page.createdByProfileId === profile._id,
+        canResize: page.createdByProfileId === profile._id,
+        canDeleteDirectly: page.createdByProfileId === profile._id,
+        canRequestDeletion: page.createdByProfileId !== profile._id,
+      },
     };
   },
 });
@@ -186,6 +223,11 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);
+    if (page.createdByProfileId !== profile._id) {
+      throw new Error(
+        "Naslov i osnovni sadržaj menja samo kreator. Dodajte svoj doprinos.",
+      );
+    }
     if (page.revision !== args.expectedRevision) {
       throw new Error("KONFLIKT_IZMENA: Neko iz tima je u međuvremenu izmenio ovu stranicu.");
     }
@@ -198,6 +240,28 @@ export const update = mutation({
       : cleanRequiredText(args.title, "Naslov", 200);
     const currentContent = body?.content ?? "";
     const content = args.content === undefined ? currentContent : cleanPageContent(args.content);
+    const bodyContributions = await ctx.db
+      .query("contentContributions")
+      .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
+        q
+          .eq("targetKey", contributionTargetKey("page", page._id))
+          .eq("archivedAt", null),
+      )
+      .take(200);
+    const authoredBodyContribution = bodyContributions.find(
+      (contribution) =>
+        contribution.sourceKind === "page_body" &&
+        contribution.attribution === "author" &&
+        contribution.authorProfileId === profile._id,
+    );
+    if (
+      content !== currentContent &&
+      authoredBodyContribution === undefined
+    ) {
+      throw new Error(
+        "Raniji zajednički sadržaj je zaključan. Dodajte svoj potpisani doprinos.",
+      );
+    }
     if (title === page.title && content === currentContent) {
       return { pageId: page._id, revision: page.revision, updatedAt: page.updatedAt };
     }
@@ -215,6 +279,16 @@ export const update = mutation({
       await ctx.db.insert("pageBodies", { pageId: page._id, content, updatedAt: now });
     } else if (content !== currentContent) {
       await ctx.db.patch("pageBodies", body._id, { content, updatedAt: now });
+    }
+    if (
+      content !== currentContent &&
+      authoredBodyContribution !== undefined
+    ) {
+      await ctx.db.patch(
+        "contentContributions",
+        authoredBodyContribution._id,
+        { content, updatedAt: now },
+      );
     }
     if (title !== page.title || now - page.updatedAt >= 5 * 60 * 1_000) {
       await recordActivity(ctx, {
@@ -240,9 +314,20 @@ export const move = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);
+    if (page.createdByProfileId !== profile._id) {
+      throw new Error("Možete pomerati samo svoju stranicu.");
+    }
     await requirePageArea(ctx, page.startupId, args.areaId);
     if (args.parentPageId === page._id) throw new Error("Stranica ne može biti sopstveni roditelj.");
     const parent = await requirePageParent(ctx, page.startupId, args.areaId, args.parentPageId);
+    if (
+      parent !== null &&
+      parent.createdByProfileId !== profile._id
+    ) {
+      throw new Error(
+        "Za ugnježđavanje u tuđu stranicu potrebno je odobrenje njenog autora.",
+      );
+    }
     let cursor = parent;
     for (let depth = 0; cursor !== null && depth < 64; depth += 1) {
       if (cursor._id === page._id) throw new Error("Premeštanje bi napravilo kružnu hijerarhiju.");
@@ -286,17 +371,25 @@ export const archive = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);
+    if (page.createdByProfileId !== profile._id) {
+      throw new Error("Tuđa stranica se briše samo jednoglasnim glasanjem.");
+    }
     const now = Date.now();
-    const descendants = await getActivePageDescendants(ctx, page._id);
+    const children = await ctx.db
+      .query("pages")
+      .withIndex("by_parentPageId_and_archivedAt", (q) =>
+        q.eq("parentPageId", page._id).eq("archivedAt", null),
+      )
+      .take(200);
     await ctx.db.patch("pages", page._id, {
       archivedAt: now,
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
     await Promise.all(
-      descendants.map((descendant) =>
-        ctx.db.patch("pages", descendant._id, {
-          archivedAt: now,
+      children.map((child) =>
+        ctx.db.patch("pages", child._id, {
+          parentPageId: page.parentPageId,
           updatedByProfileId: profile._id,
           updatedAt: now,
         }),
@@ -342,12 +435,59 @@ export const addEntry = mutation({
       updatedAt: now,
     });
 
+    await insertContribution(ctx, {
+      startupId: page.startupId,
+      targetKind: "page",
+      targetId: page._id,
+      authorProfileId: profile._id,
+      content: cleaned,
+      sourceKind: "page_entry",
+      sourceId: entryId,
+      createdAt: now,
+    });
+
     await ctx.db.patch("pages", page._id, {
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
 
     return entryId;
+  },
+});
+
+export const updateEntry = mutation({
+  args: {
+    pageId: v.id("pages"),
+    entryId: v.id("pageEntries"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const entry = await ctx.db.get("pageEntries", args.entryId);
+    if (entry === null || entry.pageId !== page._id) {
+      throw new Error("Doprinos nije pronađen.");
+    }
+    if (entry.authorProfileId !== profile._id) {
+      throw new Error("Možete urediti samo svoj doprinos.");
+    }
+    const content = cleanPageContent(args.content);
+    if (!content.trim()) throw new Error("Doprinos ne može biti prazan.");
+    const now = Date.now();
+    await ctx.db.patch("pageEntries", entry._id, { content, updatedAt: now });
+    const contribution = await ctx.db
+      .query("contentContributions")
+      .withIndex("by_sourceKind_and_sourceId", (q) =>
+        q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
+      )
+      .unique();
+    if (contribution !== null) {
+      await ctx.db.patch("contentContributions", contribution._id, {
+        content,
+        updatedAt: now,
+      });
+    }
+    return entry._id;
   },
 });
 
@@ -361,10 +501,24 @@ export const deleteEntry = mutation({
     const { profile } = await requireStartupMember(ctx, page.startupId);
     const entry = await ctx.db.get("pageEntries", args.entryId);
     if (entry && entry.pageId === page._id) {
-      if (entry.authorProfileId !== profile._id && profile.role !== "admin") {
-        throw new Error("Samo autor unosa ili administrator može obrisati ovaj unos.");
+      if (entry.authorProfileId !== profile._id) {
+        throw new Error(
+          "Tuđ doprinos se uklanja samo jednoglasnim glasanjem.",
+        );
       }
       await ctx.db.delete("pageEntries", args.entryId);
+      const contribution = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
+        )
+        .unique();
+      if (contribution !== null) {
+        await ctx.db.patch("contentContributions", contribution._id, {
+          archivedAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
     }
   },
 });
@@ -376,7 +530,7 @@ export const listAreaCanvasPages = query({
     kind: v.optional(pageKindValidator),
   },
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     const pagesQuery = ctx.db
       .query("pages")
       .withIndex("by_areaId_and_parentPageId_and_archivedAt_and_position", (q) =>
@@ -402,13 +556,25 @@ export const listAreaCanvasPages = query({
         return {
           ...p,
           creator: creator ? { displayName: creator.displayName, avatarUrl: creatorAvatarUrl } : null,
+          canEdit: p.createdByProfileId === profile._id,
+          canMove: p.createdByProfileId === profile._id,
+          canResize: p.createdByProfileId === profile._id,
+          canDeleteDirectly: p.createdByProfileId === profile._id,
+          canRequestDeletion: p.createdByProfileId !== profile._id,
         };
       })
     );
 
     return {
       pages: pagesWithDetails,
-      edges,
+      edges: edges
+        .filter((edge) => edge.archivedAt !== undefined ? edge.archivedAt === null : true)
+        .map((edge) => ({
+          ...edge,
+          canEdit: edge.authorProfileId === profile._id,
+          canDeleteDirectly: edge.authorProfileId === profile._id,
+          canRequestDeletion: edge.authorProfileId !== profile._id,
+        })),
     };
   },
 });
@@ -422,8 +588,24 @@ export const connectCanvasPages = mutation({
     label: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     if (args.nodeAId === args.nodeBId) throw new Error("Ne možete povezati istu stavku.");
+    const [nodeA, nodeB] = await Promise.all([
+      ctx.db.get("pages", args.nodeAId),
+      ctx.db.get("pages", args.nodeBId),
+    ]);
+    if (
+      nodeA === null ||
+      nodeB === null ||
+      nodeA.startupId !== args.startupId ||
+      nodeB.startupId !== args.startupId ||
+      (nodeA.createdByProfileId !== profile._id &&
+        nodeB.createdByProfileId !== profile._id)
+    ) {
+      throw new Error(
+        "Vezu možete napraviti samo ako posedujete bar jednu karticu.",
+      );
+    }
 
     const pairKey = [args.nodeAId, args.nodeBId].sort().join(":");
     const existing = await ctx.db
@@ -442,7 +624,10 @@ export const connectCanvasPages = mutation({
       nodeBId: args.nodeBId,
       pairKey,
       label: args.label ? args.label.trim() : null,
+      authorProfileId: profile._id,
+      archivedAt: null,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
   },
 });
@@ -453,11 +638,17 @@ export const disconnectCanvasPages = mutation({
     edgeId: v.id("pageEdges"),
   },
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     const edge = await ctx.db.get("pageEdges", args.edgeId);
-    if (edge && edge.startupId === args.startupId) {
-      await ctx.db.delete("pageEdges", args.edgeId);
+    if (
+      edge &&
+      edge.startupId === args.startupId &&
+      edge.authorProfileId === profile._id
+    ) {
+      await ctx.db.patch("pageEdges", args.edgeId, {
+        archivedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
     }
   },
 });
-

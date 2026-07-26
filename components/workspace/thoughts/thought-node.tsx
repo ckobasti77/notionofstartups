@@ -1,7 +1,14 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { Handle, NodeToolbar, Position, type NodeProps } from "@xyflow/react";
+import {
+  Handle,
+  NodeResizer,
+  NodeToolbar,
+  Position,
+  type NodeProps,
+  type ResizeParams,
+} from "@xyflow/react";
 import { Crown, ExternalLink, Pencil, Send, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +25,7 @@ type ThoughtNodeActions = {
   send: (nodeIds: Id<"thoughtNodes">[]) => void;
   openIdeas: () => void;
   openPage: (pageId: Id<"pages">) => void;
+  resize: (nodeId: Id<"thoughtNodes">, layout: ResizeParams) => void;
 };
 
 const ThoughtNodeActionsContext = createContext<ThoughtNodeActions | null>(null);
@@ -73,6 +81,14 @@ export function ThoughtNode({ id, data, selected }: NodeProps<ThoughtFlowNode>) 
         actions?.edit(nodeId);
       }}
     >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={240}
+        minHeight={160}
+        maxWidth={720}
+        maxHeight={1_000}
+        onResizeEnd={(_event, layout) => actions?.resize(nodeId, layout)}
+      />
       <NodeToolbar isVisible={selected} position={Position.Top} offset={10}>
         <div className="nodrag flex items-center gap-1 rounded-xl border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur-sm">
           <Button

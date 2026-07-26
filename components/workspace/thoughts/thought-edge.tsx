@@ -10,11 +10,9 @@ import {
 import { Pencil, Scissors } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { Id } from "@/convex/_generated/dataModel";
-
 type ThoughtEdgeActions = {
-  editLabel: (edgeId: Id<"thoughtEdges">) => void;
-  archiveEdge: (edgeId: Id<"thoughtEdges">) => void;
+  editLabel: (edgeId: string) => void;
+  archiveEdge: (edgeId: string) => void;
 };
 
 const ThoughtEdgeActionsContext = createContext<ThoughtEdgeActions | null>(null);
@@ -55,8 +53,6 @@ export function ThoughtEdge({
     targetPosition,
   });
 
-  const edgeId = id as Id<"thoughtEdges">;
-
   return (
     <>
       <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
@@ -70,7 +66,7 @@ export function ThoughtEdge({
           className="nodrag nopan group z-10 flex items-center gap-1 rounded-full border border-border/80 bg-card/95 px-2.5 py-1 text-[0.6875rem] font-semibold shadow-md backdrop-blur transition-all hover:scale-105"
           onDoubleClick={(e) => {
             e.stopPropagation();
-            actions?.editLabel(edgeId);
+            actions?.editLabel(id);
           }}
         >
           {label ? (
@@ -92,7 +88,7 @@ export function ThoughtEdge({
                 title="Uredi naziv veze"
                 onClick={(e) => {
                   e.stopPropagation();
-                  actions.editLabel(edgeId);
+                  actions.editLabel(id);
                 }}
               >
                 <Pencil className="size-2.5" />
@@ -106,7 +102,7 @@ export function ThoughtEdge({
                 title="Prekini vezu"
                 onClick={(e) => {
                   e.stopPropagation();
-                  actions.archiveEdge(edgeId);
+                  actions.archiveEdge(id);
                 }}
               >
                 <Scissors className="size-2.5" />

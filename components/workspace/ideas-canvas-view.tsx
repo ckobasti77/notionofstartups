@@ -32,7 +32,11 @@ import { Lightbulb, MousePointer2, Plus, SearchX } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
+import {
+  ThoughtEdge,
+  ThoughtEdgeActionsProvider,
+} from "@/components/workspace/thoughts/thought-edge";
+import { EdgeEditorDialog } from "@/components/workspace/thoughts/thought-editor-dialog";
 import {
   IdeaFlowNodeCard,
   IdeaNodeActionsProvider,
@@ -52,6 +56,9 @@ type IdeaNode = {
   text: string;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
+  parentIdeaId?: Id<"ideaNodes">;
   color: IdeaCanvasColor;
   isParent?: boolean;
   convertedPageId: Id<"pages"> | null;
@@ -68,6 +75,14 @@ type IdeaNode = {
     email: string;
     avatarUrl: string | null;
   } | null;
+  contributionCount: number;
+  pendingDeletionRequest: { _id: Id<"deletionRequests"> } | null;
+  canEdit: boolean;
+  canMove: boolean;
+  canResize: boolean;
+  canDeleteDirectly: boolean;
+  canRequestDeletion: boolean;
+  canDetach: boolean;
 };
 
 type IdeaEdge = {
@@ -75,6 +90,9 @@ type IdeaEdge = {
   nodeAId: Id<"ideaNodes">;
   nodeBId: Id<"ideaNodes">;
   label: string | null;
+  canEdit: boolean;
+  canDeleteDirectly: boolean;
+  canRequestDeletion: boolean;
 };
 
 type IdeasCanvasViewProps = {
@@ -84,6 +102,9 @@ type IdeasCanvasViewProps = {
   canvasState: { x: number; y: number; zoom: number };
   searchActive?: boolean;
   onConvertIdea: (idea: IdeaNode) => void;
+  onEditIdea: (idea: IdeaNode) => void;
+  onOpenDiscussion: (idea: IdeaNode) => void;
+  onNestIdea: (idea: IdeaNode) => void;
   onCreateIdea: (
     parentIdeaId?: Id<"ideaNodes">,
     position?: { x: number; y: number },
@@ -94,6 +115,10 @@ type IdeaFlowEdge = Edge<Record<string, never>, "default">;
 
 const NODE_TYPES = { idea: IdeaFlowNodeCard };
 const EDGE_TYPES = { default: ThoughtEdge };
+const DEFAULT_IDEA_WIDTH = 288;
+const DEFAULT_IDEA_HEIGHT = 196;
+const EXPANDED_IDEA_WIDTH = 480;
+const MAX_EXPANDED_IDEA_HEIGHT = 1000;
 const MINI_MAP_COLORS: Record<IdeaCanvasColor, string> = {
   neutral: "#94a3b8",
   violet: "#8b5cf6",
@@ -126,7 +151,36 @@ const SERBIAN_ARIA_LABELS = {
   "handle.ariaLabel": "Tačka za povezivanje ideja",
 } as const;
 
-function toFlowNode(node: IdeaNode): IdeaFlowNode {
+function expandedIdeaSize(node: IdeaNode) {
+  const width = Math.max(node.width ?? DEFAULT_IDEA_WIDTH, EXPANDED_IDEA_WIDTH);
+  const charactersPerLine = Math.max(36, Math.floor((width - 64) / 7));
+  const textLines = node.text
+    .split(/\r?\n/)
+    .reduce(
+      (total, line) =>
+        total + Math.max(1, Math.ceil(line.length / charactersPerLine)),
+      0,
+    );
+  const titleLines = node.title
+    ? Math.max(1, Math.ceil(node.title.length / charactersPerLine))
+    : 0;
+  const height = Math.min(
+    MAX_EXPANDED_IDEA_HEIGHT,
+    Math.max(
+      node.height ?? DEFAULT_IDEA_HEIGHT,
+      168 + textLines * 21 + titleLines * 24,
+    ),
+  );
+  return { width, height };
+}
+
+function toFlowNode(node: IdeaNode, isExpanded = false): IdeaFlowNode {
+  const size = isExpanded
+    ? expandedIdeaSize(node)
+    : {
+        width: node.width ?? DEFAULT_IDEA_WIDTH,
+        height: node.height ?? DEFAULT_IDEA_HEIGHT,
+      };
   return {
     id: node._id,
     type: "idea",
@@ -143,10 +197,54 @@ function toFlowNode(node: IdeaNode): IdeaFlowNode {
       userVote: node.userVote,
       isApproved: node.isApproved,
       convertedPageId: node.convertedPageId,
+      isExpanded,
+      contributionCount: node.contributionCount,
+      pendingDeletion: node.pendingDeletionRequest !== null,
+      canEdit: node.canEdit,
+      canResize: node.canResize,
+      canDeleteDirectly: node.canDeleteDirectly,
+      canRequestDeletion: node.canRequestDeletion,
+      canDetach: node.canDetach,
     },
+    parentId: node.parentIdeaId,
+    expandParent: node.parentIdeaId !== undefined,
+    width: size.width,
+    height: size.height,
+    style: size,
     deletable: false,
+    draggable: node.canMove,
     ariaLabel: `Ideja: ${node.title ?? node.text}`,
   };
+}
+
+function parentsBeforeChildren(nodeDocs: IdeaNode[]) {
+  const byId = new Map(nodeDocs.map((node) => [node._id, node]));
+  const ordered: IdeaNode[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const visit = (node: IdeaNode) => {
+    if (visited.has(node._id) || visiting.has(node._id)) return;
+    visiting.add(node._id);
+    const parent =
+      node.parentIdeaId === undefined ? undefined : byId.get(node.parentIdeaId);
+    if (parent) visit(parent);
+    visiting.delete(node._id);
+    visited.add(node._id);
+    ordered.push(node);
+  };
+  nodeDocs.forEach(visit);
+  return ordered;
+}
+
+function toFlowNodes(nodeDocs: IdeaNode[]) {
+  const ids = new Set(nodeDocs.map((node) => node._id));
+  return parentsBeforeChildren(nodeDocs).map((node) =>
+    toFlowNode(
+      node.parentIdeaId !== undefined && !ids.has(node.parentIdeaId)
+        ? { ...node, parentIdeaId: undefined }
+        : node,
+    ),
+  );
 }
 
 function toFlowEdge(edge: IdeaEdge): IdeaFlowEdge {
@@ -191,35 +289,71 @@ function IdeasCanvasBody({
   canvasState,
   searchActive = false,
   onConvertIdea,
+  onEditIdea,
+  onOpenDiscussion,
+  onNestIdea,
   onCreateIdea,
 }: IdeasCanvasViewProps) {
   const flowRef = useRef<ReactFlowInstance<IdeaFlowNode, IdeaFlowEdge> | null>(null);
-  const [nodes, setNodes] = useState<IdeaFlowNode[]>(() => nodeDocs.map(toFlowNode));
+  const [nodes, setNodes] = useState<IdeaFlowNode[]>(() =>
+    toFlowNodes(nodeDocs),
+  );
   const [edges, setEdges] = useState<IdeaFlowEdge[]>(() => edgeDocs.map(toFlowEdge));
   const [viewport, setViewport] = useState<Viewport>({
     x: canvasState.x,
     y: canvasState.y,
     zoom: Math.min(Math.max(canvasState.zoom || 1, 0.5), 1.6),
   });
+  const [edgeEditorId, setEdgeEditorId] = useState<Id<"ideaEdges"> | null>(null);
+  const [edgeEditorPending, setEdgeEditorPending] = useState(false);
   const colorMode = useCanvasColorMode();
 
   const voteMutation = useMutation(api.ideas.vote);
   const updatePositionsMutation = useMutation(api.ideas.updatePositions);
+  const updateLayoutMutation = useMutation(api.ideas.updateLayout);
   const connectMutation = useMutation(api.ideas.connect);
   const disconnectMutation = useMutation(api.ideas.disconnect);
+  const archiveIdeaMutation = useMutation(api.ideas.archive);
+  const restoreIdeaMutation = useMutation(api.ideas.restoreOwn);
+  const requestDeletionMutation = useMutation(api.collaboration.requestDeletion);
+  const detachIdeaMutation = useMutation(api.collaboration.detachIdea);
+  const updateEdgeLabelMutation = useMutation(api.ideas.updateEdgeLabel);
   const saveViewportMutation = useMutation(api.ideas.saveViewport);
 
   const docsById = useMemo(
     () => new Map(nodeDocs.map((node) => [node._id, node])),
     [nodeDocs],
   );
+  const edgeDocsById = useMemo(
+    () => new Map(edgeDocs.map((edge) => [edge._id, edge])),
+    [edgeDocs],
+  );
 
   useEffect(() => {
     // Convex is the source of truth; preserve local selection while live vote data changes.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes((current) => {
-      const selected = new Set(current.filter((node) => node.selected).map((node) => node.id));
-      return nodeDocs.map((doc) => ({ ...toFlowNode(doc), selected: selected.has(doc._id) }));
+      const currentById = new Map(current.map((node) => [node.id, node]));
+      const ids = new Set(nodeDocs.map((node) => node._id));
+      return parentsBeforeChildren(nodeDocs).map((rawDoc) => {
+        const doc =
+          rawDoc.parentIdeaId !== undefined && !ids.has(rawDoc.parentIdeaId)
+            ? { ...rawDoc, parentIdeaId: undefined }
+            : rawDoc;
+        const previous = currentById.get(doc._id);
+        const isExpanded = previous?.data.isExpanded ?? false;
+        const next = toFlowNode(doc, isExpanded);
+        return isExpanded && previous
+          ? {
+              ...next,
+              width: previous.width,
+              height: previous.height,
+              measured: previous.measured,
+              style: previous.style,
+              selected: previous.selected,
+            }
+          : { ...next, selected: previous?.selected ?? false };
+      });
     });
   }, [nodeDocs]);
 
@@ -277,6 +411,171 @@ function IdeasCanvasBody({
     if (idea) onConvertIdea(idea);
   }, [docsById, onConvertIdea]);
 
+  const edit = useCallback((ideaId: Id<"ideaNodes">) => {
+    const idea = docsById.get(ideaId);
+    if (idea) onEditIdea(idea);
+  }, [docsById, onEditIdea]);
+
+  const discuss = useCallback((ideaId: Id<"ideaNodes">) => {
+    const idea = docsById.get(ideaId);
+    if (idea) onOpenDiscussion(idea);
+  }, [docsById, onOpenDiscussion]);
+
+  const nest = useCallback((ideaId: Id<"ideaNodes">) => {
+    const idea = docsById.get(ideaId);
+    if (idea) onNestIdea(idea);
+  }, [docsById, onNestIdea]);
+
+  const detach = useCallback((ideaId: Id<"ideaNodes">) => {
+    void detachIdeaMutation({ startupId, ideaId })
+      .then(() => toast.success("Kartica je izvučena iz grupe."))
+      .catch((error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Kartica nije izvučena.",
+        ),
+      );
+  }, [detachIdeaMutation, startupId]);
+
+  const remove = useCallback((ideaId: Id<"ideaNodes">) => {
+    const idea = docsById.get(ideaId);
+    if (!idea) return;
+    if (!idea.canDeleteDirectly) {
+      void requestDeletionMutation({
+        target: { kind: "idea", id: ideaId },
+      })
+        .then(() => toast.success("Glasanje o brisanju je pokrenuto."))
+        .catch((error) =>
+          toast.error(
+            error instanceof Error ? error.message : "Zahtev nije poslat.",
+          ),
+        );
+      return;
+    }
+    void archiveIdeaMutation({ startupId, ideaId })
+      .then((result) => {
+        if (result.recoveredId) {
+          toast.success("Ideja je obrisana, a tuđi doprinosi su oporavljeni.");
+          return;
+        }
+        toast.success("Ideja je obrisana.", {
+          duration: 8_000,
+          action: {
+            label: "Undo",
+            onClick: () =>
+              void restoreIdeaMutation({ startupId, ideaId }).catch((error) =>
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Ideja nije vraćena.",
+                ),
+              ),
+          },
+        });
+      })
+      .catch((error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Ideja nije obrisana.",
+        ),
+      );
+  }, [
+    archiveIdeaMutation,
+    docsById,
+    requestDeletionMutation,
+    restoreIdeaMutation,
+    startupId,
+  ]);
+
+  const setExpanded = useCallback((
+    ideaId: Id<"ideaNodes">,
+    isExpanded: boolean,
+  ) => {
+    const idea = docsById.get(ideaId);
+    if (!idea) return;
+    setNodes((current) => {
+      const node = current.find((item) => item.id === ideaId);
+      if (!node) return current;
+      const size = isExpanded
+        ? expandedIdeaSize(idea)
+        : {
+            width: idea.width ?? DEFAULT_IDEA_WIDTH,
+            height: idea.height ?? DEFAULT_IDEA_HEIGHT,
+          };
+      const resized = applyNodeChanges<IdeaFlowNode>(
+        [{
+          id: ideaId,
+          type: "dimensions",
+          dimensions: size,
+          setAttributes: true,
+        }],
+        current,
+      );
+      return resized.map((item) =>
+        item.id === ideaId
+          ? {
+              ...item,
+              style: size,
+              data: { ...item.data, isExpanded },
+            }
+          : item,
+      );
+    });
+  }, [docsById]);
+
+  const resize = useCallback((
+    ideaId: Id<"ideaNodes">,
+    layout: { x: number; y: number; width: number; height: number },
+  ) => {
+    void updateLayoutMutation({
+      startupId,
+      ideaId,
+      x: Math.round(layout.x),
+      y: Math.round(layout.y),
+      width: Math.round(layout.width),
+      height: Math.round(layout.height),
+    }).catch((error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Veličina oblačića nije sačuvana.",
+      );
+    });
+  }, [startupId, updateLayoutMutation]);
+
+  const archiveEdge = useCallback((edgeId: Id<"ideaEdges">) => {
+    const edge = edgeDocsById.get(edgeId);
+    if (!edge) return;
+    const operation = edge.canDeleteDirectly
+      ? disconnectMutation({ startupId, edgeId })
+      : requestDeletionMutation({
+          target: { kind: "idea_edge", id: edgeId },
+        });
+    void operation
+      .then(() =>
+        toast.success(
+          edge.canDeleteDirectly
+            ? "Veza je uklonjena."
+            : "Glasanje o brisanju veze je pokrenuto.",
+        ),
+      )
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Veza nije uklonjena.");
+      });
+  }, [disconnectMutation, edgeDocsById, requestDeletionMutation, startupId]);
+
+  const edgeActions = useMemo(() => ({
+    editLabel: (edgeId: string) => {
+      const edge = edgeDocsById.get(edgeId as Id<"ideaEdges">);
+      if (!edge?.canEdit) {
+        toast.error("Naziv veze može menjati samo njen autor.");
+        return;
+      }
+      setEdgeEditorId(edgeId as Id<"ideaEdges">);
+    },
+    archiveEdge: (edgeId: string) => archiveEdge(edgeId as Id<"ideaEdges">),
+  }), [archiveEdge, edgeDocsById]);
+
+  const editingEdge = edgeEditorId ? edgeDocsById.get(edgeEditorId) : null;
+
   const handleMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, next: Viewport) => {
     setViewport(next);
     void saveViewportMutation({
@@ -288,14 +587,21 @@ function IdeasCanvasBody({
   }, [saveViewportMutation, startupId]);
 
   return (
-    <IdeaNodeActionsProvider
-      actions={{
-        vote,
-        convert,
-        branch: (ideaId) => onCreateIdea(ideaId),
-      }}
-    >
-      <div
+    <ThoughtEdgeActionsProvider actions={edgeActions}>
+      <IdeaNodeActionsProvider
+        actions={{
+          vote,
+          convert,
+          edit,
+          discuss,
+          nest,
+          detach,
+          remove,
+          resize,
+          branch: (ideaId) => onCreateIdea(ideaId),
+        }}
+      >
+        <div
         className={cn(styles.canvas, styles.ideasCanvas)}
         onDoubleClick={(event) => {
           const target = event.target;
@@ -320,6 +626,26 @@ function IdeasCanvasBody({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void connectIdeas(connection)}
+          onNodeClick={(event, node) => {
+            const target = event.target as HTMLElement;
+            const expandControl = target.closest("[data-idea-expand]");
+            if (expandControl) {
+              setExpanded(
+                node.id as Id<"ideaNodes">,
+                !node.data.isExpanded,
+              );
+              return;
+            }
+            if (
+              target.closest(
+                "button, a, input, textarea, select, .react-flow__handle, .react-flow__resize-control",
+              )
+            ) {
+              return;
+            }
+            const idea = docsById.get(node.id as Id<"ideaNodes">);
+            if (idea) onEditIdea(idea);
+          }}
           onNodeDragStop={(_event, node) => {
             void updatePositionsMutation({
               startupId,
@@ -335,10 +661,7 @@ function IdeasCanvasBody({
           onEdgesDelete={(deletedEdges) => {
             deletedEdges.forEach((edge) => {
               if (edge.id.startsWith("pending:")) return;
-              void disconnectMutation({
-                startupId,
-                edgeId: edge.id as Id<"ideaEdges">,
-              });
+              archiveEdge(edge.id as Id<"ideaEdges">);
             });
           }}
           onMove={(_event, next) => setViewport(next)}
@@ -404,7 +727,7 @@ function IdeasCanvasBody({
           <Panel position="top-right" className="m-3 hidden sm:block sm:m-5">
             <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
               <MousePointer2 className="size-3.5" />
-              Prevuci karticu · spoji tačke · dupli klik za novu
+              Otvori karticu · izaberi za resize · preimenuj vezu
               <span className="ml-1 font-mono text-foreground">{Math.round(viewport.zoom * 100)}%</span>
             </div>
           </Panel>
@@ -432,7 +755,38 @@ function IdeasCanvasBody({
             </div>
           </div>
         ) : null}
-      </div>
-    </IdeaNodeActionsProvider>
+        </div>
+        {edgeEditorId ? (
+          <EdgeEditorDialog
+            open
+            initialLabel={editingEdge?.label ?? ""}
+            description="Opciono objasni kako su dve ideje povezane."
+            inputId="idea-edge-label"
+            pending={edgeEditorPending}
+            onOpenChange={(open) => !open && !edgeEditorPending && setEdgeEditorId(null)}
+            onSubmit={async (label) => {
+              setEdgeEditorPending(true);
+              try {
+                await updateEdgeLabelMutation({
+                  startupId,
+                  edgeId: edgeEditorId,
+                  label,
+                });
+                setEdgeEditorId(null);
+                toast.success(label ? "Naziv veze je sačuvan." : "Naziv veze je uklonjen.");
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Naziv veze nije sačuvan.",
+                );
+              } finally {
+                setEdgeEditorPending(false);
+              }
+            }}
+          />
+        ) : null}
+      </IdeaNodeActionsProvider>
+    </ThoughtEdgeActionsProvider>
   );
 }

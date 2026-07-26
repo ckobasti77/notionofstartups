@@ -137,6 +137,9 @@ export default defineSchema({
     text: v.string(),
     x: v.number(),
     y: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    parentThoughtId: v.optional(v.id("thoughtNodes")),
     color: thoughtColor,
     isParent: v.optional(v.boolean()),
     conversionCount: v.number(),
@@ -146,10 +149,15 @@ export default defineSchema({
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index(
-    "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
-    ["ownerProfileId", "startupId", "archivedAt", "updatedAt"],
-  ),
+  })
+    .index(
+      "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
+      ["ownerProfileId", "startupId", "archivedAt", "updatedAt"],
+    )
+    .index("by_parentThoughtId_and_archivedAt", [
+      "parentThoughtId",
+      "archivedAt",
+    ]),
 
   thoughtEdges: defineTable({
     startupId: v.id("startups"),
@@ -330,6 +338,9 @@ export default defineSchema({
     text: v.string(),
     x: v.number(),
     y: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    parentIdeaId: v.optional(v.id("ideaNodes")),
     color: thoughtColor,
     isParent: v.optional(v.boolean()),
     convertedPageId: v.union(v.id("pages"), v.null()),
@@ -337,11 +348,16 @@ export default defineSchema({
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_startupId_and_archivedAt_and_updatedAt", [
-    "startupId",
-    "archivedAt",
-    "updatedAt",
-  ]),
+  })
+    .index("by_startupId_and_archivedAt_and_updatedAt", [
+      "startupId",
+      "archivedAt",
+      "updatedAt",
+    ])
+    .index("by_parentIdeaId_and_archivedAt", [
+      "parentIdeaId",
+      "archivedAt",
+    ]),
 
   ideaVotes: defineTable({
     startupId: v.id("startups"),
@@ -384,10 +400,159 @@ export default defineSchema({
     nodeBId: v.id("pages"),
     pairKey: v.string(),
     label: v.union(v.string(), v.null()),
+    authorProfileId: v.optional(v.id("profiles")),
+    archivedAt: v.optional(v.union(v.number(), v.null())),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_areaId_and_pairKey", ["areaId", "pairKey"])
     .index("by_areaId", ["areaId"]),
+
+  contentContributions: defineTable({
+    startupId: v.id("startups"),
+    targetKind: v.union(
+      v.literal("idea"),
+      v.literal("page"),
+      v.literal("recovered"),
+    ),
+    targetKey: v.string(),
+    targetId: v.string(),
+    authorProfileId: v.optional(v.id("profiles")),
+    attribution: v.union(v.literal("author"), v.literal("legacy_neutral")),
+    content: v.string(),
+    sourceKind: v.optional(
+      v.union(
+        v.literal("idea_original"),
+        v.literal("page_entry"),
+        v.literal("page_body"),
+      ),
+    ),
+    sourceId: v.optional(v.string()),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_targetKey_and_archivedAt_and_createdAt", [
+      "targetKey",
+      "archivedAt",
+      "createdAt",
+    ])
+    .index("by_authorProfileId_and_archivedAt_and_createdAt", [
+      "authorProfileId",
+      "archivedAt",
+      "createdAt",
+    ])
+    .index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"]),
+
+  recoveredContent: defineTable({
+    startupId: v.id("startups"),
+    title: v.string(),
+    sourceKind: v.union(v.literal("idea"), v.literal("page")),
+    sourceTargetId: v.string(),
+    createdByProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_startupId_and_archivedAt_and_createdAt", [
+    "startupId",
+    "archivedAt",
+    "createdAt",
+  ]),
+
+  deletionRequests: defineTable({
+    startupId: v.id("startups"),
+    targetKind: v.union(
+      v.literal("idea"),
+      v.literal("idea_edge"),
+      v.literal("page"),
+      v.literal("contribution"),
+      v.literal("recovered"),
+    ),
+    targetId: v.string(),
+    targetTitle: v.string(),
+    requesterProfileId: v.id("profiles"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("withdrawn"),
+      v.literal("cancelled"),
+    ),
+    eligibleCount: v.number(),
+    approveCount: v.number(),
+    rejectCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.union(v.number(), v.null()),
+  })
+    .index("by_startupId_and_status_and_createdAt", [
+      "startupId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_targetKind_and_targetId_and_status", [
+      "targetKind",
+      "targetId",
+      "status",
+    ])
+    .index("by_requesterProfileId_and_status_and_createdAt", [
+      "requesterProfileId",
+      "status",
+      "createdAt",
+    ]),
+
+  deletionBallots: defineTable({
+    requestId: v.id("deletionRequests"),
+    startupId: v.id("startups"),
+    profileId: v.id("profiles"),
+    vote: v.union(
+      v.literal("pending"),
+      v.literal("approve"),
+      v.literal("reject"),
+      v.literal("excused"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_requestId_and_profileId", ["requestId", "profileId"])
+    .index("by_profileId_and_vote_and_createdAt", [
+      "profileId",
+      "vote",
+      "createdAt",
+    ]),
+
+  nestingRequests: defineTable({
+    startupId: v.id("startups"),
+    childIdeaId: v.id("ideaNodes"),
+    parentIdeaId: v.id("ideaNodes"),
+    requesterProfileId: v.id("profiles"),
+    parentAuthorProfileId: v.id("profiles"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("withdrawn"),
+      v.literal("cancelled"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.union(v.number(), v.null()),
+  })
+    .index("by_parentAuthorProfileId_and_status_and_createdAt", [
+      "parentAuthorProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_requesterProfileId_and_status_and_createdAt", [
+      "requesterProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_childIdeaId_and_parentIdeaId_and_status", [
+      "childIdeaId",
+      "parentIdeaId",
+      "status",
+    ]),
 
   pageCanvasNodes: defineTable({
     startupId: v.id("startups"),
@@ -395,6 +560,8 @@ export default defineSchema({
     pageId: v.id("pages"),
     x: v.number(),
     y: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_pageId", ["pageId"])
@@ -433,12 +600,25 @@ export default defineSchema({
       v.literal("page_moved"),
       v.literal("page_archived"),
       v.literal("task_updated"),
+      v.literal("contribution_created"),
+      v.literal("contribution_updated"),
+      v.literal("deletion_requested"),
+      v.literal("deletion_voted"),
+      v.literal("deletion_resolved"),
+      v.literal("nesting_requested"),
+      v.literal("nesting_resolved"),
+      v.literal("content_recovered"),
+      v.literal("content_soft_deleted"),
     ),
     targetType: v.union(
       v.literal("startup"),
       v.literal("profile"),
       v.literal("invite"),
       v.literal("page"),
+      v.literal("idea"),
+      v.literal("contribution"),
+      v.literal("request"),
+      v.literal("recovered"),
     ),
     targetId: v.string(),
     title: v.string(),

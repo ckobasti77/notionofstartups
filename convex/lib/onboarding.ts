@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { accessError } from "./access_errors";
 import { cleanRequiredText, normalizeEmail } from "./validators";
 
 export type OnboardingMutationCtx = MutationCtx;
@@ -53,16 +54,30 @@ export async function authorizeSignup(
     if (profiles.length === 0 && (isPristineSignup || isOnlyAuthenticatedUser)) {
       const expectedCode = process.env.BOOTSTRAP_ADMIN_CODE?.trim();
       if (!expectedCode) {
-        throw new Error("Osnivački kod nije podešen na serveru.");
+        throw accessError(
+          "BOOTSTRAP_CODE_MISSING",
+          "Osnivački kod nije podešen na serveru.",
+        );
       }
       if (args.inviteCode?.trim() !== expectedCode) {
-        throw new Error("Osnivački kod nije ispravan.");
+        throw accessError(
+          "BOOTSTRAP_CODE_INVALID",
+          "Osnivački kod nije ispravan.",
+        );
       }
       return { kind: "bootstrap" };
     }
-    throw new Error("Početno podešavanje administratora više nije dostupno.");
+    throw accessError(
+      "BOOTSTRAP_UNAVAILABLE",
+      "Početno podešavanje administratora više nije dostupno.",
+    );
   }
-  if (!args.inviteCode?.trim()) throw new Error("Potreban je važeći poziv.");
+  if (!args.inviteCode?.trim()) {
+    throw accessError(
+      "INVITE_REQUIRED",
+      "Otvori važeći pozivni link da dovršiš pristup.",
+    );
+  }
 
   const codeHash = await hashInviteCode(args.inviteCode);
   const rawInvites = await ctx.db
@@ -72,12 +87,26 @@ export async function authorizeSignup(
   const invite = rawInvites as Doc<"invites"> | null;
   if (
     invite === null ||
-    invite.email !== email ||
-    invite.revokedAt !== null ||
-    invite.claimedAt !== null ||
-    invite.expiresAt <= Date.now()
+    invite.email !== email
   ) {
-    throw new Error("Poziv nije ispravan ili je istekao.");
+    throw accessError(
+      invite === null ? "INVITE_NOT_FOUND" : "INVITE_EMAIL_MISMATCH",
+      invite === null
+        ? "Pozivni link nije važeći."
+        : "Poziv pripada drugoj email adresi.",
+    );
+  }
+  if (invite.revokedAt !== null) {
+    throw accessError("INVITE_REVOKED", "Poziv je opozvan.");
+  }
+  if (invite.claimedAt !== null) {
+    throw accessError(
+      "INVITE_ALREADY_CLAIMED",
+      "Poziv je već prihvaćen.",
+    );
+  }
+  if (invite.expiresAt <= Date.now()) {
+    throw accessError("INVITE_EXPIRED", "Poziv je istekao.");
   }
 
   const startup = (await ctx.db.get(
@@ -85,7 +114,10 @@ export async function authorizeSignup(
     invite.startupId,
   )) as Doc<"startups"> | null;
   if (startup === null || startup.archivedAt !== null) {
-    throw new Error("Startup iz poziva više nije dostupan.");
+    throw accessError(
+      "STARTUP_UNAVAILABLE",
+      "Startup iz poziva više nije dostupan.",
+    );
   }
   return { kind: "invite", inviteId: invite._id };
 }
@@ -110,7 +142,10 @@ export async function completeSignup(
   if (existing !== null) {
     if (existing.archivedAt === null) return existing._id;
     if (args.authorization.kind !== "invite") {
-      throw new Error("Deaktiviran nalog može ponovo aktivirati samo administrator novim pozivom.");
+      throw accessError(
+        "INVITE_REQUIRED",
+        "Deaktiviran nalog može ponovo aktivirati samo administrator novim pozivom.",
+      );
     }
 
     const rawInvite = await ctx.db.get("invites", args.authorization.inviteId);
@@ -122,7 +157,10 @@ export async function completeSignup(
       invite.claimedAt !== null ||
       invite.expiresAt <= now
     ) {
-      throw new Error("Poziv nije ispravan ili je istekao.");
+      throw accessError(
+        "INVITE_EXPIRED",
+        "Poziv više nije važeći. Administrator može napraviti novi.",
+      );
     }
 
     await ctx.db.patch("profiles", existing._id, {
@@ -205,7 +243,10 @@ export async function completeSignup(
     invite.claimedAt !== null ||
     invite.expiresAt <= now
   ) {
-    throw new Error("Poziv nije ispravan ili je istekao.");
+    throw accessError(
+      "INVITE_EXPIRED",
+      "Poziv više nije važeći. Administrator može napraviti novi.",
+    );
   }
 
   const profileId = (await ctx.db.insert("profiles", {

@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
+import {
+  contributionTargetKey,
+  detachIdeaChildren,
+  insertContribution,
+} from "./lib/collaboration";
 import { cleanRequiredText, pageKindValidator, taskPriorityValidator, taskStatusValidator } from "./lib/validators";
 
 const ideaColorValidator = v.union(
@@ -12,6 +18,38 @@ const ideaColorValidator = v.union(
   v.literal("amber"),
   v.literal("rose"),
 );
+
+const MAX_IDEA_TITLE = 200;
+const MAX_IDEA_TEXT = 12_000;
+const MAX_EDGE_LABEL = 120;
+const MIN_IDEA_WIDTH = 264;
+const MAX_IDEA_WIDTH = 720;
+const MIN_IDEA_HEIGHT = 196;
+const MAX_IDEA_HEIGHT = 1_000;
+
+function cleanOptionalText(
+  value: string | null,
+  label: string,
+  maxLength: number,
+) {
+  const cleaned = value?.trim() ?? "";
+  if (cleaned.length > maxLength) {
+    throw new Error(`${label} može imati najviše ${maxLength} znakova.`);
+  }
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function finiteWithin(
+  value: number,
+  label: string,
+  minimum: number,
+  maximum: number,
+) {
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`${label} mora biti između ${minimum} i ${maximum}.`);
+  }
+  return value;
+}
 
 export const list = query({
   args: { startupId: v.id("startups") },
@@ -24,7 +62,7 @@ export const list = query({
       .withIndex("by_startupId_and_archivedAt_and_updatedAt", (q) =>
         q.eq("startupId", args.startupId).eq("archivedAt", null)
       )
-      .collect();
+      .take(500);
 
     // Fetch active edges
     const edges = await ctx.db
@@ -32,13 +70,25 @@ export const list = query({
       .withIndex("by_startupId_and_archivedAt", (q) =>
         q.eq("startupId", args.startupId).eq("archivedAt", null)
       )
-      .collect();
+      .take(1_000);
 
     // Fetch all votes for startup
     const votes = await ctx.db
       .query("ideaVotes")
       .withIndex("by_startupId", (q) => q.eq("startupId", args.startupId))
-      .collect();
+      .take(5_000);
+
+    const pendingDeletionRequests = await ctx.db
+      .query("deletionRequests")
+      .withIndex("by_startupId_and_status_and_createdAt", (q) =>
+        q.eq("startupId", args.startupId).eq("status", "pending"),
+      )
+      .take(500);
+    const pendingDeletionByIdeaId = new Map(
+      pendingDeletionRequests
+        .filter((request) => request.targetKind === "idea")
+        .map((request) => [request.targetId, request]),
+    );
 
     // Map profiles for author info
     const profileIds = new Set<Id<"profiles">>();
@@ -63,7 +113,7 @@ export const list = query({
     }
 
     // Process nodes with vote metrics & author info
-    const processedNodes = nodes.map((node) => {
+    const processedNodes = await Promise.all(nodes.map(async (node) => {
       const nodeVotes = votes.filter((v) => v.ideaId === node._id);
       const upvotes = nodeVotes.filter((v) => v.voteType === "up").length;
       const downvotes = nodeVotes.filter((v) => v.voteType === "down").length;
@@ -71,6 +121,21 @@ export const list = query({
 
       // Approval rule: upvotes > downvotes
       const isApproved = upvotes > downvotes;
+
+      const contributions = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
+          q
+            .eq("targetKey", contributionTargetKey("idea", node._id))
+            .eq("archivedAt", null),
+        )
+        .order("desc")
+        .take(4);
+      const ownsNode = node.authorProfileId === profile._id;
+      const parent =
+        node.parentIdeaId === undefined
+          ? null
+          : await ctx.db.get("ideaNodes", node.parentIdeaId);
 
       return {
         ...node,
@@ -80,8 +145,20 @@ export const list = query({
         userVote,
         isApproved,
         netVotes: upvotes - downvotes,
+        contributionCount: contributions.length,
+        contributionPreview: contributions.map((item) => item.content),
+        pendingDeletionRequest:
+          pendingDeletionByIdeaId.get(node._id) ?? null,
+        canEdit: ownsNode,
+        canMove: ownsNode,
+        canResize: ownsNode,
+        canDeleteDirectly: ownsNode,
+        canRequestDeletion: !ownsNode,
+        canDetach:
+          node.parentIdeaId !== undefined &&
+          (ownsNode || parent?.authorProfileId === profile._id),
       };
-    });
+    }));
 
     // Fetch canvas viewport state for user
     const canvasState = await ctx.db
@@ -93,7 +170,12 @@ export const list = query({
 
     return {
       nodes: processedNodes,
-      edges,
+      edges: edges.map((edge) => ({
+        ...edge,
+        canEdit: edge.authorProfileId === profile._id,
+        canDeleteDirectly: edge.authorProfileId === profile._id,
+        canRequestDeletion: edge.authorProfileId !== profile._id,
+      })),
       canvasState: canvasState ?? { x: 0, y: 0, zoom: 1 },
       currentProfileId: profile._id,
     };
@@ -131,6 +213,17 @@ export const create = mutation({
       archivedAt: null,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await insertContribution(ctx, {
+      startupId: args.startupId,
+      targetKind: "idea",
+      targetId: ideaId,
+      authorProfileId: profile._id,
+      content: cleanedText,
+      sourceKind: "idea_original",
+      sourceId: ideaId,
+      createdAt: now,
     });
 
     // Auto upvote by creator
@@ -177,6 +270,9 @@ export const vote = mutation({
     if (!idea || idea.startupId !== args.startupId || idea.archivedAt !== null) {
       throw new Error("Ideja nije pronađena.");
     }
+    if (idea.authorProfileId !== profile._id) {
+      throw new Error("Samo autor ideje može promeniti njen osnovni status.");
+    }
 
     const existingVote = await ctx.db
       .query("ideaVotes")
@@ -218,11 +314,16 @@ export const updatePositions = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     const now = Date.now();
     for (const update of args.updates) {
       const idea = await ctx.db.get(update.id);
-      if (idea && idea.startupId === args.startupId && idea.archivedAt === null) {
+      if (
+        idea &&
+        idea.startupId === args.startupId &&
+        idea.archivedAt === null &&
+        idea.authorProfileId === profile._id
+      ) {
         await ctx.db.patch(update.id, {
           x: update.x,
           y: update.y,
@@ -230,6 +331,97 @@ export const updatePositions = mutation({
         });
       }
     }
+  },
+});
+
+export const update = mutation({
+  args: {
+    startupId: v.id("startups"),
+    ideaId: v.id("ideaNodes"),
+    title: v.union(v.string(), v.null()),
+    text: v.string(),
+    color: ideaColorValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const idea = await ctx.db.get(args.ideaId);
+    if (
+      idea === null ||
+      idea.startupId !== args.startupId ||
+      idea.archivedAt !== null
+    ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    if (idea.authorProfileId !== profile._id) {
+      throw new Error("Možete urediti samo svoju ideju.");
+    }
+
+    const text = cleanRequiredText(args.text, "Tekst ideje", MAX_IDEA_TEXT);
+    await ctx.db.patch(args.ideaId, {
+      title: cleanOptionalText(args.title, "Naslov", MAX_IDEA_TITLE),
+      text,
+      color: args.color,
+      updatedAt: Date.now(),
+    });
+    const original = await ctx.db
+      .query("contentContributions")
+      .withIndex("by_sourceKind_and_sourceId", (q) =>
+        q.eq("sourceKind", "idea_original").eq("sourceId", args.ideaId),
+      )
+      .unique();
+    if (original !== null && original.authorProfileId === profile._id) {
+      await ctx.db.patch("contentContributions", original._id, {
+        content: text,
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
+  },
+});
+
+export const updateLayout = mutation({
+  args: {
+    startupId: v.id("startups"),
+    ideaId: v.id("ideaNodes"),
+    x: v.number(),
+    y: v.number(),
+    width: v.number(),
+    height: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const idea = await ctx.db.get(args.ideaId);
+    if (
+      idea === null ||
+      idea.startupId !== args.startupId ||
+      idea.archivedAt !== null
+    ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    if (idea.authorProfileId !== profile._id) {
+      throw new Error("Možete promeniti veličinu samo svoje kartice.");
+    }
+
+    await ctx.db.patch(args.ideaId, {
+      x: finiteWithin(args.x, "Horizontalna pozicija", -10_000_000, 10_000_000),
+      y: finiteWithin(args.y, "Vertikalna pozicija", -10_000_000, 10_000_000),
+      width: finiteWithin(
+        args.width,
+        "Širina oblačića",
+        MIN_IDEA_WIDTH,
+        MAX_IDEA_WIDTH,
+      ),
+      height: finiteWithin(
+        args.height,
+        "Visina oblačića",
+        MIN_IDEA_HEIGHT,
+        MAX_IDEA_HEIGHT,
+      ),
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -283,6 +475,27 @@ export const connect = mutation({
     const { profile } = await requireStartupMember(ctx, args.startupId);
     if (args.nodeAId === args.nodeBId) throw new Error("Ne možete povezati ideju sa samom sobom.");
 
+    const [nodeA, nodeB] = await Promise.all([
+      ctx.db.get("ideaNodes", args.nodeAId),
+      ctx.db.get("ideaNodes", args.nodeBId),
+    ]);
+    if (
+      nodeA === null ||
+      nodeB === null ||
+      nodeA.startupId !== args.startupId ||
+      nodeB.startupId !== args.startupId ||
+      nodeA.archivedAt !== null ||
+      nodeB.archivedAt !== null
+    ) {
+      throw new Error("Ideje nisu pronađene u ovom startupu.");
+    }
+    if (
+      nodeA.authorProfileId !== profile._id &&
+      nodeB.authorProfileId !== profile._id
+    ) {
+      throw new Error("Vezu možete napraviti samo ako posedujete bar jednu karticu.");
+    }
+
     const pairKey = [args.nodeAId, args.nodeBId].sort().join(":");
     const existing = await ctx.db
       .query("ideaEdges")
@@ -296,6 +509,7 @@ export const connect = mutation({
       if (existing.archivedAt !== null) {
         await ctx.db.patch(existing._id, {
           archivedAt: null,
+          authorProfileId: profile._id,
           label: args.label ? args.label.trim() : existing.label,
           updatedAt: now,
         });
@@ -324,14 +538,46 @@ export const disconnect = mutation({
     edgeId: v.id("ideaEdges"),
   },
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     const edge = await ctx.db.get(args.edgeId);
-    if (edge && edge.startupId === args.startupId) {
+    if (
+      edge &&
+      edge.startupId === args.startupId &&
+      edge.authorProfileId === profile._id
+    ) {
       await ctx.db.patch(args.edgeId, {
         archivedAt: Date.now(),
         updatedAt: Date.now(),
       });
     }
+  },
+});
+
+export const updateEdgeLabel = mutation({
+  args: {
+    startupId: v.id("startups"),
+    edgeId: v.id("ideaEdges"),
+    label: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const edge = await ctx.db.get(args.edgeId);
+    if (
+      edge === null ||
+      edge.startupId !== args.startupId ||
+      edge.archivedAt !== null
+    ) {
+      throw new Error("Veza nije pronađena.");
+    }
+    if (edge.authorProfileId !== profile._id) {
+      throw new Error("Naziv veze može menjati samo njen autor.");
+    }
+    await ctx.db.patch(args.edgeId, {
+      label: cleanOptionalText(args.label, "Naziv veze", MAX_EDGE_LABEL),
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -411,6 +657,17 @@ export const convertToPage = mutation({
       updatedAt: now,
     });
 
+    await insertContribution(ctx, {
+      startupId: args.startupId,
+      targetKind: "page",
+      targetId: pageId,
+      authorProfileId: idea.authorProfileId,
+      content: `<p>${idea.text.replace(/\n/g, "<br/>")}</p>`,
+      sourceKind: "page_entry",
+      sourceId: `idea:${idea._id}`,
+      createdAt: idea.createdAt,
+    });
+
     await ctx.db.patch(args.ideaId, {
       convertedPageId: pageId,
       convertedAt: now,
@@ -427,13 +684,154 @@ export const archive = mutation({
     ideaId: v.id("ideaNodes"),
   },
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
-    if (idea && idea.startupId === args.startupId) {
-      await ctx.db.patch(args.ideaId, {
-        archivedAt: Date.now(),
-        updatedAt: Date.now(),
+    if (
+      idea === null ||
+      idea.startupId !== args.startupId ||
+      idea.archivedAt !== null
+    ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    if (idea.authorProfileId !== profile._id) {
+      throw new Error("Tuđa ideja se briše samo jednoglasnim glasanjem.");
+    }
+    const contributions = await ctx.db
+      .query("contentContributions")
+      .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
+        q
+          .eq("targetKey", contributionTargetKey("idea", idea._id))
+          .eq("archivedAt", null),
+      )
+      .take(201);
+    if (contributions.length > 200) {
+      throw new Error("Ideja ima previše doprinosa za jedno atomsko brisanje.");
+    }
+    const now = Date.now();
+    const foreign = contributions.filter(
+      (item) =>
+        item.authorProfileId !== undefined &&
+        item.authorProfileId !== profile._id,
+    );
+    let recoveredId: Id<"recoveredContent"> | null = null;
+    if (foreign.length > 0) {
+      recoveredId = await ctx.db.insert("recoveredContent", {
+        startupId: args.startupId,
+        title: `Oporavljeno iz „${idea.title ?? idea.text.slice(0, 60)}“`,
+        sourceKind: "idea",
+        sourceTargetId: idea._id,
+        createdByProfileId: profile._id,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const contribution of foreign) {
+        await ctx.db.patch("contentContributions", contribution._id, {
+          targetKind: "recovered",
+          targetKey: contributionTargetKey("recovered", recoveredId),
+          targetId: recoveredId,
+          updatedAt: now,
+        });
+      }
+      await recordActivity(ctx, {
+        startupId: args.startupId,
+        actorProfileId: profile._id,
+        action: "content_recovered",
+        targetType: "recovered",
+        targetId: recoveredId,
+        title: "Tuđi doprinosi su sačuvani u Oporavljeno",
       });
     }
+    const foreignIds = new Set(foreign.map((item) => item._id));
+    for (const contribution of contributions) {
+      if (!foreignIds.has(contribution._id)) {
+        await ctx.db.patch("contentContributions", contribution._id, {
+          archivedAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+    await detachIdeaChildren(ctx, idea._id, now);
+    await ctx.db.patch("ideaNodes", idea._id, {
+      archivedAt: now,
+      updatedAt: now,
+    });
+    const edges = await ctx.db
+      .query("ideaEdges")
+      .withIndex("by_startupId_and_archivedAt", (q) =>
+        q.eq("startupId", args.startupId).eq("archivedAt", null),
+      )
+      .take(500);
+    for (const edge of edges) {
+      if (edge.nodeAId === idea._id || edge.nodeBId === idea._id) {
+        await ctx.db.patch("ideaEdges", edge._id, {
+          archivedAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+    await recordActivity(ctx, {
+      startupId: args.startupId,
+      actorProfileId: profile._id,
+      action: "content_soft_deleted",
+      targetType: "idea",
+      targetId: idea._id,
+      title: "Ideja je premeštena u korpu",
+    });
+    return { ideaId: idea._id, recoveredId, undoUntil: now + 8_000 };
+  },
+});
+
+export const restoreOwn = mutation({
+  args: {
+    startupId: v.id("startups"),
+    ideaId: v.id("ideaNodes"),
+  },
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const idea = await ctx.db.get(args.ideaId);
+    if (
+      idea === null ||
+      idea.startupId !== args.startupId ||
+      idea.archivedAt === null ||
+      idea.authorProfileId !== profile._id
+    ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    if (Date.now() - idea.archivedAt > 8_000) {
+      throw new Error("Vreme za Undo je isteklo.");
+    }
+    const recovered = await ctx.db
+      .query("recoveredContent")
+      .withIndex("by_startupId_and_archivedAt_and_createdAt", (q) =>
+        q.eq("startupId", args.startupId).eq("archivedAt", null),
+      )
+      .order("desc")
+      .take(50);
+    if (recovered.some((item) => item.sourceTargetId === idea._id)) {
+      throw new Error(
+        "Ideja sa izdvojenim tuđim doprinosima ne može se vratiti Undo akcijom.",
+      );
+    }
+    const now = Date.now();
+    await ctx.db.patch("ideaNodes", idea._id, {
+      archivedAt: null,
+      updatedAt: now,
+    });
+    const contributions = await ctx.db
+      .query("contentContributions")
+      .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
+        q.eq("targetKey", contributionTargetKey("idea", idea._id)),
+      )
+      .take(200);
+    for (const contribution of contributions) {
+      if (contribution.authorProfileId === profile._id) {
+        await ctx.db.patch("contentContributions", contribution._id, {
+          archivedAt: null,
+          updatedAt: now,
+        });
+      }
+    }
+    return idea._id;
   },
 });

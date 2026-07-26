@@ -2,9 +2,9 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
+import { accessError } from "./lib/access_errors";
 import { getCurrentProfile, requireAdmin } from "./lib/auth";
 import {
-  authorizeSignup,
   completeSignup,
   generateInviteCode,
   hashInviteCode,
@@ -136,20 +136,89 @@ export const claim = mutation({
   args: { email: v.string(), code: v.string(), displayName: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
-    if (userId === null) throw new Error("Morate biti prijavljeni.");
+    if (userId === null) {
+      throw accessError("NOT_AUTHENTICATED", "Morate biti prijavljeni.");
+    }
     const user = await ctx.db.get("users", userId);
-    if (user === null || !user.email) throw new Error("Nalog nema email adresu.");
+    if (user === null || !user.email) {
+      throw accessError(
+        "ACCOUNT_EMAIL_MISSING",
+        "Nalog nema email adresu.",
+      );
+    }
     const accountEmail = normalizeEmail(user.email);
     const requestedEmail = normalizeEmail(args.email);
     if (accountEmail !== requestedEmail) {
-      throw new Error("Poziv pripada drugoj email adresi.");
+      throw accessError(
+        "INVITE_EMAIL_MISMATCH",
+        "Poziv pripada drugoj email adresi.",
+      );
     }
 
-    const authorization = await authorizeSignup(ctx, {
-      email: requestedEmail,
-      inviteCode: args.code,
-    });
+    const codeHash = await hashInviteCode(args.code);
+    const invite = await ctx.db
+      .query("invites")
+      .withIndex("by_codeHash", (q) => q.eq("codeHash", codeHash))
+      .unique();
+    if (invite === null) {
+      throw accessError("INVITE_NOT_FOUND", "Pozivni link nije važeći.");
+    }
+    if (invite.email !== requestedEmail) {
+      throw accessError(
+        "INVITE_EMAIL_MISMATCH",
+        "Poziv pripada drugoj email adresi.",
+      );
+    }
+
     const existingProfile = await getCurrentProfile(ctx);
+    const existingMembership =
+      existingProfile === null
+        ? null
+        : await ctx.db
+            .query("startupMembers")
+            .withIndex("by_startupId_and_profileId", (q) =>
+              q
+                .eq("startupId", invite.startupId)
+                .eq("profileId", existingProfile._id),
+            )
+            .unique();
+
+    if (invite.claimedAt !== null) {
+      if (
+        existingProfile !== null &&
+        invite.claimedByProfileId === existingProfile._id &&
+        existingMembership !== null &&
+        existingMembership.archivedAt === null
+      ) {
+        return {
+          status: "already_member" as const,
+          profileId: existingProfile._id,
+          startupId: invite.startupId,
+        };
+      }
+      throw accessError(
+        "INVITE_ALREADY_CLAIMED",
+        "Poziv je već prihvaćen drugim nalogom.",
+      );
+    }
+    if (invite.revokedAt !== null) {
+      throw accessError("INVITE_REVOKED", "Poziv je opozvan.");
+    }
+    if (invite.expiresAt <= Date.now()) {
+      throw accessError("INVITE_EXPIRED", "Poziv je istekao.");
+    }
+    const startup = await ctx.db.get("startups", invite.startupId);
+    if (startup === null || startup.archivedAt !== null) {
+      throw accessError(
+        "STARTUP_UNAVAILABLE",
+        "Startup iz poziva više nije dostupan.",
+      );
+    }
+
+    const authorization = {
+      kind: "invite" as const,
+      inviteId: invite._id,
+    };
     if (existingProfile === null) {
       const displayName = cleanRequiredText(
         args.displayName ?? user.name ?? requestedEmail.split("@")[0],
@@ -162,20 +231,14 @@ export const claim = mutation({
         displayName,
         authorization,
       });
-      return { profileId, startupId: authorization.kind === "invite" ? (await ctx.db.get("invites", authorization.inviteId))?.startupId ?? null : null };
+      return {
+        status: "joined" as const,
+        profileId,
+        startupId: invite.startupId,
+      };
     }
 
-    if (authorization.kind !== "invite") {
-      throw new Error("Poziv nije potreban za početni administratorski nalog.");
-    }
-    const invite = await ctx.db.get("invites", authorization.inviteId);
-    if (invite === null) throw new Error("Poziv nije pronađen.");
-    const membership = await ctx.db
-      .query("startupMembers")
-      .withIndex("by_startupId_and_profileId", (q) =>
-        q.eq("startupId", invite.startupId).eq("profileId", existingProfile._id),
-      )
-      .unique();
+    const membership = existingMembership;
     const now = Date.now();
     if (membership === null) {
       await ctx.db.insert("startupMembers", {
@@ -204,7 +267,14 @@ export const claim = mutation({
       targetId: invite._id,
       title: `${existingProfile.displayName} se pridružio/la startupu`,
     });
-    return { profileId: existingProfile._id, startupId: invite.startupId };
+    return {
+      status:
+        membership !== null && membership.archivedAt === null
+          ? ("already_member" as const)
+          : ("joined" as const),
+      profileId: existingProfile._id,
+      startupId: invite.startupId,
+    };
   },
 });
 

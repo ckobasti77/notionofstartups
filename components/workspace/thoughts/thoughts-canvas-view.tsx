@@ -46,6 +46,7 @@ import {
   Send,
   Sparkles,
   Trash2,
+  Ungroup,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -57,6 +58,10 @@ import {
   type ThoughtSidebarDragPointer,
   type ThoughtSidebarDragReleaseDetail,
 } from "@/components/workspace/thought-sharing";
+import {
+  ITEM_SIZE_DIMENSIONS,
+  type ItemSizePreset,
+} from "@/components/workspace/workspace-item-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -138,6 +143,8 @@ const SERBIAN_ARIA_LABELS = {
 } as const;
 
 function toFlowNode(doc: ThoughtNodeDoc): ThoughtFlowNode {
+  const width = doc.width ?? (doc.isParent ? 240 : 232);
+  const height = doc.height ?? 160;
   return {
     id: doc._id,
     type: "thought",
@@ -147,12 +154,39 @@ function toFlowNode(doc: ThoughtNodeDoc): ThoughtFlowNode {
       text: doc.text,
       color: doc.color,
       isParent: doc.isParent ?? false,
+      parentThoughtId: doc.parentThoughtId,
       conversionCount: doc.conversionCount,
       lastConvertedIdeaId: doc.lastConvertedIdeaId ?? null,
       lastConvertedPageId: doc.lastConvertedPageId,
     },
+    parentId: doc.parentThoughtId,
+    expandParent: doc.parentThoughtId !== undefined,
+    style: { width, height },
+    width,
+    height,
     ariaLabel: `${doc.isParent ? "Roditeljska misao" : "Misao"}: ${doc.title ?? ""}. ${doc.text}`,
   };
+}
+
+function thoughtsParentsFirst(docs: ThoughtNodeDoc[]) {
+  const byId = new Map(docs.map((doc) => [doc._id, doc]));
+  const ordered: ThoughtNodeDoc[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const visit = (doc: ThoughtNodeDoc) => {
+    if (visited.has(doc._id) || visiting.has(doc._id)) return;
+    visiting.add(doc._id);
+    const parent =
+      doc.parentThoughtId === undefined
+        ? undefined
+        : byId.get(doc.parentThoughtId);
+    if (parent) visit(parent);
+    visiting.delete(doc._id);
+    visited.add(doc._id);
+    ordered.push(doc);
+  };
+  docs.forEach(visit);
+  return ordered;
 }
 
 function toFlowEdge(doc: ThoughtEdgeDoc): ThoughtFlowEdge {
@@ -309,6 +343,9 @@ function ThoughtsCanvasBody({
   const createNode = useMutation(api.thoughts.createNode);
   const updateNode = useMutation(api.thoughts.updateNode);
   const moveNodes = useMutation(api.thoughts.moveNodes);
+  const updateNodeLayout = useMutation(api.thoughts.updateNodeLayout);
+  const nestNode = useMutation(api.thoughts.nestNode);
+  const detachNode = useMutation(api.thoughts.detachNode);
   const duplicateNodes = useMutation(api.thoughts.duplicateNodes);
   const archiveNodes = useMutation(api.thoughts.archiveNodes);
   const restoreNodes = useMutation(api.thoughts.restoreNodes);
@@ -407,7 +444,15 @@ function ThoughtsCanvasBody({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes((current) => {
       const selection = new Set(current.filter((node) => node.selected).map((node) => node.id));
-      return nodeDocs.map((doc) => ({ ...toFlowNode(doc), selected: selection.has(doc._id) }));
+      const ids = new Set(nodeDocs.map((doc) => doc._id));
+      return thoughtsParentsFirst(nodeDocs).map((rawDoc) => {
+        const doc =
+          rawDoc.parentThoughtId !== undefined &&
+          !ids.has(rawDoc.parentThoughtId)
+            ? { ...rawDoc, parentThoughtId: undefined }
+            : rawDoc;
+        return { ...toFlowNode(doc), selected: selection.has(doc._id) };
+      });
     });
   }, [nodeDocs]);
 
@@ -835,6 +880,19 @@ function ThoughtsCanvasBody({
 
     try {
       await moveNodes({ moves: after });
+      if (draggedNodes.length === 1) {
+        const child = draggedNodes[0];
+        const parent = flowRef.current
+          ?.getIntersectingNodes(child)
+          .find((candidate) => candidate.id !== child.id);
+        if (parent) {
+          await nestNode({
+            childNodeId: child.id as Id<"thoughtNodes">,
+            parentNodeId: parent.id as Id<"thoughtNodes">,
+          });
+          toast.success("Misao je ugnježđena u Parent.");
+        }
+      }
       pushHistory({
         label: draggedNodes.length === 1 ? "pomeranje misli" : "pomeranje misli",
         undo: () => moveNodes({ moves: before }),
@@ -844,7 +902,7 @@ function ThoughtsCanvasBody({
       restorePreDragPositions();
       toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
     }
-  }, [moveNodes, pushHistory, restorePreDragPositions, restorePreDragViewport]);
+  }, [moveNodes, nestNode, pushHistory, restorePreDragPositions, restorePreDragViewport]);
 
   const openNewThought = useCallback((position?: { x: number; y: number }) => {
     let nextPosition = position;
@@ -1036,11 +1094,27 @@ function ThoughtsCanvasBody({
     send: requestIdeaConversion,
     openIdeas: onOpenIdeas,
     openPage: onOpenPage,
-  }), [connectedNodeIds, onOpenIdeas, onOpenPage, openEditor, requestIdeaConversion, toggleParent]);
+    resize: (
+      nodeId: Id<"thoughtNodes">,
+      layout: { x: number; y: number; width: number; height: number },
+    ) => {
+      void updateNodeLayout({
+        nodeId,
+        x: Math.round(layout.x),
+        y: Math.round(layout.y),
+        width: Math.round(layout.width),
+        height: Math.round(layout.height),
+      }).catch((error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Veličina nije sačuvana.",
+        ),
+      );
+    },
+  }), [connectedNodeIds, onOpenIdeas, onOpenPage, openEditor, requestIdeaConversion, toggleParent, updateNodeLayout]);
 
   const edgeActions = useMemo(() => ({
-    editLabel: (edgeId: Id<"thoughtEdges">) => setEdgeEditorId(edgeId),
-    archiveEdge: (edgeId: Id<"thoughtEdges">) => void archiveSelection([], [edgeId]),
+    editLabel: (edgeId: string) => setEdgeEditorId(edgeId as Id<"thoughtEdges">),
+    archiveEdge: (edgeId: string) => void archiveSelection([], [edgeId as Id<"thoughtEdges">]),
   }), [archiveSelection]);
 
   return (
@@ -1075,6 +1149,17 @@ function ThoughtsCanvasBody({
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={(event, node, draggedNodes) => void onNodeDragStop(event, node, draggedNodes)}
+              onNodeClick={(event, node) => {
+                const target = event.target as HTMLElement;
+                if (
+                  target.closest(
+                    "button, a, input, textarea, select, .react-flow__handle, .react-flow__resize-control",
+                  )
+                ) {
+                  return;
+                }
+                openEditor(node.id as Id<"thoughtNodes">);
+              }}
               onNodeDoubleClick={(_event, node) => openEditor(node.id as Id<"thoughtNodes">)}
               onEdgeDoubleClick={(_event, edge) => setEdgeEditorId(edge.id as Id<"thoughtEdges">)}
               onNodeContextMenu={(_event, node) => {
@@ -1352,6 +1437,24 @@ function ThoughtsCanvasBody({
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => openRelatedThought(contextTarget.nodeId)}>
                   <Link2 className="size-4" /> Nova povezana misao
                 </ContextMenu.Item>
+                {nodeDocsById.get(contextTarget.nodeId)?.parentThoughtId ? (
+                  <ContextMenu.Item
+                    className={styles.contextItem}
+                    onSelect={() =>
+                      void detachNode({ nodeId: contextTarget.nodeId })
+                        .then(() => toast.success("Misao je izvučena iz grupe."))
+                        .catch((error) =>
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : "Misao nije izvučena.",
+                          ),
+                        )
+                    }
+                  >
+                    <Ungroup className="size-4" /> Izvuci iz grupe
+                  </ContextMenu.Item>
+                ) : null}
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => void selectConnected(contextTarget.nodeId)}>
                   <Focus className="size-4" /> Izaberi povezane
                 </ContextMenu.Item>
@@ -1435,6 +1538,38 @@ function ThoughtsCanvasBody({
             color: editingNode.color,
           } : undefined}
           pending={editorPending}
+          sizePreset={
+            editingNode
+              ? editingNode.width && editingNode.width >= 480
+                ? "large"
+                : editingNode.width && editingNode.width >= 330
+                  ? "standard"
+                  : "compact"
+              : undefined
+          }
+          onSizePresetChange={
+            editingNode
+              ? (preset: ItemSizePreset) => {
+                  const dimensions = ITEM_SIZE_DIMENSIONS[preset];
+                  void updateNodeLayout({
+                    nodeId: editingNode._id,
+                    x: editingNode.x,
+                    y: editingNode.y,
+                    ...dimensions,
+                  })
+                    .then(() =>
+                      toast.success("Veličina oblačića je sačuvana."),
+                    )
+                    .catch((error) =>
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : "Veličina oblačića nije sačuvana.",
+                      ),
+                    );
+                }
+              : undefined
+          }
           onOpenChange={(open) => !open && !editorPending && setEditor(null)}
           onSubmit={submitEditor}
         />

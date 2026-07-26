@@ -115,7 +115,8 @@
 
 .cloud {
   position: relative;
-  width: 14.5rem;
+  width: 100%;
+  height: 100%;
   min-height: 8.75rem;
   border: 1px solid color-mix(in oklab, var(--cloud-accent) 29%, var(--border));
   background: color-mix(in oklab, var(--cloud-accent) 11%, var(--card));
@@ -127,7 +128,8 @@
 
 .parentBox {
   position: relative;
-  width: 15rem;
+  width: 100%;
+  height: 100%;
   min-height: 8.75rem;
   border: 2px solid color-mix(in oklab, var(--cloud-accent) 60%, var(--primary));
   background: color-mix(in oklab, var(--cloud-accent) 14%, var(--card));

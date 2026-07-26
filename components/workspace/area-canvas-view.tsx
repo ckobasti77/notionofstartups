@@ -168,6 +168,7 @@ function AreaCanvasReady({
   const flowRef = useRef<ReactFlowInstance<AreaFlowNode, AreaFlowEdge> | null>(null);
   const viewportInitialized = useRef(false);
   const movePages = useMutation(api.canvases.moveAreaCanvasPages);
+  const resizePage = useMutation(api.canvases.resizeAreaCanvasPage);
   const saveViewport = useMutation(api.canvases.saveAreaCanvasViewport);
   const connectPages = useMutation(api.canvases.connectAreaCanvasPages);
   const disconnectPages = useMutation(api.canvases.disconnectAreaCanvasPages);
@@ -178,6 +179,9 @@ function AreaCanvasReady({
         id: page._id,
         type: "areaPage",
         position: { x: page.x, y: page.y },
+        width: page.width,
+        height: page.height,
+        style: { width: page.width, height: page.height },
         data: {
           title: page.title,
           kind: page.kind,
@@ -294,7 +298,23 @@ function AreaCanvasReady({
   const isTask = kind === "task";
 
   return (
-    <AreaNodeActionsProvider open={onOpenPage}>
+    <AreaNodeActionsProvider
+      open={onOpenPage}
+      resize={(pageId, layout) => {
+        void resizePage({
+          startupId,
+          pageId,
+          width: Math.round(layout.width),
+          height: Math.round(layout.height),
+        }).catch((error) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Veličina kartice nije sačuvana.",
+          );
+        });
+      }}
+    >
       <div
         className={cn(
           styles.canvas,
@@ -311,6 +331,17 @@ function AreaCanvasReady({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void handleConnect(connection)}
+          onNodeClick={(event, node) => {
+            const target = event.target as HTMLElement;
+            if (
+              target.closest(
+                "button, a, input, textarea, select, .react-flow__handle, .react-flow__resize-control",
+              )
+            ) {
+              return;
+            }
+            onOpenPage(node.id as Id<"pages">);
+          }}
           onNodeDragStop={(_event, node) => {
             void movePages({
               startupId,

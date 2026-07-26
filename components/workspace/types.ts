@@ -26,6 +26,7 @@ export type WorkspaceRoute =
   | { kind: "today" }
   | { kind: "my-tasks" }
   | { kind: "activity" }
+  | { kind: "approvals" }
   | { kind: "area"; areaId: Id<"startupAreas"> }
   | { kind: "page"; pageId: Id<"pages"> };
 

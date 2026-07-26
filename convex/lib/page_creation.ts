@@ -2,6 +2,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { recordActivity } from "./activity";
 import { requireProfileInStartup } from "./auth";
+import { insertContribution } from "./collaboration";
 import { pageSearchText, pageTaskSortAt, requireVisiblePage } from "./pages";
 import { cleanRequiredText } from "./validators";
 
@@ -197,6 +198,18 @@ export async function insertWorkspacePage(
     content: args.page.content,
     updatedAt: args.now,
   });
+  if (args.page.content.trim()) {
+    await insertContribution(ctx, {
+      startupId: args.target.startupId,
+      targetKind: "page",
+      targetId: pageId,
+      authorProfileId: args.actorProfileId,
+      content: args.page.content,
+      sourceKind: "page_body",
+      sourceId: pageId,
+      createdAt: args.now,
+    });
+  }
   await recordActivity(ctx, {
     startupId: args.target.startupId,
     actorProfileId: args.actorProfileId,

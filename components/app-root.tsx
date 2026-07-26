@@ -5,7 +5,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, LogOut } from "lucide-react";
+import { AlertTriangle, LogOut, RefreshCw, X } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import { AppMark } from "@/components/app-mark";
@@ -50,6 +50,75 @@ function AccessProblem({ message, onSignOut }: { message: string; onSignOut: () 
   );
 }
 
+type AccessErrorData = {
+  code?: string;
+  message?: string;
+};
+
+function accessErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+  const data = (error as Error & { data?: unknown }).data;
+  if (
+    data !== null &&
+    typeof data === "object" &&
+    "message" in data &&
+    typeof (data as AccessErrorData).message === "string"
+  ) {
+    return (data as AccessErrorData).message!;
+  }
+  const uncaught = error.message.match(/Uncaught (?:ConvexError: )?(.+?)(?:\n|$)/);
+  return (uncaught?.[1] ?? error.message)
+    .replace(/^\[CONVEX[^\]]*\]\s*/, "")
+    .trim() || fallback;
+}
+
+function InviteProblem({
+  message,
+  onRetry,
+  onDismiss,
+}: {
+  message: string;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-3 top-3 z-[80] flex justify-center sm:inset-x-auto sm:right-5 sm:top-5">
+      <div
+        role="alert"
+        className="pointer-events-auto flex w-full max-w-lg items-start gap-3 rounded-2xl border border-amber-500/30 bg-card/95 p-4 shadow-[var(--shadow-desk)] backdrop-blur-xl"
+      >
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-amber-500/12 text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Poziv nije prihvaćen</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{message}</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-3 h-8"
+            onClick={onRetry}
+          >
+            <RefreshCw className="size-3.5" />
+            Pokušaj ponovo
+          </Button>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0"
+          aria-label="Zatvori poruku"
+          onClick={onDismiss}
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AppRoot() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { signOut } = useAuthActions();
@@ -62,6 +131,8 @@ export function AppRoot() {
   const onboardingStarted = useRef(false);
   const inviteClaimStarted = useRef(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteRetry, setInviteRetry] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated || profile !== null || onboardingStarted.current) return;
@@ -75,11 +146,10 @@ export function AppRoot() {
       ...(storedInvite ? { inviteCode: storedInvite } : {}),
     }).catch((error: unknown) => {
       onboardingStarted.current = false;
-      setOnboardingError(
-        error instanceof Error
-          ? error.message
-          : "Profil nije mogao da se poveže sa pozivnicom. Otvori pozivni link ponovo.",
-      );
+      setOnboardingError(accessErrorMessage(
+        error,
+        "Profil nije mogao da se poveže sa pozivnicom. Otvori pozivni link ponovo.",
+      ));
     });
   }, [ensureCurrent, inviteCode, isAuthenticated, profile]);
 
@@ -102,11 +172,13 @@ export function AppRoot() {
     })
       .then(() => router.replace("/"))
       .catch((error: unknown) => {
-        setOnboardingError(
-          error instanceof Error ? error.message : "Pozivnica nije mogla da se prihvati.",
-        );
+        inviteClaimStarted.current = false;
+        setInviteError(accessErrorMessage(
+          error,
+          "Pozivnica nije mogla da se prihvati.",
+        ));
       });
-  }, [claimInvite, inviteCode, profile, router]);
+  }, [claimInvite, inviteCode, inviteRetry, profile, router]);
 
   useEffect(() => {
     if (profile && !inviteCode) {
@@ -119,20 +191,40 @@ export function AppRoot() {
     onboardingStarted.current = false;
     inviteClaimStarted.current = false;
     setOnboardingError(null);
+    setInviteError(null);
     void signOut();
   };
 
   if (isLoading) return <FullScreenLoader />;
   if (!isAuthenticated) return <AuthScreen inviteCode={inviteCode} />;
-  if (onboardingError) {
+  if (profile === undefined) return <FullScreenLoader />;
+  if (profile === null && onboardingError) {
     return (
       <AccessProblem
-        message={`${onboardingError.replace(/^\[CONVEX[^\]]*\]\s*/, "")} Ako je poziv istekao, administrator može napraviti novi.`}
+        message={onboardingError}
         onSignOut={handleSignOut}
       />
     );
   }
-  if (profile === undefined || profile === null) return <FullScreenLoader />;
+  if (profile === null) return <FullScreenLoader />;
 
-  return <WorkspaceShell profile={profile} onSignOut={handleSignOut} />;
+  return (
+    <>
+      <WorkspaceShell profile={profile} onSignOut={handleSignOut} />
+      {inviteCode && inviteError ? (
+        <InviteProblem
+          message={inviteError}
+          onRetry={() => {
+            inviteClaimStarted.current = false;
+            setInviteError(null);
+            setInviteRetry((current) => current + 1);
+          }}
+          onDismiss={() => {
+            setInviteError(null);
+            router.replace("/");
+          }}
+        />
+      ) : null}
+    </>
+  );
 }

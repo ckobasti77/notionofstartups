@@ -21,6 +21,7 @@ export type ThoughtNodeData = {
   text: string;
   color: ThoughtNodeColor;
   isParent?: boolean;
+  parentThoughtId?: Id<"thoughtNodes">;
   conversionCount: number;
   lastConvertedIdeaId: Id<"ideaNodes"> | null;
   lastConvertedPageId: Id<"pages"> | null;

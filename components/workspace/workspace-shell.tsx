@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useMutation, usePaginatedQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
-import { Building2, LoaderCircle, Search, Sparkles } from "lucide-react";
+import { Building2, ExternalLink, FileText, LoaderCircle, Search, Sparkles } from "lucide-react";
 
 import { ActivityView } from "@/components/workspace/activity-view";
+import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
 import { AreaView } from "@/components/workspace/area-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
@@ -30,10 +31,24 @@ import type {
 import type { CreatePageTarget, ProfileWithAvatar, WorkspaceRoute } from "@/components/workspace/types";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { PageEditorSaveState } from "@/components/workspace/page-editor-view";
+import {
+  ITEM_SIZE_DIMENSIONS,
+  ItemSizePicker,
+  workspaceItemDialogContentClass,
+  type ItemSizePreset,
+} from "@/components/workspace/workspace-item-dialog";
 
 const PageEditorView = dynamic(
   () => import("@/components/workspace/page-editor-view").then((module) => module.PageEditorView),
@@ -86,12 +101,20 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [detailPageId, setDetailPageId] = useState<Id<"pages"> | null>(null);
+  const [detailSaveState, setDetailSaveState] =
+    useState<PageEditorSaveState>("saved");
   // Drag and drop state for pages in sidebar
   const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
   const movePage = useMutation(api.pages.move);
+  const resizeAreaCanvasPage = useMutation(api.canvases.resizeAreaCanvasPage);
   const startup = startups?.find((item) => item._id === selectedStartupId) ?? startups?.[0];
+  const approvalsOverview = useQuery(
+    api.collaboration.overview,
+    startup ? { startupId: startup._id } : "skip",
+  );
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -216,6 +239,50 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     setCreateOpen(true);
   }
 
+  function canLeavePageDetails() {
+    if (detailSaveState === "dirty" || detailSaveState === "saving") {
+      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
+      return false;
+    }
+    if (
+      (detailSaveState === "error" || detailSaveState === "conflict") &&
+      !window.confirm("Izmene nisu sačuvane. Napustiti detalje?")
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function openPageDetails(pageId: Id<"pages">) {
+    if (detailPageId !== null && !canLeavePageDetails()) return;
+    setDetailSaveState("saved");
+    setDetailPageId(pageId);
+  }
+
+  function closePageDetails() {
+    if (!canLeavePageDetails()) return;
+    setDetailPageId(null);
+    setDetailSaveState("saved");
+  }
+
+  function resizeDetailCard(preset: ItemSizePreset) {
+    if (!detailPageId) return;
+    const dimensions = ITEM_SIZE_DIMENSIONS[preset];
+    void resizeAreaCanvasPage({
+      startupId: startup._id,
+      pageId: detailPageId,
+      ...dimensions,
+    })
+      .then(() => toast.success("Veličina oblačića je sačuvana."))
+      .catch((error) =>
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Veličina oblačića nije sačuvana.",
+        ),
+      );
+  }
+
   function openAdmin() {
     setAdminMode("edit");
     setAdminOpen(true);
@@ -258,6 +325,7 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     draggedPageId,
     activeDropPageId,
     activeDropAreaId,
+    pendingApprovals: approvalsOverview?.pendingCount ?? 0,
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
     onDragPageOver: handleDragPageOver,
@@ -268,31 +336,105 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
       <WorkspaceSidebar {...sidebarProps} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
         <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas"}>
           {route.kind === "home" ? (
-            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={(kind) => openCreate({ initialKind: kind })} />
+            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
-            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} onOpenIdeas={() => setRoute({ kind: "ideas" })} />
+            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => setRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
-            <IdeasView startup={startup} onOpenPage={(pageId: Id<"pages">) => setRoute({ kind: "page", pageId })} />
+            <IdeasView startup={startup} onOpenPage={openPageDetails} />
           ) : route.kind === "today" ? (
-            <TasksView startup={startup} profile={profile} mode="today" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <TasksView startup={startup} profile={profile} mode="today" onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
           ) : route.kind === "my-tasks" ? (
-            <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
           ) : route.kind === "activity" ? (
             <ActivityView startup={startup} />
+          ) : route.kind === "approvals" ? (
+            <ApprovalsView startup={startup} />
           ) : route.kind === "area" ? (
-            <AreaView startup={startup} profile={profile} areaId={route.areaId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreate={openCreate} onCreateArea={() => setCreateAreaOpen(true)} />
+            <AreaView startup={startup} profile={profile} areaId={route.areaId} onOpenPage={openPageDetails} onCreate={openCreate} onCreateArea={() => setCreateAreaOpen(true)} />
           ) : (
             <PageEditorView startup={startup} pageId={route.pageId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateChild={openCreate} onArchived={() => setRoute({ kind: "home" })} />
           )}
         </WorkspaceStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
-      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={(pageId) => setRoute({ kind: "page", pageId })} />
+      <Dialog
+        open={detailPageId !== null}
+        onOpenChange={(open) => {
+          if (!open) closePageDetails();
+        }}
+      >
+        <DialogContent
+          className={`${workspaceItemDialogContentClass} grid-rows-[auto_minmax(0,1fr)]`}
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>Detalji sadržaja</DialogTitle>
+            <DialogDescription>
+              Pročitaj i izmeni belešku ili zadatak bez napuštanja trenutnog prikaza.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap items-center gap-3 border-b border-border/70 bg-card/90 px-4 py-3 pr-12 backdrop-blur-xl sm:px-6">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold">
+              <span className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary">
+                <FileText className="size-4" />
+              </span>
+              Detalji stavke
+            </span>
+            <ItemSizePicker
+              className="ml-auto w-full sm:w-auto"
+              onChange={resizeDetailCard}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-10 rounded-xl"
+              onClick={() => {
+                if (!detailPageId) return;
+                if (!canLeavePageDetails()) return;
+                const pageId = detailPageId;
+                setDetailPageId(null);
+                setDetailSaveState("saved");
+                setRoute({ kind: "page", pageId });
+              }}
+            >
+              <ExternalLink className="size-4" />
+              Puni prikaz
+            </Button>
+          </div>
+          <div className="min-h-0 overflow-y-auto bg-background">
+            {detailPageId ? (
+              <PageEditorView
+                key={detailPageId}
+                startup={startup}
+                pageId={detailPageId}
+                presentation="dialog"
+                onSaveStateChange={setDetailSaveState}
+                onOpenPage={openPageDetails}
+                onCreateChild={(target) => {
+                  if (!canLeavePageDetails()) return;
+                  setDetailPageId(null);
+                  setDetailSaveState("saved");
+                  openCreate(target);
+                }}
+                onArchived={() => {
+                  setDetailPageId(null);
+                  setDetailSaveState("saved");
+                }}
+              />
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={openPageDetails} />
       <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => setRoute({ kind: "area", areaId })} />
-      <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} />
+      <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
+        setSearchOpen(false);
+        openPageDetails(pageId);
+      }} />
       <ProfileDialog key={`${profileOpen}-${profile.updatedAt}`} open={profileOpen} onOpenChange={setProfileOpen} profile={profile} />
       {destinationRequest ? <ThoughtDestinationPicker key={`${startup._id}-${destinationRequest.nodeIds.join("-")}`} open startup={startup} selectedCount={destinationRequest.nodeIds.length} onOpenChange={(open) => { if (!open) cancelDestinationPicker(); }} onSelect={completeDestinationPicker} /> : null}
       {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${adminMode}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={adminMode === "create" ? undefined : startup} onStartupCreated={selectStartup} onCreateStartup={openCreateStartup} /> : null}

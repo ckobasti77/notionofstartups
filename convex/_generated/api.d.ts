@@ -11,16 +11,20 @@
 import type * as activity from "../activity.js";
 import type * as auth from "../auth.js";
 import type * as canvases from "../canvases.js";
+import type * as collaboration from "../collaboration.js";
 import type * as dashboard from "../dashboard.js";
 import type * as http from "../http.js";
 import type * as ideas from "../ideas.js";
 import type * as invites from "../invites.js";
+import type * as lib_access_errors from "../lib/access_errors.js";
 import type * as lib_activity from "../lib/activity.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_collaboration from "../lib/collaboration.js";
 import type * as lib_onboarding from "../lib/onboarding.js";
 import type * as lib_page_creation from "../lib/page_creation.js";
 import type * as lib_pages from "../lib/pages.js";
 import type * as lib_validators from "../lib/validators.js";
+import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
@@ -39,16 +43,20 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   auth: typeof auth;
   canvases: typeof canvases;
+  collaboration: typeof collaboration;
   dashboard: typeof dashboard;
   http: typeof http;
   ideas: typeof ideas;
   invites: typeof invites;
+  "lib/access_errors": typeof lib_access_errors;
   "lib/activity": typeof lib_activity;
   "lib/auth": typeof lib_auth;
+  "lib/collaboration": typeof lib_collaboration;
   "lib/onboarding": typeof lib_onboarding;
   "lib/page_creation": typeof lib_page_creation;
   "lib/pages": typeof lib_pages;
   "lib/validators": typeof lib_validators;
+  migrations: typeof migrations;
   pages: typeof pages;
   profiles: typeof profiles;
   search: typeof search;
@@ -84,4 +92,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
+};

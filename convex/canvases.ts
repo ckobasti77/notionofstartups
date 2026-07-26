@@ -25,6 +25,8 @@ const canvasPageValidator = v.object({
   updatedAt: v.number(),
   x: v.number(),
   y: v.number(),
+  width: v.number(),
+  height: v.number(),
   creator: v.union(
     v.object({
       displayName: v.string(),
@@ -45,6 +47,13 @@ function clamp(value: number, minimum: number, maximum: number) {
   if (!Number.isFinite(value)) throw new Error("Koordinata kanvasa nije ispravna.");
   return Math.min(Math.max(value, minimum), maximum);
 }
+
+const DEFAULT_PAGE_NODE_WIDTH = 288;
+const DEFAULT_PAGE_NODE_HEIGHT = 196;
+const MIN_PAGE_NODE_WIDTH = 240;
+const MIN_PAGE_NODE_HEIGHT = 168;
+const MAX_PAGE_NODE_WIDTH = 720;
+const MAX_PAGE_NODE_HEIGHT = 1_000;
 
 export const getAreaCanvas = query({
   args: {
@@ -130,6 +139,8 @@ export const getAreaCanvas = query({
         updatedAt: page.updatedAt,
         x: layout?.x ?? (column - (columnCount - 1) / 2) * 310,
         y: layout?.y ?? (row - 1) * 205,
+        width: layout?.width ?? DEFAULT_PAGE_NODE_WIDTH,
+        height: layout?.height ?? DEFAULT_PAGE_NODE_HEIGHT,
         creator: creatorsById.get(page.createdByProfileId) ?? null,
       };
     });
@@ -211,6 +222,57 @@ export const moveAreaCanvasPages = mutation({
       } else {
         await ctx.db.insert("pageCanvasNodes", position);
       }
+    }
+    return null;
+  },
+});
+
+export const resizeAreaCanvasPage = mutation({
+  args: {
+    startupId: v.id("startups"),
+    pageId: v.id("pages"),
+    width: v.number(),
+    height: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    const page = await ctx.db.get("pages", args.pageId);
+    if (
+      page === null ||
+      page.startupId !== args.startupId ||
+      page.archivedAt !== null
+    ) {
+      throw new Error("Kartica više nije dostupna.");
+    }
+
+    const existing = await ctx.db
+      .query("pageCanvasNodes")
+      .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
+      .unique();
+    const now = Date.now();
+    const layout = {
+      startupId: page.startupId,
+      areaId: page.areaId,
+      pageId: page._id,
+      x: existing?.x ?? 0,
+      y: existing?.y ?? 0,
+      width: clamp(
+        args.width,
+        MIN_PAGE_NODE_WIDTH,
+        MAX_PAGE_NODE_WIDTH,
+      ),
+      height: clamp(
+        args.height,
+        MIN_PAGE_NODE_HEIGHT,
+        MAX_PAGE_NODE_HEIGHT,
+      ),
+      updatedAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, layout);
+    } else {
+      await ctx.db.insert("pageCanvasNodes", layout);
     }
     return null;
   },

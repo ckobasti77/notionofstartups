@@ -7,6 +7,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireStartupMember } from "./lib/auth";
+import { insertContribution } from "./lib/collaboration";
 import {
   insertWorkspacePage,
   prepareWorkspacePage,
@@ -28,6 +29,10 @@ const MAX_EDGES_IN_NODE_ACTION = 500;
 const MAX_THOUGHT_TEXT = 12_000;
 const MAX_THOUGHT_TITLE = 200;
 const MAX_EDGE_LABEL = 120;
+const MIN_THOUGHT_WIDTH = 240;
+const MAX_THOUGHT_WIDTH = 720;
+const MIN_THOUGHT_HEIGHT = 160;
+const MAX_THOUGHT_HEIGHT = 1_000;
 
 const thoughtColorValidator = v.union(
   v.literal("neutral"),
@@ -45,6 +50,9 @@ const thoughtCanvasDocumentValidator = v.object({
   ownerProfileId: v.id("profiles"),
   x: v.number(),
   y: v.number(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  parentThoughtId: v.optional(v.id("thoughtNodes")),
   zoom: v.number(),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -105,6 +113,18 @@ function validateZoom(zoom: number) {
     throw new Error("Nivo uvećanja mora biti između 0,1 i 4.");
   }
   return zoom;
+}
+
+function validateWithin(
+  value: number,
+  label: string,
+  minimum: number,
+  maximum: number,
+) {
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`${label} mora biti između ${minimum} i ${maximum}.`);
+  }
+  return value;
 }
 
 function cleanThoughtText(text: string) {
@@ -227,6 +247,48 @@ function normalizedPair(
   const [nodeAId, nodeBId] =
     firstId < secondId ? [firstId, secondId] : [secondId, firstId];
   return { nodeAId, nodeBId, pairKey: `${nodeAId}:${nodeBId}` };
+}
+
+async function absoluteThoughtPosition(
+  ctx: ReadCtx,
+  node: Doc<"thoughtNodes">,
+) {
+  let x = node.x;
+  let y = node.y;
+  let parentId = node.parentThoughtId;
+  const seen = new Set<string>([node._id]);
+  for (let depth = 0; parentId !== undefined && depth < 512; depth += 1) {
+    if (seen.has(parentId)) throw new Error("Otkrivena je kružna hijerarhija.");
+    seen.add(parentId);
+    const parent = await ctx.db.get("thoughtNodes", parentId);
+    if (parent === null || parent.archivedAt !== null) break;
+    x += parent.x;
+    y += parent.y;
+    parentId = parent.parentThoughtId;
+  }
+  return { x, y };
+}
+
+async function assertNoThoughtCycle(
+  ctx: ReadCtx,
+  childId: Id<"thoughtNodes">,
+  parentId: Id<"thoughtNodes">,
+) {
+  if (childId === parentId) throw new Error("Misao ne može biti sopstveni Parent.");
+  let cursor: Id<"thoughtNodes"> | undefined = parentId;
+  for (let depth = 0; cursor !== undefined && depth < 512; depth += 1) {
+    if (cursor === childId) {
+      throw new Error("Ugnježđavanje bi napravilo kružnu hijerarhiju.");
+    }
+    const node: Doc<"thoughtNodes"> | null = await ctx.db.get(
+      "thoughtNodes",
+      cursor,
+    );
+    cursor = node?.parentThoughtId;
+  }
+  if (cursor !== undefined) {
+    throw new Error("Hijerarhija je preduboka za bezbednu proveru.");
+  }
 }
 
 export const getCanvas = query({
@@ -465,6 +527,82 @@ export const moveNodes = mutation({
   },
 });
 
+export const updateNodeLayout = mutation({
+  args: {
+    nodeId: v.id("thoughtNodes"),
+    x: v.number(),
+    y: v.number(),
+    width: v.number(),
+    height: v.number(),
+  },
+  returns: v.id("thoughtNodes"),
+  handler: async (ctx, args) => {
+    const { nodes } = await requireOwnedNodes(ctx, [args.nodeId]);
+    await ctx.db.patch("thoughtNodes", args.nodeId, {
+      x: validateFinite(args.x, "Horizontalna pozicija misli"),
+      y: validateFinite(args.y, "Vertikalna pozicija misli"),
+      width: validateWithin(
+        args.width,
+        "Širina misli",
+        MIN_THOUGHT_WIDTH,
+        MAX_THOUGHT_WIDTH,
+      ),
+      height: validateWithin(
+        args.height,
+        "Visina misli",
+        MIN_THOUGHT_HEIGHT,
+        MAX_THOUGHT_HEIGHT,
+      ),
+      updatedAt: Date.now(),
+    });
+    return nodes[0]._id;
+  },
+});
+
+export const nestNode = mutation({
+  args: {
+    childNodeId: v.id("thoughtNodes"),
+    parentNodeId: v.id("thoughtNodes"),
+  },
+  returns: v.id("thoughtNodes"),
+  handler: async (ctx, args) => {
+    const { nodes } = await requireOwnedNodes(ctx, [
+      args.childNodeId,
+      args.parentNodeId,
+    ]);
+    const child = nodes.find((node) => node._id === args.childNodeId)!;
+    const parent = nodes.find((node) => node._id === args.parentNodeId)!;
+    await assertNoThoughtCycle(ctx, child._id, parent._id);
+    const childAbsolute = await absoluteThoughtPosition(ctx, child);
+    const parentAbsolute = await absoluteThoughtPosition(ctx, parent);
+    await ctx.db.patch("thoughtNodes", child._id, {
+      parentThoughtId: parent._id,
+      x: childAbsolute.x - parentAbsolute.x,
+      y: childAbsolute.y - parentAbsolute.y,
+      updatedAt: Date.now(),
+    });
+    return child._id;
+  },
+});
+
+export const detachNode = mutation({
+  args: { nodeId: v.id("thoughtNodes") },
+  returns: v.id("thoughtNodes"),
+  handler: async (ctx, args) => {
+    const { nodes } = await requireOwnedNodes(ctx, [args.nodeId]);
+    const node = nodes[0];
+    if (node.parentThoughtId === undefined) return node._id;
+    const absolute = await absoluteThoughtPosition(ctx, node);
+    await ctx.db.patch("thoughtNodes", node._id, {
+      parentThoughtId: undefined,
+      x: absolute.x,
+      y: absolute.y,
+      updatedAt: Date.now(),
+    });
+    return node._id;
+  },
+});
+
 export const duplicateNodes = mutation({
   args: {
     nodeIds: v.array(v.id("thoughtNodes")),
@@ -495,6 +633,8 @@ export const duplicateNodes = mutation({
           text: node.text,
           x: node.x + offsetX,
           y: node.y + offsetY,
+          width: node.width,
+          height: node.height,
           color: node.color,
           conversionCount: 0,
           lastConvertedPageId: null,
@@ -748,6 +888,22 @@ export const archiveNodes = mutation({
     const now = Date.now();
     for (const node of nodes) {
       if (node.archivedAt === null) {
+        const children = await ctx.db
+          .query("thoughtNodes")
+          .withIndex("by_parentThoughtId_and_archivedAt", (q) =>
+            q.eq("parentThoughtId", node._id).eq("archivedAt", null),
+          )
+          .take(200);
+        for (const child of children) {
+          if (!selectedNodeIds.has(child._id)) {
+            await ctx.db.patch("thoughtNodes", child._id, {
+              parentThoughtId: node.parentThoughtId,
+              x: child.x + node.x,
+              y: child.y + node.y,
+              updatedAt: now,
+            });
+          }
+        }
         await ctx.db.patch("thoughtNodes", node._id, {
           archivedAt: now,
           updatedAt: now,
@@ -1174,6 +1330,16 @@ export const convertToIdeas = mutation({
         archivedAt: null,
         createdAt: now,
         updatedAt: now,
+      });
+      await insertContribution(ctx, {
+        startupId: args.startupId,
+        targetKind: "idea",
+        targetId: ideaId,
+        authorProfileId: profile._id,
+        content: node.text,
+        sourceKind: "idea_original",
+        sourceId: ideaId,
+        createdAt: now,
       });
       await ctx.db.insert("ideaVotes", {
         startupId: args.startupId,

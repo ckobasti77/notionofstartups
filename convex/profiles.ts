@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { accessError } from "./lib/access_errors";
 import { getCurrentProfile, requireAdmin, requireProfile, requireStartupMember } from "./lib/auth";
 import { authorizeSignup, completeSignup } from "./lib/onboarding";
 import { pageTaskSortAt } from "./lib/pages";
@@ -54,9 +55,16 @@ export const ensureCurrent = mutation({
     if (existing !== null) return await withAvatarUrl(ctx, existing);
 
     const userId = await getAuthUserId(ctx);
-    if (userId === null) throw new Error("Niste prijavljeni.");
+    if (userId === null) {
+      throw accessError("NOT_AUTHENTICATED", "Niste prijavljeni.");
+    }
     const user = await ctx.db.get("users", userId);
-    if (user === null || !user.email) throw new Error("Vašem nalogu je potrebna email adresa.");
+    if (user === null || !user.email) {
+      throw accessError(
+        "ACCOUNT_EMAIL_MISSING",
+        "Vašem nalogu je potrebna email adresa.",
+      );
+    }
 
     const email = normalizeEmail(user.email);
     const displayName = cleanRequiredText(
