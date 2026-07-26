@@ -274,4 +274,124 @@ describe("demokratske Canvas dozvole", () => {
     });
     expect(adminThoughts.page).toHaveLength(0);
   });
+
+  test("resize privatne misli ostaje kompatibilan sa paginiranim listNodes odgovorom", async () => {
+    const { startupId, asAuthor } = await seedWorkspace();
+    const nodeId = await asAuthor.mutation(api.thoughts.createNode, {
+      startupId,
+      title: "Resize misao",
+      text: "Sadrzaj koji mora ostati dostupan posle promene velicine.",
+      x: 20,
+      y: 30,
+      color: "green",
+    });
+
+    await asAuthor.mutation(api.thoughts.updateNodeLayout, {
+      nodeId,
+      x: 24,
+      y: 36,
+      width: 520,
+      height: 420,
+    });
+
+    const thoughts = await asAuthor.query(api.thoughts.listNodes, {
+      startupId,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(thoughts.page).toEqual([
+      expect.objectContaining({
+        _id: nodeId,
+        x: 24,
+        y: 36,
+        width: 520,
+        height: 420,
+      }),
+    ]);
+  });
+
+  test("resize ideje se vraca kroz zajednicki canvas odgovor", async () => {
+    const { startupId, asAuthor } = await seedWorkspace();
+    const ideaId = await asAuthor.mutation(api.ideas.create, {
+      startupId,
+      title: "Resize ideja",
+      text: "Ideja sa sacuvanim dimenzijama.",
+      x: 40,
+      y: 60,
+    });
+
+    await asAuthor.mutation(api.ideas.updateLayout, {
+      startupId,
+      ideaId,
+      x: 48,
+      y: 72,
+      width: 520,
+      height: 420,
+    });
+
+    const ideas = await asAuthor.query(api.ideas.list, { startupId });
+    expect(ideas.nodes).toContainEqual(
+      expect.objectContaining({
+        _id: ideaId,
+        x: 48,
+        y: 72,
+        width: 520,
+        height: 420,
+      }),
+    );
+  });
+
+  test("resize beleske ili zadatka se vraca kroz area canvas odgovor", async () => {
+    const { t, startupId, author, asAuthor } = await seedWorkspace();
+    const { areaId, pageId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const areaId = await ctx.db.insert("startupAreas", {
+        startupId,
+        key: "dev",
+        label: "Dev notes",
+        position: 0,
+        createdAt: now,
+      });
+      const pageId = await ctx.db.insert("pages", {
+        startupId,
+        areaId,
+        parentPageId: null,
+        kind: "note",
+        title: "Resize beleska",
+        searchText: "resize beleska",
+        revision: 1,
+        position: 0,
+        taskStatus: null,
+        taskPriority: null,
+        assigneeProfileId: null,
+        dueDate: null,
+        taskSortAt: now,
+        createdByProfileId: author.profileId,
+        updatedByProfileId: author.profileId,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { areaId, pageId };
+    });
+
+    await asAuthor.mutation(api.canvases.resizeAreaCanvasPage, {
+      startupId,
+      pageId,
+      width: 520,
+      height: 420,
+    });
+
+    const canvas = await asAuthor.query(api.canvases.getAreaCanvas, {
+      startupId,
+      areaId,
+      kind: "note",
+    });
+    expect(canvas.pages).toContainEqual(
+      expect.objectContaining({
+        _id: pageId,
+        width: 520,
+        height: 420,
+      }),
+    );
+  });
 });
