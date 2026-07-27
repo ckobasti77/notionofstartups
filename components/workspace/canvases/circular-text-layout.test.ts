@@ -43,6 +43,57 @@ describe("ellipseLineBounds", () => {
     expect(obstructed[0].width).toBeLessThan(unobstructed[0].width);
   });
 
+  test("a centered nested bubble leaves readable channels on both sides", () => {
+    const segments = availableLineSegments({
+      width: 600,
+      height: 300,
+      lineTop: 120,
+      lineHeight: 20,
+      obstacles: [{
+        left: 220,
+        top: 80,
+        right: 380,
+        bottom: 240,
+        shape: "ellipse",
+      }],
+    });
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0].left + segments[0].width).toBeLessThan(220);
+    expect(segments[1].left).toBeGreaterThan(380);
+    expect(segments[0].width).toBeGreaterThan(150);
+    expect(segments[1].width).toBeGreaterThan(150);
+  });
+
+  test("an orbit badge remains an obstacle outside the child ellipse", () => {
+    const segments = availableLineSegments({
+      width: 600,
+      height: 300,
+      lineTop: 60,
+      lineHeight: 20,
+      obstacles: [
+        {
+          left: 220,
+          top: 90,
+          right: 380,
+          bottom: 240,
+          shape: "ellipse",
+        },
+        {
+          left: 250,
+          top: 50,
+          right: 350,
+          bottom: 82,
+          shape: "rectangle",
+        },
+      ],
+    });
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0].left + segments[0].width).toBeLessThan(250);
+    expect(segments[1].left).toBeGreaterThan(350);
+  });
+
   test.each([
     [240, 160],
     [264, 196],

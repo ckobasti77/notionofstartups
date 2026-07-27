@@ -25,6 +25,7 @@ export type CircularTextObstacle = {
   top: number;
   right: number;
   bottom: number;
+  shape?: "rectangle" | "ellipse";
 };
 
 type CircularTextSlot = {
@@ -101,15 +102,41 @@ export function availableLineSegments({
   const lineBottom = lineTop + lineHeight;
 
   for (const obstacle of obstacles) {
-    if (
-      obstacle.bottom + obstacleGap <= lineTop
-      || obstacle.top - obstacleGap >= lineBottom
-    ) {
-      continue;
+    let blockedLeft: number;
+    let blockedRight: number;
+
+    if (obstacle.shape === "ellipse") {
+      const centerX = (obstacle.left + obstacle.right) / 2;
+      const centerY = (obstacle.top + obstacle.bottom) / 2;
+      const radiusX =
+        Math.max(1, (obstacle.right - obstacle.left) / 2) + obstacleGap;
+      const radiusY =
+        Math.max(1, (obstacle.bottom - obstacle.top) / 2)
+        + obstacleGap
+        + lineHeight / 2;
+      const lineCenterY = lineTop + lineHeight / 2;
+      const normalized = Math.abs(lineCenterY - centerY) / radiusY;
+      if (normalized >= 1) continue;
+      const shapePower = 2.35;
+      const halfChord =
+        radiusX
+        * Math.pow(
+          Math.max(0, 1 - normalized ** shapePower),
+          1 / shapePower,
+        );
+      blockedLeft = centerX - halfChord;
+      blockedRight = centerX + halfChord;
+    } else {
+      if (
+        obstacle.bottom + obstacleGap <= lineTop
+        || obstacle.top - obstacleGap >= lineBottom
+      ) {
+        continue;
+      }
+      blockedLeft = obstacle.left - obstacleGap;
+      blockedRight = obstacle.right + obstacleGap;
     }
 
-    const blockedLeft = obstacle.left - obstacleGap;
-    const blockedRight = obstacle.right + obstacleGap;
     segments = segments.flatMap((segment) => {
       if (
         blockedRight <= segment.left
@@ -143,26 +170,19 @@ export function availableLineSegments({
     .filter((segment) => segment.width > 0);
 }
 
-function bestLineSegment(
+function safeLineSegments(
   segments: Array<{ left: number; width: number }>,
-  width: number,
 ) {
-  const segment = segments
+  return segments
     .filter((segment) => segment.width >= 48)
-    .sort((segmentA, segmentB) => {
-      const widthDifference = segmentB.width - segmentA.width;
-      if (Math.abs(widthDifference) > 0.5) return widthDifference;
-      const centerA = segmentA.left + segmentA.width / 2;
-      const centerB = segmentB.left + segmentB.width / 2;
-      return Math.abs(centerA - width / 2) - Math.abs(centerB - width / 2);
-    })[0];
-  if (!segment) return undefined;
-
-  const paintSafety = Math.min(3, segment.width * 0.04);
-  return {
-    left: segment.left + paintSafety / 2,
-    width: segment.width - paintSafety,
-  };
+    .sort((segmentA, segmentB) => segmentA.left - segmentB.left)
+    .map((segment) => {
+      const paintSafety = Math.min(3, segment.width * 0.04);
+      return {
+        left: segment.left + paintSafety / 2,
+        width: segment.width - paintSafety,
+      };
+    });
 }
 
 function buildLineSlots({
@@ -192,7 +212,7 @@ function buildLineSlots({
     top + lineHeight <= height - verticalPadding + 0.5;
     top += lineHeight
   ) {
-    const segment = bestLineSegment(
+    const segments = safeLineSegments(
       availableLineSegments({
         width,
         height,
@@ -204,11 +224,8 @@ function buildLineSlots({
         shapeOffsetTop,
         obstacles,
       }),
-      width,
     );
-    if (segment) {
-      slots.push({ ...segment, top });
-    }
+    slots.push(...segments.map((segment) => ({ ...segment, top })));
   }
 
   return slots;

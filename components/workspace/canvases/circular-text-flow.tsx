@@ -67,7 +67,43 @@ function sameGeometry(
       && nearlyEqual(obstacle.top, comparison.top)
       && nearlyEqual(obstacle.right, comparison.right)
       && nearlyEqual(obstacle.bottom, comparison.bottom)
+      && obstacle.shape === comparison.shape
     );
+  });
+}
+
+function ownObstacleElements(shell: HTMLElement) {
+  return Array.from(
+    shell.querySelectorAll<HTMLElement>("[data-circular-text-obstacle]"),
+  ).filter((element) => (
+    element.closest("[data-circular-text-shell]") === shell
+  ));
+}
+
+function descendantShells(shell: HTMLElement, nodeId: string | undefined) {
+  if (!nodeId) return [];
+  const scope = shell.closest(".react-flow") ?? document;
+  const candidates = Array.from(
+    scope.querySelectorAll<HTMLElement>("[data-circular-text-node-id]"),
+  );
+  const byId = new Map(
+    candidates.flatMap((candidate) => {
+      const candidateId = candidate.dataset.circularTextNodeId;
+      return candidateId ? [[candidateId, candidate] as const] : [];
+    }),
+  );
+
+  return candidates.filter((candidate) => {
+    if (candidate === shell) return false;
+    const seen = new Set<string>();
+    let parentId = candidate.dataset.circularTextParentId;
+
+    while (parentId && !seen.has(parentId)) {
+      if (parentId === nodeId) return true;
+      seen.add(parentId);
+      parentId = byId.get(parentId)?.dataset.circularTextParentId;
+    }
+    return false;
   });
 }
 
@@ -77,12 +113,14 @@ export function CircularTextFlow({
   className,
   contentClassName,
   ariaLabel,
+  nodeId,
 }: {
   text: string;
   children?: ReactNode;
   className?: string;
   contentClassName?: string;
   ariaLabel?: string;
+  nodeId?: string;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [geometry, setGeometry] =
@@ -99,6 +137,24 @@ export function CircularTextFlow({
       ?? viewport.parentElement;
     if (!shell) return;
     let cancelled = false;
+    let scheduledFrame = 0;
+
+    const elementObstacle = (
+      element: HTMLElement,
+      viewportRect: DOMRect,
+      scaleX: number,
+      scaleY: number,
+      shape: CircularTextObstacle["shape"],
+    ): CircularTextObstacle => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: (rect.left - viewportRect.left) / scaleX,
+        top: (rect.top - viewportRect.top) / scaleY,
+        right: (rect.right - viewportRect.left) / scaleX,
+        bottom: (rect.bottom - viewportRect.top) / scaleY,
+        shape,
+      };
+    };
 
     const update = () => {
       const viewportRect = viewport.getBoundingClientRect();
@@ -111,17 +167,36 @@ export function CircularTextFlow({
       const scaleY = viewportRect.height > 0 && height > 0
         ? viewportRect.height / height
         : scaleX;
-      const obstacles = Array.from(
-        shell.querySelectorAll<HTMLElement>("[data-circular-text-obstacle]"),
-      ).map((element) => {
-        const rect = element.getBoundingClientRect();
-        return {
-          left: (rect.left - viewportRect.left) / scaleX,
-          top: (rect.top - viewportRect.top) / scaleY,
-          right: (rect.right - viewportRect.left) / scaleX,
-          bottom: (rect.bottom - viewportRect.top) / scaleY,
-        };
-      });
+      const nestedShells = descendantShells(shell, nodeId);
+      const obstacles = [
+        ...ownObstacleElements(shell).map((element) => (
+          elementObstacle(
+            element,
+            viewportRect,
+            scaleX,
+            scaleY,
+            "rectangle",
+          )
+        )),
+        ...nestedShells.flatMap((nestedShell) => [
+          elementObstacle(
+            nestedShell,
+            viewportRect,
+            scaleX,
+            scaleY,
+            "ellipse",
+          ),
+          ...ownObstacleElements(nestedShell).map((element) => (
+            elementObstacle(
+              element,
+              viewportRect,
+              scaleX,
+              scaleY,
+              "rectangle",
+            )
+          )),
+        ]),
+      ];
       const nextGeometry = {
         width,
         height,
@@ -150,22 +225,69 @@ export function CircularTextFlow({
       ));
     };
 
-    const observer = new ResizeObserver(update);
-    observer.observe(viewport);
-    observer.observe(shell);
-    shell
-      .querySelectorAll<HTMLElement>("[data-circular-text-obstacle]")
-      .forEach((element) => observer.observe(element));
-    update();
+    const scheduleUpdate = () => {
+      if (cancelled || scheduledFrame !== 0) return;
+      scheduledFrame = window.requestAnimationFrame(() => {
+        scheduledFrame = 0;
+        update();
+      });
+    };
+    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    const positionObserver = new MutationObserver(scheduleUpdate);
+    const nodeLayer = shell
+      .closest(".react-flow")
+      ?.querySelector<HTMLElement>(".react-flow__nodes");
+
+    const observeCurrentGeometry = () => {
+      resizeObserver.disconnect();
+      positionObserver.disconnect();
+      resizeObserver.observe(viewport);
+      resizeObserver.observe(shell);
+      ownObstacleElements(shell).forEach((element) => (
+        resizeObserver.observe(element)
+      ));
+
+      descendantShells(shell, nodeId).forEach((nestedShell) => {
+        resizeObserver.observe(nestedShell);
+        ownObstacleElements(nestedShell).forEach((element) => (
+          resizeObserver.observe(element)
+        ));
+        const nodeWrapper =
+          nestedShell.closest<HTMLElement>(".react-flow__node");
+        if (nodeWrapper) {
+          positionObserver.observe(nodeWrapper, {
+            attributes: true,
+            attributeFilter: ["class", "style"],
+          });
+        }
+      });
+      scheduleUpdate();
+    };
+
+    const treeObserver = new MutationObserver(observeCurrentGeometry);
+    if (nodeLayer) {
+      treeObserver.observe(nodeLayer, {
+        attributes: true,
+        attributeFilter: ["data-circular-text-parent-id"],
+        childList: true,
+        subtree: true,
+      });
+    }
+    observeCurrentGeometry();
     void document.fonts?.ready.then(() => {
-      if (!cancelled) update();
+      if (!cancelled) scheduleUpdate();
     });
 
     return () => {
       cancelled = true;
-      observer.disconnect();
+      if (scheduledFrame !== 0) {
+        window.cancelAnimationFrame(scheduledFrame);
+      }
+      resizeObserver.disconnect();
+      positionObserver.disconnect();
+      treeObserver.disconnect();
     };
-  }, []);
+  }, [nodeId]);
 
   const prepared = useMemo(() => {
     if (typeof window === "undefined" || !text) return null;

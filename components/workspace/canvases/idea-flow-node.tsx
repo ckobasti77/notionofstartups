@@ -98,6 +98,7 @@ export function IdeaNodeActionsProvider({
 export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
   id,
   data,
+  parentId,
   selected,
 }: NodeProps<IdeaFlowNode>) {
   const actions = useContext(IdeaNodeActionsContext);
@@ -117,6 +118,8 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
   return (
     <article
       data-circular-text-shell
+      data-circular-text-node-id={id}
+      data-circular-text-parent-id={parentId}
       className={cn(
         orbital.shell,
         styles[data.color],
@@ -308,6 +311,7 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
 
       <CircularTextFlow
         text={data.text}
+        nodeId={id}
         ariaLabel={`Tekst ideje ${data.title ?? "Bez naslova"}`}
       >
         <IdeaInlineThread

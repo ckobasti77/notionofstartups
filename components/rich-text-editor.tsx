@@ -72,7 +72,9 @@ export function RichTextEditor({
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(editable);
+    // Changing permissions is not a content edit. Tiptap emits an `update`
+    // event by default here, which can leave read-only pages permanently dirty.
+    editor.setEditable(editable, false);
   }, [editable, editor]);
 
   useEffect(() => {
