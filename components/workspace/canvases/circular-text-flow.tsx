@@ -84,7 +84,7 @@ export function CircularTextFlow({
       ref={viewportRef}
       className={cn(
         orbitalStyles.textViewport,
-        "nowheel nodrag scrollbar-thin",
+        "nowheel scrollbar-thin",
         className,
       )}
       tabIndex={0}

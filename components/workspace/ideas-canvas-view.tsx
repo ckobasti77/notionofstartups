@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   Background,
   BackgroundVariant,
@@ -29,12 +30,23 @@ import {
 } from "@xyflow/react";
 import { useMutation } from "convex/react";
 import {
+  ArrowUpRight,
+  Check,
+  Copy,
+  FolderInput,
+  GitBranchPlus,
   Lightbulb,
+  Link2,
+  Maximize2,
   MousePointer2,
+  Pencil,
   Plus,
   Redo2,
   SearchX,
+  Trash2,
   Undo2,
+  Ungroup,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -90,6 +102,9 @@ type IdeaNode = {
   canDeleteDirectly: boolean;
   canRequestDeletion: boolean;
   canDetach: boolean;
+  nestingRequestId: Id<"nestingRequests"> | null;
+  nestingModerationStatus: "pending" | "rejected" | null;
+  canModerateNesting: boolean;
 };
 
 type IdeaEdge = {
@@ -118,6 +133,10 @@ type IdeasCanvasViewProps = {
 };
 
 type IdeaFlowEdge = Edge<Record<string, never>, "default">;
+type ContextTarget =
+  | { kind: "node"; nodeId: Id<"ideaNodes"> }
+  | { kind: "edge"; edgeId: Id<"ideaEdges"> }
+  | { kind: "pane"; position: { x: number; y: number } };
 
 const NODE_TYPES = { idea: IdeaFlowNodeCard };
 const EDGE_TYPES = { default: ThoughtEdge };
@@ -182,6 +201,8 @@ function toFlowNode(node: IdeaNode): IdeaFlowNode {
       canDeleteDirectly: node.canDeleteDirectly,
       canRequestDeletion: node.canRequestDeletion,
       canDetach: node.canDetach,
+      nestingModerationStatus: node.nestingModerationStatus,
+      canModerateNesting: node.canModerateNesting,
     },
     parentId: node.parentIdeaId,
     expandParent: node.parentIdeaId !== undefined,
@@ -192,6 +213,33 @@ function toFlowNode(node: IdeaNode): IdeaFlowNode {
     draggable: node.canMove,
     ariaLabel: `Ideja: ${node.title ?? node.text}`,
   };
+}
+
+function isTextEntry(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+  );
+}
+
+function absoluteIdeaPosition(
+  ideaId: Id<"ideaNodes">,
+  docsById: ReadonlyMap<Id<"ideaNodes">, IdeaNode>,
+) {
+  let idea = docsById.get(ideaId);
+  let x = 0;
+  let y = 0;
+  const seen = new Set<string>();
+  while (idea !== undefined && !seen.has(idea._id)) {
+    seen.add(idea._id);
+    x += idea.x;
+    y += idea.y;
+    idea =
+      idea.parentIdeaId === undefined
+        ? undefined
+        : docsById.get(idea.parentIdeaId);
+  }
+  return { x, y };
 }
 
 function parentsBeforeChildren(nodeDocs: IdeaNode[]) {
@@ -283,8 +331,14 @@ function IdeasCanvasBody({
   });
   const [edgeEditorId, setEdgeEditorId] = useState<Id<"ideaEdges"> | null>(null);
   const [edgeEditorPending, setEdgeEditorPending] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [contextTarget, setContextTarget] = useState<ContextTarget>({
+    kind: "pane",
+    position: { x: 0, y: 0 },
+  });
   const colorMode = useCanvasColorMode();
 
+  const createIdeaMutation = useMutation(api.ideas.create);
   const voteMutation = useMutation(api.ideas.vote);
   const updatePositionsMutation = useMutation(api.ideas.updatePositions);
   const updateLayoutMutation = useMutation(api.ideas.updateLayout);
@@ -294,6 +348,8 @@ function IdeasCanvasBody({
   const archiveIdeaMutation = useMutation(api.ideas.archive);
   const restoreIdeaMutation = useMutation(api.ideas.restoreOwn);
   const requestDeletionMutation = useMutation(api.collaboration.requestDeletion);
+  const requestNestingMutation = useMutation(api.collaboration.requestNesting);
+  const resolveNestingMutation = useMutation(api.collaboration.resolveNesting);
   const detachIdeaMutation = useMutation(api.collaboration.detachIdea);
   const updateEdgeLabelMutation = useMutation(api.ideas.updateEdgeLabel);
   const saveViewportMutation = useMutation(api.ideas.saveViewport);
@@ -425,6 +481,112 @@ function IdeasCanvasBody({
         ),
       );
   }, [detachIdeaMutation, startupId]);
+
+  const moderateNesting = useCallback(
+    (requestId: Id<"nestingRequests">, approve: boolean) => {
+      void resolveNestingMutation({ requestId, approve })
+        .then(() =>
+          toast.success(
+            approve
+              ? "Ugnježdenje je odobreno."
+              : "Ugnježdenje je odbijeno za tim.",
+          ),
+        )
+        .catch((error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Odluka o ugnježdenju nije sačuvana.",
+          ),
+        );
+    },
+    [resolveNestingMutation],
+  );
+
+  const selectConnected = useCallback((ideaId: Id<"ideaNodes">) => {
+    const selected = new Set<string>([ideaId]);
+    const queue = [ideaId as string];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const edge of edges) {
+        const next =
+          edge.source === current
+            ? edge.target
+            : edge.target === current
+              ? edge.source
+              : null;
+        if (next !== null && !selected.has(next)) {
+          selected.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    setNodes((current) =>
+      current.map((node) => ({ ...node, selected: selected.has(node.id) })),
+    );
+  }, [edges]);
+
+  const duplicateSelection = useCallback(async (requestedIds?: Id<"ideaNodes">[]) => {
+    const ids =
+      requestedIds ??
+      nodes
+        .filter((node) => node.selected)
+        .map((node) => node.id as Id<"ideaNodes">);
+    if (ids.length === 0) return;
+    if (ids.length > 20) {
+      toast.error("Dupliraj najviše 20 ideja odjednom.");
+      return;
+    }
+    const createdIds: Id<"ideaNodes">[] = [];
+    try {
+      for (const [index, ideaId] of ids.entries()) {
+        const idea = docsById.get(ideaId);
+        if (!idea) continue;
+        const position = absoluteIdeaPosition(ideaId, docsById);
+        createdIds.push(
+          await createIdeaMutation({
+            startupId,
+            title: idea.title?.trim() || "Kopija ideje",
+            text: idea.text,
+            color: idea.color,
+            x: Math.round(position.x + 36 + index * 8),
+            y: Math.round(position.y + 36 + index * 8),
+          }),
+        );
+      }
+      if (createdIds.length === 0) return;
+      pushHistory({
+        label: createdIds.length === 1 ? "dupliranje ideje" : "dupliranje ideja",
+        undo: async () => {
+          for (const ideaId of createdIds) {
+            await archiveIdeaMutation({ startupId, ideaId });
+          }
+        },
+        redo: async () => {
+          for (const ideaId of createdIds) {
+            await restoreIdeaMutation({ startupId, ideaId });
+          }
+        },
+      });
+      toast.success(
+        createdIds.length === 1
+          ? "Ideja je duplirana."
+          : `${createdIds.length} ideje su duplirane.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Ideje nisu duplirane.",
+      );
+    }
+  }, [
+    archiveIdeaMutation,
+    createIdeaMutation,
+    docsById,
+    nodes,
+    pushHistory,
+    restoreIdeaMutation,
+    startupId,
+  ]);
 
   const remove = useCallback((ideaId: Id<"ideaNodes">) => {
     const idea = docsById.get(ideaId);
@@ -632,6 +794,72 @@ function IdeasCanvasBody({
     });
   }, [saveViewportMutation, startupId]);
 
+  const invokeKeyboardContextMenu = useCallback(() => {
+    const node = nodes.find((item) => item.selected);
+    const selector = node
+      ? `.react-flow__node[data-id="${CSS.escape(node.id)}"]`
+      : ".react-flow";
+    const anchor = document.querySelector<HTMLElement>(selector);
+    if (!anchor) return;
+    const bounds = anchor.getBoundingClientRect();
+    anchor.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        clientX: bounds.left + Math.min(bounds.width / 2, 120),
+        clientY: bounds.top + Math.min(bounds.height / 2, 70),
+      }),
+    );
+  }, [nodes]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (isTextEntry(event.target)) return;
+    const modifier = event.ctrlKey || event.metaKey;
+    if (modifier && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      setNodes((current) =>
+        current.map((node) => ({ ...node, selected: true })),
+      );
+      return;
+    }
+    if (modifier && event.key.toLowerCase() === "d") {
+      event.preventDefault();
+      void duplicateSelection();
+      return;
+    }
+    if (event.shiftKey && event.key === "F10") {
+      event.preventDefault();
+      invokeKeyboardContextMenu();
+      return;
+    }
+    if (event.key === "Escape") {
+      setNodes((current) =>
+        current.map((node) => ({ ...node, selected: false })),
+      );
+      setEdges((current) =>
+        current.map((edge) => ({ ...edge, selected: false })),
+      );
+      return;
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      nodes
+        .filter((node) => node.selected)
+        .forEach((node) => remove(node.id as Id<"ideaNodes">));
+      edges
+        .filter((edge) => edge.selected && !edge.id.startsWith("pending:"))
+        .forEach((edge) => archiveEdge(edge.id as Id<"ideaEdges">));
+    }
+  }, [
+    archiveEdge,
+    duplicateSelection,
+    edges,
+    invokeKeyboardContextMenu,
+    nodes,
+    remove,
+  ]);
+
   return (
     <ThoughtEdgeActionsProvider actions={edgeActions}>
       <IdeaNodeActionsProvider
@@ -647,20 +875,25 @@ function IdeasCanvasBody({
           branch: (ideaId) => onCreateIdea(ideaId),
         }}
       >
+        <ContextMenu.Root open={contextOpen} onOpenChange={setContextOpen}>
+          <ContextMenu.Trigger asChild>
         <div
-        className={cn(styles.canvas, styles.ideasCanvas)}
-        onDoubleClick={(event) => {
-          const target = event.target;
-          if (!(target instanceof HTMLElement) || !target.classList.contains("react-flow__pane")) {
-            return;
-          }
-          const position = flowRef.current?.screenToFlowPosition({
-            x: event.clientX,
-            y: event.clientY,
-          });
-          onCreateIdea(undefined, position);
-        }}
-      >
+          className={cn(styles.canvas, styles.ideasCanvas)}
+          role="application"
+          tabIndex={0}
+          onKeyDownCapture={handleKeyDown}
+          onDoubleClick={(event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement) || !target.classList.contains("react-flow__pane")) {
+              return;
+            }
+            const position = flowRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            onCreateIdea(undefined, position);
+          }}
+        >
         <ReactFlow<IdeaFlowNode, IdeaFlowEdge>
           nodes={nodes}
           edges={edges}
@@ -672,14 +905,17 @@ function IdeasCanvasBody({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void connectIdeas(connection)}
-          onNodeDragStart={(_event, node) => {
-            preDragPositionsRef.current.set(node.id, {
-              x: node.position.x,
-              y: node.position.y,
-            });
+          onNodeDragStart={(_event, _node, draggedNodes) => {
+            preDragPositionsRef.current = new Map(
+              draggedNodes.map((dragged) => [
+                dragged.id,
+                { x: dragged.position.x, y: dragged.position.y },
+              ]),
+            );
           }}
           onlyRenderVisibleElements
           onNodeClick={(event, node) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey) return;
             const target = event.target as HTMLElement;
             if (
               target.closest(
@@ -691,35 +927,128 @@ function IdeasCanvasBody({
             const idea = docsById.get(node.id as Id<"ideaNodes">);
             if (idea) onEditIdea(idea);
           }}
-          onNodeDragStop={(_event, node) => {
-            const before = preDragPositionsRef.current.get(node.id);
-            const after = {
-              id: node.id as Id<"ideaNodes">,
-              x: Math.round(node.position.x),
-              y: Math.round(node.position.y),
-            };
-            preDragPositionsRef.current.delete(node.id);
-            if (!before || (before.x === after.x && before.y === after.y)) return;
+          onNodeDragStop={(_event, node, draggedNodes) => {
+            if (draggedNodes.length > 50) {
+              toast.error("Pomeraj najviše 50 ideja odjednom.");
+              return;
+            }
+            const before = draggedNodes.flatMap((dragged) => {
+              const position = preDragPositionsRef.current.get(dragged.id);
+              return position
+                ? [{
+                    id: dragged.id as Id<"ideaNodes">,
+                    x: Math.round(position.x),
+                    y: Math.round(position.y),
+                  }]
+                : [];
+            });
+            const after = draggedNodes.map((dragged) => ({
+              id: dragged.id as Id<"ideaNodes">,
+              x: Math.round(dragged.position.x),
+              y: Math.round(dragged.position.y),
+            }));
+            preDragPositionsRef.current.clear();
+            const changed = after.some((move) => {
+              const previous = before.find((item) => item.id === move.id);
+              return previous?.x !== move.x || previous?.y !== move.y;
+            });
+            if (!changed) return;
             void updatePositionsMutation({
               startupId,
-              updates: [after],
+              updates: after,
             })
-              .then(() => {
+              .then(async () => {
+                try {
+                  if (draggedNodes.length === 1) {
+                    const idea = docsById.get(node.id as Id<"ideaNodes">);
+                    const parent = flowRef.current
+                      ?.getIntersectingNodes(node)
+                      .find((candidate) => candidate.id !== node.id);
+                    if (
+                      idea?.canEdit &&
+                      parent &&
+                      idea.parentIdeaId !== parent.id
+                    ) {
+                      const result = await requestNestingMutation({
+                        startupId,
+                        childIdeaId: idea._id,
+                        parentIdeaId: parent.id as Id<"ideaNodes">,
+                      });
+                      toast.success(
+                        result.status === "pending"
+                          ? "Predlog ugnježdenja je odmah vidljiv timu."
+                          : "Ideja je ugnježdena.",
+                      );
+                    } else if (
+                      idea?.canDetach &&
+                      idea.parentIdeaId !== undefined &&
+                      !parent
+                    ) {
+                      await detachIdeaMutation({
+                        startupId,
+                        ideaId: idea._id,
+                      });
+                      toast.success("Ideja je izvučena iz grupe.");
+                    }
+                  }
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Ugnježdenje nije sačuvano.",
+                  );
+                }
                 pushHistory({
-                  label: "pomeranje ideje",
+                  label:
+                    after.length === 1
+                      ? "pomeranje ideje"
+                      : "pomeranje grupe ideja",
                   undo: () => updatePositionsMutation({
                     startupId,
-                    updates: [{ id: after.id, x: before.x, y: before.y }],
+                    updates: before,
                   }),
                   redo: () => updatePositionsMutation({
                     startupId,
-                    updates: [after],
+                    updates: after,
                   }),
                 });
               })
               .catch((error) => {
                 toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
               });
+          }}
+          onNodeContextMenu={(_event, node) => {
+            setContextTarget({
+              kind: "node",
+              nodeId: node.id as Id<"ideaNodes">,
+            });
+            if (!node.selected) {
+              setNodes((current) =>
+                current.map((item) => ({
+                  ...item,
+                  selected: item.id === node.id,
+                })),
+              );
+              setEdges((current) =>
+                current.map((edge) => ({ ...edge, selected: false })),
+              );
+            }
+          }}
+          onEdgeContextMenu={(_event, edge) => {
+            if (edge.id.startsWith("pending:")) return;
+            setContextTarget({
+              kind: "edge",
+              edgeId: edge.id as Id<"ideaEdges">,
+            });
+          }}
+          onPaneContextMenu={(event) => {
+            const position = flowRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            if (position) {
+              setContextTarget({ kind: "pane", position });
+            }
           }}
           onEdgesDelete={(deletedEdges) => {
             deletedEdges.forEach((edge) => {
@@ -730,14 +1059,20 @@ function IdeasCanvasBody({
           onMove={(_event, next) => setViewport(next)}
           onMoveEnd={handleMoveEnd}
           defaultViewport={viewport}
-          minZoom={0.5}
-          maxZoom={1.6}
+          minZoom={0.18}
+          maxZoom={2.2}
           connectionMode={ConnectionMode.Loose}
           zoomOnDoubleClick={false}
-          panOnDrag={[0, 1]}
+          panOnScroll
+          panOnDrag={[1, 2]}
           selectionOnDrag
           selectionMode={SelectionMode.Partial}
-          deleteKeyCode={["Backspace", "Delete"]}
+          selectionKeyCode="Shift"
+          multiSelectionKeyCode={["Control", "Meta"]}
+          deleteKeyCode={null}
+          nodeDragThreshold={3}
+          connectionDragThreshold={4}
+          elevateNodesOnSelect
           nodesConnectable
           nodesFocusable
           edgesFocusable
@@ -749,8 +1084,8 @@ function IdeasCanvasBody({
           <Background
             variant={BackgroundVariant.Dots}
             gap={24}
-            size={1}
-            color="color-mix(in oklab, var(--muted-foreground) 28%, transparent)"
+            size={1.15}
+            color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
           />
           <Controls position="bottom-left" showInteractive={false} />
           <MiniMap
@@ -841,6 +1176,164 @@ function IdeasCanvasBody({
           </div>
         ) : null}
         </div>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content
+              className={styles.contextContent}
+              collisionPadding={8}
+            >
+              {contextTarget.kind === "node" ? (() => {
+                const idea = docsById.get(contextTarget.nodeId);
+                if (!idea) return null;
+                return (
+                  <>
+                    <ContextMenu.Item
+                      className={styles.contextItem}
+                      onSelect={() => edit(idea._id)}
+                    >
+                      <ArrowUpRight className="size-4" />
+                      {idea.canEdit ? "Otvori i uredi" : "Otvori i dodaj izmenu"}
+                    </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className={styles.contextItem}
+                      onSelect={() => onCreateIdea(idea._id)}
+                    >
+                      <GitBranchPlus className="size-4" /> Nova grana
+                    </ContextMenu.Item>
+                    {idea.canEdit ? (
+                      <ContextMenu.Item
+                        className={styles.contextItem}
+                        onSelect={() => nest(idea._id)}
+                      >
+                        <FolderInput className="size-4" /> Ubaci karticu u…
+                      </ContextMenu.Item>
+                    ) : null}
+                    {idea.canDetach ? (
+                      <ContextMenu.Item
+                        className={styles.contextItem}
+                        onSelect={() => detach(idea._id)}
+                      >
+                        <Ungroup className="size-4" /> Izvuci iz grupe
+                      </ContextMenu.Item>
+                    ) : null}
+                    {idea.canModerateNesting && idea.nestingRequestId ? (
+                      <>
+                        <ContextMenu.Item
+                          className={styles.contextItem}
+                          onSelect={() =>
+                            moderateNesting(idea.nestingRequestId!, true)
+                          }
+                        >
+                          <Check className="size-4" /> Odobri ugnježdenje
+                        </ContextMenu.Item>
+                        <ContextMenu.Item
+                          className={cn(styles.contextItem, styles.contextDanger)}
+                          onSelect={() =>
+                            moderateNesting(idea.nestingRequestId!, false)
+                          }
+                        >
+                          <X className="size-4" /> Odbij ugnježdenje
+                        </ContextMenu.Item>
+                      </>
+                    ) : null}
+                    <ContextMenu.Item
+                      className={styles.contextItem}
+                      onSelect={() => selectConnected(idea._id)}
+                    >
+                      <Link2 className="size-4" /> Izaberi povezane
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator className={styles.contextSeparator} />
+                    <ContextMenu.Item
+                      className={styles.contextItem}
+                      onSelect={() => void duplicateSelection([idea._id])}
+                    >
+                      <Copy className="size-4" /> Dupliraj
+                    </ContextMenu.Item>
+                    {idea.isApproved && !idea.convertedPageId ? (
+                      <ContextMenu.Item
+                        className={styles.contextItem}
+                        onSelect={() => convert(idea._id)}
+                      >
+                        <Maximize2 className="size-4" /> Pretvori
+                      </ContextMenu.Item>
+                    ) : null}
+                    <ContextMenu.Separator className={styles.contextSeparator} />
+                    <ContextMenu.Item
+                      className={cn(styles.contextItem, styles.contextDanger)}
+                      onSelect={() => remove(idea._id)}
+                    >
+                      <Trash2 className="size-4" />
+                      {idea.canDeleteDirectly ? "Obriši" : "Zatraži brisanje"}
+                    </ContextMenu.Item>
+                  </>
+                );
+              })() : null}
+              {contextTarget.kind === "edge" ? (() => {
+                const edge = edgeDocsById.get(contextTarget.edgeId);
+                if (!edge) return null;
+                return (
+                  <>
+                    <ContextMenu.Item
+                      className={styles.contextItem}
+                      disabled={!edge.canEdit}
+                      onSelect={() => setEdgeEditorId(edge._id)}
+                    >
+                      <Pencil className="size-4" /> Preimenuj vezu
+                    </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className={cn(styles.contextItem, styles.contextDanger)}
+                      onSelect={() => archiveEdge(edge._id)}
+                    >
+                      <Trash2 className="size-4" />
+                      {edge.canDeleteDirectly ? "Ukloni vezu" : "Zatraži brisanje"}
+                    </ContextMenu.Item>
+                  </>
+                );
+              })() : null}
+              {contextTarget.kind === "pane" ? (
+                <>
+                  <ContextMenu.Item
+                    className={styles.contextItem}
+                    onSelect={() =>
+                      onCreateIdea(undefined, contextTarget.position)
+                    }
+                  >
+                    <Plus className="size-4" /> Nova ideja ovde
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    className={styles.contextItem}
+                    onSelect={() =>
+                      void flowRef.current?.fitView({
+                        padding: 0.24,
+                        duration: 260,
+                      })
+                    }
+                  >
+                    <Maximize2 className="size-4" /> Prikaži sve
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    className={styles.contextItem}
+                    onSelect={() =>
+                      setNodes((current) =>
+                        current.map((node) => ({ ...node, selected: true })),
+                      )
+                    }
+                  >
+                    <MousePointer2 className="size-4" /> Izaberi sve
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator className={styles.contextSeparator} />
+                  <ContextMenu.Item
+                    className={styles.contextItem}
+                    disabled={historyState.undoCount === 0 || historyState.busy}
+                    onSelect={() => void runHistory("undo")}
+                  >
+                    <Undo2 className="size-4" /> Poništi
+                  </ContextMenu.Item>
+                </>
+              ) : null}
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
         {edgeEditorId ? (
           <EdgeEditorDialog
             open

@@ -764,18 +764,74 @@ async function assertNoIdeaCycle(
   }
 }
 
+async function assertNoPendingIdeaCycle(
+  ctx: ReadCtx,
+  startupId: Id<"startups">,
+  childId: Id<"ideaNodes">,
+  parentId: Id<"ideaNodes">,
+) {
+  const pending = await ctx.db
+    .query("nestingRequests")
+    .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
+      q.eq("startupId", startupId).eq("status", "pending"),
+    )
+    .order("desc")
+    .take(500);
+  const pendingParentByChildId = new Map<
+    Id<"ideaNodes">,
+    Id<"ideaNodes">
+  >();
+  for (const request of pending) {
+    if (!pendingParentByChildId.has(request.childIdeaId)) {
+      pendingParentByChildId.set(request.childIdeaId, request.parentIdeaId);
+    }
+  }
+  let cursor: Id<"ideaNodes"> | undefined = parentId;
+  const seen = new Set<string>();
+  for (let depth = 0; cursor !== undefined && depth < 512; depth += 1) {
+    if (cursor === childId || seen.has(cursor)) {
+      throw new Error("Ugnježđavanje bi napravilo kružnu hijerarhiju.");
+    }
+    seen.add(cursor);
+    const pendingParent = pendingParentByChildId.get(cursor);
+    if (pendingParent !== undefined) {
+      cursor = pendingParent;
+      continue;
+    }
+    const node: Doc<"ideaNodes"> | null = await ctx.db.get(
+      "ideaNodes",
+      cursor,
+    );
+    cursor = node?.parentIdeaId;
+  }
+  if (cursor !== undefined) {
+    throw new Error("Hijerarhija je preduboka za bezbednu proveru.");
+  }
+}
+
 async function applyIdeaNesting(
   ctx: MutationCtx,
   child: Doc<"ideaNodes">,
   parent: Doc<"ideaNodes">,
+  proposedPosition?: { x: number; y: number },
 ) {
   await assertNoIdeaCycle(ctx, child._id, parent._id);
-  const childAbsolute = await absoluteIdeaPosition(ctx, child);
-  const parentAbsolute = await absoluteIdeaPosition(ctx, parent);
+  const childAbsolute =
+    proposedPosition === undefined
+      ? await absoluteIdeaPosition(ctx, child)
+      : null;
+  const parentAbsolute =
+    proposedPosition === undefined
+      ? await absoluteIdeaPosition(ctx, parent)
+      : null;
   await ctx.db.patch("ideaNodes", child._id, {
     parentIdeaId: parent._id,
-    x: childAbsolute.x - parentAbsolute.x,
-    y: childAbsolute.y - parentAbsolute.y,
+    x:
+      proposedPosition?.x ??
+      (childAbsolute?.x ?? 0) - (parentAbsolute?.x ?? 0),
+    y:
+      proposedPosition?.y ??
+      (childAbsolute?.y ?? 0) - (parentAbsolute?.y ?? 0),
     updatedAt: Date.now(),
   });
 }
@@ -806,29 +862,47 @@ export const requestNesting = mutation({
       throw new Error("Možete ugnjezditi samo svoju karticu.");
     }
     await assertNoIdeaCycle(ctx, child._id, parent._id);
+    await assertNoPendingIdeaCycle(
+      ctx,
+      args.startupId,
+      child._id,
+      parent._id,
+    );
     if (parent.authorProfileId === profile._id) {
       await applyIdeaNesting(ctx, child, parent);
       return { status: "approved" as const, requestId: null };
     }
-    const existing = await ctx.db
+    const childAbsolute = await absoluteIdeaPosition(ctx, child);
+    const parentAbsolute = await absoluteIdeaPosition(ctx, parent);
+    const previousPending = await ctx.db
       .query("nestingRequests")
-      .withIndex("by_childIdeaId_and_parentIdeaId_and_status", (q) =>
+      .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
         q
-          .eq("childIdeaId", child._id)
-          .eq("parentIdeaId", parent._id)
+          .eq("requesterProfileId", profile._id)
           .eq("status", "pending"),
       )
-      .unique();
-    if (existing !== null) {
-      throw new Error("Zahtev za ovo ugnježđavanje već postoji.");
-    }
+      .take(100);
     const now = Date.now();
+    for (const request of previousPending) {
+      if (
+        request.startupId === args.startupId &&
+        request.childIdeaId === child._id
+      ) {
+        await ctx.db.patch("nestingRequests", request._id, {
+          status: "cancelled",
+          resolvedAt: now,
+          updatedAt: now,
+        });
+      }
+    }
     const requestId = await ctx.db.insert("nestingRequests", {
       startupId: args.startupId,
       childIdeaId: child._id,
       parentIdeaId: parent._id,
       requesterProfileId: profile._id,
       parentAuthorProfileId: parent.authorProfileId,
+      proposedX: childAbsolute.x - parentAbsolute.x,
+      proposedY: childAbsolute.y - parentAbsolute.y,
       status: "pending",
       createdAt: now,
       updatedAt: now,
@@ -878,7 +952,16 @@ export const resolveNesting = mutation({
       });
       throw new Error("Jedna od kartica više ne postoji.");
     }
-    if (args.approve) await applyIdeaNesting(ctx, child, parent);
+    if (args.approve) {
+      await applyIdeaNesting(
+        ctx,
+        child,
+        parent,
+        request.proposedX === undefined || request.proposedY === undefined
+          ? undefined
+          : { x: request.proposedX, y: request.proposedY },
+      );
+    }
     await ctx.db.patch("nestingRequests", request._id, {
       status: args.approve ? "approved" : "rejected",
       resolvedAt: now,
@@ -909,9 +992,62 @@ export const detachIdea = mutation({
     if (
       child === null ||
       child.archivedAt !== null ||
-      child.startupId !== args.startupId ||
-      child.parentIdeaId === undefined
+      child.startupId !== args.startupId
     ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    const [pending, rejectedAsRequester, rejectedAsParent] = await Promise.all([
+      ctx.db
+        .query("nestingRequests")
+        .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
+          q.eq("startupId", args.startupId).eq("status", "pending"),
+        )
+        .order("desc")
+        .take(500),
+      ctx.db
+        .query("nestingRequests")
+        .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
+          q.eq("requesterProfileId", profile._id).eq("status", "rejected"),
+        )
+        .order("desc")
+        .take(500),
+      ctx.db
+        .query("nestingRequests")
+        .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
+          q.eq("parentAuthorProfileId", profile._id).eq("status", "rejected"),
+        )
+        .order("desc")
+        .take(500),
+    ]);
+    const virtualRequest = [
+      ...pending,
+      ...rejectedAsRequester,
+      ...rejectedAsParent,
+    ]
+      .filter((request) => request.childIdeaId === child._id)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (virtualRequest !== undefined) {
+      if (
+        virtualRequest.requesterProfileId !== profile._id &&
+        virtualRequest.parentAuthorProfileId !== profile._id
+      ) {
+        throw new Error(
+          "Predlog može povući autor ili odbiti vlasnik Parent ideje.",
+        );
+      }
+      const now = Date.now();
+      await ctx.db.patch("nestingRequests", virtualRequest._id, {
+        status:
+          virtualRequest.status === "pending" &&
+          virtualRequest.parentAuthorProfileId === profile._id
+            ? "rejected"
+            : "cancelled",
+        resolvedAt: now,
+        updatedAt: now,
+      });
+      return child._id;
+    }
+    if (child.parentIdeaId === undefined) {
       throw new Error("Ugnježđena ideja nije pronađena.");
     }
     const parent = await ctx.db.get("ideaNodes", child.parentIdeaId);

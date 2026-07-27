@@ -164,7 +164,7 @@ export function ThoughtNode({ id, data, selected }: NodeProps<ThoughtFlowNode>) 
         </span>
       </div>
 
-      <div className={cn(orbital.orbit, orbital.actionOrbit, "nodrag")}>
+      <div className={cn(orbital.orbit, orbital.actionOrbit)}>
         {data.conversionCount > 0 && data.lastConvertedIdeaId ? (
           <button
             type="button"

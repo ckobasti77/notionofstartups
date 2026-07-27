@@ -175,6 +175,52 @@
   box-shadow: 0 2px 8px color-mix(in oklab, var(--foreground) 18%, transparent);
 }
 
+.contextContent {
+  z-index: 80;
+  min-width: 14rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.3rem;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: var(--shadow-desk);
+  transform-origin: var(--radix-context-menu-content-transform-origin);
+}
+
+.contextItem {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.625rem;
+  border-radius: 0.5rem;
+  padding: 0 0.625rem;
+  outline: none;
+  font-size: 0.8125rem;
+  font-weight: 530;
+  user-select: none;
+}
+
+.contextItem[data-highlighted] {
+  color: var(--accent-foreground);
+  background: var(--accent);
+}
+
+.contextItem[data-disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.contextDanger {
+  color: var(--destructive);
+}
+
+.contextSeparator {
+  height: 1px;
+  margin: 0.3rem -0.3rem;
+  background: var(--border);
+}
+
 .neutral { --node-accent: oklch(0.58 0.025 266); }
 .violet { --node-accent: oklch(0.57 0.2 294); }
 .blue { --node-accent: oklch(0.58 0.17 249); }

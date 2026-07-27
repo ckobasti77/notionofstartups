@@ -178,7 +178,7 @@ describe("demokratske Canvas dozvole", () => {
     ]);
   });
 
-  test("drugi član i admin ne mogu menjati, pomerati, resize-ovati ili direktno obrisati tuđu ideju", async () => {
+  test("tim može pomerati tuđu ideju, ali samo autor menja sadržaj i veličinu", async () => {
     const { t, startupId, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
@@ -212,9 +212,9 @@ describe("demokratske Canvas dozvole", () => {
       startupId,
       updates: [{ id: ideaId, x: 999, y: 999 }],
     });
-    const unchanged = await t.run((ctx) => ctx.db.get("ideaNodes", ideaId));
-    expect(unchanged?.x).toBe(10);
-    expect(unchanged?.y).toBe(20);
+    const moved = await t.run((ctx) => ctx.db.get("ideaNodes", ideaId));
+    expect(moved?.x).toBe(999);
+    expect(moved?.y).toBe(999);
     await expect(
       asAdmin.mutation(api.ideas.archive, { startupId, ideaId }),
     ).rejects.toThrow("jednoglasnim glasanjem");
@@ -242,8 +242,67 @@ describe("demokratske Canvas dozvole", () => {
       { startupId, childIdeaId, parentIdeaId },
     );
     expect(requested.status).toBe("pending");
+    expect(
+      (await asAdmin.query(api.ideas.list, { startupId })).nodes.find(
+        (node) => node._id === childIdeaId,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        parentIdeaId,
+        nestingModerationStatus: "pending",
+        canMove: true,
+      }),
+    );
+    expect(
+      (await t.run((ctx) => ctx.db.get("ideaNodes", childIdeaId)))
+        ?.parentIdeaId,
+    ).toBeUndefined();
+    await expect(
+      asMember.mutation(api.collaboration.requestNesting, {
+        startupId,
+        childIdeaId: parentIdeaId,
+        parentIdeaId: childIdeaId,
+      }),
+    ).rejects.toThrow("kružnu hijerarhiju");
     await asMember.mutation(api.collaboration.resolveNesting, {
       requestId: requested.requestId!,
+      approve: false,
+    });
+    expect(
+      (await asAdmin.query(api.ideas.list, { startupId })).nodes.find(
+        (node) => node._id === childIdeaId,
+      )?.parentIdeaId,
+    ).toBeUndefined();
+    expect(
+      (await asAuthor.query(api.ideas.list, { startupId })).nodes.find(
+        (node) => node._id === childIdeaId,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        parentIdeaId,
+        nestingModerationStatus: "rejected",
+      }),
+    );
+    expect(
+      (await asMember.query(api.ideas.list, { startupId })).nodes.find(
+        (node) => node._id === childIdeaId,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        parentIdeaId,
+        nestingModerationStatus: "rejected",
+      }),
+    );
+    await asAuthor.mutation(api.collaboration.detachIdea, {
+      startupId,
+      ideaId: childIdeaId,
+    });
+    const requestedAgain = await asAuthor.mutation(
+      api.collaboration.requestNesting,
+      { startupId, childIdeaId, parentIdeaId },
+    );
+    await asMember.mutation(api.collaboration.resolveNesting, {
+      requestId: requestedAgain.requestId!,
       approve: true,
     });
     expect(

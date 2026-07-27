@@ -534,6 +534,8 @@ export default defineSchema({
     parentIdeaId: v.id("ideaNodes"),
     requesterProfileId: v.id("profiles"),
     parentAuthorProfileId: v.id("profiles"),
+    proposedX: v.optional(v.number()),
+    proposedY: v.optional(v.number()),
     status: v.union(
       v.literal("pending"),
       v.literal("approved"),
@@ -559,6 +561,11 @@ export default defineSchema({
       "childIdeaId",
       "parentIdeaId",
       "status",
+    ])
+    .index("by_startupId_and_status_and_updatedAt", [
+      "startupId",
+      "status",
+      "updatedAt",
     ]),
 
   pageCanvasNodes: defineTable({

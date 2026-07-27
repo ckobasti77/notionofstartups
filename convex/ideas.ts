@@ -89,6 +89,63 @@ export const list = query({
         .filter((request) => request.targetKind === "idea")
         .map((request) => [request.targetId, request]),
     );
+    const [pendingNesting, rejectedNestingByRequester, rejectedNestingByParent] =
+      await Promise.all([
+        ctx.db
+          .query("nestingRequests")
+          .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
+            q.eq("startupId", args.startupId).eq("status", "pending"),
+          )
+          .order("desc")
+          .take(500),
+        ctx.db
+          .query("nestingRequests")
+          .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
+            q.eq("requesterProfileId", profile._id).eq("status", "rejected"),
+          )
+          .order("desc")
+          .take(500),
+        ctx.db
+          .query("nestingRequests")
+          .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
+            q.eq("parentAuthorProfileId", profile._id).eq("status", "rejected"),
+          )
+          .order("desc")
+          .take(500),
+      ]);
+    const visibleNestingByChildId = new Map<
+      Id<"ideaNodes">,
+      (typeof pendingNesting)[number]
+    >();
+    for (const request of [
+      ...pendingNesting,
+      ...rejectedNestingByRequester,
+      ...rejectedNestingByParent,
+    ]) {
+      if (request.startupId !== args.startupId) continue;
+      const current = visibleNestingByChildId.get(request.childIdeaId);
+      if (current === undefined || current.updatedAt < request.updatedAt) {
+        visibleNestingByChildId.set(request.childIdeaId, request);
+      }
+    }
+    const baseNodesById = new Map(nodes.map((node) => [node._id, node]));
+    const absolutePosition = (nodeId: Id<"ideaNodes">) => {
+      let node = baseNodesById.get(nodeId);
+      let x = 0;
+      let y = 0;
+      const seen = new Set<string>();
+      for (let depth = 0; node !== undefined && depth < 512; depth += 1) {
+        if (seen.has(node._id)) break;
+        seen.add(node._id);
+        x += node.x;
+        y += node.y;
+        node =
+          node.parentIdeaId === undefined
+            ? undefined
+            : baseNodesById.get(node.parentIdeaId);
+      }
+      return { x, y };
+    };
 
     // Map profiles for author info
     const profileIds = new Set<Id<"profiles">>();
@@ -139,13 +196,34 @@ export const list = query({
             item.authorProfileId === profile._id ||
             ownsNode),
       );
+      const nestingRequest = visibleNestingByChildId.get(node._id);
+      const effectiveParentId =
+        nestingRequest?.parentIdeaId ?? node.parentIdeaId;
       const parent =
-        node.parentIdeaId === undefined
+        effectiveParentId === undefined
           ? null
-          : await ctx.db.get("ideaNodes", node.parentIdeaId);
+          : await ctx.db.get("ideaNodes", effectiveParentId);
+      const childAbsolute = absolutePosition(node._id);
+      const parentAbsolute =
+        effectiveParentId === undefined
+          ? null
+          : absolutePosition(effectiveParentId);
+      const x =
+        nestingRequest === undefined
+          ? node.x
+          : nestingRequest.proposedX ??
+            childAbsolute.x - (parentAbsolute?.x ?? 0);
+      const y =
+        nestingRequest === undefined
+          ? node.y
+          : nestingRequest.proposedY ??
+            childAbsolute.y - (parentAbsolute?.y ?? 0);
 
       return {
         ...node,
+        x,
+        y,
+        parentIdeaId: effectiveParentId,
         author: profilesMap.get(node.authorProfileId.toString()) ?? null,
         upvotes,
         downvotes,
@@ -156,13 +234,25 @@ export const list = query({
         pendingDeletionRequest:
           pendingDeletionByIdeaId.get(node._id) ?? null,
         canEdit: ownsNode,
-        canMove: ownsNode,
+        canMove: true,
         canResize: ownsNode,
         canDeleteDirectly: ownsNode,
         canRequestDeletion: !ownsNode,
         canDetach:
-          node.parentIdeaId !== undefined &&
-          (ownsNode || parent?.authorProfileId === profile._id),
+          effectiveParentId !== undefined &&
+          (nestingRequest === undefined
+            ? ownsNode || parent?.authorProfileId === profile._id
+            : nestingRequest.requesterProfileId === profile._id ||
+              nestingRequest.parentAuthorProfileId === profile._id),
+        nestingRequestId: nestingRequest?._id ?? null,
+        nestingModerationStatus:
+          nestingRequest?.status === "pending" ||
+          nestingRequest?.status === "rejected"
+            ? nestingRequest.status
+            : null,
+        canModerateNesting:
+          nestingRequest?.status === "pending" &&
+          nestingRequest.parentAuthorProfileId === profile._id,
       };
     }));
 
@@ -327,19 +417,64 @@ export const updatePositions = mutation({
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
     const now = Date.now();
+    const [pendingNesting, rejectedAsRequester, rejectedAsParent] =
+      await Promise.all([
+        ctx.db
+          .query("nestingRequests")
+          .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
+            q.eq("startupId", args.startupId).eq("status", "pending"),
+          )
+          .order("desc")
+          .take(500),
+        ctx.db
+          .query("nestingRequests")
+          .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
+            q.eq("requesterProfileId", profile._id).eq("status", "rejected"),
+          )
+          .order("desc")
+          .take(500),
+        ctx.db
+          .query("nestingRequests")
+          .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
+            q.eq("parentAuthorProfileId", profile._id).eq("status", "rejected"),
+          )
+          .order("desc")
+          .take(500),
+      ]);
+    const visibleNestingByChildId = new Map<
+      Id<"ideaNodes">,
+      (typeof pendingNesting)[number]
+    >();
+    for (const request of [
+      ...pendingNesting,
+      ...rejectedAsRequester,
+      ...rejectedAsParent,
+    ]) {
+      if (request.startupId !== args.startupId) continue;
+      const current = visibleNestingByChildId.get(request.childIdeaId);
+      if (current === undefined || current.updatedAt < request.updatedAt) {
+        visibleNestingByChildId.set(request.childIdeaId, request);
+      }
+    }
     for (const update of args.updates) {
+      const x = finiteWithin(update.x, "X pozicija", -100_000, 100_000);
+      const y = finiteWithin(update.y, "Y pozicija", -100_000, 100_000);
       const idea = await ctx.db.get(update.id);
       if (
         idea &&
         idea.startupId === args.startupId &&
-        idea.archivedAt === null &&
-        idea.authorProfileId === profile._id
+        idea.archivedAt === null
       ) {
-        await ctx.db.patch(update.id, {
-          x: update.x,
-          y: update.y,
-          updatedAt: now,
-        });
+        const nestingRequest = visibleNestingByChildId.get(update.id);
+        if (nestingRequest !== undefined) {
+          await ctx.db.patch("nestingRequests", nestingRequest._id, {
+            proposedX: x,
+            proposedY: y,
+            updatedAt: now,
+          });
+        } else {
+          await ctx.db.patch(update.id, { x, y, updatedAt: now });
+        }
       }
     }
   },

@@ -1008,6 +1008,15 @@ function ThoughtsCanvasBody({
       invokeKeyboardContextMenu();
       return;
     }
+    if (event.key === "Escape") {
+      setNodes((current) =>
+        current.map((node) => ({ ...node, selected: false })),
+      );
+      setEdges((current) =>
+        current.map((edge) => ({ ...edge, selected: false })),
+      );
+      return;
+    }
     if (event.key === "Delete") {
       event.preventDefault();
       void archiveSelection(
@@ -1173,6 +1182,7 @@ function ThoughtsCanvasBody({
               onNodeDrag={onNodeDrag}
               onNodeDragStop={(event, node, draggedNodes) => void onNodeDragStop(event, node, draggedNodes)}
               onNodeClick={(event, node) => {
+                if (event.ctrlKey || event.metaKey || event.shiftKey) return;
                 const target = event.target as HTMLElement;
                 if (
                   target.closest(

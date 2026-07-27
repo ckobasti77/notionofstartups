@@ -61,6 +61,8 @@ export type IdeaCanvasNodeData = {
   canDeleteDirectly: boolean;
   canRequestDeletion: boolean;
   canDetach: boolean;
+  nestingModerationStatus: "pending" | "rejected" | null;
+  canModerateNesting: boolean;
 };
 
 export type IdeaFlowNode = Node<IdeaCanvasNodeData, "idea">;
@@ -100,7 +102,11 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
 }: NodeProps<IdeaFlowNode>) {
   const actions = useContext(IdeaNodeActionsContext);
   const ideaId = id as Id<"ideaNodes">;
-  const status = data.pendingDeletion
+  const status = data.nestingModerationStatus === "pending"
+    ? "Čeka odobrenje"
+    : data.nestingModerationStatus === "rejected"
+      ? "Odbijeno ugnježdenje"
+      : data.pendingDeletion
     ? "Glasanje o brisanju"
     : data.convertedPageId
       ? "Pretvoreno"
@@ -230,8 +236,10 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
         className={cn(
           orbital.orbit,
           orbital.statusOrbit,
-          data.pendingDeletion
+          data.nestingModerationStatus === "rejected" || data.pendingDeletion
             ? "text-rose-700 dark:text-rose-300"
+            : data.nestingModerationStatus === "pending"
+              ? "text-amber-700 dark:text-amber-300"
             : data.isApproved || data.convertedPageId
               ? "text-emerald-700 dark:text-emerald-300"
               : "text-muted-foreground",
@@ -245,7 +253,7 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
         <span className="text-[0.625rem] font-extrabold">{status}</span>
       </div>
 
-      <div className={cn(orbital.orbit, orbital.actionOrbit, "nodrag")}>
+      <div className={cn(orbital.orbit, orbital.actionOrbit)}>
         <button
           type="button"
           className={cn(

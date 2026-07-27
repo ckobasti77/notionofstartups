@@ -6,6 +6,22 @@
   overflow: visible;
   color: var(--foreground);
   isolation: isolate;
+  cursor: grab;
+}
+
+.shell:active {
+  cursor: grabbing;
+}
+
+.shell button,
+.shell a,
+.shell select {
+  cursor: pointer;
+}
+
+.shell input,
+.shell textarea {
+  cursor: text;
 }
 
 .surface {

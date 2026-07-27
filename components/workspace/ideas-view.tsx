@@ -912,8 +912,8 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
           <DialogHeader>
             <DialogTitle>Ubaci karticu u…</DialogTitle>
             <DialogDescription>
-              Svoj Parent se primenjuje odmah. Za tuđ Parent autor dobija zahtev
-              u odeljku Odobrenja.
+              Ugnježdenje se odmah prikazuje celom timu. Kod tuđeg Parenta
+              vlasnik zatim može da ga odobri ili odbije.
             </DialogDescription>
           </DialogHeader>
           <Select
@@ -957,7 +957,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                     toast.success(
                       result.status === "approved"
                         ? "Kartica je ugnježđena."
-                        : "Zahtev je poslat autoru Parent kartice.",
+                        : "Predlog ugnježdenja je odmah vidljiv timu.",
                     );
                     setNestingIdea(null);
                   })

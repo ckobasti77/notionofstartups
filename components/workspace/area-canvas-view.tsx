@@ -382,6 +382,24 @@ function AreaCanvasReady({
           isTask ? styles.tasksCanvas : styles.notesCanvas,
           "h-[min(72vh,52rem)] min-h-[32rem] rounded-3xl border border-border/70 shadow-inner",
         )}
+        role="application"
+        tabIndex={0}
+        onKeyDownCapture={(event) => {
+          const modifier = event.ctrlKey || event.metaKey;
+          if (modifier && event.key.toLowerCase() === "a") {
+            event.preventDefault();
+            setNodes((current) =>
+              current.map((node) => ({ ...node, selected: true })),
+            );
+          } else if (event.key === "Escape") {
+            setNodes((current) =>
+              current.map((node) => ({ ...node, selected: false })),
+            );
+            setEdges((current) =>
+              current.map((edge) => ({ ...edge, selected: false })),
+            );
+          }
+        }}
       >
         <ReactFlow<AreaFlowNode, AreaFlowEdge>
           nodes={nodes}
@@ -392,13 +410,16 @@ function AreaCanvasReady({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void handleConnect(connection)}
-          onNodeDragStart={(_event, node) => {
-            preDragPositionsRef.current.set(node.id, {
-              x: node.position.x,
-              y: node.position.y,
-            });
+          onNodeDragStart={(_event, _node, draggedNodes) => {
+            preDragPositionsRef.current = new Map(
+              draggedNodes.map((dragged) => [
+                dragged.id,
+                { x: dragged.position.x, y: dragged.position.y },
+              ]),
+            );
           }}
           onNodeClick={(event, node) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey) return;
             const target = event.target as HTMLElement;
             if (
               target.closest(
@@ -409,29 +430,47 @@ function AreaCanvasReady({
             }
             onOpenPage(node.id as Id<"pages">);
           }}
-          onNodeDragStop={(_event, node) => {
-            const before = preDragPositionsRef.current.get(node.id);
-            const after = {
-              pageId: node.id as Id<"pages">,
-              x: Math.round(node.position.x),
-              y: Math.round(node.position.y),
-            };
-            preDragPositionsRef.current.delete(node.id);
-            if (!before || (before.x === after.x && before.y === after.y)) return;
+          onNodeDragStop={(_event, _node, draggedNodes) => {
+            const before = draggedNodes.flatMap((dragged) => {
+              const position = preDragPositionsRef.current.get(dragged.id);
+              return position
+                ? [{
+                    pageId: dragged.id as Id<"pages">,
+                    x: Math.round(position.x),
+                    y: Math.round(position.y),
+                  }]
+                : [];
+            });
+            const after = draggedNodes.map((dragged) => ({
+              pageId: dragged.id as Id<"pages">,
+              x: Math.round(dragged.position.x),
+              y: Math.round(dragged.position.y),
+            }));
+            preDragPositionsRef.current.clear();
+            const changed = after.some((move) => {
+              const previous = before.find(
+                (item) => item.pageId === move.pageId,
+              );
+              return previous?.x !== move.x || previous?.y !== move.y;
+            });
+            if (!changed) return;
             void movePages({
               startupId,
               areaId,
-              updates: [after],
+              updates: after,
             })
               .then(() => {
                 pushHistory({
-                  label: `pomeranje ${kind === "task" ? "zadatka" : "beleške"}`,
+                  label:
+                    after.length === 1
+                      ? `pomeranje ${kind === "task" ? "zadatka" : "beleške"}`
+                      : `pomeranje grupe ${kind === "task" ? "zadataka" : "beleški"}`,
                   undo: () => movePages({
                     startupId,
                     areaId,
-                    updates: [{ pageId: after.pageId, x: before.x, y: before.y }],
+                    updates: before,
                   }),
-                  redo: () => movePages({ startupId, areaId, updates: [after] }),
+                  redo: () => movePages({ startupId, areaId, updates: after }),
                 });
               })
               .catch((error) => {
@@ -476,14 +515,20 @@ function AreaCanvasReady({
           onMove={(_event, next) => setViewport(next)}
           onMoveEnd={handleMoveEnd}
           defaultViewport={viewport}
-          minZoom={0.5}
-          maxZoom={1.6}
+          minZoom={0.18}
+          maxZoom={2.2}
           connectionMode={ConnectionMode.Loose}
           zoomOnDoubleClick={false}
-          panOnDrag={[0, 1]}
+          panOnScroll
+          panOnDrag={[1, 2]}
           selectionOnDrag
           selectionMode={SelectionMode.Partial}
-          deleteKeyCode={["Backspace", "Delete"]}
+          selectionKeyCode="Shift"
+          multiSelectionKeyCode={["Control", "Meta"]}
+          deleteKeyCode={null}
+          nodeDragThreshold={3}
+          connectionDragThreshold={4}
+          elevateNodesOnSelect
           nodesConnectable
           nodesFocusable
           edgesFocusable
@@ -495,8 +540,8 @@ function AreaCanvasReady({
           <Background
             variant={BackgroundVariant.Dots}
             gap={24}
-            size={1}
-            color="color-mix(in oklab, var(--muted-foreground) 28%, transparent)"
+            size={1.15}
+            color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
           />
           <Controls position="bottom-left" showInteractive={false} />
           <MiniMap
