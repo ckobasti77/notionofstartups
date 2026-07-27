@@ -80,6 +80,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
 
   return (
     <article
+      data-circular-text-shell
       className={cn(
         orbital.shell,
         isTask ? styles.task : styles.note,
@@ -128,11 +129,17 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         </div>
       </NodeToolbar>
 
-      <div className={cn(orbital.orbit, orbital.titleOrbit)}>
+      <div
+        data-circular-text-obstacle
+        className={cn(orbital.orbit, orbital.titleOrbit)}
+      >
         {data.title || "Bez naslova"}
       </div>
 
-      <div className={cn(orbital.orbit, orbital.founderOrbit)}>
+      <div
+        data-circular-text-obstacle
+        className={cn(orbital.orbit, orbital.founderOrbit)}
+      >
         <ProfileAvatar
           profile={{
             displayName: data.creatorName,
@@ -147,6 +154,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
       </div>
 
       <div
+        data-circular-text-obstacle
         className={cn(
           orbital.orbit,
           orbital.statusOrbit,
@@ -161,7 +169,10 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         </span>
       </div>
 
-      <div className={cn(orbital.orbit, orbital.actionOrbit)}>
+      <div
+        data-circular-text-obstacle
+        className={cn(orbital.orbit, orbital.actionOrbit)}
+      >
         {isTask && data.taskStatus ? (
           <div className="flex flex-wrap items-center gap-1">
             <TaskStatusBadge status={data.taskStatus} />
@@ -177,6 +188,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
       </div>
 
       <time
+        data-circular-text-obstacle
         className={cn(orbital.orbit, orbital.dateOrbit)}
         dateTime={new Date(data.updatedAt).toISOString()}
       >

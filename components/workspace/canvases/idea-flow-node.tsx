@@ -116,6 +116,7 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
 
   return (
     <article
+      data-circular-text-shell
       className={cn(
         orbital.shell,
         styles[data.color],
@@ -214,11 +215,18 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
         </div>
       </NodeToolbar>
 
-      <div className={cn(orbital.orbit, orbital.titleOrbit)} title={data.title ?? "Bez naslova"}>
+      <div
+        data-circular-text-obstacle
+        className={cn(orbital.orbit, orbital.titleOrbit)}
+        title={data.title ?? "Bez naslova"}
+      >
         {data.title ?? "Bez naslova"}
       </div>
 
-      <div className={cn(orbital.orbit, orbital.founderOrbit)}>
+      <div
+        data-circular-text-obstacle
+        className={cn(orbital.orbit, orbital.founderOrbit)}
+      >
         <ProfileAvatar
           profile={{
             displayName: data.authorName,
@@ -233,6 +241,7 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
       </div>
 
       <div
+        data-circular-text-obstacle
         className={cn(
           orbital.orbit,
           orbital.statusOrbit,
@@ -253,7 +262,10 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
         <span className="text-[0.625rem] font-extrabold">{status}</span>
       </div>
 
-      <div className={cn(orbital.orbit, orbital.actionOrbit)}>
+      <div
+        data-circular-text-obstacle
+        className={cn(orbital.orbit, orbital.actionOrbit)}
+      >
         <button
           type="button"
           className={cn(
@@ -283,6 +295,7 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
       </div>
 
       <time
+        data-circular-text-obstacle
         className={cn(orbital.orbit, orbital.dateOrbit)}
         dateTime={new Date(data.createdAt).toISOString()}
       >

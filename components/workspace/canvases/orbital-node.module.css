@@ -55,15 +55,17 @@
 .textViewport {
   position: absolute;
   z-index: 10;
-  inset: 2.9rem 2.2rem 2.65rem;
-  overflow: auto;
+  inset: 2.75rem 1rem 2.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   outline: none;
   color: color-mix(in oklab, var(--foreground) 84%, transparent);
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 20px;
-  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .textViewport:focus-visible {
@@ -74,15 +76,12 @@
 .measuredText {
   position: relative;
   width: 100%;
-  min-height: 100%;
 }
 
 .measuredLine {
   position: absolute;
   display: block;
-  overflow: hidden;
   white-space: pre;
-  text-overflow: clip;
 }
 
 .fallbackText {
@@ -96,9 +95,9 @@
 .flowChildren {
   position: relative;
   z-index: 1;
-  width: min(86%, 32rem);
-  margin: 0 auto;
-  padding: 0.75rem 0 0.5rem;
+  width: min(88%, 34rem);
+  margin: 0.35rem auto 0;
+  padding: 0.35rem 0 1rem;
 }
 
 .orbit {
@@ -207,7 +206,7 @@
 
 @media (max-width: 639px), (pointer: coarse) {
   .textViewport {
-    inset: 3rem 2.25rem 2.75rem;
+    inset: 2.75rem 0.875rem 2.5rem;
   }
 
   .titleOrbit {
