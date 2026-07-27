@@ -194,8 +194,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
       </header>
 
       <Tabs defaultValue="vote" className="mt-6" data-workspace-enter>
-        <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-muted/55 p-1">
-          <TabsTrigger value="vote" className="rounded-xl">
+        <TabsList className="grid h-auto w-full grid-cols-2 rounded-2xl bg-muted/55 p-1 sm:grid-cols-5">
+          <TabsTrigger value="vote" className="min-h-10 rounded-xl text-xs sm:text-sm">
             Za moj glas
             {data.requestsForVote.length ? (
               <span className="ml-1 rounded-full bg-primary px-1.5 text-[0.625rem] text-primary-foreground">
@@ -203,7 +203,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
               </span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="nesting" className="rounded-xl">
+          <TabsTrigger value="nesting" className="min-h-10 rounded-xl text-xs sm:text-sm">
             Ugnježđavanje
             {nestingForMeCount ? (
               <span className="ml-1 rounded-full bg-primary px-1.5 text-[0.625rem] text-primary-foreground">
@@ -211,13 +211,13 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
               </span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="mine" className="rounded-xl">
+          <TabsTrigger value="mine" className="min-h-10 rounded-xl text-xs sm:text-sm">
             Moji zahtevi
           </TabsTrigger>
-          <TabsTrigger value="recovered" className="rounded-xl">
+          <TabsTrigger value="recovered" className="min-h-10 rounded-xl text-xs sm:text-sm">
             Oporavljeno
           </TabsTrigger>
-          <TabsTrigger value="history" className="rounded-xl">
+          <TabsTrigger value="history" className="col-span-2 min-h-10 rounded-xl text-xs sm:col-span-1 sm:text-sm">
             Istorija
           </TabsTrigger>
         </TabsList>

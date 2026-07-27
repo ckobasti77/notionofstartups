@@ -13,6 +13,52 @@
   cursor: grabbing;
 }
 
+.shell:focus-visible {
+  outline: none;
+}
+
+.shell:focus-visible .surface {
+  border-color: color-mix(in oklab, var(--node-accent) 82%, var(--foreground));
+  box-shadow:
+    0 0 0 3px var(--background),
+    0 0 0 6px color-mix(in oklab, var(--node-accent) 72%, transparent),
+    0 18px 42px color-mix(in oklab, var(--node-accent) 15%, transparent);
+}
+
+.taskShell {
+  --orbital-shape: 1.25rem;
+}
+
+.nestingTarget .surface {
+  border-color: color-mix(in oklab, var(--node-accent) 92%, var(--foreground));
+  background: color-mix(in oklab, var(--node-accent) 16%, var(--card));
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--node-accent) 22%, transparent),
+    0 22px 50px color-mix(in oklab, var(--node-accent) 22%, transparent);
+  transform: scale(1.025);
+}
+
+.nestingPrompt {
+  position: absolute;
+  z-index: 45;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  min-width: max-content;
+  transform: translate(-50%, -50%);
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid color-mix(in oklab, var(--node-accent) 48%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--node-accent) 14%, var(--popover));
+  padding: 0.48rem 0.72rem;
+  color: var(--foreground);
+  box-shadow: 0 10px 26px color-mix(in oklab, var(--foreground) 16%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 .shell button,
 .shell a,
 .shell select {
@@ -154,6 +200,32 @@
   transform: translate(-15%, 50%);
   border-radius: 999px;
   padding: 0.25rem;
+}
+
+.taskActionContent {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+}
+
+.assigneeCompact {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.15rem 0.38rem;
+  color: var(--muted-foreground);
+  font-size: 0.5625rem;
+  font-weight: 750;
+}
+
+.assigneeCompact > span {
+  max-width: 5.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dateOrbit {

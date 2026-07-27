@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireStartupMember } from "./lib/auth";
 import { requirePageArea } from "./lib/page_creation";
@@ -70,6 +72,125 @@ const MIN_PAGE_NODE_WIDTH = 240;
 const MIN_PAGE_NODE_HEIGHT = 168;
 const MAX_PAGE_NODE_WIDTH = 720;
 const MAX_PAGE_NODE_HEIGHT = 1_000;
+const MAX_V2_CANVAS_EDGES = 400;
+
+type CanvasSizeUpdate =
+  | { kind: "preserve" }
+  | { kind: "set"; width: number; height: number }
+  | { kind: "reset" };
+
+async function syncLegacyAndV2Placement(
+  ctx: MutationCtx,
+  args: {
+    page: Doc<"pages">;
+    actorProfileId: Id<"profiles">;
+    position?: { x: number; y: number };
+    size: CanvasSizeUpdate;
+    now: number;
+  },
+) {
+  const [legacy, v2] = await Promise.all([
+    ctx.db
+      .query("pageCanvasNodes")
+      .withIndex("by_pageId", (q) => q.eq("pageId", args.page._id))
+      .unique(),
+    ctx.db
+      .query("pageCanvasPlacements")
+      .withIndex("by_pageId", (q) => q.eq("pageId", args.page._id))
+      .unique(),
+  ]);
+  const legacyX = clamp(
+    args.position?.x ?? legacy?.x ?? v2?.x ?? 0,
+    -100_000,
+    100_000,
+  );
+  const legacyY = clamp(
+    args.position?.y ?? legacy?.y ?? v2?.y ?? 0,
+    -100_000,
+    100_000,
+  );
+  const v2X = clamp(
+    args.position?.x ?? v2?.x ?? legacy?.x ?? 0,
+    -100_000,
+    100_000,
+  );
+  const v2Y = clamp(
+    args.position?.y ?? v2?.y ?? legacy?.y ?? 0,
+    -100_000,
+    100_000,
+  );
+  const legacyWidth =
+    args.size.kind === "set"
+      ? args.size.width
+      : args.size.kind === "preserve"
+        ? (legacy?.width ?? v2?.width)
+        : undefined;
+  const legacyHeight =
+    args.size.kind === "set"
+      ? args.size.height
+      : args.size.kind === "preserve"
+        ? (legacy?.height ?? v2?.height)
+        : undefined;
+  const v2Width =
+    args.size.kind === "set"
+      ? args.size.width
+      : args.size.kind === "preserve"
+        ? (v2?.width ?? legacy?.width)
+        : undefined;
+  const v2Height =
+    args.size.kind === "set"
+      ? args.size.height
+      : args.size.kind === "preserve"
+        ? (v2?.height ?? legacy?.height)
+        : undefined;
+
+  const legacyValue = {
+    startupId: args.page.startupId,
+    areaId: args.page.areaId,
+    pageId: args.page._id,
+    x: legacyX,
+    y: legacyY,
+    updatedAt: args.now,
+  };
+  if (legacy === null) {
+    await ctx.db.insert("pageCanvasNodes", {
+      ...legacyValue,
+      ...(legacyWidth === undefined ? {} : { width: legacyWidth }),
+      ...(legacyHeight === undefined ? {} : { height: legacyHeight }),
+    });
+  } else {
+    await ctx.db.patch("pageCanvasNodes", legacy._id, {
+      ...legacyValue,
+      width: legacyWidth,
+      height: legacyHeight,
+    });
+  }
+
+  const v2Value = {
+    startupId: args.page.startupId,
+    areaId: args.page.areaId,
+    rootPageId: args.page.parentPageId,
+    pageId: args.page._id,
+    x: v2X,
+    y: v2Y,
+    updatedByProfileId: args.actorProfileId,
+    updatedAt: args.now,
+  };
+  if (v2 === null) {
+    await ctx.db.insert("pageCanvasPlacements", {
+      ...v2Value,
+      ...(v2Width === undefined ? {} : { width: v2Width }),
+      ...(v2Height === undefined ? {} : { height: v2Height }),
+      createdAt: args.now,
+    });
+  } else {
+    await ctx.db.patch("pageCanvasPlacements", v2._id, {
+      ...v2Value,
+      width: v2Width,
+      height: v2Height,
+    });
+  }
+}
 
 export const getPageCanvasSize = query({
   args: {
@@ -266,23 +387,16 @@ export const moveAreaCanvasPages = mutation({
       if (page.createdByProfileId !== profile._id) {
         throw new Error("Možete pomerati samo svoje kartice.");
       }
-      const existing = await ctx.db
-        .query("pageCanvasNodes")
-        .withIndex("by_pageId", (q) => q.eq("pageId", update.pageId))
-        .unique();
-      const position = {
-        startupId: args.startupId,
-        areaId: args.areaId,
-        pageId: update.pageId,
-        x: clamp(update.x, -100_000, 100_000),
-        y: clamp(update.y, -100_000, 100_000),
-        updatedAt: now,
-      };
-      if (existing) {
-        await ctx.db.patch(existing._id, position);
-      } else {
-        await ctx.db.insert("pageCanvasNodes", position);
-      }
+      await syncLegacyAndV2Placement(ctx, {
+        page,
+        actorProfileId: profile._id,
+        position: {
+          x: clamp(update.x, -100_000, 100_000),
+          y: clamp(update.y, -100_000, 100_000),
+        },
+        size: { kind: "preserve" },
+        now,
+      });
     }
     return null;
   },
@@ -310,34 +424,25 @@ export const resizeAreaCanvasPage = mutation({
       throw new Error("Možete promeniti veličinu samo svoje kartice.");
     }
 
-    const existing = await ctx.db
-      .query("pageCanvasNodes")
-      .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-      .unique();
     const now = Date.now();
-    const layout = {
-      startupId: page.startupId,
-      areaId: page.areaId,
-      pageId: page._id,
-      x: existing?.x ?? 0,
-      y: existing?.y ?? 0,
-      width: clamp(
+    await syncLegacyAndV2Placement(ctx, {
+      page,
+      actorProfileId: profile._id,
+      size: {
+        kind: "set",
+        width: clamp(
         args.width,
         MIN_PAGE_NODE_WIDTH,
         MAX_PAGE_NODE_WIDTH,
-      ),
-      height: clamp(
-        args.height,
-        MIN_PAGE_NODE_HEIGHT,
-        MAX_PAGE_NODE_HEIGHT,
-      ),
-      updatedAt: now,
-    };
-    if (existing) {
-      await ctx.db.patch(existing._id, layout);
-    } else {
-      await ctx.db.insert("pageCanvasNodes", layout);
-    }
+        ),
+        height: clamp(
+          args.height,
+          MIN_PAGE_NODE_HEIGHT,
+          MAX_PAGE_NODE_HEIGHT,
+        ),
+      },
+      now,
+    });
     return null;
   },
 });
@@ -362,17 +467,12 @@ export const resetAreaCanvasPageSize = mutation({
       throw new Error("Možete vratiti veličinu samo svoje kartice.");
     }
 
-    const existing = await ctx.db
-      .query("pageCanvasNodes")
-      .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        width: undefined,
-        height: undefined,
-        updatedAt: Date.now(),
-      });
-    }
+    await syncLegacyAndV2Placement(ctx, {
+      page,
+      actorProfileId: profile._id,
+      size: { kind: "reset" },
+      now: Date.now(),
+    });
     return null;
   },
 });
@@ -391,29 +491,64 @@ export const saveAreaCanvasViewport = mutation({
     const { profile } = await requireStartupMember(ctx, args.startupId);
     await requirePageArea(ctx, args.startupId, args.areaId);
     const now = Date.now();
-    const existing = await ctx.db
-      .query("pageCanvases")
-      .withIndex("by_ownerProfileId_and_areaId_and_kind", (q) =>
-        q
-          .eq("ownerProfileId", profile._id)
-          .eq("areaId", args.areaId)
-          .eq("kind", args.kind),
-      )
-      .unique();
+    const [existing, v2Viewport] = await Promise.all([
+      ctx.db
+        .query("pageCanvases")
+        .withIndex("by_ownerProfileId_and_areaId_and_kind", (q) =>
+          q
+            .eq("ownerProfileId", profile._id)
+            .eq("areaId", args.areaId)
+            .eq("kind", args.kind),
+        )
+        .unique(),
+      ctx.db
+        .query("pageCanvasViewports")
+        .withIndex(
+          "by_viewerProfileId_and_startupId_and_areaId_and_rootPageId",
+          (q) =>
+            q
+              .eq("viewerProfileId", profile._id)
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("rootPageId", null),
+        )
+        .unique(),
+    ]);
+    const x = clamp(args.x, -100_000, 100_000);
+    const y = clamp(args.y, -100_000, 100_000);
+    const zoom = clamp(args.zoom, 0.5, 1.6);
     const viewport = {
       startupId: args.startupId,
       areaId: args.areaId,
       ownerProfileId: profile._id,
       kind: args.kind,
-      x: clamp(args.x, -100_000, 100_000),
-      y: clamp(args.y, -100_000, 100_000),
-      zoom: clamp(args.zoom, 0.5, 1.6),
+      x,
+      y,
+      zoom,
       updatedAt: now,
     };
     if (existing) {
       await ctx.db.patch(existing._id, viewport);
     } else {
       await ctx.db.insert("pageCanvases", { ...viewport, createdAt: now });
+    }
+    const v2Value = {
+      startupId: args.startupId,
+      areaId: args.areaId,
+      rootPageId: null,
+      viewerProfileId: profile._id,
+      x,
+      y,
+      zoom,
+      updatedAt: now,
+    };
+    if (v2Viewport === null) {
+      await ctx.db.insert("pageCanvasViewports", {
+        ...v2Value,
+        createdAt: now,
+      });
+    } else {
+      await ctx.db.patch("pageCanvasViewports", v2Viewport._id, v2Value);
     }
     return null;
   },
@@ -466,39 +601,110 @@ export const connectAreaCanvasPages = mutation({
     }
 
     const pairKey = [args.source, args.target].sort().join(":");
-    const existing = await ctx.db
-      .query("pageEdges")
-      .withIndex("by_areaId_and_pairKey", (q) =>
-        q.eq("areaId", args.areaId).eq("pairKey", pairKey),
-      )
-      .unique();
+    const [existing, existingV2] = await Promise.all([
+      ctx.db
+        .query("pageEdges")
+        .withIndex("by_areaId_and_pairKey", (q) =>
+          q.eq("areaId", args.areaId).eq("pairKey", pairKey),
+        )
+        .unique(),
+      ctx.db
+        .query("pageCanvasEdgesV2")
+        .withIndex("by_scope_active_pair", (q) =>
+          q
+            .eq("startupId", args.startupId)
+            .eq("areaId", args.areaId)
+            .eq("rootPageId", null)
+            .eq("archivedAt", null)
+            .eq("pairKey", pairKey),
+        )
+        .unique(),
+    ]);
     const now = Date.now();
-    if (existing) {
-      if (existing.startupId !== args.startupId) {
-        throw new Error("Postojeća veza ne pripada ovom startupu.");
+    if (existing !== null && existing.startupId !== args.startupId) {
+      throw new Error("Postojeća veza ne pripada ovom startupu.");
+    }
+    const legacyIsActive =
+      existing !== null &&
+      (existing.archivedAt === undefined || existing.archivedAt === null);
+    if (
+      legacyIsActive &&
+      existingV2 !== null &&
+      existing.authorProfileId !== existingV2.authorProfileId
+    ) {
+      throw new Error("Postojeća veza ima neusaglašeno autorstvo.");
+    }
+    if (existingV2 === null) {
+      const activeV2Edges = await ctx.db
+        .query("pageCanvasEdgesV2")
+        .withIndex("by_scope_active_pair", (q) =>
+          q
+            .eq("startupId", args.startupId)
+            .eq("areaId", args.areaId)
+            .eq("rootPageId", null)
+            .eq("archivedAt", null),
+        )
+        .take(MAX_V2_CANVAS_EDGES + 1);
+      if (activeV2Edges.length >= MAX_V2_CANVAS_EDGES) {
+        throw new Error(
+          `Kanvas može imati najviše ${MAX_V2_CANVAS_EDGES} veza.`,
+        );
       }
-      if (existing.archivedAt !== undefined && existing.archivedAt !== null) {
+    }
+
+    const authorProfileId =
+      existingV2 !== null
+        ? existingV2.authorProfileId
+        : legacyIsActive
+          ? existing.authorProfileId
+          : profile._id;
+    const label =
+      existingV2 !== null ? existingV2.label : (existing?.label ?? null);
+    let legacyEdgeId: Id<"pageEdges">;
+    if (existing === null) {
+      legacyEdgeId = await ctx.db.insert("pageEdges", {
+        startupId: args.startupId,
+        areaId: args.areaId,
+        nodeAId: args.source,
+        nodeBId: args.target,
+        pairKey,
+        label,
+        ...(authorProfileId === undefined ? {} : { authorProfileId }),
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      legacyEdgeId = existing._id;
+      if (!legacyIsActive) {
         await ctx.db.patch("pageEdges", existing._id, {
-          authorProfileId: profile._id,
+          nodeAId: args.source,
+          nodeBId: args.target,
+          label,
+          authorProfileId,
           archivedAt: null,
           updatedAt: now,
         });
       }
-      return existing._id;
     }
-
-    return await ctx.db.insert("pageEdges", {
-      startupId: args.startupId,
-      areaId: args.areaId,
-      nodeAId: args.source,
-      nodeBId: args.target,
-      pairKey,
-      label: null,
-      authorProfileId: profile._id,
-      archivedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (existingV2 === null) {
+      await ctx.db.insert("pageCanvasEdgesV2", {
+        startupId: args.startupId,
+        areaId: args.areaId,
+        rootPageId: null,
+        nodeAId: args.source,
+        nodeBId: args.target,
+        pairKey,
+        label,
+        ...(authorProfileId === undefined ? {} : { authorProfileId }),
+        attribution:
+          authorProfileId === undefined ? "legacy_neutral" : "author",
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    return legacyEdgeId;
   },
 });
 
@@ -513,11 +719,13 @@ export const disconnectAreaCanvasPages = mutation({
     if (args.edgeIds.length > 100) {
       throw new Error("Ukloni najviše 100 veza odjednom.");
     }
+    const now = Date.now();
     for (const edgeId of args.edgeIds) {
       const edge = await ctx.db.get("pageEdges", edgeId);
       if (edge === null || edge.startupId !== args.startupId) {
         throw new Error("Veza nije pronađena.");
       }
+      await requirePageArea(ctx, args.startupId, edge.areaId);
       const [source, target] = await Promise.all([
         ctx.db.get("pages", edge.nodeAId),
         ctx.db.get("pages", edge.nodeBId),
@@ -530,6 +738,34 @@ export const disconnectAreaCanvasPages = mutation({
         throw new Error("Možete ukloniti samo vezu koju ste napravili.");
       }
       if (edge.archivedAt === undefined || edge.archivedAt === null) {
+        const existingV2 = await ctx.db
+          .query("pageCanvasEdgesV2")
+          .withIndex("by_scope_active_pair", (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", edge.areaId)
+              .eq("rootPageId", null)
+              .eq("archivedAt", null)
+              .eq("pairKey", edge.pairKey),
+          )
+          .unique();
+        const ownsV2Endpoint =
+          existingV2?.authorProfileId === undefined &&
+          (source?.createdByProfileId === profile._id ||
+            target?.createdByProfileId === profile._id);
+        if (
+          existingV2 !== null &&
+          existingV2.authorProfileId !== profile._id &&
+          !ownsV2Endpoint
+        ) {
+          throw new Error("Možete ukloniti samo vezu koju ste napravili.");
+        }
+        if (existingV2 !== null) {
+          await ctx.db.patch("pageCanvasEdgesV2", existingV2._id, {
+            archivedAt: now,
+            updatedAt: now,
+          });
+        }
         await ctx.db.delete("pageEdges", edgeId);
       }
     }

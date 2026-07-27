@@ -234,7 +234,7 @@ startup approvals pregled.
 
 Invariant: endpointi su aktivne stranice iste oblasti i različitog tipa
 (`note` ↔ `task`). Relacija ne menja `parentPageId`. Kada su obe kartice
-direktna deca trenutno otvorenog kanvasa, relacija se vidi kao puna linija na
+direktna deca trenutno otvorenog kanvasa, relacija se vidi kao isprekidana linija na
 kanvasu; u suprotnom je dostupna u odeljku **Povezane stavke** u detaljima obe
 stranice.
 
@@ -337,6 +337,14 @@ Korisnik je 27. jula 2026. potvrdio „da“ za svih osam:
    potpisani sadržaj kroz postojeći contribution tok.
 8. Cross-area move cele grane se odbija ako grana sadrži aktivne stranice
    drugih autora; prvo se one detach-uju/rehome-uju bez promene autorstva.
+9. Postojeća kartica može direktno mišem/touch gestom da se prevuče preko
+   druge kartice i pusti radi ugnježđavanja; isti autor dobija trenutni move, a
+   tuđi parent pending zahtev.
+10. Svi veliki modalni tokovi imaju odvojeno skrolabilno telo i uvek vidljive
+    akcije/zatvaranje na desktopu i mobilnom prikazu.
+11. Svaka aktivno ugnežđena kartica nudi **Odvoji u oblast** autoru kartice i
+    autoru njenog roditeljskog kanvasa; akcija je dostupna na kartici/listi i u
+    detaljima, bez slabljenja vlasničkih pravila.
 
 Potvrda je data bez izuzetaka, uz dodatni zahtev za Note↔Task relacije unutar
 iste oblasti.

@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, memo, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import {
   Handle,
   NodeResizer,
@@ -16,8 +22,10 @@ import {
   CheckSquare2,
   Clock3,
   FileText,
+  FolderInput,
   Info,
   RotateCcw,
+  UserRound,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +34,11 @@ import {
   TaskPriorityBadge,
   TaskStatusBadge,
 } from "@/components/workspace/workspace-ui";
+import {
+  NestingTargetMenu,
+  type NestingTargetOption,
+} from "@/components/workspace/nesting-target-menu";
+import { DetachPageButton } from "@/components/workspace/detach-page-button";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
@@ -39,30 +52,45 @@ export type AreaCanvasNodeData = {
   kind: "task" | "note";
   taskStatus: "backlog" | "next" | "in_progress" | "blocked" | "done" | null;
   taskPriority: "low" | "medium" | "high" | "urgent" | null;
+  dueDate: number | null;
+  assigneeName: string | null;
+  assigneeAvatarUrl: string | null;
   creatorName: string;
   creatorAvatarUrl: string | null;
   updatedAt: number;
   canMove: boolean;
   canResize: boolean;
+  canDetach: boolean;
   pendingNesting: boolean;
+  nestingTarget: boolean;
 };
 
 export type AreaFlowNode = Node<AreaCanvasNodeData, "areaPage">;
 
 const AreaNodeActionsContext = createContext<{
+  startupId: Id<"startups">;
+  nestingCandidates: NestingTargetOption[];
   openCanvas: (pageId: Id<"pages">) => void;
   openDetails: (pageId: Id<"pages">) => void;
   resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
   resetSize: (pageId: Id<"pages">) => void;
 } | null>(null);
 
+function stopToolbarEventPropagation(event: SyntheticEvent) {
+  event.stopPropagation();
+}
+
 export function AreaNodeActionsProvider({
+  startupId,
+  nestingCandidates,
   openCanvas,
   openDetails,
   resize,
   resetSize,
   children,
 }: {
+  startupId: Id<"startups">;
+  nestingCandidates: NestingTargetOption[];
   openCanvas: (pageId: Id<"pages">) => void;
   openDetails: (pageId: Id<"pages">) => void;
   resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
@@ -71,7 +99,14 @@ export function AreaNodeActionsProvider({
 }) {
   return (
     <AreaNodeActionsContext.Provider
-      value={{ openCanvas, openDetails, resize, resetSize }}
+      value={{
+        startupId,
+        nestingCandidates,
+        openCanvas,
+        openDetails,
+        resize,
+        resetSize,
+      }}
     >
       {children}
     </AreaNodeActionsContext.Provider>
@@ -88,28 +123,38 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
   const isTask = data.kind === "task";
   const title = data.title || "Bez naslova";
   const canResize = data.canResize && !data.pendingNesting;
+  const dueDateLabel =
+    data.dueDate === null
+      ? "Bez roka"
+      : new Intl.DateTimeFormat("sr-Latn-RS", {
+          day: "2-digit",
+          month: "short",
+        }).format(data.dueDate);
+  const updatedAtLabel = new Intl.DateTimeFormat("sr-Latn-RS", {
+    day: "2-digit",
+    month: "short",
+  }).format(data.updatedAt);
+  const assigneeLabel = data.assigneeName ?? "Nedodeljeno";
 
   return (
     <article
       data-circular-text-shell
       className={cn(
         orbital.shell,
+        isTask && orbital.taskShell,
         isTask ? styles.task : styles.note,
         data.pendingNesting && styles.amber,
+        data.nestingTarget && orbital.nestingTarget,
         (!data.canMove || data.pendingNesting) && "nodrag !cursor-default",
         selected && orbital.selected,
       )}
-      tabIndex={0}
-      aria-keyshortcuts="Enter"
-      aria-label={`${isTask ? "Zadatak" : "Beleška"}: ${title}. ${data.text}${data.pendingNesting ? ". Čeka odobrenje" : ""}`}
-      title="Dupli klik ili Enter otvara kanvas"
+      aria-label={`${isTask ? "Zadatak" : "Beleška"}: ${title}. ${data.text}${
+        isTask
+          ? `. Dodeljeno: ${assigneeLabel}. Rok: ${dueDateLabel}`
+          : ""
+      }${data.pendingNesting ? ". Čeka odobrenje" : ""}`}
+      title="Dupli klik otvara kanvas; izaberi karticu za dodatne akcije"
       onDoubleClick={(event) => {
-        event.stopPropagation();
-        actions?.openCanvas(pageId);
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" || event.repeat) return;
-        event.preventDefault();
         event.stopPropagation();
         actions?.openCanvas(pageId);
       }}
@@ -122,6 +167,16 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         )}
         aria-hidden="true"
       />
+      {data.nestingTarget ? (
+        <div
+          className={orbital.nestingPrompt}
+          role="status"
+          aria-live="polite"
+        >
+          <FolderInput className="size-4" aria-hidden="true" />
+          Pusti za ugnježđavanje
+        </div>
+      ) : null}
 
       <NodeResizer
         isVisible={selected && canResize}
@@ -136,8 +191,47 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         }}
       />
 
-      <NodeToolbar isVisible={selected} position={Position.Top} offset={24}>
-        <div className={cn(orbital.toolbar, "nodrag flex items-center gap-1 rounded-xl border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur")}>
+      <NodeToolbar
+        isVisible={selected}
+        position={Position.Top}
+        offset={24}
+        className="nodrag nokey nopan nowheel max-w-[calc(100vw-2rem)]"
+        onPointerDown={stopToolbarEventPropagation}
+        onMouseDown={stopToolbarEventPropagation}
+        onTouchStart={stopToolbarEventPropagation}
+        onKeyDown={stopToolbarEventPropagation}
+        onClick={stopToolbarEventPropagation}
+        onDoubleClick={stopToolbarEventPropagation}
+      >
+        <div
+          className={cn(
+            orbital.toolbar,
+            "nodrag flex max-w-[calc(100vw-2rem)] flex-wrap items-center justify-center gap-1 rounded-xl border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur",
+          )}
+        >
+          {!data.pendingNesting && actions ? (
+            <>
+              {data.canDetach ? (
+                <DetachPageButton
+                  startupId={actions.startupId}
+                  pageId={pageId}
+                  title={title}
+                  compact
+                />
+              ) : null}
+              {data.canMove ? (
+                <NestingTargetMenu
+                  startupId={actions.startupId}
+                  childPageId={pageId}
+                  childTitle={title}
+                  candidates={actions.nestingCandidates.filter(
+                    (candidate) => candidate.pageId !== pageId,
+                  )}
+                  compact
+                />
+              ) : null}
+            </>
+          ) : null}
           {canResize ? (
             <Button
               type="button"
@@ -227,12 +321,33 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
             <Clock3 className="size-3.5" aria-hidden="true" />
             Čeka odobrenje
           </span>
-        ) : isTask && data.taskStatus ? (
-          <div className="flex flex-wrap items-center gap-1">
-            <TaskStatusBadge status={data.taskStatus} />
-            {data.taskPriority ? (
-              <TaskPriorityBadge priority={data.taskPriority} />
-            ) : null}
+        ) : isTask ? (
+          <div className={orbital.taskActionContent}>
+            <div className="flex flex-wrap items-center gap-1">
+              {data.taskStatus ? (
+                <TaskStatusBadge status={data.taskStatus} />
+              ) : null}
+              {data.taskPriority ? (
+                <TaskPriorityBadge priority={data.taskPriority} />
+              ) : null}
+            </div>
+            <span
+              className={orbital.assigneeCompact}
+              title={`Dodeljeno: ${assigneeLabel}`}
+            >
+              {data.assigneeName ? (
+                <ProfileAvatar
+                  profile={{
+                    displayName: data.assigneeName,
+                    avatarUrl: data.assigneeAvatarUrl,
+                  }}
+                  className="size-5 shrink-0 ring-1 ring-background"
+                />
+              ) : (
+                <UserRound className="size-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{assigneeLabel}</span>
+            </span>
           </div>
         ) : (
           <span className="px-2 text-[0.625rem] font-bold text-muted-foreground">
@@ -241,17 +356,38 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         )}
       </div>
 
-      <time
-        data-circular-text-obstacle
-        className={cn(orbital.orbit, orbital.dateOrbit)}
-        dateTime={new Date(data.updatedAt).toISOString()}
-      >
-        <CalendarDays className="size-3.5" />
-        {new Intl.DateTimeFormat("sr-Latn-RS", {
-          day: "2-digit",
-          month: "short",
-        }).format(data.updatedAt)}
-      </time>
+      {isTask ? (
+        data.dueDate === null ? (
+          <span
+            data-circular-text-obstacle
+            className={cn(orbital.orbit, orbital.dateOrbit)}
+            aria-label="Rok nije postavljen"
+          >
+            <CalendarDays className="size-3.5" aria-hidden="true" />
+            {dueDateLabel}
+          </span>
+        ) : (
+          <time
+            data-circular-text-obstacle
+            className={cn(orbital.orbit, orbital.dateOrbit)}
+            dateTime={new Date(data.dueDate).toISOString()}
+            aria-label={`Rok: ${dueDateLabel}`}
+          >
+            <CalendarDays className="size-3.5" aria-hidden="true" />
+            {dueDateLabel}
+          </time>
+        )
+      ) : (
+        <time
+          data-circular-text-obstacle
+          className={cn(orbital.orbit, orbital.dateOrbit)}
+          dateTime={new Date(data.updatedAt).toISOString()}
+          aria-label={`Ažurirano: ${updatedAtLabel}`}
+        >
+          <CalendarDays className="size-3.5" aria-hidden="true" />
+          {updatedAtLabel}
+        </time>
+      )}
 
       <CircularTextFlow
         text={data.text}

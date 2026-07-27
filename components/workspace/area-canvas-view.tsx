@@ -48,6 +48,7 @@ import {
   type AreaFlowNode,
 } from "@/components/workspace/canvases/area-flow-node";
 import styles from "@/components/workspace/canvases/connected-canvas.module.css";
+import { selectNestingDropTarget } from "@/components/workspace/canvases/nesting-drop";
 import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
 import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
 import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
@@ -115,7 +116,7 @@ function adaptEdgeHandles(
 
 const SERBIAN_ARIA_LABELS = {
   "node.a11yDescription.default":
-    "Pritisni Enter da otvoriš kanvas kartice. Strelicama je pomeraš kada je pomeranje dozvoljeno.",
+    "Pritisni Enter ili Space da izabereš karticu, zatim Tab za njene akcije. Strelicama je pomeraš kada je pomeranje dozvoljeno.",
   "node.a11yDescription.keyboardDisabled":
     "Ova kartica se ne može pomerati tastaturom.",
   "node.a11yDescription.ariaLiveMessage": ({
@@ -213,6 +214,8 @@ function AreaCanvasReady({
   const preDragPositionsRef = useRef(
     new Map<string, { x: number; y: number }>(),
   );
+  const pointerDragActiveRef = useRef(false);
+  const nestingTargetIdRef = useRef<string | null>(null);
   const viewportInitialized = useRef(false);
   const [pendingTimestamp] = useState(() => Date.now());
   const movePages = useMutation(api.areasV2.movePages);
@@ -221,6 +224,7 @@ function AreaCanvasReady({
   const saveViewport = useMutation(api.areasV2.saveViewport);
   const connectPages = useMutation(api.areasV2.connectPages);
   const disconnectPages = useMutation(api.areasV2.disconnectPages);
+  const requestNesting = useMutation(api.areasV2.requestNesting);
   const createRelation = useMutation(api.areasV2.createRelation);
   const deleteRelation = useMutation(api.areasV2.deleteRelation);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
@@ -246,12 +250,17 @@ function AreaCanvasReady({
           kind: page.kind,
           taskStatus: page.taskStatus,
           taskPriority: page.taskPriority,
+          dueDate: page.dueDate,
+          assigneeName: page.assignee?.displayName ?? null,
+          assigneeAvatarUrl: page.assignee?.avatarUrl ?? null,
           creatorName: page.creator?.displayName ?? "Član tima",
           creatorAvatarUrl: page.creator?.avatarUrl ?? null,
           updatedAt: page.updatedAt,
           canMove: page.canMove,
           canResize: page.canResize,
+          canDetach: page.canDetach,
           pendingNesting: false,
+          nestingTarget: false,
         },
         draggable: page.canMove,
         connectable: true,
@@ -277,12 +286,17 @@ function AreaCanvasReady({
           kind: ghost.kind,
           taskStatus: null,
           taskPriority: null,
+          dueDate: null,
+          assigneeName: null,
+          assigneeAvatarUrl: null,
           creatorName: ghost.requester?.displayName ?? "Član tima",
           creatorAvatarUrl: ghost.requester?.avatarUrl ?? null,
           updatedAt: pendingTimestamp,
           canMove: false,
           canResize: false,
+          canDetach: false,
           pendingNesting: true,
+          nestingTarget: false,
         },
         draggable: false,
         connectable: false,
@@ -328,6 +342,7 @@ function AreaCanvasReady({
   }, [canvasData.edges, canvasData.relations, incomingNodes]);
 
   const [nodes, setNodes] = useState(incomingNodes);
+  const nodesRef = useRef(nodes);
   const [edges, setEdges] = useState(incomingEdges);
   const [viewport, setViewport] = useState<Viewport>({
     x: canvasData.viewport.x,
@@ -337,8 +352,47 @@ function AreaCanvasReady({
   const colorMode = useCanvasColorMode();
 
   useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  const updateNestingTarget = useCallback((targetId: string | null) => {
+    if (nestingTargetIdRef.current === targetId) return;
+    nestingTargetIdRef.current = targetId;
+    setNodes((current) =>
+      current.map((node) => {
+        const nestingTarget = node.id === targetId;
+        return node.data.nestingTarget === nestingTarget
+          ? node
+          : {
+              ...node,
+              data: { ...node.data, nestingTarget },
+            };
+      }),
+    );
+  }, []);
+
+  const detectNestingTarget = useCallback(
+    (dragged: AreaFlowNode, draggedNodes: AreaFlowNode[]) => {
+      const movableNodes = draggedNodes.filter(
+        (node) => node.data.canMove && !node.data.pendingNesting,
+      );
+      if (movableNodes.length !== 1 || movableNodes[0].id !== dragged.id) {
+        return null;
+      }
+      const intersections =
+        flowRef.current?.getIntersectingNodes(dragged, true) ?? [];
+      const excludedIds = new Set(draggedNodes.map((node) => node.id));
+      return selectNestingDropTarget(
+        dragged,
+        intersections.filter((node) => !node.data.pendingNesting),
+        excludedIds,
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
     // Keep live metadata in sync without discarding local selection.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes((current) => {
       const selected = new Set(
         current.filter((node) => node.selected).map((node) => node.id),
@@ -346,6 +400,10 @@ function AreaCanvasReady({
       return incomingNodes.map((node) => ({
         ...node,
         selected: selected.has(node.id),
+        data: {
+          ...node.data,
+          nestingTarget: nestingTargetIdRef.current === node.id,
+        },
       }));
     });
   }, [incomingNodes]);
@@ -405,9 +463,111 @@ function AreaCanvasReady({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<AreaFlowNode>[]) => {
-      setNodes((current) => applyNodeChanges(changes, current));
+      const current = nodesRef.current;
+      const next = applyNodeChanges(changes, current);
+      nodesRef.current = next;
+      setNodes(next);
+
+      if (pointerDragActiveRef.current) return;
+      const currentById = new Map(current.map((node) => [node.id, node]));
+      const nextById = new Map(next.map((node) => [node.id, node]));
+      const keyboardMoves = changes.flatMap((change) => {
+        if (change.type !== "position" || change.position === undefined) {
+          return [];
+        }
+        const previous = currentById.get(change.id);
+        const updated = nextById.get(change.id);
+        if (
+          !previous ||
+          !updated ||
+          !previous.data.canMove ||
+          previous.data.pendingNesting
+        ) {
+          return [];
+        }
+        const before = {
+          pageId: previous.id as Id<"pages">,
+          x: Math.round(previous.position.x),
+          y: Math.round(previous.position.y),
+        };
+        const after = {
+          pageId: updated.id as Id<"pages">,
+          x: Math.round(updated.position.x),
+          y: Math.round(updated.position.y),
+        };
+        return before.x === after.x && before.y === after.y
+          ? []
+          : [{ before, after }];
+      });
+      if (keyboardMoves.length === 0) return;
+
+      const before = keyboardMoves.map((move) => move.before);
+      const after = keyboardMoves.map((move) => move.after);
+      const beforeByPageId = new Map(
+        before.map((move) => [move.pageId, move]),
+      );
+      const afterByPageId = new Map(
+        after.map((move) => [move.pageId, move]),
+      );
+      void movePages({
+        startupId,
+        areaId,
+        rootPageId,
+        updates: after,
+      })
+        .then(() => {
+          pushHistory({
+            label:
+              after.length === 1
+                ? "pomeranje kartice tastaturom"
+                : "pomeranje grupe tastaturom",
+            undo: () =>
+              movePages({
+                startupId,
+                areaId,
+                rootPageId,
+                updates: before,
+              }),
+            redo: () =>
+              movePages({
+                startupId,
+                areaId,
+                rootPageId,
+                updates: after,
+              }),
+          });
+        })
+        .catch((error) => {
+          setNodes((latest) =>
+            latest.map((node) => {
+              const expected = afterByPageId.get(
+                node.id as Id<"pages">,
+              );
+              const previous = beforeByPageId.get(
+                node.id as Id<"pages">,
+              );
+              if (
+                !expected ||
+                !previous ||
+                Math.round(node.position.x) !== expected.x ||
+                Math.round(node.position.y) !== expected.y
+              ) {
+                return node;
+              }
+              return {
+                ...node,
+                position: { x: previous.x, y: previous.y },
+              };
+            }),
+          );
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Pomeranje tastaturom nije sačuvano.",
+          );
+        });
     },
-    [],
+    [areaId, movePages, pushHistory, rootPageId, startupId],
   );
 
   const handleEdgesChange = useCallback(
@@ -851,6 +1011,12 @@ function AreaCanvasReady({
 
   return (
     <AreaNodeActionsProvider
+      startupId={startupId}
+      nestingCandidates={canvasData.pages.map((page) => ({
+        pageId: page._id,
+        title: page.title,
+        kind: page.kind,
+      }))}
       openCanvas={onOpenCanvas}
       openDetails={onOpenDetails}
       resize={(pageId, layout) => {
@@ -970,8 +1136,6 @@ function AreaCanvasReady({
         // AreaView does not provide a fixed-height parent. Keep a definite
         // containing-block height so React Flow's 100% height cannot collapse.
         style={{ height: "min(72vh, 52rem)" }}
-        role="application"
-        tabIndex={0}
         onKeyDownCapture={(event) => {
           const modifier = event.ctrlKey || event.metaKey;
           if (modifier && event.key.toLowerCase() === "a") {
@@ -999,6 +1163,8 @@ function AreaCanvasReady({
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void handleConnect(connection)}
           onNodeDragStart={(_event, _node, draggedNodes) => {
+            pointerDragActiveRef.current = true;
+            updateNestingTarget(null);
             preDragPositionsRef.current = new Map(
               draggedNodes
                 .filter(
@@ -1015,7 +1181,22 @@ function AreaCanvasReady({
                 ]),
             );
           }}
-          onNodeDragStop={(_event, _node, draggedNodes) => {
+          onNodeDrag={(_event, draggedNode, draggedNodes) => {
+            const target = detectNestingTarget(
+              draggedNode,
+              draggedNodes,
+            );
+            updateNestingTarget(target?.id ?? null);
+          }}
+          onNodeDragStop={(_event, draggedNode, draggedNodes) => {
+            window.setTimeout(() => {
+              pointerDragActiveRef.current = false;
+            }, 0);
+            const nestingTarget = detectNestingTarget(
+              draggedNode,
+              draggedNodes,
+            );
+            updateNestingTarget(null);
             const movableNodes = draggedNodes.filter(
               (dragged) =>
                 dragged.data.canMove && !dragged.data.pendingNesting,
@@ -1050,6 +1231,49 @@ function AreaCanvasReady({
                 : [],
             );
             preDragPositionsRef.current.clear();
+            const restorePreviousPositions = () => {
+              setNodes((current) =>
+                current.map((node) => {
+                  const previous = beforeByPageId.get(
+                    node.id as Id<"pages">,
+                  );
+                  return previous
+                    ? { ...node, position: previous }
+                    : node;
+                }),
+              );
+            };
+            if (nestingTarget !== null && movableNodes.length === 1) {
+              const childPageId = movableNodes[0].id as Id<"pages">;
+              const targetParentPageId =
+                nestingTarget.id as Id<"pages">;
+              restorePreviousPositions();
+              void requestNesting({
+                startupId,
+                childPageId,
+                targetParentPageId,
+              })
+                .then((result) => {
+                  if (result.nestingStatus === "pending") {
+                    toast.success(
+                      `Zahtev za ugnježđavanje u „${nestingTarget.data.title}” je poslat autoru.`,
+                    );
+                  } else {
+                    toast.success(
+                      `Stavka je ugnježđena u „${nestingTarget.data.title}”.`,
+                    );
+                  }
+                })
+                .catch((error) => {
+                  restorePreviousPositions();
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Stavka nije ugnježđena.",
+                  );
+                });
+              return;
+            }
             const changed = after.some((move) => {
               const previous = beforeByPageId.get(move.pageId);
               return (
@@ -1087,16 +1311,7 @@ function AreaCanvasReady({
                 });
               })
               .catch((error) => {
-                setNodes((current) =>
-                  current.map((node) => {
-                    const previous = beforeByPageId.get(
-                      node.id as Id<"pages">,
-                    );
-                    return previous
-                      ? { ...node, position: previous }
-                      : node;
-                  }),
-                );
+                restorePreviousPositions();
                 toast.error(
                   error instanceof Error
                     ? error.message
@@ -1248,8 +1463,8 @@ function AreaCanvasReady({
           >
             <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
               <Link2 className="size-3.5" />
-              Klik bira · dupli klik ili Enter otvara kanvas · spoji
-              tačke
+              Prevuci karticu preko druge i pusti za ugnježđavanje ·
+              spoji tačke za vezu
               <span className="ml-1 font-mono text-foreground">
                 {Math.round(viewport.zoom * 100)}%
               </span>

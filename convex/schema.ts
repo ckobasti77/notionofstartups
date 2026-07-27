@@ -75,6 +75,11 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_startupId_and_profileId", ["startupId", "profileId"])
+    .index("by_startupId_and_archivedAt_and_profileId", [
+      "startupId",
+      "archivedAt",
+      "profileId",
+    ])
     .index("by_profileId_and_startupId", ["profileId", "startupId"])
     .index("by_profileId_and_createdAt", ["profileId", "createdAt"]),
 
@@ -421,6 +426,7 @@ export default defineSchema({
     targetKind: v.union(
       v.literal("idea"),
       v.literal("page"),
+      v.literal("area"),
       v.literal("recovered"),
     ),
     targetKey: v.string(),
@@ -720,6 +726,18 @@ export default defineSchema({
       "createdAt",
     ])
     .index("by_requesterProfileId_and_status_and_createdAt", [
+      "requesterProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_startupId_and_parentAuthorProfileId_and_status_and_createdAt", [
+      "startupId",
+      "parentAuthorProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_startupId_and_requesterProfileId_and_status_and_createdAt", [
+      "startupId",
       "requesterProfileId",
       "status",
       "createdAt",

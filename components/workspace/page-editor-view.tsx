@@ -3,12 +3,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, FolderOutput, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -72,6 +73,7 @@ export function PageEditorView({
   startup,
   pageId,
   onOpenPage,
+  onOpenArea,
   onCreateChild,
   onArchived,
   presentation = "page",
@@ -80,16 +82,19 @@ export function PageEditorView({
   startup: StartupWithAreas;
   pageId: Id<"pages">;
   onOpenPage: (pageId: Id<"pages">) => void;
+  onOpenArea?: (areaId: Id<"startupAreas">) => void;
   onCreateChild: (target: CreatePageTarget) => void;
   onArchived: () => void;
   presentation?: "page" | "dialog";
   onSaveStateChange?: (state: PageEditorSaveState) => void;
 }) {
+  const taskDueDateId = useId();
   const page = useQuery(api.pages.get, { pageId });
   const breadcrumbs = useQuery(api.pages.getBreadcrumbs, { pageId });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
   const updatePage = useMutation(api.areasV2.updatePage);
   const archivePage = useMutation(api.areasV2.archivePage);
+  const detachPage = useMutation(api.areasV2.detachPage);
   const relationsResult = useQuery(api.areasV2.listRelations, {
     startupId: startup._id,
     pageId,
@@ -108,6 +113,7 @@ export function PageEditorView({
     Id<"pages"> | ""
   >("");
   const [relationBusy, setRelationBusy] = useState(false);
+  const [detachBusy, setDetachBusy] = useState(false);
   const loadedPageId = useRef<string | null>(null);
   const activePageIdRef = useRef<string>(pageId);
   const baseRevisionRef = useRef(0);
@@ -434,6 +440,34 @@ export function PageEditorView({
     catch (error) { toast.error(error instanceof Error ? error.message : "Stranica nije arhivirana."); }
   }
 
+  async function detachFromParent() {
+    if (!page?.permissions.canDetach || detachBusy) return;
+    if (
+      !window.confirm(
+        "Odvojiti ovu stavku od roditelja i vratiti je u koren oblasti?",
+      )
+    ) {
+      return;
+    }
+    setDetachBusy(true);
+    try {
+      const result = await detachPage({
+        startupId: startup._id,
+        pageId: page._id,
+      });
+      if (result.status !== "detached") {
+        throw new Error("Stavka više nije ugnježđena.");
+      }
+      toast.success("Stavka je odvojena i vraćena u koren oblasti.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Stavka nije odvojena.",
+      );
+    } finally {
+      setDetachBusy(false);
+    }
+  }
+
   async function linkSelectedPage() {
     if (!selectedRelationPageId || relationBusy) return;
     setRelationBusy(true);
@@ -499,10 +533,48 @@ export function PageEditorView({
       )}
     >
       <nav data-workspace-enter className="scrollbar-thin mb-5 flex min-h-9 items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-muted-foreground" aria-label="Putanja stranice">
-        <span className="font-semibold text-foreground">{startup.name}</span><ChevronRight className="size-3.5" /><span>{pageArea?.label ?? "Oblast"}</span>
-        {breadcrumbs?.slice(0, -1).map((item) => <span key={item._id} className="contents"><ChevronRight className="size-3.5" /><button type="button" className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground" onClick={() => onOpenPage(item._id)}>{item.title}</button></span>)}
+        <span className="font-semibold text-foreground">{startup.name}</span>
+        <ChevronRight className="size-3.5" />
+        <button
+          type="button"
+          className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground"
+          onClick={() => onOpenArea?.(page.areaId)}
+          disabled={!onOpenArea}
+        >
+          {pageArea?.label ?? "Oblast"}
+        </button>
+        {breadcrumbs?.map((item, index) => {
+          const isCurrent = index === breadcrumbs.length - 1;
+          return (
+            <span key={item._id} className="contents">
+              <ChevronRight className="size-3.5" />
+              {isCurrent ? (
+                <span
+                  className="max-w-48 truncate px-1 py-1 font-semibold text-foreground"
+                  aria-current="page"
+                >
+                  {item.title}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground"
+                  onClick={() => onOpenPage(item._id)}
+                >
+                  {item.title}
+                </button>
+              )}
+            </span>
+          );
+        })}
       </nav>
-      <article data-workspace-enter className="desk-surface overflow-hidden rounded-[1.35rem] border border-border/75 bg-card">
+      <article
+        data-workspace-enter
+        className={cn(
+          "desk-surface rounded-[1.35rem] border border-border/75 bg-card",
+          presentation === "dialog" ? "overflow-visible" : "overflow-hidden",
+        )}
+      >
         {saveState === "conflict" ? (
           <section
             className="flex flex-col gap-3 border-b border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-8"
@@ -535,13 +607,119 @@ export function PageEditorView({
           </section>
         ) : null}
         <header
-          className={cn(
-            "border-b border-border/65 bg-card px-5 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-7",
-            presentation === "dialog" && "sticky top-0 z-20",
-          )}
+          className="border-b border-border/65 bg-card px-5 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-7"
         >
           <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input disabled={!page.permissions.canEdit} aria-invalid={saveState === "invalid"} aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{page.permissions.canEdit ? (saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" || saveState === "invalid" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />) : <UserRound className="size-3.5" />}{page.permissions.canEdit ? (saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : saveState === "invalid" ? "Naslov je obavezan" : "Izmene čekaju") : "Osnovni sadržaj menja samo kreator"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label={page.permissions.canDeleteDirectly ? "Arhiviraj stranicu" : "Zatraži brisanje stranice"} onClick={archive}><Archive /></Button></div>
-          {page.kind === "task" ? <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4"><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Status</span><Select value={status} disabled={!page.permissions.canEdit} onValueChange={(value) => setTaskMetadata({ status: value as TaskStatus })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Prioritet</span><Select value={priority} disabled={!page.permissions.canEdit} onValueChange={(value) => setTaskMetadata({ priority: value as TaskPriority })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Dodeljeno</span><Select value={page.assigneeProfileId ?? "none"} disabled={!page.permissions.canEdit} onValueChange={(value) => setTaskMetadata({ assigneeProfileId: value === "none" ? null : value as Id<"profiles"> })}><SelectTrigger className="h-9 bg-card"><SelectValue placeholder="Nije dodeljen" /></SelectTrigger><SelectContent><SelectItem value="none">Nije dodeljen</SelectItem>{members?.map(({ profile }) => <SelectItem key={profile._id} value={profile._id}>{profile.displayName}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground" htmlFor="task-due-date">Rok</label><Input id="task-due-date" type="date" disabled={!page.permissions.canEdit} className="h-9 bg-card" value={toDateInputValue(page.dueDate)} onChange={(event) => setTaskMetadata({ dueDate: event.target.value ? fromDateInputValue(event.target.value) ?? null : null })} /></div></div> : null}
+          {page.kind === "task" ? (
+            <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+                  Status
+                </span>
+                <Select
+                  value={status}
+                  disabled={!page.permissions.canEdit}
+                  onValueChange={(value) =>
+                    setTaskMetadata({ status: value as TaskStatus })
+                  }
+                >
+                  <SelectTrigger
+                    className="h-9 bg-card"
+                    aria-label="Status zadatka"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(TASK_STATUS_META).map(([value, meta]) => (
+                      <SelectItem key={value} value={value}>
+                        {meta.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+                  Prioritet
+                </span>
+                <Select
+                  value={priority}
+                  disabled={!page.permissions.canEdit}
+                  onValueChange={(value) =>
+                    setTaskMetadata({ priority: value as TaskPriority })
+                  }
+                >
+                  <SelectTrigger
+                    className="h-9 bg-card"
+                    aria-label="Prioritet zadatka"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(TASK_PRIORITY_META).map(([value, meta]) => (
+                      <SelectItem key={value} value={value}>
+                        {meta.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+                  Dodeljeno
+                </span>
+                <Select
+                  value={page.assigneeProfileId ?? "none"}
+                  disabled={!page.permissions.canEdit}
+                  onValueChange={(value) =>
+                    setTaskMetadata({
+                      assigneeProfileId:
+                        value === "none"
+                          ? null
+                          : (value as Id<"profiles">),
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    className="h-9 bg-card"
+                    aria-label="Dodeljeno zadatku"
+                  >
+                    <SelectValue placeholder="Nije dodeljen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nije dodeljen</SelectItem>
+                    {members?.map(({ profile }) => (
+                      <SelectItem key={profile._id} value={profile._id}>
+                        {profile.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label
+                  className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground"
+                  htmlFor={taskDueDateId}
+                >
+                  Rok
+                </label>
+                <Input
+                  id={taskDueDateId}
+                  type="date"
+                  disabled={!page.permissions.canEdit}
+                  className="h-9 bg-card"
+                  value={toDateInputValue(page.dueDate)}
+                  onChange={(event) =>
+                    setTaskMetadata({
+                      dueDate: event.target.value
+                        ? (fromDateInputValue(event.target.value) ?? null)
+                        : null,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          ) : null}
         </header>
         <div className="px-5 sm:px-8">
           {page.kind === "note" ? (
@@ -611,23 +789,43 @@ export function PageEditorView({
           {/* Block-level Author Entries (Sadržaj sa autorstvom članova) */}
           <PageAuthorEntries page={page} />
         </div>
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {page.creator ? (
-              <>
-                <ProfileAvatar profile={page.creator} className="size-6" />
-                <span>Kreirao/la <strong className="font-semibold text-foreground">{page.creator.displayName}</strong></span>
-              </>
-            ) : (
-              <>
-                <UserRound className="size-4" /> Autor nije dostupan
-              </>
-            )}
-          </div>
-          <Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}>
-            <Plus /> Podstranica
-          </Button>
-        </footer>
+        {presentation === "page" ? (
+          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {page.creator ? (
+                <>
+                  <ProfileAvatar profile={page.creator} className="size-6" />
+                  <span>Kreirao/la <strong className="font-semibold text-foreground">{page.creator.displayName}</strong></span>
+                </>
+              ) : (
+                <>
+                  <UserRound className="size-4" /> Autor nije dostupan
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {page.permissions.canDetach ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={detachBusy}
+                  onClick={detachFromParent}
+                >
+                  {detachBusy ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <FolderOutput />
+                  )}
+                  Odvoji u oblast
+                </Button>
+              ) : null}
+              <Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}>
+                <Plus /> Podstranica
+              </Button>
+            </div>
+          </footer>
+        ) : null}
       </article>
     </div>
   );

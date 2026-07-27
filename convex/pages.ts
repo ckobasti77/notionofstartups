@@ -1,15 +1,18 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { archivePageWithV2Sidecars } from "./areasV2";
+import {
+  archivePageWithV2Sidecars,
+  movePageAcrossAreasWithSidecars,
+  moveWithinArea,
+} from "./areasV2";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import { insertContribution } from "./lib/collaboration";
 import {
   cleanPageContent,
-  cleanPagePosition,
   insertWorkspacePage,
   prepareWorkspacePage,
   requirePageArea,
@@ -18,7 +21,6 @@ import {
   workspaceCanvasPreview,
 } from "./lib/page_creation";
 import {
-  getActivePageDescendants,
   pageSearchText,
   pageTaskSortAt,
   requireVisiblePage,
@@ -28,47 +30,50 @@ import {
   checkpointItemValidator,
   cleanRequiredText,
   pageKindValidator,
+  pageSummaryValidator,
+  roleValidator,
   taskPriorityValidator,
   taskStatusValidator,
 } from "./lib/validators";
 
 type PageReadCtx = QueryCtx | MutationCtx;
 
-async function syncV2Placement(
-  ctx: MutationCtx,
-  page: Doc<"pages">,
-  args: {
-    areaId: Id<"startupAreas">;
-    rootPageId: Id<"pages"> | null;
-    actorProfileId: Id<"profiles">;
-    now: number;
-  },
-) {
-  const existing = await ctx.db
-    .query("pageCanvasPlacements")
-    .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-    .first();
-  const value = {
-    startupId: page.startupId,
-    areaId: args.areaId,
-    rootPageId: args.rootPageId,
-    pageId: page._id,
-    x: existing?.x ?? 0,
-    y: existing?.y ?? 0,
-    ...(existing?.width === undefined ? {} : { width: existing.width }),
-    ...(existing?.height === undefined ? {} : { height: existing.height }),
-    updatedByProfileId: args.actorProfileId,
-    updatedAt: args.now,
-  };
-  if (existing === null) {
-    await ctx.db.insert("pageCanvasPlacements", {
-      ...value,
-      createdAt: args.now,
-    });
-  } else {
-    await ctx.db.patch("pageCanvasPlacements", existing._id, value);
-  }
-}
+const profileDocumentValidator = v.object({
+  _id: v.id("profiles"),
+  _creationTime: v.number(),
+  userId: v.id("users"),
+  displayName: v.string(),
+  email: v.string(),
+  role: roleValidator,
+  avatarStorageId: v.optional(v.id("_storage")),
+  archivedAt: v.union(v.number(), v.null()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+const pageDocumentValidator = pageSummaryValidator.extend({
+  treeRevision: v.optional(v.number()),
+  canvasPreview: v.optional(v.string()),
+});
+const pageDetailsValidator = pageDocumentValidator.extend({
+  content: v.string(),
+  creator: v.union(
+    profileDocumentValidator.extend({
+      avatarUrl: v.union(v.string(), v.null()),
+    }),
+    v.null(),
+  ),
+  updater: v.union(profileDocumentValidator, v.null()),
+  assignee: v.union(profileDocumentValidator, v.null()),
+  permissions: v.object({
+    canEdit: v.boolean(),
+    canEditBody: v.boolean(),
+    canMove: v.boolean(),
+    canResize: v.boolean(),
+    canDetach: v.boolean(),
+    canDeleteDirectly: v.boolean(),
+    canRequestDeletion: v.boolean(),
+  }),
+});
 
 async function getPageBodyContributions(
   ctx: PageReadCtx,
@@ -146,10 +151,11 @@ export const listChildren = query({
 
 export const get = query({
   args: { pageId: v.id("pages") },
+  returns: pageDetailsValidator,
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);
-    const [body, creator, updater, assignee] = await Promise.all([
+    const [body, creator, updater, assignee, parent] = await Promise.all([
       ctx.db
         .query("pageBodies")
         .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
@@ -159,6 +165,9 @@ export const get = query({
       page.assigneeProfileId === null
         ? Promise.resolve(null)
         : ctx.db.get("profiles", page.assigneeProfileId),
+      page.parentPageId === null
+        ? Promise.resolve(null)
+        : ctx.db.get("pages", page.parentPageId),
     ]);
     const pageBodyContributions = await getPageBodyContributions(
       ctx,
@@ -191,6 +200,14 @@ export const get = query({
             )),
         canMove: page.createdByProfileId === profile._id,
         canResize: page.createdByProfileId === profile._id,
+        canDetach:
+          page.parentPageId !== null &&
+          (page.createdByProfileId === profile._id ||
+            (parent !== null &&
+              parent.archivedAt === null &&
+              parent.startupId === page.startupId &&
+              parent.areaId === page.areaId &&
+              parent.createdByProfileId === profile._id)),
         canDeleteDirectly: page.createdByProfileId === profile._id,
         canRequestDeletion: page.createdByProfileId !== profile._id,
       },
@@ -399,6 +416,7 @@ export const move = mutation({
     parentPageId: v.union(v.id("pages"), v.null()),
     position: v.optional(v.number()),
   },
+  returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);
@@ -423,46 +441,29 @@ export const move = mutation({
         ? null
         : await requireVisiblePage(ctx, cursor.parentPageId);
     }
-    const descendants =
-      page.areaId === args.areaId ? [] : await getActivePageDescendants(ctx, page._id);
-    if (
-      descendants.some(
-        (descendant) => descendant.createdByProfileId !== profile._id,
-      )
-    ) {
-      throw new Error(
-        "Grana sadrži aktivne stranice drugih autora. Prvo ih odvojite pre premeštanja u drugu oblast.",
-      );
-    }
     const now = Date.now();
-    await ctx.db.patch("pages", page._id, {
-      areaId: args.areaId,
-      parentPageId: args.parentPageId,
-      position: cleanPagePosition(args.position, now),
-      treeRevision: (page.treeRevision ?? 0) + 1,
-      updatedByProfileId: profile._id,
-      updatedAt: now,
-    });
-    await syncV2Placement(ctx, page, {
-      areaId: args.areaId,
-      rootPageId: args.parentPageId,
-      actorProfileId: profile._id,
-      now,
-    });
-    for (const descendant of descendants) {
-      await ctx.db.patch("pages", descendant._id, {
-        areaId: args.areaId,
-        treeRevision: (descendant.treeRevision ?? 0) + 1,
-        updatedByProfileId: profile._id,
-        updatedAt: now,
-      });
-      await syncV2Placement(ctx, descendant, {
-        areaId: args.areaId,
-        rootPageId: descendant.parentPageId,
+    if (page.areaId !== args.areaId) {
+      if (parent !== null) {
+        throw new Error(
+          "Premeštanje u drugu oblast je dozvoljeno samo u koren oblasti.",
+        );
+      }
+      await movePageAcrossAreasWithSidecars(ctx, {
+        page,
+        targetAreaId: args.areaId,
         actorProfileId: profile._id,
+        position: args.position,
         now,
       });
+      return page._id;
     }
+    await moveWithinArea(ctx, {
+      child: page,
+      targetParent: parent,
+      actorProfileId: profile._id,
+      position: args.position,
+      now,
+    });
     await recordActivity(ctx, {
       startupId: page.startupId,
       actorProfileId: profile._id,
@@ -477,6 +478,7 @@ export const move = mutation({
 
 export const archive = mutation({
   args: { pageId: v.id("pages") },
+  returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     const { profile } = await requireStartupMember(ctx, page.startupId);

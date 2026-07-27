@@ -6,7 +6,17 @@ import { toast } from "sonner";
 import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
-import { Building2, ExternalLink, FileText, LoaderCircle, Search, Sparkles } from "lucide-react";
+import {
+  Building2,
+  ExternalLink,
+  FileText,
+  FolderOutput,
+  LoaderCircle,
+  Plus,
+  Search,
+  Sparkles,
+  UserRound,
+} from "lucide-react";
 
 import { ActivityView } from "@/components/workspace/activity-view";
 import { ApprovalsView } from "@/components/workspace/approvals-view";
@@ -20,7 +30,10 @@ import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { TasksView } from "@/components/workspace/tasks-view";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
-import { StartupLogo } from "@/components/workspace/workspace-ui";
+import {
+  ProfileAvatar,
+  StartupLogo,
+} from "@/components/workspace/workspace-ui";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
 import type {
   ThoughtDestination,
@@ -45,6 +58,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { PageEditorSaveState } from "@/components/workspace/page-editor-view";
 import {
   ITEM_SIZE_DIMENSIONS,
+  ItemSizeMenu,
   ItemSizePicker,
   workspaceItemDialogContentClass,
   type ItemSizePreset,
@@ -54,9 +68,10 @@ import {
   WorkspaceHistoryProvider,
 } from "@/components/workspace/workspace-history";
 import {
-  readAreasRouteCandidate,
-  readWorkspaceStartupId,
+  isAreasRouteCandidate,
+  readWorkspaceLocation,
   resolvedAreasRoute,
+  workspaceRouteAfterStartupSwitch,
   workspaceRouteHref,
 } from "@/components/workspace/workspace-route";
 
@@ -140,6 +155,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [detailPageId, setDetailPageId] = useState<Id<"pages"> | null>(null);
   const [detailSaveState, setDetailSaveState] =
     useState<PageEditorSaveState>("saved");
+  const [detailDetachBusy, setDetailDetachBusy] = useState(false);
   const [pageSaveState, setPageSaveState] =
     useState<PageEditorSaveState>("saved");
   // Drag and drop state for pages in sidebar
@@ -149,12 +165,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const movePage = useMutation(api.areasV2.movePage);
   const resizePage = useMutation(api.areasV2.resizePage);
   const resetPageSize = useMutation(api.areasV2.resetPageSize);
+  const detachPage = useMutation(api.areasV2.detachPage);
   const convex = useConvex();
   const { pushHistory } = useWorkspaceHistory();
   const startupIdFromUrl =
     typeof window === "undefined"
       ? null
-      : readWorkspaceStartupId(window.location.search);
+      : readWorkspaceLocation(window.location.search).startupId;
   const startup =
     startups?.find((item) => item._id === selectedStartupId) ??
     (selectedStartupId === null
@@ -218,9 +235,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
   const navigateRoute = useCallback((
     nextRoute: WorkspaceRoute,
-    options: { replace?: boolean; bypassGuard?: boolean } = {},
+    options: {
+      replace?: boolean;
+      bypassGuard?: boolean;
+      targetStartupId?: Id<"startups">;
+    } = {},
   ) => {
     if (!options.bypassGuard && !canLeaveActivePage(nextRoute)) return false;
+    const navigationStartupId = options.targetStartupId ?? startupId;
     const leavesCurrentPage =
       route.kind === "page" &&
       !(
@@ -228,8 +250,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         nextRoute.pageId === route.pageId
       );
     if (leavesCurrentPage) setPageSaveState("saved");
-    if (selectedStartupId === null && startupId) {
-      setSelectedStartupId(startupId);
+    if (selectedStartupId === null && navigationStartupId) {
+      setSelectedStartupId(navigationStartupId);
     }
     routeResolutionRequestRef.current += 1;
     setRoute(nextRoute);
@@ -237,7 +259,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     const href = workspaceRouteHref(
       nextRoute,
       window.location.href,
-      startupId,
+      navigationStartupId,
     );
     if (options.replace) {
       window.history.replaceState(null, "", href);
@@ -258,20 +280,30 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     if (typeof window === "undefined") return;
     const requestId = routeResolutionRequestRef.current + 1;
     routeResolutionRequestRef.current = requestId;
-    const searchParams = new URLSearchParams(window.location.search);
-    const candidate = readAreasRouteCandidate(window.location.search);
-    const claimsAreasRoute =
-      searchParams.get("view") === "area" ||
-      searchParams.get("view") === "page";
+    const location = readWorkspaceLocation(window.location.search);
+    const candidate = location.route;
 
     if (!candidate) {
       navigateRoute(
         { kind: "home" },
-        { replace: true, bypassGuard: true },
+        {
+          replace: true,
+          bypassGuard: true,
+          targetStartupId: currentStartupId,
+        },
       );
-      if (claimsAreasRoute) {
+      if (location.hasExplicitView) {
         toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
       }
+      return;
+    }
+
+    if (!isAreasRouteCandidate(candidate)) {
+      navigateRoute(candidate, {
+        replace: true,
+        bypassGuard: true,
+        targetStartupId: currentStartupId,
+      });
       return;
     }
 
@@ -288,7 +320,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         navigateRoute(resolved, {
           replace: true,
           bypassGuard: true,
+          targetStartupId: currentStartupId,
         });
+        if (candidate.kind === "page" && resolved.kind === "area") {
+          toast.info(
+            "Stranica više nije dostupna. Otvorena je njena pripadajuća oblast.",
+          );
+        }
         return;
       }
     } catch {
@@ -297,7 +335,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
     navigateRoute(
       { kind: "home" },
-      { replace: true, bypassGuard: true },
+      {
+        replace: true,
+        bypassGuard: true,
+        targetStartupId: currentStartupId,
+      },
     );
     toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
   }, [convex, navigateRoute]);
@@ -328,9 +370,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         return;
       }
       setPageSaveState("saved");
-      const requestedStartupId = readWorkspaceStartupId(
+      const requestedStartupId = readWorkspaceLocation(
         window.location.search,
-      );
+      ).startupId;
       const requestedStartup = startups?.find(
         (item) => item._id === requestedStartupId,
       );
@@ -361,15 +403,21 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [startup]);
 
-  function selectStartup(startupId: Id<"startups">) {
-    if (startup?._id !== startupId) {
-      resetForStartupIdRef.current = startupId;
-      if (!navigateRoute({ kind: "home" }, { replace: true })) {
+  function selectStartup(nextStartupId: Id<"startups">) {
+    if (startup?._id !== nextStartupId) {
+      const nextRoute = workspaceRouteAfterStartupSwitch(route);
+      resetForStartupIdRef.current = nextStartupId;
+      if (
+        !navigateRoute(nextRoute, {
+          replace: true,
+          targetStartupId: nextStartupId,
+        })
+      ) {
         resetForStartupIdRef.current = null;
         return;
       }
     }
-    setSelectedStartupId(startupId);
+    setSelectedStartupId(nextStartupId);
     setExpandedAreas({});
     setExpandedPageIds(new Set());
     setTransientExpandedAreaIds(new Set());
@@ -598,6 +646,52 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       );
   }
 
+  async function detachDetailPage() {
+    if (
+      !detailPageId ||
+      !detailPage?.permissions.canDetach ||
+      detailDetachBusy ||
+      !canLeavePageDetails()
+    ) {
+      return;
+    }
+    if (
+      !window.confirm(
+        "Odvojiti ovu stavku od roditelja i vratiti je u koren oblasti?",
+      )
+    ) {
+      return;
+    }
+    setDetailDetachBusy(true);
+    try {
+      const result = await detachPage({
+        startupId: startup._id,
+        pageId: detailPageId,
+      });
+      if (result.status !== "detached") {
+        throw new Error("Stavka više nije ugnežđena.");
+      }
+      toast.success("Stavka je odvojena i vraćena u koren oblasti.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Stavka nije odvojena.",
+      );
+    } finally {
+      setDetailDetachBusy(false);
+    }
+  }
+
+  function createChildFromDetails() {
+    if (!detailPage || !canLeavePageDetails()) return;
+    const target = {
+      areaId: detailPage.areaId,
+      parentPageId: detailPage._id,
+    };
+    setDetailPageId(null);
+    setDetailSaveState("saved");
+    openCreate(target);
+  }
+
   function openAdmin() {
     setAdminMode("edit");
     setAdminOpen(true);
@@ -688,15 +782,25 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               onOpenCanvas={(pageId) =>
                 navigateRoute({ kind: "page", pageId })
               }
+              onOpenArea={(areaId) =>
+                navigateRoute({ kind: "area", areaId })
+              }
               onOpenDetails={openPageDetails}
               onCreateChild={openCreate}
               onSaveStateChange={setPageSaveState}
-              onArchived={() => {
+              onArchived={(fallbackRoute) => {
                 setPageSaveState("saved");
-                navigateRoute(
-                  { kind: "home" },
-                  { bypassGuard: true },
-                );
+                if (
+                  navigateRoute(fallbackRoute, {
+                    bypassGuard: true,
+                  })
+                ) {
+                  toast.info(
+                    fallbackRoute.kind === "page"
+                      ? "Otvoren je roditeljski kanvas."
+                      : "Otvorena je pripadajuća oblast.",
+                  );
+                }
               }}
             />
           )}
@@ -710,15 +814,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         }}
       >
         <DialogContent
-          className={`${workspaceItemDialogContentClass} grid-rows-[auto_minmax(0,1fr)]`}
+          className={`${workspaceItemDialogContentClass} grid-rows-[auto_minmax(0,1fr)_auto]`}
         >
-          <DialogHeader className="sr-only">
-            <DialogTitle>Detalji sadržaja</DialogTitle>
-            <DialogDescription>
-              Pročitaj i izmeni belešku ili zadatak bez napuštanja trenutnog prikaza.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-wrap items-center gap-3 border-b border-border/70 bg-card/90 px-4 py-3 pr-12 backdrop-blur-xl sm:px-6">
+          <div className="relative z-30 flex flex-wrap items-center gap-3 border-b border-border/70 bg-card/90 px-4 py-3 pr-14 backdrop-blur-xl sm:px-6 sm:pr-16">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Detalji sadržaja</DialogTitle>
+              <DialogDescription>
+                Pročitaj i izmeni belešku ili zadatak bez napuštanja trenutnog prikaza.
+              </DialogDescription>
+            </DialogHeader>
             <span className="inline-flex items-center gap-2 text-sm font-semibold">
               <span className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary">
                 <FileText className="size-4" />
@@ -726,11 +830,18 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               Detalji stavke
             </span>
             {detailCardSize?.canResize ? (
-              <ItemSizePicker
-                className="ml-auto w-full sm:w-auto"
-                onChange={resizeDetailCard}
-                onReset={resetDetailCardSize}
-              />
+              <>
+                <ItemSizeMenu
+                  className="ml-auto sm:hidden"
+                  onChange={resizeDetailCard}
+                  onReset={resetDetailCardSize}
+                />
+                <ItemSizePicker
+                  className="ml-auto hidden w-auto sm:block"
+                  onChange={resizeDetailCard}
+                  onReset={resetDetailCardSize}
+                />
+              </>
             ) : null}
             <Button
               type="button"
@@ -750,7 +861,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               Puni prikaz
             </Button>
           </div>
-          <div className="min-h-0 overflow-y-auto bg-background">
+          <div className="scrollbar-thin min-h-0 overflow-y-auto overscroll-contain bg-background">
             {detailPageId ? (
               <PageEditorView
                 key={detailPageId}
@@ -759,6 +870,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 presentation="dialog"
                 onSaveStateChange={setDetailSaveState}
                 onOpenPage={openPageDetails}
+                onOpenArea={(areaId) => {
+                  if (!canLeavePageDetails()) return;
+                  if (!navigateRoute({ kind: "area", areaId })) return;
+                  setDetailPageId(null);
+                  setDetailSaveState("saved");
+                }}
                 onCreateChild={(target) => {
                   if (!canLeavePageDetails()) return;
                   setDetailPageId(null);
@@ -772,6 +889,60 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             ) : null}
           </div>
+          <footer className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-4 py-3 shadow-[0_-14px_30px_-24px_rgba(0,0,0,0.6)] backdrop-blur sm:px-6">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              {detailPage?.creator ? (
+                <>
+                  <ProfileAvatar
+                    profile={detailPage.creator}
+                    className="size-6 shrink-0"
+                  />
+                  <span className="truncate">
+                    Kreirao/la{" "}
+                    <strong className="font-semibold text-foreground">
+                      {detailPage.creator.displayName}
+                    </strong>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <UserRound className="size-4" aria-hidden="true" />
+                  Autor nije dostupan
+                </>
+              )}
+            </div>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {detailPage?.permissions.canDetach ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={detailDetachBusy}
+                  onClick={() => void detachDetailPage()}
+                >
+                  {detailDetachBusy ? (
+                    <LoaderCircle
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <FolderOutput aria-hidden="true" />
+                  )}
+                  Odvoji u oblast
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!detailPage}
+                onClick={createChildFromDetails}
+              >
+                <Plus aria-hidden="true" />
+                Podstranica
+              </Button>
+            </div>
+          </footer>
         </DialogContent>
       </Dialog>
 

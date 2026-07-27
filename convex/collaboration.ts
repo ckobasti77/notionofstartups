@@ -1,9 +1,15 @@
-import { paginationOptsValidator } from "convex/server";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { archivePageWithV2Sidecars } from "./areasV2";
+import {
+  archiveCanvasEdgeWithLegacyProjection,
+  archivePageWithV2Sidecars,
+} from "./areasV2";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import {
@@ -35,8 +41,59 @@ const targetValidator = v.union(
 const contributionTargetValidator = v.union(
   v.object({ kind: v.literal("idea"), id: v.id("ideaNodes") }),
   v.object({ kind: v.literal("page"), id: v.id("pages") }),
+  v.object({ kind: v.literal("area"), id: v.id("startupAreas") }),
   v.object({ kind: v.literal("recovered"), id: v.id("recoveredContent") }),
 );
+const contributionTargetKindValidator = v.union(
+  v.literal("idea"),
+  v.literal("page"),
+  v.literal("area"),
+  v.literal("recovered"),
+);
+const contributionSourceKindValidator = v.union(
+  v.literal("idea_original"),
+  v.literal("page_entry"),
+  v.literal("page_body"),
+);
+const contributionModerationStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("rejected"),
+);
+const contributionAuthorValidator = v.union(
+  v.object({
+    _id: v.id("profiles"),
+    displayName: v.string(),
+    email: v.string(),
+    avatarUrl: v.union(v.string(), v.null()),
+  }),
+  v.null(),
+);
+const presentedContributionValidator = v.object({
+  _id: v.id("contentContributions"),
+  _creationTime: v.number(),
+  startupId: v.id("startups"),
+  targetKind: contributionTargetKindValidator,
+  targetKey: v.string(),
+  targetId: v.string(),
+  authorProfileId: v.optional(v.id("profiles")),
+  attribution: v.union(
+    v.literal("author"),
+    v.literal("legacy_neutral"),
+  ),
+  content: v.string(),
+  sourceKind: v.optional(contributionSourceKindValidator),
+  sourceId: v.optional(v.string()),
+  moderationStatus: contributionModerationStatusValidator,
+  archivedAt: v.union(v.number(), v.null()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  author: contributionAuthorValidator,
+  canEdit: v.boolean(),
+  canDeleteDirectly: v.boolean(),
+  canRequestDeletion: v.boolean(),
+  canModerate: v.boolean(),
+});
 
 type ReadCtx = QueryCtx | MutationCtx;
 type DeletionTarget =
@@ -76,6 +133,7 @@ async function requireContributionTarget(
   target:
     | { kind: "idea"; id: Id<"ideaNodes"> }
     | { kind: "page"; id: Id<"pages"> }
+    | { kind: "area"; id: Id<"startupAreas"> }
     | { kind: "recovered"; id: Id<"recoveredContent"> },
 ) {
   if (target.kind === "idea") {
@@ -100,6 +158,24 @@ async function requireContributionTarget(
       startupId: page.startupId,
       targetId: page._id,
       ownerProfileId: page.createdByProfileId,
+    };
+  }
+  if (target.kind === "area") {
+    const area = await ctx.db.get("startupAreas", target.id);
+    const startup =
+      area === null ? null : await ctx.db.get("startups", area.startupId);
+    if (
+      area === null ||
+      startup === null ||
+      startup.archivedAt !== null
+    ) {
+      throw new Error("Oblast nije pronađena.");
+    }
+    return {
+      kind: target.kind,
+      startupId: area.startupId,
+      targetId: area._id,
+      ownerProfileId: startup.createdByProfileId,
     };
   }
   const recovered = await ctx.db.get("recoveredContent", target.id);
@@ -285,10 +361,7 @@ export async function applyApprovedDeletion(
       edge.archivedAt === null &&
       edge.startupId === request.startupId
     ) {
-      await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
+      await archiveCanvasEdgeWithLegacyProjection(ctx, edge, now);
     }
     return;
   }
@@ -338,6 +411,7 @@ export async function applyApprovedDeletion(
 
 export const listContributions = query({
   args: { target: contributionTargetValidator },
+  returns: v.array(presentedContributionValidator),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
     const { profile } = await requireStartupMember(ctx, resolved.startupId);
@@ -378,6 +452,7 @@ export const listContributionsPaginated = query({
     target: contributionTargetValidator,
     paginationOpts: paginationOptsValidator,
   },
+  returns: paginationResultValidator(presentedContributionValidator),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
     const { profile } = await requireStartupMember(ctx, resolved.startupId);
@@ -420,6 +495,7 @@ export const addContribution = mutation({
     target: contributionTargetValidator,
     content: v.string(),
   },
+  returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
     const { profile } = await requireStartupMember(ctx, resolved.startupId);
@@ -449,6 +525,7 @@ export const updateContribution = mutation({
     contributionId: v.id("contentContributions"),
     content: v.string(),
   },
+  returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
     const contribution = await ctx.db.get(
       "contentContributions",
@@ -559,6 +636,10 @@ export const moderateContribution = mutation({
 
 export const deleteOwnContribution = mutation({
   args: { contributionId: v.id("contentContributions") },
+  returns: v.object({
+    contributionId: v.id("contentContributions"),
+    undoUntil: v.number(),
+  }),
   handler: async (ctx, args) => {
     const contribution = await ctx.db.get(
       "contentContributions",
@@ -585,6 +666,7 @@ export const deleteOwnContribution = mutation({
 
 export const restoreOwnContribution = mutation({
   args: { contributionId: v.id("contentContributions") },
+  returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
     const contribution = await ctx.db.get(
       "contentContributions",
@@ -613,6 +695,7 @@ export const restoreOwnContribution = mutation({
 
 export const requestDeletion = mutation({
   args: { target: targetValidator },
+  returns: v.id("deletionRequests"),
   handler: async (ctx, args) => {
     const target = args.target as DeletionTarget;
     const info = await deletionTargetInfo(ctx, target);
@@ -634,12 +717,11 @@ export const requestDeletion = mutation({
     }
     const members = await ctx.db
       .query("startupMembers")
-      .withIndex("by_startupId_and_profileId", (q) =>
-        q.eq("startupId", info.startupId),
+      .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
+        q.eq("startupId", info.startupId).eq("archivedAt", null),
       )
       .take(501);
-    const activeMembers = members.filter((member) => member.archivedAt === null);
-    if (activeMembers.length > 500) {
+    if (members.length > 500) {
       throw new Error("Biračko telo je preveliko za jedno atomsko glasanje.");
     }
     const now = Date.now();
@@ -650,14 +732,14 @@ export const requestDeletion = mutation({
       targetTitle: info.title,
       requesterProfileId: profile._id,
       status: "pending",
-      eligibleCount: activeMembers.length,
+      eligibleCount: members.length,
       approveCount: 1,
       rejectCount: 0,
       createdAt: now,
       updatedAt: now,
       resolvedAt: null,
     });
-    for (const membership of activeMembers) {
+    for (const membership of members) {
       await ctx.db.insert("deletionBallots", {
         requestId,
         startupId: info.startupId,
@@ -676,7 +758,7 @@ export const requestDeletion = mutation({
       targetId: requestId,
       title: `Pokrenuto je glasanje za brisanje: ${info.title}`,
     });
-    if (activeMembers.length === 1) {
+    if (members.length === 1) {
       const request = await ctx.db.get("deletionRequests", requestId);
       if (request !== null) {
         await applyApprovedDeletion(ctx, request);
@@ -696,6 +778,7 @@ export const voteOnDeletion = mutation({
     requestId: v.id("deletionRequests"),
     vote: v.union(v.literal("approve"), v.literal("reject")),
   },
+  returns: v.id("deletionRequests"),
   handler: async (ctx, args) => {
     const request = await ctx.db.get("deletionRequests", args.requestId);
     if (request === null || request.status !== "pending") {
@@ -761,6 +844,7 @@ export const voteOnDeletion = mutation({
 
 export const withdrawDeletion = mutation({
   args: { requestId: v.id("deletionRequests") },
+  returns: v.id("deletionRequests"),
   handler: async (ctx, args) => {
     const request = await ctx.db.get("deletionRequests", args.requestId);
     if (request === null || request.status !== "pending") {

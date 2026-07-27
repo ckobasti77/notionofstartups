@@ -102,9 +102,746 @@ async function seedAreasV2Workspace() {
 }
 
 describe("Areas V2 backend", () => {
-  test("mixed canvas i Note↔Task relacije nisu vezani za parent scope", async () => {
-    const { startupA, areaA1, asActor, asMember } =
+  test("automatic layout separates new cards, ghosts, and migrated collisions", async () => {
+    const { t, startupA, areaA1, asActor, asMember } =
       await seedAreasV2Workspace();
+    const parent = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Layout parent",
+    });
+    const sibling = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "task",
+      title: "Layout sibling",
+    });
+    const child = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+      kind: "note",
+      title: "Existing child",
+    });
+    const pending = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+      kind: "task",
+      title: "Proposed child",
+    });
+    expect(pending.nestingStatus).toBe("pending");
+
+    const rootCanvas = await asActor.query(api.areasV2.getCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+    });
+    const rootPositions = rootCanvas.pages
+      .filter(
+        (page) => page._id === parent.pageId || page._id === sibling.pageId,
+      )
+      .map((page) => `${page.x}:${page.y}`);
+    expect(new Set(rootPositions).size).toBe(2);
+
+    const childCanvas = await asActor.query(api.areasV2.getCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+    });
+    expect(childCanvas.pages).toEqual([
+      expect.objectContaining({ _id: child.pageId }),
+    ]);
+    expect(childCanvas.ghosts).toHaveLength(1);
+    expect(`${childCanvas.pages[0].x}:${childCanvas.pages[0].y}`).not.toBe(
+      `${childCanvas.ghosts[0].x}:${childCanvas.ghosts[0].y}`,
+    );
+
+    await t.run(async (ctx) => {
+      const placements = await Promise.all(
+        [parent.pageId, sibling.pageId].map((pageId) =>
+          ctx.db
+            .query("pageCanvasPlacements")
+            .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+            .unique(),
+        ),
+      );
+      for (const placement of placements) {
+        if (placement === null) throw new Error("Missing test placement.");
+        await ctx.db.patch("pageCanvasPlacements", placement._id, {
+          x: 0,
+          y: 0,
+        });
+      }
+    });
+    const collisionBefore = await t.query(
+      internal.areasV2Migrations.verifyAreasV2,
+      { stage: "placement_rows", cursor: null, limit: 100 },
+    );
+    expect(collisionBefore.issueCount).toBe(1);
+
+    const repaired = await t.mutation(
+      internal.areasV2Migrations.backfillPlacements,
+      { cursor: null, limit: 100 },
+    );
+    expect(repaired.changed).toBe(1);
+    const collisionAfter = await t.query(
+      internal.areasV2Migrations.verifyAreasV2,
+      { stage: "placement_rows", cursor: null, limit: 100 },
+    );
+    expect(collisionAfter.issueCount).toBe(0);
+    const idempotent = await t.mutation(
+      internal.areasV2Migrations.backfillPlacements,
+      { cursor: null, limit: 100 },
+    );
+    expect(idempotent.changed).toBe(0);
+  });
+
+  test("pending auto-layout uses source card and pending ghost dimensions", async () => {
+    const { t, startupA, areaA1, asActor, asMember } =
+      await seedAreasV2Workspace();
+    const parentWithObstacle = await asActor.mutation(
+      api.areasV2.createPage,
+      {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        kind: "note",
+        title: "Parent with obstacle",
+      },
+    );
+    const obstacle = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parentWithObstacle.pageId,
+      kind: "note",
+      title: "Obstacle",
+    });
+    await asActor.mutation(api.areasV2.movePages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parentWithObstacle.pageId,
+      updates: [{ pageId: obstacle.pageId, x: 352, y: 0 }],
+    });
+    const largeChild = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Large pending child",
+    });
+    await asMember.mutation(api.areasV2.resizePage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      pageId: largeChild.pageId,
+      width: 520,
+      height: 420,
+    });
+    const largeRequest = await asMember.mutation(
+      api.areasV2.requestNesting,
+      {
+        startupId: startupA,
+        childPageId: largeChild.pageId,
+        targetParentPageId: parentWithObstacle.pageId,
+      },
+    );
+    expect(largeRequest).toMatchObject({
+      nestingStatus: "pending",
+      requestId: expect.any(String),
+    });
+    let targetCanvas = await asActor.query(api.areasV2.getCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parentWithObstacle.pageId,
+    });
+    expect(
+      targetCanvas.ghosts.find((ghost) => ghost.pageId === largeChild.pageId),
+    ).toMatchObject({ x: 704, y: 0 });
+
+    await asActor.mutation(api.areasV2.approveNesting, {
+      startupId: startupA,
+      requestId: largeRequest.requestId!,
+    });
+    const approvedPlacement = await t.run((ctx) =>
+      ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", largeChild.pageId))
+        .unique(),
+    );
+    expect(approvedPlacement).toMatchObject({
+      rootPageId: parentWithObstacle.pageId,
+      x: 704,
+      y: 0,
+      width: 520,
+      height: 420,
+    });
+
+    const ghostParent = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Ghost size parent",
+    });
+    const largeGhost = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Large ghost",
+    });
+    await asMember.mutation(api.areasV2.resizePage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      pageId: largeGhost.pageId,
+      width: 520,
+      height: 420,
+    });
+    await asMember.mutation(api.areasV2.requestNesting, {
+      startupId: startupA,
+      childPageId: largeGhost.pageId,
+      targetParentPageId: ghostParent.pageId,
+      x: 0,
+      y: 0,
+    });
+    const smallGhost = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Small ghost",
+    });
+    await asMember.mutation(api.areasV2.requestNesting, {
+      startupId: startupA,
+      childPageId: smallGhost.pageId,
+      targetParentPageId: ghostParent.pageId,
+    });
+    targetCanvas = await asActor.query(api.areasV2.getCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: ghostParent.pageId,
+    });
+    expect(
+      targetCanvas.ghosts.find((ghost) => ghost.pageId === smallGhost.pageId),
+    ).toMatchObject({ x: 704, y: 0 });
+  });
+
+  test("collision repair uses the moved card dimensions", async () => {
+    const { t, startupA, areaA1, asActor } =
+      await seedAreasV2Workspace();
+    const canonical = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Canonical placement",
+    });
+    const large = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Large collision",
+    });
+    await asActor.mutation(api.areasV2.resizePage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      pageId: large.pageId,
+      width: 520,
+      height: 420,
+    });
+    await t.run(async (ctx) => {
+      for (const pageId of [canonical.pageId, large.pageId]) {
+        const placement = await ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+          .unique();
+        if (placement === null) throw new Error("Missing placement.");
+        await ctx.db.patch("pageCanvasPlacements", placement._id, {
+          x: 352,
+          y: 0,
+        });
+      }
+    });
+    await t.mutation(internal.areasV2Migrations.backfillPlacements, {
+      cursor: null,
+      limit: 100,
+    });
+    const repaired = await t.run((ctx) =>
+      ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", large.pageId))
+        .unique(),
+    );
+    expect(repaired).toMatchObject({
+      x: 704,
+      y: 0,
+      width: 520,
+      height: 420,
+    });
+  });
+
+  test("archive promotion preserves card dimensions and projects its edge", async () => {
+    const { t, startupA, areaA1, asActor } =
+      await seedAreasV2Workspace();
+    const obstacle = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Root obstacle",
+    });
+    const parent = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Archived parent",
+    });
+    await asActor.mutation(api.areasV2.movePages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      updates: [
+        { pageId: obstacle.pageId, x: 352, y: 0 },
+        { pageId: parent.pageId, x: 10_000, y: 0 },
+      ],
+    });
+    const childA = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+      kind: "note",
+      title: "Large promoted child",
+    });
+    const childB = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+      kind: "note",
+      title: "Connected promoted child",
+    });
+    await asActor.mutation(api.areasV2.resizePage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+      pageId: childA.pageId,
+      width: 520,
+      height: 420,
+    });
+    const edgeId = await asActor.mutation(api.areasV2.connectPages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+      sourcePageId: childA.pageId,
+      targetPageId: childB.pageId,
+    });
+    await asActor.mutation(api.areasV2.archivePage, {
+      startupId: startupA,
+      pageId: parent.pageId,
+    });
+    const pairKey = [childA.pageId, childB.pageId].sort().join(":");
+    const state = await t.run(async (ctx) => ({
+      placement: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", childA.pageId))
+        .unique(),
+      edge: await ctx.db.get("pageCanvasEdgesV2", edgeId),
+      legacyEdge: await ctx.db
+        .query("pageEdges")
+        .withIndex("by_areaId_and_pairKey", (q) =>
+          q.eq("areaId", areaA1).eq("pairKey", pairKey),
+        )
+        .unique(),
+    }));
+    expect(state.placement).toMatchObject({
+      rootPageId: null,
+      x: 704,
+      y: 0,
+      width: 520,
+      height: 420,
+    });
+    expect(state.edge).toMatchObject({ rootPageId: null, archivedAt: null });
+    expect(state.legacyEdge).toMatchObject({
+      startupId: startupA,
+      areaId: areaA1,
+      pairKey,
+      archivedAt: null,
+    });
+  });
+
+  test("V2 writes keep the legacy rollback projection current", async () => {
+    const { t, actor, startupA, areaA1, asActor } =
+      await seedAreasV2Workspace();
+    const pageA = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Rollback A",
+    });
+    const pageB = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Rollback B",
+    });
+
+    await asActor.mutation(api.areasV2.movePages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      updates: [{ pageId: pageA.pageId, x: 420, y: 260 }],
+    });
+    await asActor.mutation(api.areasV2.resizePage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      pageId: pageA.pageId,
+      width: 510,
+      height: 330,
+    });
+    await asActor.mutation(api.areasV2.saveViewport, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      x: 25,
+      y: 35,
+      zoom: 3,
+    });
+    const edgeId = await asActor.mutation(api.areasV2.connectPages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      sourcePageId: pageA.pageId,
+      targetPageId: pageB.pageId,
+      label: "Rollback veza",
+    });
+    const pairKey = [pageA.pageId, pageB.pageId].sort().join(":");
+
+    const rollbackProjection = await t.run(async (ctx) => ({
+      layout: await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageA.pageId))
+        .unique(),
+      viewports: await ctx.db
+        .query("pageCanvases")
+        .withIndex("by_ownerProfileId_and_areaId_and_kind", (q) =>
+          q.eq("ownerProfileId", actor.profileId).eq("areaId", areaA1),
+        )
+        .collect(),
+      edge: await ctx.db
+        .query("pageEdges")
+        .withIndex("by_areaId_and_pairKey", (q) =>
+          q.eq("areaId", areaA1).eq("pairKey", pairKey),
+        )
+        .unique(),
+    }));
+    expect(rollbackProjection.layout).toMatchObject({
+      x: 420,
+      y: 260,
+      width: 510,
+      height: 330,
+    });
+    expect(rollbackProjection.viewports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "note",
+          x: 25,
+          y: 35,
+          zoom: 1.6,
+        }),
+        expect.objectContaining({
+          kind: "task",
+          x: 25,
+          y: 35,
+          zoom: 1.6,
+        }),
+      ]),
+    );
+    expect(rollbackProjection.edge).toMatchObject({
+      pairKey,
+      label: "Rollback veza",
+      authorProfileId: actor.profileId,
+      archivedAt: null,
+    });
+
+    await asActor.mutation(api.areasV2.resetPageSize, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      pageId: pageA.pageId,
+    });
+    await asActor.mutation(api.areasV2.disconnectPages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      edgeId,
+    });
+    const rollbackAfterReset = await t.run(async (ctx) => ({
+      layout: await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageA.pageId))
+        .unique(),
+      edge: await ctx.db
+        .query("pageEdges")
+        .withIndex("by_areaId_and_pairKey", (q) =>
+          q.eq("areaId", areaA1).eq("pairKey", pairKey),
+        )
+        .unique(),
+    }));
+    expect(rollbackAfterReset.layout).not.toHaveProperty("width");
+    expect(rollbackAfterReset.layout).not.toHaveProperty("height");
+    expect(rollbackAfterReset.edge?.archivedAt).toEqual(expect.any(Number));
+  });
+
+  test("successful cross-area move keeps all sidecars and rollback rows consistent", async () => {
+    const {
+      t,
+      startupA,
+      areaA1,
+      areaA2,
+      asActor,
+      asMember,
+    } = await seedAreasV2Workspace();
+    const occupiedTarget = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "task",
+      title: "Zauzeta ciljna pozicija",
+    });
+    const root = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Grana za premeštanje",
+    });
+    const sourcePeer = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Ostaje u izvoru",
+    });
+    const childA = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: root.pageId,
+      kind: "note",
+      title: "Dete A",
+    });
+    const childB = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: root.pageId,
+      kind: "note",
+      title: "Dete B",
+    });
+    const sourceEdgeId = await asActor.mutation(
+      api.areasV2.connectPages,
+      {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        sourcePageId: root.pageId,
+        targetPageId: sourcePeer.pageId,
+      },
+    );
+    const nestedEdgeId = await asActor.mutation(
+      api.areasV2.connectPages,
+      {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: root.pageId,
+        sourcePageId: childA.pageId,
+        targetPageId: childB.pageId,
+      },
+    );
+    await asActor.mutation(api.areasV2.saveViewport, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: root.pageId,
+      x: 33,
+      y: 44,
+      zoom: 1.1,
+    });
+    const memberParent = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "task",
+      title: "Tuđi roditelj",
+    });
+    const outgoing = await asActor.mutation(api.areasV2.requestNesting, {
+      startupId: startupA,
+      childPageId: root.pageId,
+      targetParentPageId: memberParent.pageId,
+    });
+    const memberChild = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Tuđe dete",
+    });
+    const incoming = await asMember.mutation(api.areasV2.requestNesting, {
+      startupId: startupA,
+      childPageId: memberChild.pageId,
+      targetParentPageId: root.pageId,
+    });
+    expect(outgoing.nestingStatus).toBe("pending");
+    expect(incoming.nestingStatus).toBe("pending");
+
+    await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: root.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: null,
+    });
+
+    const stored = await t.run(async (ctx) => {
+      const pageIds = [root.pageId, childA.pageId, childB.pageId];
+      const [pages, placements, legacyNodes] = await Promise.all([
+        Promise.all(pageIds.map((pageId) => ctx.db.get("pages", pageId))),
+        Promise.all(
+          pageIds.map((pageId) =>
+            ctx.db
+              .query("pageCanvasPlacements")
+              .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+              .unique(),
+          ),
+        ),
+        Promise.all(
+          pageIds.map((pageId) =>
+            ctx.db
+              .query("pageCanvasNodes")
+              .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+              .unique(),
+          ),
+        ),
+      ]);
+      const sourcePairKey = [root.pageId, sourcePeer.pageId]
+        .sort()
+        .join(":");
+      const nestedPairKey = [childA.pageId, childB.pageId]
+        .sort()
+        .join(":");
+      return {
+        pages,
+        placements,
+        legacyNodes,
+        occupiedPlacement: await ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex("by_pageId", (q) =>
+            q.eq("pageId", occupiedTarget.pageId),
+          )
+          .unique(),
+        sourceEdge: await ctx.db.get("pageCanvasEdgesV2", sourceEdgeId),
+        nestedEdge: await ctx.db.get("pageCanvasEdgesV2", nestedEdgeId),
+        sourceLegacy: await ctx.db
+          .query("pageEdges")
+          .withIndex("by_areaId_and_pairKey", (q) =>
+            q.eq("areaId", areaA1).eq("pairKey", sourcePairKey),
+          )
+          .first(),
+        nestedLegacy: await ctx.db
+          .query("pageEdges")
+          .withIndex("by_areaId_and_pairKey", (q) =>
+            q.eq("areaId", areaA2).eq("pairKey", nestedPairKey),
+          )
+          .first(),
+        viewport: await ctx.db
+          .query("pageCanvasViewports")
+          .withIndex("by_rootPageId", (q) =>
+            q.eq("rootPageId", root.pageId),
+          )
+          .first(),
+        outgoing: await ctx.db.get(
+          "pageNestingRequests",
+          outgoing.requestId!,
+        ),
+        incoming: await ctx.db.get(
+          "pageNestingRequests",
+          incoming.requestId!,
+        ),
+      };
+    });
+    expect(stored.pages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: root.pageId,
+          areaId: areaA2,
+          parentPageId: null,
+        }),
+        expect.objectContaining({
+          _id: childA.pageId,
+          areaId: areaA2,
+          parentPageId: root.pageId,
+        }),
+        expect.objectContaining({
+          _id: childB.pageId,
+          areaId: areaA2,
+          parentPageId: root.pageId,
+        }),
+      ]),
+    );
+    expect(stored.placements.every((row) => row?.areaId === areaA2)).toBe(
+      true,
+    );
+    expect(stored.legacyNodes.every((row) => row?.areaId === areaA2)).toBe(
+      true,
+    );
+    expect(
+      `${stored.placements[0]?.x}:${stored.placements[0]?.y}`,
+    ).not.toBe(
+      `${stored.occupiedPlacement?.x}:${stored.occupiedPlacement?.y}`,
+    );
+    expect(stored.sourceEdge?.archivedAt).not.toBeNull();
+    expect(stored.sourceLegacy?.archivedAt).not.toBeNull();
+    expect(stored.nestedEdge).toMatchObject({
+      areaId: areaA2,
+      archivedAt: null,
+    });
+    expect(stored.nestedLegacy).toBeNull();
+    expect(stored.viewport).toMatchObject({ areaId: areaA2 });
+    expect(stored.outgoing).toMatchObject({ status: "cancelled" });
+    expect(stored.incoming).toMatchObject({ status: "cancelled" });
+
+    const verification = await Promise.all(
+      (
+        [
+          "placements",
+          "placement_rows",
+          "edges",
+          "viewports",
+          "requests",
+        ] as const
+      ).map((stage) =>
+        t.query(internal.areasV2Migrations.verifyAreasV2, {
+          stage,
+          cursor: null,
+          limit: 50,
+        }),
+      ),
+    );
+    expect(verification.map((result) => result.issueCount)).toEqual([
+      0, 0, 0, 0, 0,
+    ]);
+  });
+
+  test("mixed canvas i Note↔Task relacije nisu vezani za parent scope", async () => {
+    const { member, startupA, areaA1, asActor, asMember } =
+      await seedAreasV2Workspace();
+    const dueDate = Date.now() + 86_400_000;
     const actorRoot = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
       areaId: areaA1,
@@ -118,6 +855,8 @@ describe("Areas V2 backend", () => {
       rootPageId: null,
       kind: "task",
       title: "Isporuka",
+      assigneeProfileId: member.profileId,
+      dueDate,
     });
     const nestedNote = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
@@ -143,7 +882,15 @@ describe("Areas V2 backend", () => {
     expect(canvas.pages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ _id: actorRoot.pageId, kind: "note" }),
-        expect.objectContaining({ _id: memberTask.pageId, kind: "task" }),
+        expect.objectContaining({
+          _id: memberTask.pageId,
+          kind: "task",
+          dueDate,
+          assignee: expect.objectContaining({
+            _id: member.profileId,
+            displayName: "Member",
+          }),
+        }),
       ]),
     );
     const listed = await asActor.query(api.areasV2.listRelations, {
@@ -156,6 +903,68 @@ describe("Areas V2 backend", () => {
         linkedPage: expect.objectContaining({ pageId: memberTask.pageId }),
       }),
     ]);
+  });
+
+  test("članovi dodaju potpisani kontekst u briefing oblasti", async () => {
+    const {
+      member,
+      startupA,
+      areaA1,
+      asActor,
+      asMember,
+      asOutsider,
+    } = await seedAreasV2Workspace();
+    const contributionId = await asMember.mutation(
+      api.collaboration.addContribution,
+      {
+        target: { kind: "area", id: areaA1 },
+        content: "Članov kontekst za ovu oblast.",
+      },
+    );
+
+    const [ownerView, memberView] = await Promise.all([
+      asActor.query(api.collaboration.listContributions, {
+        target: { kind: "area", id: areaA1 },
+      }),
+      asMember.query(api.collaboration.listContributions, {
+        target: { kind: "area", id: areaA1 },
+      }),
+    ]);
+    expect(ownerView).toEqual([
+      expect.objectContaining({
+        _id: contributionId,
+        targetKind: "area",
+        startupId: startupA,
+        content: "Članov kontekst za ovu oblast.",
+        author: expect.objectContaining({
+          _id: member.profileId,
+          displayName: "Member",
+        }),
+        canEdit: false,
+      }),
+    ]);
+    expect(memberView[0]).toMatchObject({
+      _id: contributionId,
+      canEdit: true,
+      canDeleteDirectly: true,
+    });
+    await expect(
+      asOutsider.query(api.collaboration.listContributions, {
+        target: { kind: "area", id: areaA1 },
+      }),
+    ).rejects.toThrow("Nemate pristup");
+    await expect(
+      asActor.mutation(api.collaboration.updateContribution, {
+        contributionId,
+        content: "Tuđa izmena",
+      }),
+    ).rejects.toThrow("samo svoj tekst");
+    await expect(
+      asMember.mutation(api.collaboration.updateContribution, {
+        contributionId,
+        content: "Ažuriran članov kontekst.",
+      }),
+    ).resolves.toBe(contributionId);
   });
 
   test("layout i edge autorizacija su vlasnički i tenant-scope ostaje zatvoren", async () => {
@@ -380,11 +1189,24 @@ describe("Areas V2 backend", () => {
       requestId: relationRequestId,
       vote: "approve",
     });
-    const archived = await t.run(async (ctx) => ({
-      edge: await ctx.db.get("pageCanvasEdgesV2", edgeId),
-      relation: await ctx.db.get("pageRelations", relationId),
-    }));
+    const archived = await t.run(async (ctx) => {
+      const edge = await ctx.db.get("pageCanvasEdgesV2", edgeId);
+      return {
+        edge,
+        legacyEdge:
+          edge === null
+            ? null
+            : await ctx.db
+                .query("pageEdges")
+                .withIndex("by_areaId_and_pairKey", (q) =>
+                  q.eq("areaId", areaA1).eq("pairKey", edge.pairKey),
+                )
+                .unique(),
+        relation: await ctx.db.get("pageRelations", relationId),
+      };
+    });
     expect(archived.edge?.archivedAt).not.toBeNull();
+    expect(archived.legacyEdge?.archivedAt).not.toBeNull();
     expect(archived.relation?.archivedAt).not.toBeNull();
   });
 
@@ -429,7 +1251,34 @@ describe("Areas V2 backend", () => {
       await t.run((ctx) => ctx.db.get("pages", child.pageId)),
     ).toMatchObject({ parentPageId: foreignParent.pageId });
 
-    await asActor.mutation(api.areasV2.detachPage, {
+    const [childOwnerView, parentOwnerView] = await Promise.all([
+      asActor.query(api.pages.get, { pageId: child.pageId }),
+      asMember.query(api.pages.get, { pageId: child.pageId }),
+    ]);
+    expect(childOwnerView?.permissions.canDetach).toBe(true);
+    expect(parentOwnerView?.permissions.canDetach).toBe(true);
+    const [childOwnerCanvas, parentOwnerCanvas] = await Promise.all([
+      asActor.query(api.areasV2.getCanvas, {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: foreignParent.pageId,
+      }),
+      asMember.query(api.areasV2.getCanvas, {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: foreignParent.pageId,
+      }),
+    ]);
+    expect(
+      childOwnerCanvas.pages.find((page) => page._id === child.pageId)
+        ?.canDetach,
+    ).toBe(true);
+    expect(
+      parentOwnerCanvas.pages.find((page) => page._id === child.pageId)
+        ?.canDetach,
+    ).toBe(true);
+
+    await asMember.mutation(api.areasV2.detachPage, {
       startupId: startupA,
       pageId: child.pageId,
     });
@@ -1089,5 +1938,152 @@ describe("Areas V2 backend", () => {
     expect(edges.issueCount).toBe(1);
     expect(relations.issueCount).toBe(1);
     expect(requests.issueCount).toBe(1);
+  });
+
+  test("verifier otkriva cikluse, nevažeći pending target i oštećen viewport", async () => {
+    const { t, actor, startupA, areaA1, asActor, asMember } =
+      await seedAreasV2Workspace();
+    const cycleRoot = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Ciklus A",
+    });
+    const cycleChild = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: cycleRoot.pageId,
+      kind: "note",
+      title: "Ciklus B",
+    });
+    const requestChild = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "task",
+      title: "Pending dete",
+    });
+    const requestParent = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Pending roditelj",
+    });
+    const request = await asActor.mutation(api.areasV2.requestNesting, {
+      startupId: startupA,
+      childPageId: requestChild.pageId,
+      targetParentPageId: requestParent.pageId,
+    });
+    expect(request.nestingStatus).toBe("pending");
+    await asActor.mutation(api.areasV2.saveViewport, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      x: 10,
+      y: 20,
+      zoom: 1,
+    });
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch("pages", cycleRoot.pageId, {
+        parentPageId: cycleChild.pageId,
+      });
+      await ctx.db.patch("pages", requestParent.pageId, {
+        parentPageId: requestChild.pageId,
+      });
+      await ctx.db.insert("pageCanvasViewports", {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        viewerProfileId: actor.profileId,
+        x: 100_001,
+        y: 20,
+        zoom: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const [pages, requests, viewports] = await Promise.all([
+      t.query(internal.areasV2Migrations.verifyAreasV2, {
+        stage: "pages",
+        cursor: null,
+        limit: 100,
+      }),
+      t.query(internal.areasV2Migrations.verifyAreasV2, {
+        stage: "requests",
+        cursor: null,
+        limit: 100,
+      }),
+      t.query(internal.areasV2Migrations.verifyAreasV2, {
+        stage: "viewports",
+        cursor: null,
+        limit: 100,
+      }),
+    ]);
+    expect(pages.issueCount).toBe(2);
+    expect(requests.issueCount).toBe(1);
+    expect(viewports.issueCount).toBe(2);
+  });
+
+  test("request verifier detects cycles composed only of active pending targets", async () => {
+    const { t, actor, member, startupA, areaA1, asActor, asMember } =
+      await seedAreasV2Workspace();
+    const pageA = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Pending cycle A",
+    });
+    const pageB = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Pending cycle B",
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("pageNestingRequests", {
+        startupId: startupA,
+        areaId: areaA1,
+        childPageId: pageA.pageId,
+        sourceParentPageId: null,
+        targetParentPageId: pageB.pageId,
+        requesterProfileId: actor.profileId,
+        parentAuthorProfileId: member.profileId,
+        expectedTreeRevision: 0,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+        resolvedAt: null,
+      });
+      await ctx.db.insert("pageNestingRequests", {
+        startupId: startupA,
+        areaId: areaA1,
+        childPageId: pageB.pageId,
+        sourceParentPageId: null,
+        targetParentPageId: pageA.pageId,
+        requesterProfileId: member.profileId,
+        parentAuthorProfileId: actor.profileId,
+        expectedTreeRevision: 0,
+        status: "pending",
+        createdAt: now + 1,
+        updatedAt: now + 1,
+        resolvedAt: null,
+      });
+    });
+
+    const result = await t.query(
+      internal.areasV2Migrations.verifyAreasV2,
+      { stage: "requests", cursor: null, limit: 100 },
+    );
+    expect(result.scanned).toBe(2);
+    expect(result.issueCount).toBe(2);
+    expect(result.issueSamples).toHaveLength(2);
   });
 });

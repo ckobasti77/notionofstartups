@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { findAvailableCanvasPosition } from "./canvasPlacement";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import {
@@ -8,7 +9,18 @@ import {
   detachIdeaChildren,
   insertContribution,
 } from "./lib/collaboration";
-import { cleanRequiredText, pageKindValidator, taskPriorityValidator, taskStatusValidator } from "./lib/validators";
+import {
+  prepareWorkspacePage,
+  validateWorkspacePageTarget,
+  workspaceCanvasPreview,
+} from "./lib/page_creation";
+import { pageSearchText } from "./lib/pages";
+import {
+  cleanRequiredText,
+  pageKindValidator,
+  taskPriorityValidator,
+  taskStatusValidator,
+} from "./lib/validators";
 
 const ideaColorValidator = v.union(
   v.literal("neutral"),
@@ -26,6 +38,8 @@ const MIN_IDEA_WIDTH = 264;
 const MAX_IDEA_WIDTH = 720;
 const MIN_IDEA_HEIGHT = 196;
 const MAX_IDEA_HEIGHT = 1_000;
+const MAX_AREA_CANVAS_PAGES = 200;
+const MAX_IDEA_VOTES = 5_000;
 
 function cleanOptionalText(
   value: string | null,
@@ -772,6 +786,7 @@ export const convertToPage = mutation({
     priority: v.optional(taskPriorityValidator),
     assigneeProfileId: v.optional(v.union(v.id("profiles"), v.null())),
   },
+  returns: v.id("pages"),
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
@@ -782,7 +797,10 @@ export const convertToPage = mutation({
     const votes = await ctx.db
       .query("ideaVotes")
       .withIndex("by_ideaId", (q) => q.eq("ideaId", args.ideaId))
-      .collect();
+      .take(MAX_IDEA_VOTES + 1);
+    if (votes.length > MAX_IDEA_VOTES) {
+      throw new Error("Ideja ima previše glasova za bezbednu konverziju.");
+    }
 
     const upvotes = votes.filter((v) => v.voteType === "up").length;
     const downvotes = votes.filter((v) => v.voteType === "down").length;
@@ -791,30 +809,90 @@ export const convertToPage = mutation({
       throw new Error("Ideja mora imati više odobrenja nego neodobrenja da bi bila prebačena u task ili note.");
     }
 
-    const area = await ctx.db.get(args.areaId);
-    if (!area || area.startupId !== args.startupId) {
-      throw new Error("Oblast ne postoji.");
-    }
-
-    const pageTitle = args.title?.trim() || idea.title || idea.text.slice(0, 60);
     const now = Date.now();
-
-    const pageId = await ctx.db.insert("pages", {
+    const pageContent = `<p>${idea.text.replace(/\n/g, "<br/>")}</p>`;
+    const target = await validateWorkspacePageTarget(ctx, {
       startupId: args.startupId,
       areaId: args.areaId,
       parentPageId: null,
       kind: args.kind,
-      title: pageTitle,
-      searchText: `${pageTitle} ${idea.text}`.toLowerCase(),
-      revision: 1,
-      position: Date.now(),
-      taskStatus: args.kind === "task" ? args.status ?? "backlog" : null,
-      taskPriority: args.kind === "task" ? args.priority ?? "medium" : null,
-      assigneeProfileId: args.assigneeProfileId ?? null,
-      dueDate: null,
-      instructions: undefined,
-      checkpoints: undefined,
-      taskSortAt: now,
+      taskStatus: args.status,
+      taskPriority: args.priority,
+      assigneeProfileId: args.assigneeProfileId,
+    });
+    const page = prepareWorkspacePage(target, {
+      title: args.title?.trim() || idea.title || idea.text.slice(0, 60),
+      content: pageContent,
+      now,
+    });
+    const [activeRootPages, occupiedPlacements] = await Promise.all([
+      ctx.db
+        .query("pages")
+        .withIndex(
+          "by_startup_area_parent_active_position",
+          (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("parentPageId", null)
+              .eq("archivedAt", null),
+        )
+        .take(MAX_AREA_CANVAS_PAGES + 1),
+      ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex(
+          "by_startupId_and_areaId_and_rootPageId",
+          (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("rootPageId", null),
+        )
+        .take(MAX_AREA_CANVAS_PAGES + 1),
+    ]);
+    if (
+      activeRootPages.length >= MAX_AREA_CANVAS_PAGES ||
+      occupiedPlacements.length > MAX_AREA_CANVAS_PAGES
+    ) {
+      throw new Error(
+        `Jedan kanvas može imati najviše ${MAX_AREA_CANVAS_PAGES} direktnih kartica.`,
+      );
+    }
+    const canvasPosition = findAvailableCanvasPosition(
+      occupiedPlacements.map((placement) => ({
+        x: placement.x,
+        y: placement.y,
+        width: placement.width,
+        height: placement.height,
+      })),
+    );
+
+    const pageId = await ctx.db.insert("pages", {
+      startupId: target.startupId,
+      areaId: target.areaId,
+      parentPageId: target.parentPageId,
+      kind: target.kind,
+      title: page.title,
+      searchText: pageSearchText(page.title, page.content),
+      revision: 0,
+      treeRevision: 0,
+      canvasPreview: workspaceCanvasPreview(
+        page.title,
+        page.content,
+        target.instructions,
+      ),
+      position: page.position,
+      taskStatus: target.taskStatus,
+      taskPriority: target.taskPriority,
+      assigneeProfileId: target.assigneeProfileId,
+      dueDate: target.dueDate,
+      ...(target.instructions === null
+        ? {}
+        : { instructions: target.instructions }),
+      ...(target.checkpoints === null
+        ? {}
+        : { checkpoints: target.checkpoints }),
+      taskSortAt: page.taskSortAt,
       createdByProfileId: profile._id,
       updatedByProfileId: profile._id,
       archivedAt: null,
@@ -824,14 +902,35 @@ export const convertToPage = mutation({
 
     await ctx.db.insert("pageBodies", {
       pageId,
-      content: `<p>${idea.text.replace(/\n/g, "<br/>")}</p>`,
+      content: page.content,
+      updatedAt: now,
+    });
+
+    await ctx.db.insert("pageCanvasPlacements", {
+      startupId: args.startupId,
+      areaId: args.areaId,
+      rootPageId: null,
+      pageId,
+      x: canvasPosition.x,
+      y: canvasPosition.y,
+      updatedByProfileId: profile._id,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.insert("pageCanvasNodes", {
+      startupId: args.startupId,
+      areaId: args.areaId,
+      pageId,
+      x: canvasPosition.x,
+      y: canvasPosition.y,
       updatedAt: now,
     });
 
     await ctx.db.insert("pageEntries", {
       pageId,
       authorProfileId: idea.authorProfileId,
-      content: `<p>${idea.text.replace(/\n/g, "<br/>")}</p>`,
+      content: page.content,
       position: 1,
       createdAt: idea.createdAt,
       updatedAt: now,
@@ -842,7 +941,7 @@ export const convertToPage = mutation({
       targetKind: "page",
       targetId: pageId,
       authorProfileId: idea.authorProfileId,
-      content: `<p>${idea.text.replace(/\n/g, "<br/>")}</p>`,
+      content: page.content,
       sourceKind: "page_entry",
       sourceId: `idea:${idea._id}`,
       createdAt: idea.createdAt,

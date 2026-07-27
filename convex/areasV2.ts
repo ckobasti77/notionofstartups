@@ -3,6 +3,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import {
+  DEFAULT_CANVAS_NODE_HEIGHT,
+  DEFAULT_CANVAS_NODE_WIDTH,
+  findAvailableCanvasPosition,
+} from "./canvasPlacement";
 import { recordActivity } from "./lib/activity";
 import {
   requireProfileInStartup,
@@ -43,8 +48,8 @@ const MAX_RELATION_CANDIDATES = 100;
 const MAX_TREE_DEPTH = 64;
 const MAX_LABEL_LENGTH = 200;
 const MAX_PREVIEW_LENGTH = 480;
-const DEFAULT_WIDTH = 288;
-const DEFAULT_HEIGHT = 196;
+const DEFAULT_WIDTH = DEFAULT_CANVAS_NODE_WIDTH;
+const DEFAULT_HEIGHT = DEFAULT_CANVAS_NODE_HEIGHT;
 const MIN_WIDTH = 240;
 const MIN_HEIGHT = 168;
 const MAX_WIDTH = 720;
@@ -52,6 +57,7 @@ const MAX_HEIGHT = 1_000;
 const MAX_AREA_BODY_LENGTH = 20_000;
 const MAX_BATCH_LAYOUT_UPDATES = 100;
 const MAX_NESTING_INBOX_ITEMS = 100;
+const MAX_LEGACY_AREA_EDGE_ROWS = 1_000;
 
 type ReadCtx = QueryCtx | MutationCtx;
 type CanvasRoot = Id<"pages"> | null;
@@ -80,6 +86,8 @@ const canvasPageValidator = v.object({
   parentPageId: rootPageIdValidator,
   taskStatus: v.union(taskStatusValidator, v.null()),
   taskPriority: v.union(taskPriorityValidator, v.null()),
+  dueDate: v.union(v.number(), v.null()),
+  assignee: profileSummaryValidator,
   updatedAt: v.number(),
   x: v.number(),
   y: v.number(),
@@ -87,6 +95,7 @@ const canvasPageValidator = v.object({
   height: v.number(),
   canMove: v.boolean(),
   canResize: v.boolean(),
+  canDetach: v.boolean(),
   creator: profileSummaryValidator,
 });
 const visibleEdgeValidator = v.object({
@@ -307,6 +316,87 @@ async function getPlacement(ctx: ReadCtx, pageId: Id<"pages">) {
     .unique();
 }
 
+async function getAvailableCanvasPosition(
+  ctx: ReadCtx,
+  args: {
+    startupId: Id<"startups">;
+    areaId: Id<"startupAreas">;
+    rootPageId: CanvasRoot;
+    excludePageId?: Id<"pages">;
+    excludeRequestId?: Id<"pageNestingRequests">;
+    width?: number;
+    height?: number;
+  },
+) {
+  const rootPageId = args.rootPageId;
+  const [placements, pendingRequests] = await Promise.all([
+    ctx.db
+      .query("pageCanvasPlacements")
+      .withIndex(
+        "by_startupId_and_areaId_and_rootPageId",
+        (q) =>
+          q
+            .eq("startupId", args.startupId)
+            .eq("areaId", args.areaId)
+            .eq("rootPageId", rootPageId),
+      )
+      .take(MAX_CANVAS_PAGES + 1),
+    rootPageId === null
+      ? Promise.resolve([])
+      : ctx.db
+          .query("pageNestingRequests")
+          .withIndex(
+            "by_targetParentPageId_and_status_and_createdAt",
+            (q) =>
+              q
+                .eq("targetParentPageId", rootPageId)
+                .eq("status", "pending"),
+          )
+          .take(MAX_CANVAS_PAGES + 1),
+  ]);
+  if (
+    placements.length > MAX_CANVAS_PAGES ||
+    pendingRequests.length > MAX_CANVAS_PAGES
+  ) {
+    throw new Error("Kanvas ima previše stavki za automatski raspored.");
+  }
+  const pendingPlacements = await Promise.all(
+    pendingRequests.map((request) => getPlacement(ctx, request.childPageId)),
+  );
+
+  return findAvailableCanvasPosition(
+    [
+      ...placements
+        .filter((placement) => placement.pageId !== args.excludePageId)
+        .map((placement) => ({
+          x: placement.x,
+          y: placement.y,
+          width: placement.width,
+          height: placement.height,
+        })),
+      ...pendingRequests.flatMap((request, index) => {
+        if (
+          request._id === args.excludeRequestId ||
+          request.startupId !== args.startupId ||
+          request.areaId !== args.areaId ||
+          request.proposedX === undefined ||
+          request.proposedY === undefined
+        ) {
+          return [];
+        }
+        const placement = pendingPlacements[index];
+        return [{
+          x: request.proposedX,
+          y: request.proposedY,
+          width: placement?.width,
+          height: placement?.height,
+        }];
+      }),
+    ],
+    { width: args.width, height: args.height },
+  );
+}
+
 async function upsertPlacement(
   ctx: MutationCtx,
   args: {
@@ -340,6 +430,26 @@ async function upsertPlacement(
     });
   } else {
     await ctx.db.patch("pageCanvasPlacements", existing._id, value);
+  }
+
+  const legacy = await ctx.db
+    .query("pageCanvasNodes")
+    .withIndex("by_pageId", (q) => q.eq("pageId", args.page._id))
+    .unique();
+  const legacyValue = {
+    startupId: args.page.startupId,
+    areaId: args.page.areaId,
+    pageId: args.page._id,
+    x: value.x,
+    y: value.y,
+    ...(args.width === undefined ? {} : { width: args.width }),
+    ...(args.height === undefined ? {} : { height: args.height }),
+    updatedAt: args.now,
+  };
+  if (legacy === null) {
+    await ctx.db.insert("pageCanvasNodes", legacyValue);
+  } else {
+    await ctx.db.patch("pageCanvasNodes", legacy._id, legacyValue);
   }
 }
 
@@ -494,6 +604,86 @@ async function assertReparentDepth(
   }
 }
 
+async function listActiveLegacyAreaEdges(
+  ctx: ReadCtx,
+  areaId: Id<"startupAreas">,
+) {
+  const rows = await ctx.db
+    .query("pageEdges")
+    .withIndex("by_areaId", (q) => q.eq("areaId", areaId))
+    .take(MAX_LEGACY_AREA_EDGE_ROWS + 1);
+  if (rows.length > MAX_LEGACY_AREA_EDGE_ROWS) {
+    throw new Error(
+      "Oblast ima previše rollback veza za jednu atomsku radnju.",
+    );
+  }
+  return rows.filter((edge) => edge.archivedAt == null);
+}
+
+async function upsertActiveLegacyRootEdgeProjection(
+  ctx: MutationCtx,
+  edge: Doc<"pageCanvasEdgesV2">,
+  now: number,
+) {
+  if (edge.rootPageId !== null) return;
+  const legacy = await ctx.db
+    .query("pageEdges")
+    .withIndex("by_areaId_and_pairKey", (q) =>
+      q.eq("areaId", edge.areaId).eq("pairKey", edge.pairKey),
+    )
+    .unique();
+  const value = {
+    startupId: edge.startupId,
+    areaId: edge.areaId,
+    nodeAId: edge.nodeAId,
+    nodeBId: edge.nodeBId,
+    pairKey: edge.pairKey,
+    label: edge.label,
+    ...(edge.authorProfileId === undefined
+      ? {}
+      : { authorProfileId: edge.authorProfileId }),
+    archivedAt: null,
+    updatedAt: now,
+  };
+  if (legacy === null) {
+    await ctx.db.insert("pageEdges", {
+      ...value,
+      createdAt: edge.createdAt,
+    });
+    return;
+  }
+  if (legacy.startupId !== edge.startupId) {
+    throw new Error("Postojeća veza ne pripada ovom startupu.");
+  }
+  await ctx.db.patch("pageEdges", legacy._id, value);
+}
+
+export async function archiveCanvasEdgeWithLegacyProjection(
+  ctx: MutationCtx,
+  edge: Doc<"pageCanvasEdgesV2">,
+  now: number,
+) {
+  await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
+    archivedAt: now,
+    updatedAt: now,
+  });
+  if (edge.rootPageId !== null) return;
+  const legacy = await ctx.db
+    .query("pageEdges")
+    .withIndex("by_areaId_and_pairKey", (q) =>
+      q.eq("areaId", edge.areaId).eq("pairKey", edge.pairKey),
+    )
+    .unique();
+  if (legacy === null) return;
+  if (legacy.startupId !== edge.startupId) {
+    throw new Error("Postojeća veza ne pripada ovom startupu.");
+  }
+  await ctx.db.patch("pageEdges", legacy._id, {
+    archivedAt: now,
+    updatedAt: now,
+  });
+}
+
 async function archiveEdgesForMovedPage(
   ctx: MutationCtx,
   page: Doc<"pages">,
@@ -534,6 +724,14 @@ async function archiveEdgesForMovedPage(
       updatedAt: now,
     });
   }
+  const legacyEdges = await listActiveLegacyAreaEdges(ctx, page.areaId);
+  for (const edge of legacyEdges) {
+    if (edge.nodeAId !== page._id && edge.nodeBId !== page._id) continue;
+    await ctx.db.patch("pageEdges", edge._id, {
+      archivedAt: now,
+      updatedAt: now,
+    });
+  }
 }
 
 async function applySameAreaReparent(
@@ -556,6 +754,18 @@ async function applySameAreaReparent(
     args.now,
   );
   const placement = await getPlacement(ctx, args.child._id);
+  const targetPosition =
+    args.x !== undefined && args.y !== undefined
+      ? { x: args.x, y: args.y }
+      : await getAvailableCanvasPosition(ctx, {
+          startupId: args.child.startupId,
+          areaId: args.child.areaId,
+          rootPageId: args.targetParentPageId,
+          excludePageId: args.child._id,
+          excludeRequestId: args.excludeRequestId,
+          width: placement?.width,
+          height: placement?.height,
+        });
   await ctx.db.patch("pages", args.child._id, {
     parentPageId: args.targetParentPageId,
     position: cleanPagePosition(args.position, args.now),
@@ -571,8 +781,8 @@ async function applySameAreaReparent(
     page: patchedChild,
     rootPageId: args.targetParentPageId,
     actorProfileId: args.actorProfileId,
-    x: args.x ?? placement?.x ?? 0,
-    y: args.y ?? placement?.y ?? 0,
+    x: targetPosition.x,
+    y: targetPosition.y,
     width: placement?.width,
     height: placement?.height,
     now: args.now,
@@ -668,6 +878,17 @@ async function createPendingNestingRequest(
     args.targetParent.areaId,
     args.targetParent._id,
   );
+  const placement = await getPlacement(ctx, args.child._id);
+  const proposedPosition =
+    args.x !== undefined && args.y !== undefined
+      ? { x: args.x, y: args.y }
+      : await getAvailableCanvasPosition(ctx, {
+          startupId: args.child.startupId,
+          areaId: args.targetParent.areaId,
+          rootPageId: args.targetParent._id,
+          width: placement?.width,
+          height: placement?.height,
+        });
   const requestId = await ctx.db.insert("pageNestingRequests", {
     startupId: args.child.startupId,
     areaId: args.child.areaId,
@@ -680,12 +901,8 @@ async function createPendingNestingRequest(
     ...(args.position === undefined
       ? {}
       : { proposedPosition: cleanPagePosition(args.position, args.now) }),
-    ...(args.x === undefined
-      ? {}
-      : { proposedX: clamp(args.x, -100_000, 100_000) }),
-    ...(args.y === undefined
-      ? {}
-      : { proposedY: clamp(args.y, -100_000, 100_000) }),
+    proposedX: clamp(proposedPosition.x, -100_000, 100_000),
+    proposedY: clamp(proposedPosition.y, -100_000, 100_000),
     status: "pending",
     createdAt: args.now,
     updatedAt: args.now,
@@ -775,10 +992,7 @@ async function archiveAllCanvasEdgesForPage(
     throw new Error("Stranica ima previše veza za jednu atomsku radnju.");
   }
   for (const edge of rows.values()) {
-    await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
+    await archiveCanvasEdgeWithLegacyProjection(ctx, edge, now);
   }
 }
 
@@ -845,7 +1059,7 @@ async function recoverForeignPageContributions(
   }
 }
 
-async function moveWithinArea(
+export async function moveWithinArea(
   ctx: MutationCtx,
   args: {
     child: Doc<"pages">;
@@ -1033,6 +1247,11 @@ export async function archivePageWithV2Sidecars(
         rootPageId: page.parentPageId,
         updatedAt: now,
       });
+      await upsertActiveLegacyRootEdgeProjection(
+        ctx,
+        { ...edge, rootPageId: page.parentPageId, updatedAt: now },
+        now,
+      );
     } else {
       await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
         archivedAt: now,
@@ -1041,19 +1260,27 @@ export async function archivePageWithV2Sidecars(
     }
   }
   for (const child of children) {
+    const placement = await getPlacement(ctx, child._id);
+    const targetPosition = await getAvailableCanvasPosition(ctx, {
+      startupId: child.startupId,
+      areaId: child.areaId,
+      rootPageId: page.parentPageId,
+      excludePageId: child._id,
+      width: placement?.width,
+      height: placement?.height,
+    });
     await ctx.db.patch("pages", child._id, {
       parentPageId: page.parentPageId,
       treeRevision: (child.treeRevision ?? 0) + 1,
       updatedByProfileId: actorProfileId,
       updatedAt: now,
     });
-    const placement = await getPlacement(ctx, child._id);
     await upsertPlacement(ctx, {
       page: { ...child, parentPageId: page.parentPageId },
       rootPageId: page.parentPageId,
       actorProfileId,
-      x: placement?.x ?? 0,
-      y: placement?.y ?? 0,
+      x: targetPosition.x,
+      y: targetPosition.y,
       width: placement?.width,
       height: placement?.height,
       now,
@@ -1261,10 +1488,17 @@ export const getCanvas = query({
     const canvasPages = await Promise.all(
       pages.map(async (page, index) => {
         const placement = placementsByPageId.get(page._id);
-        const body =
+        const assigneeProfileId =
+          page.kind === "task" ? page.assigneeProfileId : null;
+        const [body, creator, assignee] = await Promise.all([
           page.canvasPreview === undefined
-            ? await getPageBody(ctx, page._id)
-            : null;
+            ? getPageBody(ctx, page._id)
+            : Promise.resolve(null),
+          getProfileSummary(ctx, page.createdByProfileId),
+          assigneeProfileId !== undefined && assigneeProfileId !== null
+            ? getProfileSummary(ctx, assigneeProfileId)
+            : Promise.resolve(null),
+        ]);
         const column = index % columnCount;
         const row = Math.floor(index / columnCount);
         return {
@@ -1277,6 +1511,8 @@ export const getCanvas = query({
           parentPageId: page.parentPageId,
           taskStatus: page.taskStatus,
           taskPriority: page.taskPriority,
+          dueDate: page.kind === "task" ? (page.dueDate ?? null) : null,
+          assignee,
           updatedAt: page.updatedAt,
           x: placement?.x ?? (column - (columnCount - 1) / 2) * 310,
           y: placement?.y ?? Math.max(0, row) * 220,
@@ -1284,7 +1520,11 @@ export const getCanvas = query({
           height: placement?.height ?? DEFAULT_HEIGHT,
           canMove: page.createdByProfileId === profile._id,
           canResize: page.createdByProfileId === profile._id,
-          creator: await getProfileSummary(ctx, page.createdByProfileId),
+          canDetach:
+            root !== null &&
+            (page.createdByProfileId === profile._id ||
+              root.createdByProfileId === profile._id),
+          creator,
         };
       }),
     );
@@ -1556,12 +1796,20 @@ export const createPage = mutation({
     if (createdPage === null) {
       throw new Error("Nova stranica nije sačuvana.");
     }
+    const canvasPosition =
+      args.x !== undefined && args.y !== undefined
+        ? { x: args.x, y: args.y }
+        : await getAvailableCanvasPosition(ctx, {
+            startupId: args.startupId,
+            areaId: args.areaId,
+            rootPageId: actualParentPageId,
+          });
     await upsertPlacement(ctx, {
       page: createdPage,
       rootPageId: actualParentPageId,
       actorProfileId: profile._id,
-      x: args.x ?? 0,
-      y: args.y ?? 0,
+      x: canvasPosition.x,
+      y: canvasPosition.y,
       now,
     });
     if (!needsApproval && root !== null) {
@@ -1914,12 +2162,33 @@ export const resetPageSize = mutation({
     assertOwnedPage(page, profile._id, "Možete menjati veličinu samo svoje kartice.");
     const placement = await getPlacement(ctx, page._id);
     if (placement !== null) {
+      const now = Date.now();
       await ctx.db.patch("pageCanvasPlacements", placement._id, {
         width: undefined,
         height: undefined,
         updatedByProfileId: profile._id,
-        updatedAt: Date.now(),
+        updatedAt: now,
       });
+      const legacy = await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
+        .unique();
+      if (legacy === null) {
+        await ctx.db.insert("pageCanvasNodes", {
+          startupId: page.startupId,
+          areaId: page.areaId,
+          pageId: page._id,
+          x: placement.x,
+          y: placement.y,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.patch("pageCanvasNodes", legacy._id, {
+          width: undefined,
+          height: undefined,
+          updatedAt: now,
+        });
+      }
     }
     return null;
   },
@@ -1972,6 +2241,38 @@ export const saveViewport = mutation({
       });
     } else {
       await ctx.db.patch("pageCanvasViewports", existing._id, value);
+    }
+    if (args.rootPageId === null) {
+      const legacyZoom = clamp(value.zoom, 0.5, 1.6);
+      for (const kind of ["note", "task"] as const) {
+        const legacy = await ctx.db
+          .query("pageCanvases")
+          .withIndex("by_ownerProfileId_and_areaId_and_kind", (q) =>
+            q
+              .eq("ownerProfileId", profile._id)
+              .eq("areaId", args.areaId)
+              .eq("kind", kind),
+          )
+          .unique();
+        const legacyValue = {
+          startupId: args.startupId,
+          areaId: args.areaId,
+          ownerProfileId: profile._id,
+          kind,
+          x: value.x,
+          y: value.y,
+          zoom: legacyZoom,
+          updatedAt: value.updatedAt,
+        };
+        if (legacy === null) {
+          await ctx.db.insert("pageCanvases", {
+            ...legacyValue,
+            createdAt: value.updatedAt,
+          });
+        } else {
+          await ctx.db.patch("pageCanvases", legacy._id, legacyValue);
+        }
+      }
     }
     return null;
   },
@@ -2035,37 +2336,81 @@ export const connectPages = mutation({
             .eq("pairKey", key),
       )
       .first();
-    if (existing !== null) return existing._id;
-    const activeEdges = await ctx.db
-      .query("pageCanvasEdgesV2")
-      .withIndex(
-        "by_scope_active_pair",
-        (q) =>
-          q
-            .eq("startupId", args.startupId)
-            .eq("areaId", args.areaId)
-            .eq("rootPageId", args.rootPageId)
-            .eq("archivedAt", null),
-      )
-      .take(MAX_CANVAS_EDGES + 1);
-    if (activeEdges.length >= MAX_CANVAS_EDGES) {
-      throw new Error(`Kanvas može imati najviše ${MAX_CANVAS_EDGES} veza.`);
-    }
+    const label = cleanCanvasLabel(args.label);
     const now = Date.now();
-    return await ctx.db.insert("pageCanvasEdgesV2", {
-      startupId: args.startupId,
-      areaId: args.areaId,
-      rootPageId: args.rootPageId,
-      nodeAId: source._id,
-      nodeBId: target._id,
-      pairKey: key,
-      label: cleanCanvasLabel(args.label),
-      authorProfileId: profile._id,
-      attribution: "author",
-      archivedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    });
+    let edgeId: Id<"pageCanvasEdgesV2">;
+    let edgeLabel: string | null;
+    let edgeAuthorProfileId: Id<"profiles"> | undefined;
+    if (existing !== null) {
+      edgeId = existing._id;
+      edgeLabel = existing.label;
+      edgeAuthorProfileId = existing.authorProfileId;
+    } else {
+      const activeEdges = await ctx.db
+        .query("pageCanvasEdgesV2")
+        .withIndex(
+          "by_scope_active_pair",
+          (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("rootPageId", args.rootPageId)
+              .eq("archivedAt", null),
+        )
+        .take(MAX_CANVAS_EDGES + 1);
+      if (activeEdges.length >= MAX_CANVAS_EDGES) {
+        throw new Error(`Kanvas može imati najviše ${MAX_CANVAS_EDGES} veza.`);
+      }
+      edgeId = await ctx.db.insert("pageCanvasEdgesV2", {
+        startupId: args.startupId,
+        areaId: args.areaId,
+        rootPageId: args.rootPageId,
+        nodeAId: source._id,
+        nodeBId: target._id,
+        pairKey: key,
+        label,
+        authorProfileId: profile._id,
+        attribution: "author",
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      edgeLabel = label;
+      edgeAuthorProfileId = profile._id;
+    }
+    if (args.rootPageId === null) {
+      const legacy = await ctx.db
+        .query("pageEdges")
+        .withIndex("by_areaId_and_pairKey", (q) =>
+          q.eq("areaId", args.areaId).eq("pairKey", key),
+        )
+        .unique();
+      const legacyValue = {
+        startupId: args.startupId,
+        areaId: args.areaId,
+        nodeAId: source._id,
+        nodeBId: target._id,
+        pairKey: key,
+        label: edgeLabel,
+        ...(edgeAuthorProfileId === undefined
+          ? {}
+          : { authorProfileId: edgeAuthorProfileId }),
+        archivedAt: null,
+        updatedAt: now,
+      };
+      if (legacy === null) {
+        await ctx.db.insert("pageEdges", {
+          ...legacyValue,
+          createdAt: now,
+        });
+      } else {
+        if (legacy.startupId !== args.startupId) {
+          throw new Error("Postojeća veza ne pripada ovom startupu.");
+        }
+        await ctx.db.patch("pageEdges", legacy._id, legacyValue);
+      }
+    }
+    return edgeId;
   },
 });
 
@@ -2099,10 +2444,7 @@ export const disconnectPages = mutation({
       throw new Error("Možete ukloniti samo vezu koju ste napravili.");
     }
     const now = Date.now();
-    await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
+    await archiveCanvasEdgeWithLegacyProjection(ctx, edge, now);
     return null;
   },
 });
@@ -2136,39 +2478,59 @@ export const listRelations = query({
               q.eq("taskPageId", page._id).eq("archivedAt", null),
             )
             .take(MAX_RELATIONS_PER_AREA + 1);
+    const scopedRelations = rawRelations
+      .slice(0, MAX_RELATIONS_PER_AREA)
+      .filter(
+        (relation) =>
+          relation.startupId === args.startupId &&
+          relation.areaId === page.areaId,
+      );
+    const linkedPageIds = Array.from(
+      new Set(
+        scopedRelations.map((relation) =>
+          page.kind === "note"
+            ? relation.taskPageId
+            : relation.notePageId,
+        ),
+      ),
+    );
+    const linkedPages = new Map(
+      await Promise.all(
+        linkedPageIds.map(async (linkedPageId) => [
+          linkedPageId,
+          await ctx.db.get("pages", linkedPageId),
+        ] as const),
+      ),
+    );
     const relations = [];
     const linkedIds = new Set<string>();
-    for (const relation of rawRelations.slice(0, MAX_RELATIONS_PER_AREA)) {
+    for (const relation of scopedRelations) {
+      const linkedPageId =
+        page.kind === "note" ? relation.taskPageId : relation.notePageId;
+      const linked = linkedPages.get(linkedPageId);
       if (
-        relation.startupId !== args.startupId ||
-        relation.areaId !== page.areaId
+        linked === null ||
+        linked === undefined ||
+        linked.archivedAt !== null ||
+        linked.startupId !== args.startupId ||
+        linked.areaId !== page.areaId ||
+        linked.kind === page.kind
       ) {
         continue;
       }
-      const linkedPageId =
-        page.kind === "note" ? relation.taskPageId : relation.notePageId;
-      try {
-        const linked = await requireStrictVisiblePage(ctx, linkedPageId, {
-          startupId: args.startupId,
-          areaId: page.areaId,
-        });
-        if (linked.kind === page.kind) continue;
-        linkedIds.add(linked._id);
-        relations.push({
-          _id: relation._id,
-          label: relation.label,
-          linkedPage: {
-            pageId: linked._id,
-            title: linked.title,
-            kind: linked.kind,
-            parentPageId: linked.parentPageId,
-          },
-          canDelete: relation.authorProfileId === profile._id,
-          canRequestDeletion: relation.authorProfileId !== profile._id,
-        });
-      } catch {
-        // Corrupt or stale sidecars are not exposed.
-      }
+      linkedIds.add(linked._id);
+      relations.push({
+        _id: relation._id,
+        label: relation.label,
+        linkedPage: {
+          pageId: linked._id,
+          title: linked.title,
+          kind: linked.kind,
+          parentPageId: linked.parentPageId,
+        },
+        canDelete: relation.authorProfileId === profile._id,
+        canRequestDeletion: relation.authorProfileId !== profile._id,
+      });
     }
     const oppositeKind = page.kind === "note" ? "task" : "note";
     const rawCandidates = await ctx.db
@@ -2195,20 +2557,12 @@ export const listRelations = query({
       ) {
         continue;
       }
-      try {
-        await requireStrictVisiblePage(ctx, candidate._id, {
-          startupId: args.startupId,
-          areaId: page.areaId,
-        });
-        validCandidates.push({
-          pageId: candidate._id,
-          title: candidate.title,
-          kind: candidate.kind,
-          parentPageId: candidate.parentPageId,
-        });
-      } catch {
-        // Skip corrupt ancestry without leaking it to the member.
-      }
+      validCandidates.push({
+        pageId: candidate._id,
+        title: candidate.title,
+        kind: candidate.kind,
+        parentPageId: candidate.parentPageId,
+      });
     }
     return {
       relations,
@@ -2589,9 +2943,10 @@ export const listNestingInbox = query({
       ctx.db
         .query("pageNestingRequests")
         .withIndex(
-          "by_parentAuthorProfileId_and_status_and_createdAt",
+          "by_startupId_and_parentAuthorProfileId_and_status_and_createdAt",
           (q) =>
             q
+              .eq("startupId", args.startupId)
               .eq("parentAuthorProfileId", profile._id)
               .eq("status", "pending"),
         )
@@ -2600,9 +2955,12 @@ export const listNestingInbox = query({
       ctx.db
         .query("pageNestingRequests")
         .withIndex(
-          "by_requesterProfileId_and_status_and_createdAt",
+          "by_startupId_and_requesterProfileId_and_status_and_createdAt",
           (q) =>
-            q.eq("requesterProfileId", profile._id).eq("status", "pending"),
+            q
+              .eq("startupId", args.startupId)
+              .eq("requesterProfileId", profile._id)
+              .eq("status", "pending"),
         )
         .order("desc")
         .take(MAX_NESTING_INBOX_ITEMS + 1),
@@ -2610,7 +2968,6 @@ export const listNestingInbox = query({
     const present = async (requests: typeof rawIncoming) => {
       const items = [];
       for (const request of requests.slice(0, MAX_NESTING_INBOX_ITEMS)) {
-        if (request.startupId !== args.startupId) continue;
         const [child, targetParent, requester] = await Promise.all([
           ctx.db.get("pages", request.childPageId),
           ctx.db.get("pages", request.targetParentPageId),
@@ -2660,6 +3017,359 @@ export const listNestingInbox = query({
   },
 });
 
+export async function movePageAcrossAreasWithSidecars(
+  ctx: MutationCtx,
+  args: {
+    page: Doc<"pages">;
+    targetAreaId: Id<"startupAreas">;
+    actorProfileId: Id<"profiles">;
+    position?: number;
+    now: number;
+  },
+) {
+  if (args.page.areaId === args.targetAreaId) {
+    throw new Error("Stranica je već u ciljnoj oblasti.");
+  }
+  const descendants = await getActivePageDescendants(ctx, args.page._id);
+  const movedPages = [args.page, ...descendants];
+  if (
+    movedPages.some(
+      (item) =>
+        item.startupId !== args.page.startupId ||
+        item.areaId !== args.page.areaId ||
+        item.createdByProfileId !== args.actorProfileId,
+    )
+  ) {
+    throw new Error(
+      "Grana sadrži aktivne stranice drugih autora ili neispravan opseg. Prvo ih odvojite.",
+    );
+  }
+  await assertCanvasCapacity(
+    ctx,
+    args.page.startupId,
+    args.targetAreaId,
+    null,
+  );
+
+  const rootPlacement = await getPlacement(ctx, args.page._id);
+  const targetRootPosition = await getAvailableCanvasPosition(ctx, {
+    startupId: args.page.startupId,
+    areaId: args.targetAreaId,
+    rootPageId: null,
+    width: rootPlacement?.width,
+    height: rootPlacement?.height,
+  });
+  const movedIds = new Set(movedPages.map((item) => item._id));
+  const movedPagesById = new Map(
+    movedPages.map((item) => [item._id, item]),
+  );
+  const scopedEdges: Doc<"pageCanvasEdgesV2">[] = [];
+  const scopedViewports: Doc<"pageCanvasViewports">[] = [];
+  const pendingRequests = new Map<
+    Id<"pageNestingRequests">,
+    Doc<"pageNestingRequests">
+  >();
+
+  for (const moved of movedPages) {
+    const [edges, viewports, pendingChild, pendingTargets] =
+      await Promise.all([
+        ctx.db
+          .query("pageCanvasEdgesV2")
+          .withIndex(
+            "by_scope_active_pair",
+            (q) =>
+              q
+                .eq("startupId", args.page.startupId)
+                .eq("areaId", args.page.areaId)
+                .eq("rootPageId", moved._id)
+                .eq("archivedAt", null),
+          )
+          .take(MAX_CANVAS_EDGES + 1),
+        ctx.db
+          .query("pageCanvasViewports")
+          .withIndex("by_rootPageId", (q) =>
+            q.eq("rootPageId", moved._id),
+          )
+          .take(MAX_CANVAS_PAGES + 1),
+        pendingForChild(ctx, moved._id),
+        ctx.db
+          .query("pageNestingRequests")
+          .withIndex(
+            "by_targetParentPageId_and_status_and_createdAt",
+            (q) =>
+              q
+                .eq("targetParentPageId", moved._id)
+                .eq("status", "pending"),
+          )
+          .take(MAX_CANVAS_PAGES + 1),
+      ]);
+    if (
+      edges.length > MAX_CANVAS_EDGES ||
+      viewports.length > MAX_CANVAS_PAGES ||
+      pendingTargets.length > MAX_CANVAS_PAGES
+    ) {
+      throw new Error("Grana ima previše povezanih podataka za jednu radnju.");
+    }
+    scopedEdges.push(...edges);
+    scopedViewports.push(
+      ...viewports.filter(
+        (viewport) =>
+          viewport.startupId === args.page.startupId &&
+          viewport.areaId === args.page.areaId,
+      ),
+    );
+    if (pendingChild !== null) {
+      pendingRequests.set(pendingChild._id, pendingChild);
+    }
+    for (const request of pendingTargets) {
+      if (
+        request.startupId === args.page.startupId &&
+        request.areaId === args.page.areaId
+      ) {
+        pendingRequests.set(request._id, request);
+      }
+    }
+    if (
+      scopedEdges.length > MAX_CANVAS_EDGES ||
+      scopedViewports.length > MAX_CANVAS_EDGES ||
+      pendingRequests.size > MAX_CANVAS_EDGES
+    ) {
+      throw new Error("Grana ima previše sidecar zapisa za jednu radnju.");
+    }
+  }
+
+  const edgeMoveDecisions = new Map<
+    Id<"pageCanvasEdgesV2">,
+    "move" | "archive"
+  >();
+  let targetEdgeReadCount = 0;
+  for (const moved of movedPages) {
+    const sourceScopeEdges = scopedEdges.filter(
+      (edge) => edge.rootPageId === moved._id,
+    );
+    if (sourceScopeEdges.length === 0) continue;
+    const targetScopeEdges = await ctx.db
+      .query("pageCanvasEdgesV2")
+      .withIndex("by_scope_active_pair", (q) =>
+        q
+          .eq("startupId", args.page.startupId)
+          .eq("areaId", args.targetAreaId)
+          .eq("rootPageId", moved._id)
+          .eq("archivedAt", null),
+      )
+      .take(MAX_CANVAS_EDGES + 1);
+    if (targetScopeEdges.length > MAX_CANVAS_EDGES) {
+      throw new Error("Ciljni kanvas već ima previše aktivnih veza.");
+    }
+    targetEdgeReadCount += targetScopeEdges.length;
+    if (targetEdgeReadCount > MAX_CANVAS_EDGES) {
+      throw new Error("Ciljna grana ima previše sidecar veza za jednu radnju.");
+    }
+    const occupiedKeys = new Set(
+      targetScopeEdges.map((edge) => edge.pairKey),
+    );
+    let addedEdges = 0;
+    for (const edge of sourceScopeEdges) {
+      if (
+        !movedIds.has(edge.nodeAId) ||
+        !movedIds.has(edge.nodeBId) ||
+        movedPagesById.get(edge.nodeAId)?.kind !==
+          movedPagesById.get(edge.nodeBId)?.kind ||
+        occupiedKeys.has(edge.pairKey)
+      ) {
+        edgeMoveDecisions.set(edge._id, "archive");
+        continue;
+      }
+      occupiedKeys.add(edge.pairKey);
+      addedEdges += 1;
+      edgeMoveDecisions.set(edge._id, "move");
+    }
+    if (targetScopeEdges.length + addedEdges > MAX_CANVAS_EDGES) {
+      throw new Error(
+        `Ciljni kanvas može imati najviše ${MAX_CANVAS_EDGES} veza.`,
+      );
+    }
+  }
+
+  const oldRelations = await ctx.db
+    .query("pageRelations")
+    .withIndex("by_startup_area_active_created", (q) =>
+      q
+        .eq("startupId", args.page.startupId)
+        .eq("areaId", args.page.areaId)
+        .eq("archivedAt", null),
+    )
+    .take(MAX_RELATIONS_PER_AREA + 1);
+  if (oldRelations.length > MAX_RELATIONS_PER_AREA) {
+    throw new Error("Izvorna oblast ima previše relacija za jednu radnju.");
+  }
+  const targetRelations = await ctx.db
+    .query("pageRelations")
+    .withIndex("by_startup_area_active_created", (q) =>
+      q
+        .eq("startupId", args.page.startupId)
+        .eq("areaId", args.targetAreaId)
+        .eq("archivedAt", null),
+    )
+    .take(MAX_RELATIONS_PER_AREA + 1);
+  if (targetRelations.length > MAX_RELATIONS_PER_AREA) {
+    throw new Error("Ciljna oblast već ima previše aktivnih relacija.");
+  }
+  const occupiedTargetRelationKeys = new Set(
+    targetRelations.map((relation) => relation.pairKey),
+  );
+  const relationMoves = new Map<
+    Id<"pageRelations">,
+    "move" | "archive"
+  >();
+  let addedTargetRelations = 0;
+  for (const relation of oldRelations) {
+    const noteMoves = movedIds.has(relation.notePageId);
+    const taskMoves = movedIds.has(relation.taskPageId);
+    if (!noteMoves && !taskMoves) continue;
+    if (
+      !noteMoves ||
+      !taskMoves ||
+      occupiedTargetRelationKeys.has(relation.pairKey)
+    ) {
+      relationMoves.set(relation._id, "archive");
+      continue;
+    }
+    occupiedTargetRelationKeys.add(relation.pairKey);
+    addedTargetRelations += 1;
+    relationMoves.set(relation._id, "move");
+  }
+  if (
+    targetRelations.length + addedTargetRelations >
+    MAX_RELATIONS_PER_AREA
+  ) {
+    throw new Error(
+      `Ciljna oblast može imati najviše ${MAX_RELATIONS_PER_AREA} relacija.`,
+    );
+  }
+
+  const legacySourceEdges = await listActiveLegacyAreaEdges(
+    ctx,
+    args.page.areaId,
+  );
+
+  await archiveEdgesForMovedPage(
+    ctx,
+    args.page,
+    args.page.parentPageId,
+    args.now,
+  );
+  for (const edge of scopedEdges) {
+    if (edgeMoveDecisions.get(edge._id) !== "move") {
+      await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
+        archivedAt: args.now,
+        updatedAt: args.now,
+      });
+      continue;
+    }
+    await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
+      areaId: args.targetAreaId,
+      updatedAt: args.now,
+    });
+  }
+  for (const edge of legacySourceEdges) {
+    const nodeAMoves = movedIds.has(edge.nodeAId);
+    const nodeBMoves = movedIds.has(edge.nodeBId);
+    if (!nodeAMoves && !nodeBMoves) continue;
+    await ctx.db.patch("pageEdges", edge._id, {
+      archivedAt: args.now,
+      updatedAt: args.now,
+    });
+  }
+  for (const relation of oldRelations) {
+    const decision = relationMoves.get(relation._id);
+    if (decision === undefined) continue;
+    if (decision === "archive") {
+      await ctx.db.patch("pageRelations", relation._id, {
+        archivedAt: args.now,
+        updatedAt: args.now,
+      });
+      continue;
+    }
+    await ctx.db.patch("pageRelations", relation._id, {
+      areaId: args.targetAreaId,
+      updatedAt: args.now,
+    });
+  }
+  for (const viewport of scopedViewports) {
+    const duplicate = await ctx.db
+      .query("pageCanvasViewports")
+      .withIndex(
+        "by_viewerProfileId_and_startupId_and_areaId_and_rootPageId",
+        (q) =>
+          q
+            .eq("viewerProfileId", viewport.viewerProfileId)
+            .eq("startupId", args.page.startupId)
+            .eq("areaId", args.targetAreaId)
+            .eq("rootPageId", viewport.rootPageId),
+      )
+      .first();
+    if (duplicate === null) {
+      await ctx.db.patch("pageCanvasViewports", viewport._id, {
+        areaId: args.targetAreaId,
+        updatedAt: args.now,
+      });
+    } else {
+      await ctx.db.delete("pageCanvasViewports", viewport._id);
+    }
+  }
+  for (const request of pendingRequests.values()) {
+    await ctx.db.patch("pageNestingRequests", request._id, {
+      status: "cancelled",
+      resolvedAt: args.now,
+      updatedAt: args.now,
+    });
+  }
+  for (const moved of movedPages) {
+    const isRoot = moved._id === args.page._id;
+    const parentPageId = isRoot ? null : moved.parentPageId;
+    await ctx.db.patch("pages", moved._id, {
+      areaId: args.targetAreaId,
+      parentPageId,
+      ...(isRoot && args.position !== undefined
+        ? { position: cleanPagePosition(args.position, args.now) }
+        : {}),
+      treeRevision: (moved.treeRevision ?? 0) + 1,
+      updatedByProfileId: args.actorProfileId,
+      updatedAt: args.now,
+    });
+    const placement = isRoot
+      ? rootPlacement
+      : await getPlacement(ctx, moved._id);
+    await upsertPlacement(ctx, {
+      page: {
+        ...moved,
+        areaId: args.targetAreaId,
+        parentPageId,
+      },
+      rootPageId: parentPageId,
+      actorProfileId: args.actorProfileId,
+      x: isRoot ? targetRootPosition.x : (placement?.x ?? 0),
+      y: isRoot ? targetRootPosition.y : (placement?.y ?? 0),
+      width: placement?.width,
+      height: placement?.height,
+      now: args.now,
+    });
+  }
+  await recordActivity(ctx, {
+    startupId: args.page.startupId,
+    actorProfileId: args.actorProfileId,
+    action: "page_moved",
+    targetType: "page",
+    targetId: args.page._id,
+    title: `„${args.page.title}“ je premešten/a u drugu oblast`,
+  });
+  return {
+    nestingStatus: "none" as const,
+    requestId: null,
+  };
+}
+
 export const movePage = mutation({
   args: {
     startupId: v.id("startups"),
@@ -2698,311 +3408,11 @@ export const movePage = mutation({
         "Premeštanje u drugu oblast je dozvoljeno samo u koren oblasti.",
       );
     }
-    const descendants = await getActivePageDescendants(ctx, page._id);
-    const movedPages = [page, ...descendants];
-    if (
-      movedPages.some(
-        (item) =>
-          item.startupId !== args.startupId ||
-          item.areaId !== page.areaId ||
-          item.createdByProfileId !== profile._id,
-      )
-    ) {
-      throw new Error(
-        "Grana sadrži aktivne stranice drugih autora ili neispravan opseg. Prvo ih odvojite.",
-      );
-    }
-    await assertCanvasCapacity(
-      ctx,
-      args.startupId,
-      args.targetAreaId,
-      null,
-    );
-    const movedIds = new Set(movedPages.map((item) => item._id));
-    const movedPagesById = new Map(
-      movedPages.map((item) => [item._id, item]),
-    );
-    const scopedEdges = [];
-    const scopedViewports = [];
-    const pendingRequests = new Map<
-      Id<"pageNestingRequests">,
-      Doc<"pageNestingRequests">
-    >();
-    for (const moved of movedPages) {
-      const [edges, viewports, pendingChild, pendingTargets] =
-        await Promise.all([
-          ctx.db
-            .query("pageCanvasEdgesV2")
-            .withIndex(
-              "by_scope_active_pair",
-              (q) =>
-                q
-                  .eq("startupId", args.startupId)
-                  .eq("areaId", page.areaId)
-                  .eq("rootPageId", moved._id)
-                  .eq("archivedAt", null),
-            )
-            .take(MAX_CANVAS_EDGES + 1),
-          ctx.db
-            .query("pageCanvasViewports")
-            .withIndex("by_rootPageId", (q) =>
-              q.eq("rootPageId", moved._id),
-            )
-            .take(MAX_CANVAS_PAGES + 1),
-          pendingForChild(ctx, moved._id),
-          ctx.db
-            .query("pageNestingRequests")
-            .withIndex(
-              "by_targetParentPageId_and_status_and_createdAt",
-              (q) =>
-                q
-                  .eq("targetParentPageId", moved._id)
-                  .eq("status", "pending"),
-            )
-            .take(MAX_CANVAS_PAGES + 1),
-        ]);
-      if (
-        edges.length > MAX_CANVAS_EDGES ||
-        viewports.length > MAX_CANVAS_PAGES ||
-        pendingTargets.length > MAX_CANVAS_PAGES
-      ) {
-        throw new Error("Grana ima previše povezanih podataka za jednu radnju.");
-      }
-      scopedEdges.push(...edges);
-      scopedViewports.push(
-        ...viewports.filter(
-          (viewport) =>
-            viewport.startupId === args.startupId &&
-            viewport.areaId === page.areaId,
-        ),
-      );
-      if (pendingChild !== null) {
-        pendingRequests.set(pendingChild._id, pendingChild);
-      }
-      for (const request of pendingTargets) {
-        if (
-          request.startupId === args.startupId &&
-          request.areaId === page.areaId
-        ) {
-          pendingRequests.set(request._id, request);
-        }
-      }
-      if (
-        scopedEdges.length > MAX_CANVAS_EDGES ||
-        scopedViewports.length > MAX_CANVAS_EDGES ||
-        pendingRequests.size > MAX_CANVAS_EDGES
-      ) {
-        throw new Error("Grana ima previše sidecar zapisa za jednu radnju.");
-      }
-    }
-    const edgeMoveDecisions = new Map<
-      Id<"pageCanvasEdgesV2">,
-      "move" | "archive"
-    >();
-    let targetEdgeReadCount = 0;
-    for (const moved of movedPages) {
-      const sourceScopeEdges = scopedEdges.filter(
-        (edge) => edge.rootPageId === moved._id,
-      );
-      if (sourceScopeEdges.length === 0) continue;
-      const targetScopeEdges = await ctx.db
-        .query("pageCanvasEdgesV2")
-        .withIndex("by_scope_active_pair", (q) =>
-          q
-            .eq("startupId", args.startupId)
-            .eq("areaId", args.targetAreaId)
-            .eq("rootPageId", moved._id)
-            .eq("archivedAt", null),
-        )
-        .take(MAX_CANVAS_EDGES + 1);
-      if (targetScopeEdges.length > MAX_CANVAS_EDGES) {
-        throw new Error("Ciljni kanvas već ima previše aktivnih veza.");
-      }
-      targetEdgeReadCount += targetScopeEdges.length;
-      if (targetEdgeReadCount > MAX_CANVAS_EDGES) {
-        throw new Error("Ciljna grana ima previše sidecar veza za jednu radnju.");
-      }
-      const occupiedKeys = new Set(
-        targetScopeEdges.map((edge) => edge.pairKey),
-      );
-      let addedEdges = 0;
-      for (const edge of sourceScopeEdges) {
-        if (
-          !movedIds.has(edge.nodeAId) ||
-          !movedIds.has(edge.nodeBId) ||
-          movedPagesById.get(edge.nodeAId)?.kind !==
-            movedPagesById.get(edge.nodeBId)?.kind ||
-          occupiedKeys.has(edge.pairKey)
-        ) {
-          edgeMoveDecisions.set(edge._id, "archive");
-          continue;
-        }
-        occupiedKeys.add(edge.pairKey);
-        addedEdges += 1;
-        edgeMoveDecisions.set(edge._id, "move");
-      }
-      if (targetScopeEdges.length + addedEdges > MAX_CANVAS_EDGES) {
-        throw new Error(
-          `Ciljni kanvas može imati najviše ${MAX_CANVAS_EDGES} veza.`,
-        );
-      }
-    }
-    const oldRelations = await ctx.db
-      .query("pageRelations")
-      .withIndex("by_startup_area_active_created", (q) =>
-        q
-          .eq("startupId", args.startupId)
-          .eq("areaId", page.areaId)
-          .eq("archivedAt", null),
-      )
-      .take(MAX_RELATIONS_PER_AREA + 1);
-    if (oldRelations.length > MAX_RELATIONS_PER_AREA) {
-      throw new Error("Izvorna oblast ima previše relacija za jednu radnju.");
-    }
-    const targetRelations = await ctx.db
-      .query("pageRelations")
-      .withIndex("by_startup_area_active_created", (q) =>
-        q
-          .eq("startupId", args.startupId)
-          .eq("areaId", args.targetAreaId)
-          .eq("archivedAt", null),
-      )
-      .take(MAX_RELATIONS_PER_AREA + 1);
-    const activeTargetRelations = targetRelations.filter(
-      (relation) => relation.startupId === args.startupId,
-    );
-    if (activeTargetRelations.length > MAX_RELATIONS_PER_AREA) {
-      throw new Error("Ciljna oblast već ima previše aktivnih relacija.");
-    }
-    const occupiedTargetRelationKeys = new Set(
-      activeTargetRelations.map((relation) => relation.pairKey),
-    );
-    const relationMoves = new Map<
-      Id<"pageRelations">,
-      "move" | "archive"
-    >();
-    let addedTargetRelations = 0;
-    for (const relation of oldRelations) {
-      if (relation.startupId !== args.startupId) continue;
-      const noteMoves = movedIds.has(relation.notePageId);
-      const taskMoves = movedIds.has(relation.taskPageId);
-      if (!noteMoves && !taskMoves) continue;
-      if (
-        !noteMoves ||
-        !taskMoves ||
-        occupiedTargetRelationKeys.has(relation.pairKey)
-      ) {
-        relationMoves.set(relation._id, "archive");
-        continue;
-      }
-      occupiedTargetRelationKeys.add(relation.pairKey);
-      addedTargetRelations += 1;
-      relationMoves.set(relation._id, "move");
-    }
-    if (
-      activeTargetRelations.length + addedTargetRelations >
-      MAX_RELATIONS_PER_AREA
-    ) {
-      throw new Error(
-        `Ciljna oblast može imati najviše ${MAX_RELATIONS_PER_AREA} relacija.`,
-      );
-    }
-    const now = Date.now();
-    await archiveEdgesForMovedPage(ctx, page, page.parentPageId, now);
-    for (const edge of scopedEdges) {
-      if (edgeMoveDecisions.get(edge._id) !== "move") {
-        await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-          archivedAt: now,
-          updatedAt: now,
-        });
-        continue;
-      }
-      await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-        areaId: args.targetAreaId,
-        updatedAt: now,
-      });
-    }
-    for (const relation of oldRelations) {
-      const decision = relationMoves.get(relation._id);
-      if (decision === undefined) continue;
-      if (decision === "archive") {
-        await ctx.db.patch("pageRelations", relation._id, {
-          archivedAt: now,
-          updatedAt: now,
-        });
-        continue;
-      }
-      await ctx.db.patch("pageRelations", relation._id, {
-        areaId: args.targetAreaId,
-        updatedAt: now,
-      });
-    }
-    for (const viewport of scopedViewports) {
-      const duplicate = await ctx.db
-        .query("pageCanvasViewports")
-        .withIndex(
-          "by_viewerProfileId_and_startupId_and_areaId_and_rootPageId",
-          (q) =>
-            q
-              .eq("viewerProfileId", viewport.viewerProfileId)
-              .eq("startupId", args.startupId)
-              .eq("areaId", args.targetAreaId)
-              .eq("rootPageId", viewport.rootPageId),
-        )
-        .first();
-      if (duplicate === null) {
-        await ctx.db.patch("pageCanvasViewports", viewport._id, {
-          areaId: args.targetAreaId,
-          updatedAt: now,
-        });
-      } else {
-        await ctx.db.delete("pageCanvasViewports", viewport._id);
-      }
-    }
-    for (const request of pendingRequests.values()) {
-      await ctx.db.patch("pageNestingRequests", request._id, {
-        status: "cancelled",
-        resolvedAt: now,
-        updatedAt: now,
-      });
-    }
-    for (const moved of movedPages) {
-      const isRoot = moved._id === page._id;
-      const parentPageId = isRoot ? null : moved.parentPageId;
-      await ctx.db.patch("pages", moved._id, {
-        areaId: args.targetAreaId,
-        parentPageId,
-        treeRevision: (moved.treeRevision ?? 0) + 1,
-        updatedByProfileId: profile._id,
-        updatedAt: now,
-      });
-      const placement = await getPlacement(ctx, moved._id);
-      await upsertPlacement(ctx, {
-        page: {
-          ...moved,
-          areaId: args.targetAreaId,
-          parentPageId,
-        },
-        rootPageId: parentPageId,
-        actorProfileId: profile._id,
-        x: placement?.x ?? 0,
-        y: placement?.y ?? 0,
-        width: placement?.width,
-        height: placement?.height,
-        now,
-      });
-    }
-    await recordActivity(ctx, {
-      startupId: page.startupId,
+    return await movePageAcrossAreasWithSidecars(ctx, {
+      page,
+      targetAreaId: args.targetAreaId,
       actorProfileId: profile._id,
-      action: "page_moved",
-      targetType: "page",
-      targetId: page._id,
-      title: `„${page.title}” je premešten/a u drugu oblast`,
+      now: Date.now(),
     });
-    return {
-      nestingStatus: "none" as const,
-      requestId: null,
-    };
   },
 });

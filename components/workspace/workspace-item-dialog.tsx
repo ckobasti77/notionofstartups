@@ -8,6 +8,14 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export type ItemSizePreset = "compact" | "standard" | "large";
@@ -81,5 +89,56 @@ export function ItemSizePicker({
         </Button>
       ) : null}
     </fieldset>
+  );
+}
+
+export function ItemSizeMenu({
+  onChange,
+  onReset,
+  className,
+}: {
+  onChange: (preset: ItemSizePreset) => void;
+  onReset?: () => void;
+  className?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className={cn("h-10 rounded-xl", className)}
+        >
+          <RectangleHorizontal className="size-4" aria-hidden="true" />
+          Veličina
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuLabel>Veličina kartice</DropdownMenuLabel>
+        {(Object.keys(SIZE_META) as ItemSizePreset[]).map((preset) => {
+          const meta = SIZE_META[preset];
+          const Icon = meta.icon;
+          return (
+            <DropdownMenuItem
+              key={preset}
+              onSelect={() => onChange(preset)}
+            >
+              <Icon className="size-4" aria-hidden="true" />
+              {meta.label}
+            </DropdownMenuItem>
+          );
+        })}
+        {onReset ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onReset}>
+              <RotateCcw className="size-4" aria-hidden="true" />
+              Vrati početnu veličinu
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

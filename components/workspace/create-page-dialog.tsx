@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { workspaceItemDialogContentClass } from "@/components/workspace/workspace-item-dialog";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -106,9 +107,14 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] max-w-2xl gap-0 overflow-y-auto p-0">
-        <form onSubmit={submit}>
-          <DialogHeader className="border-b border-border/70 px-5 py-5 sm:px-6">
+      <DialogContent
+        className={`${workspaceItemDialogContentClass} sm:!max-w-2xl`}
+      >
+        <form
+          className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+          onSubmit={submit}
+        >
+          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-14 sm:px-6 sm:pr-16">
             <DialogTitle className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"><Plus className="size-4" /></span> Nova stranica</DialogTitle>
             <DialogDescription>
               {target?.parentPageId
@@ -118,7 +124,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                 : `Dodaješ sadržaj u ${selectedArea?.label ?? "oblast"}.`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-5 px-5 py-5 sm:px-6">
+          <div className="scrollbar-thin min-h-0 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
             <fieldset className="grid grid-cols-2 gap-2 rounded-xl bg-muted/55 p-1">
               <legend className="sr-only">Vrsta stranice</legend>
               {(["note", "task"] as const).map((value) => {
@@ -231,7 +237,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
               </>
             )}
           </div>
-          <DialogFooter className="border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-6"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Otkaži</Button><Button type="submit" disabled={submitting || !areaId || title.trim().length === 0}>{submitting ? <LoaderCircle className="animate-spin" /> : kind === "task" ? <CheckSquare2 /> : <FileText />} Kreiraj</Button></DialogFooter>
+          <DialogFooter className="relative z-20 shrink-0 border-t border-border/70 bg-background/95 px-5 py-4 shadow-[0_-12px_28px_-22px_rgba(0,0,0,0.55)] backdrop-blur sm:px-6"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Otkaži</Button><Button type="submit" disabled={submitting || !areaId || title.trim().length === 0}>{submitting ? <LoaderCircle className="animate-spin" /> : kind === "task" ? <CheckSquare2 /> : <FileText />} Kreiraj</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

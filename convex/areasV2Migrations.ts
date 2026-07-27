@@ -1,14 +1,23 @@
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
+import {
+  findAvailableCanvasPosition,
+  hasExactCanvasPositionCollision,
+} from "./canvasPlacement";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const MAX_PREVIEW_LENGTH = 480;
 const MAX_LEGACY_PLACEMENTS_PER_PAGE = 25;
+const MAX_SCOPE_PLACEMENTS = 201;
+const MAX_TREE_DEPTH = 64;
+const MAX_ANCESTRY_VERIFIER_BATCH = 50;
+const MAX_PENDING_ANCESTRY_VERIFIER_BATCH = 20;
 const MIGRATION_KEY = "areas_v2";
+type ReadCtx = MutationCtx | QueryCtx;
 
 const cursorValidator = v.union(v.string(), v.null());
 const batchResultValidator = v.object({
@@ -71,6 +80,81 @@ function canvasPreview(page: Doc<"pages">, content: string) {
 
 function pairKey(nodeAId: Id<"pages">, nodeBId: Id<"pages">) {
   return [nodeAId, nodeBId].sort().join(":");
+}
+
+async function hasInvalidActiveAncestry(
+  ctx: ReadCtx,
+  page: Doc<"pages">,
+) {
+  if (page.archivedAt !== null) return false;
+  const seen = new Set<string>([page._id]);
+  let parentPageId = page.parentPageId;
+  for (let depth = 0; parentPageId !== null; depth += 1) {
+    if (depth >= MAX_TREE_DEPTH || seen.has(parentPageId)) return true;
+    seen.add(parentPageId);
+    const parent = await ctx.db.get("pages", parentPageId);
+    if (
+      parent === null ||
+      parent.archivedAt !== null ||
+      parent.startupId !== page.startupId ||
+      parent.areaId !== page.areaId
+    ) {
+      return true;
+    }
+    parentPageId = parent.parentPageId;
+  }
+  return false;
+}
+
+async function hasInvalidPendingTargetAncestry(
+  ctx: ReadCtx,
+  child: Doc<"pages">,
+  targetParent: Doc<"pages">,
+) {
+  const seen = new Set<string>([child._id]);
+  let cursor: Id<"pages"> | null = targetParent._id;
+  for (let depth = 0; cursor !== null; depth += 1) {
+    if (depth >= MAX_TREE_DEPTH || seen.has(cursor)) return true;
+    seen.add(cursor);
+    const currentPageId: Id<"pages"> = cursor;
+    const page: Doc<"pages"> | null = await ctx.db.get(
+      "pages",
+      currentPageId,
+    );
+    const pendingRequests: Doc<"pageNestingRequests">[] = await ctx.db
+      .query("pageNestingRequests")
+      .withIndex("by_childPageId_and_status_and_updatedAt", (q) =>
+        q.eq("childPageId", currentPageId).eq("status", "pending"),
+      )
+      .take(2);
+    if (
+      page === null ||
+      page.archivedAt !== null ||
+      page.startupId !== child.startupId ||
+      page.areaId !== child.areaId
+    ) {
+      return true;
+    }
+    if (pendingRequests.length > 1) return true;
+    const pending = pendingRequests[0];
+    if (pending !== undefined) {
+      if (
+        pending.startupId !== child.startupId ||
+        pending.areaId !== child.areaId ||
+        pending.childPageId !== page._id ||
+        pending.sourceParentPageId !== page.parentPageId ||
+        pending.expectedTreeRevision !== (page.treeRevision ?? 0) ||
+        pending.requesterProfileId !== page.createdByProfileId ||
+        pending.resolvedAt !== null
+      ) {
+        return true;
+      }
+      cursor = pending.targetParentPageId;
+      continue;
+    }
+    cursor = page.parentPageId;
+  }
+  return false;
 }
 
 async function quarantine(
@@ -318,6 +402,17 @@ export const backfillPlacements = internalMutation({
       }
       if (existing.length === 1) {
         const placement = existing[0];
+        const scopePlacements = await ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex(
+            "by_startupId_and_areaId_and_rootPageId",
+            (q) =>
+              q
+                .eq("startupId", page.startupId)
+                .eq("areaId", page.areaId)
+                .eq("rootPageId", page.parentPageId),
+          )
+          .take(MAX_SCOPE_PLACEMENTS);
         if (
           placement.startupId !== page.startupId ||
           placement.areaId !== page.areaId ||
@@ -329,6 +424,42 @@ export const backfillPlacements = internalMutation({
               startupId: page.startupId,
               areaId: page.areaId,
               rootPageId: page.parentPageId,
+            });
+          }
+        }
+        const collisions = scopePlacements.filter(
+          (candidate) =>
+            candidate._id !== placement._id &&
+            hasExactCanvasPositionCollision(candidate, placement),
+        );
+        const canonicalPlacement = [placement, ...collisions].sort(
+          (first, second) =>
+            first.createdAt - second.createdAt ||
+            first._id.localeCompare(second._id),
+        )[0];
+        if (
+          collisions.length > 0 &&
+          canonicalPlacement._id !== placement._id
+        ) {
+          const nextPosition = findAvailableCanvasPosition(
+            scopePlacements
+              .filter((candidate) => candidate._id !== placement._id)
+              .map((candidate) => ({
+                x: candidate.x,
+                y: candidate.y,
+                width: candidate.width,
+                height: candidate.height,
+              })),
+            {
+              width: placement.width,
+              height: placement.height,
+            },
+          );
+          changed += 1;
+          if (!dryRun) {
+            await ctx.db.patch("pageCanvasPlacements", placement._id, {
+              x: nextPosition.x,
+              y: nextPosition.y,
             });
           }
         }
@@ -367,6 +498,29 @@ export const backfillPlacements = internalMutation({
           (a, b) =>
             b.updatedAt - a.updatedAt || b._id.localeCompare(a._id),
         )[0];
+        const scopePlacements = await ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex(
+            "by_startupId_and_areaId_and_rootPageId",
+            (q) =>
+              q
+                .eq("startupId", page.startupId)
+                .eq("areaId", page.areaId)
+                .eq("rootPageId", page.parentPageId),
+          )
+          .take(MAX_SCOPE_PLACEMENTS);
+        const automaticPosition = findAvailableCanvasPosition(
+          scopePlacements.map((placement) => ({
+            x: placement.x,
+            y: placement.y,
+            width: placement.width,
+            height: placement.height,
+          })),
+          {
+            width: legacy?.width,
+            height: legacy?.height,
+          },
+        );
         changed += 1;
         if (!dryRun) {
           const timestamp = legacy?.updatedAt ?? page.createdAt;
@@ -375,8 +529,8 @@ export const backfillPlacements = internalMutation({
             areaId: page.areaId,
             rootPageId: page.parentPageId,
             pageId: page._id,
-            x: legacy?.x ?? 0,
-            y: legacy?.y ?? 0,
+            x: legacy?.x ?? automaticPosition.x,
+            y: legacy?.y ?? automaticPosition.y,
             ...(legacy?.width === undefined
               ? {}
               : { width: legacy.width }),
@@ -606,9 +760,18 @@ export const verifyAreasV2 = internalQuery({
   },
   returns: verifierResultValidator,
   handler: async (ctx, args) => {
+    const requestedLimit = boundedLimit(args.limit);
     const paginationOpts = {
       cursor: args.cursor,
-      numItems: boundedLimit(args.limit),
+      numItems:
+        args.stage === "requests"
+          ? Math.min(
+              requestedLimit,
+              MAX_PENDING_ANCESTRY_VERIFIER_BATCH,
+            )
+          : args.stage === "pages"
+            ? Math.min(requestedLimit, MAX_ANCESTRY_VERIFIER_BATCH)
+            : requestedLimit,
     };
     let issueCount = 0;
     const issueSamples: string[] = [];
@@ -645,6 +808,7 @@ export const verifyAreasV2 = internalQuery({
             ? Promise.resolve(null)
             : ctx.db.get("pages", page.parentPageId),
         ]);
+        const invalidAncestry = await hasInvalidActiveAncestry(ctx, page);
         const invalidActiveParent =
           page.archivedAt === null &&
           page.parentPageId !== null &&
@@ -657,7 +821,8 @@ export const verifyAreasV2 = internalQuery({
           area.startupId !== page.startupId ||
           page.treeRevision === undefined ||
           page.canvasPreview === undefined ||
-          invalidActiveParent
+          invalidActiveParent ||
+          invalidAncestry
         ) {
           issueCount += 1;
           addIssue(issueSamples, `pages:${page._id}:scope_or_sidecar`);
@@ -713,7 +878,7 @@ export const verifyAreasV2 = internalQuery({
         .paginate(paginationOpts);
       for (const placement of result.page) {
         const page = await ctx.db.get("pages", placement.pageId);
-        const [duplicates, root] = await Promise.all([
+        const [duplicates, root, scopePlacements] = await Promise.all([
           ctx.db
             .query("pageCanvasPlacements")
             .withIndex("by_pageId", (q) => q.eq("pageId", placement.pageId))
@@ -721,7 +886,30 @@ export const verifyAreasV2 = internalQuery({
           placement.rootPageId === null
             ? Promise.resolve(null)
             : ctx.db.get("pages", placement.rootPageId),
+          ctx.db
+            .query("pageCanvasPlacements")
+            .withIndex(
+              "by_startupId_and_areaId_and_rootPageId",
+              (q) =>
+                q
+                  .eq("startupId", placement.startupId)
+                  .eq("areaId", placement.areaId)
+                  .eq("rootPageId", placement.rootPageId),
+            )
+            .take(MAX_SCOPE_PLACEMENTS),
         ]);
+        const collidingPlacements = scopePlacements
+          .filter((candidate) =>
+            hasExactCanvasPositionCollision(candidate, placement),
+          )
+          .sort(
+            (first, second) =>
+              first.createdAt - second.createdAt ||
+              first._id.localeCompare(second._id),
+          );
+        const hasNonCanonicalCollision =
+          collidingPlacements.length > 1 &&
+          collidingPlacements[0]._id !== placement._id;
         if (
           page === null ||
           page.archivedAt !== null ||
@@ -739,7 +927,8 @@ export const verifyAreasV2 = internalQuery({
             (root === null ||
               root.archivedAt !== null ||
               root.startupId !== placement.startupId ||
-              root.areaId !== placement.areaId))
+              root.areaId !== placement.areaId)) ||
+          hasNonCanonicalCollision
         ) {
           issueCount += 1;
           addIssue(
@@ -800,16 +989,40 @@ export const verifyAreasV2 = internalQuery({
         .order("asc")
         .paginate(paginationOpts);
       for (const viewport of result.page) {
-        const area = await ctx.db.get("startupAreas", viewport.areaId);
-        const root =
+        const [area, root, duplicates] = await Promise.all([
+          ctx.db.get("startupAreas", viewport.areaId),
           viewport.rootPageId === null
-            ? null
-            : await ctx.db.get("pages", viewport.rootPageId);
+            ? Promise.resolve(null)
+            : ctx.db.get("pages", viewport.rootPageId),
+          ctx.db
+            .query("pageCanvasViewports")
+            .withIndex(
+              "by_viewerProfileId_and_startupId_and_areaId_and_rootPageId",
+              (q) =>
+                q
+                  .eq("viewerProfileId", viewport.viewerProfileId)
+                  .eq("startupId", viewport.startupId)
+                  .eq("areaId", viewport.areaId)
+                  .eq("rootPageId", viewport.rootPageId),
+            )
+            .take(2),
+        ]);
         if (
           area === null ||
           area.startupId !== viewport.startupId ||
+          duplicates.length !== 1 ||
+          !Number.isFinite(viewport.x) ||
+          !Number.isFinite(viewport.y) ||
+          !Number.isFinite(viewport.zoom) ||
+          viewport.x < -100_000 ||
+          viewport.x > 100_000 ||
+          viewport.y < -100_000 ||
+          viewport.y > 100_000 ||
+          viewport.zoom < 0.1 ||
+          viewport.zoom > 4 ||
           (viewport.rootPageId !== null &&
             (root === null ||
+              root.archivedAt !== null ||
               root.startupId !== viewport.startupId ||
               root.areaId !== viewport.areaId))
         ) {
@@ -880,6 +1093,10 @@ export const verifyAreasV2 = internalQuery({
           )
           .take(2),
       ]);
+      const invalidPendingAncestry =
+        child !== null && parent !== null
+          ? await hasInvalidPendingTargetAncestry(ctx, child, parent)
+          : false;
       if (
         child === null ||
         parent === null ||
@@ -899,6 +1116,7 @@ export const verifyAreasV2 = internalQuery({
         request.requesterProfileId === request.parentAuthorProfileId ||
         request.resolvedAt !== null ||
         duplicates.length !== 1 ||
+        invalidPendingAncestry ||
         (request.sourceParentPageId !== null &&
           (sourceParent === null ||
             sourceParent.archivedAt !== null ||

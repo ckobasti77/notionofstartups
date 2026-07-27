@@ -657,7 +657,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
   });
 
   test("samo autor pomera svoju vidljivu karticu na kanvasu oblasti", async () => {
-    const { t, startupA, areaA1, asActor, asMember } =
+    const { t, actor, startupA, areaA1, asActor, asMember } =
       await seedPagesSecurityWorkspace();
     const actorPageId = await asActor.mutation(api.pages.create, {
       startupId: startupA,
@@ -704,13 +704,136 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         updates: [{ pageId: actorPageId, x: 120, y: 80 }],
       }),
     ).resolves.toBeNull();
-    const layouts = await t.run((ctx) =>
-      ctx.db.query("pageCanvasNodes").withIndex("by_pageId", (q) =>
-        q.eq("pageId", actorPageId),
-      ).take(2),
-    );
-    expect(layouts).toEqual([
+    await asActor.mutation(api.canvases.moveAreaCanvasPages, {
+      startupId: startupA,
+      areaId: areaA1,
+      updates: [{ pageId: actorPageId, x: 120, y: 80 }],
+    });
+    const movedLayouts = await t.run(async (ctx) => ({
+      legacy: await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", actorPageId))
+        .take(2),
+      v2: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", actorPageId))
+        .take(2),
+    }));
+    expect(movedLayouts.legacy).toEqual([
       expect.objectContaining({ pageId: actorPageId, x: 120, y: 80 }),
+    ]);
+    expect(movedLayouts.v2).toEqual([
+      expect.objectContaining({
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        pageId: actorPageId,
+        x: 120,
+        y: 80,
+        updatedByProfileId: actor.profileId,
+      }),
+    ]);
+
+    await asActor.mutation(api.canvases.resizeAreaCanvasPage, {
+      startupId: startupA,
+      pageId: actorPageId,
+      width: 520,
+      height: 420,
+    });
+    const resizedLayouts = await t.run(async (ctx) => ({
+      legacy: await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", actorPageId))
+        .unique(),
+      v2: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", actorPageId))
+        .unique(),
+    }));
+    expect(resizedLayouts.legacy).toMatchObject({
+      x: 120,
+      y: 80,
+      width: 520,
+      height: 420,
+    });
+    expect(resizedLayouts.v2).toMatchObject({
+      rootPageId: null,
+      x: 120,
+      y: 80,
+      width: 520,
+      height: 420,
+      updatedByProfileId: actor.profileId,
+    });
+
+    await asActor.mutation(api.canvases.resetAreaCanvasPageSize, {
+      startupId: startupA,
+      pageId: actorPageId,
+    });
+    const resetLayouts = await t.run(async (ctx) => ({
+      legacy: await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", actorPageId))
+        .unique(),
+      v2: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", actorPageId))
+        .unique(),
+    }));
+    expect(resetLayouts.legacy).not.toHaveProperty("width");
+    expect(resetLayouts.legacy).not.toHaveProperty("height");
+    expect(resetLayouts.v2).not.toHaveProperty("width");
+    expect(resetLayouts.v2).not.toHaveProperty("height");
+
+    await asActor.mutation(api.canvases.saveAreaCanvasViewport, {
+      startupId: startupA,
+      areaId: areaA1,
+      kind: "note",
+      x: 15,
+      y: 25,
+      zoom: 1.2,
+    });
+    await asActor.mutation(api.canvases.saveAreaCanvasViewport, {
+      startupId: startupA,
+      areaId: areaA1,
+      kind: "task",
+      x: 35,
+      y: 45,
+      zoom: 1.4,
+    });
+    const viewports = await t.run(async (ctx) => ({
+      legacy: await ctx.db
+        .query("pageCanvases")
+        .withIndex("by_ownerProfileId_and_areaId_and_kind", (q) =>
+          q.eq("ownerProfileId", actor.profileId).eq("areaId", areaA1),
+        )
+        .collect(),
+      v2: await ctx.db
+        .query("pageCanvasViewports")
+        .withIndex(
+          "by_viewerProfileId_and_startupId_and_areaId_and_rootPageId",
+          (q) =>
+            q
+              .eq("viewerProfileId", actor.profileId)
+              .eq("startupId", startupA)
+              .eq("areaId", areaA1)
+              .eq("rootPageId", null),
+        )
+        .take(2),
+    }));
+    expect(viewports.legacy).toHaveLength(2);
+    expect(viewports.legacy).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "note", x: 15, y: 25, zoom: 1.2 }),
+        expect.objectContaining({ kind: "task", x: 35, y: 45, zoom: 1.4 }),
+      ]),
+    );
+    expect(viewports.v2).toEqual([
+      expect.objectContaining({
+        rootPageId: null,
+        x: 35,
+        y: 45,
+        zoom: 1.4,
+      }),
     ]);
   });
 
@@ -758,6 +881,12 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       parentPageId: actorPageId,
       kind: "task",
       title: "Dete",
+    });
+    const relationId = await asActor.mutation(api.areasV2.createRelation, {
+      startupId: startupA,
+      pageAId: actorPageId,
+      pageBId: actorTaskId,
+      label: "V2 relacija ostaje nezavisna",
     });
 
     await expect(
@@ -810,11 +939,60 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         target: memberPageId,
       },
     );
-    const createdEdge = await t.run((ctx) => ctx.db.get("pageEdges", edgeId));
-    expect(createdEdge).toMatchObject({
+    const pairKey = [actorPageId, memberPageId].sort().join(":");
+    const createdEdges = await t.run(async (ctx) => ({
+      legacy: await ctx.db.get("pageEdges", edgeId),
+      v2: await ctx.db
+        .query("pageCanvasEdgesV2")
+        .withIndex("by_scope_active_pair", (q) =>
+          q
+            .eq("startupId", startupA)
+            .eq("areaId", areaA1)
+            .eq("rootPageId", null)
+            .eq("archivedAt", null)
+            .eq("pairKey", pairKey),
+        )
+        .take(2),
+    }));
+    expect(createdEdges.legacy).toMatchObject({
       authorProfileId: actor.profileId,
       archivedAt: null,
     });
+    expect(createdEdges.v2).toEqual([
+      expect.objectContaining({
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        nodeAId: actorPageId,
+        nodeBId: memberPageId,
+        pairKey,
+        authorProfileId: actor.profileId,
+        attribution: "author",
+        archivedAt: null,
+      }),
+    ]);
+    await expect(
+      asActor.mutation(api.canvases.connectAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        source: actorPageId,
+        target: memberPageId,
+      }),
+    ).resolves.toBe(edgeId);
+    const idempotentV2Edges = await t.run((ctx) =>
+      ctx.db
+        .query("pageCanvasEdgesV2")
+        .withIndex("by_scope_active_pair", (q) =>
+          q
+            .eq("startupId", startupA)
+            .eq("areaId", areaA1)
+            .eq("rootPageId", null)
+            .eq("archivedAt", null)
+            .eq("pairKey", pairKey),
+        )
+        .take(2),
+    );
+    expect(idempotentV2Edges).toHaveLength(1);
 
     await expect(
       asMember.mutation(api.canvases.disconnectAreaCanvasPages, {
@@ -829,6 +1007,23 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     await expect(
       t.run((ctx) => ctx.db.get("pageEdges", edgeId)),
     ).resolves.toBeNull();
+    const disconnectedState = await t.run(async (ctx) => ({
+      relation: await ctx.db.get("pageRelations", relationId),
+      v2Edges: await ctx.db
+        .query("pageCanvasEdgesV2")
+        .filter((q) => q.eq(q.field("pairKey"), pairKey))
+        .collect(),
+    }));
+    expect(disconnectedState.relation).toMatchObject({
+      _id: relationId,
+      archivedAt: null,
+    });
+    expect(
+      disconnectedState.v2Edges.filter((edge) => edge.archivedAt === null),
+    ).toHaveLength(0);
+    expect(
+      disconnectedState.v2Edges.filter((edge) => edge.archivedAt !== null),
+    ).toHaveLength(1);
     const afterArchive = await asActor.query(api.canvases.getAreaCanvas, {
       startupId: startupA,
       areaId: areaA1,
@@ -846,6 +1041,18 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       },
     );
     expect(reconnectedEdgeId).not.toBe(edgeId);
+    const reconnectedV2Edges = await t.run((ctx) =>
+      ctx.db
+        .query("pageCanvasEdgesV2")
+        .filter((q) => q.eq(q.field("pairKey"), pairKey))
+        .collect(),
+    );
+    expect(
+      reconnectedV2Edges.filter((edge) => edge.archivedAt === null),
+    ).toHaveLength(1);
+    expect(
+      reconnectedV2Edges.filter((edge) => edge.archivedAt !== null),
+    ).toHaveLength(1);
 
     const legacyEdgeId = await asActor.mutation(api.pages.connectCanvasPages, {
       startupId: startupA,
@@ -1000,6 +1207,168 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         areaId: areaB,
       }),
     ]);
+  });
+
+  test("legacy cross-area move delegates to the canonical sidecar transaction", async () => {
+    const { t, actor, startupA, areaA1, areaA2, asActor } =
+      await seedPagesSecurityWorkspace();
+    const occupiedTarget = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "task",
+      title: "Zauzeto u cilju",
+    });
+    const root = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Legacy grana",
+    });
+    const child = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: root.pageId,
+      kind: "note",
+      title: "Legacy dete",
+    });
+    const peer = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Izvorni peer",
+    });
+    await asActor.mutation(api.areasV2.connectPages, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      sourcePageId: root.pageId,
+      targetPageId: peer.pageId,
+    });
+    await asActor.mutation(api.areasV2.saveViewport, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: root.pageId,
+      x: 12,
+      y: 24,
+      zoom: 1.2,
+    });
+    const legacyOnlyEdgeId = await t.run((ctx) => {
+      const now = Date.now();
+      return ctx.db.insert("pageEdges", {
+        startupId: startupA,
+        areaId: areaA1,
+        nodeAId: root.pageId,
+        nodeBId: child.pageId,
+        pairKey: [root.pageId, child.pageId].sort().join(":"),
+        label: "Legacy only",
+        authorProfileId: actor.profileId,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asActor.mutation(api.pages.move, {
+        pageId: root.pageId,
+        areaId: areaA2,
+        parentPageId: null,
+        position: 77,
+      }),
+    ).resolves.toBe(root.pageId);
+
+    const stored = await t.run(async (ctx) => ({
+      root: await ctx.db.get("pages", root.pageId),
+      child: await ctx.db.get("pages", child.pageId),
+      rootPlacement: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", root.pageId))
+        .unique(),
+      occupiedPlacement: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) =>
+          q.eq("pageId", occupiedTarget.pageId),
+        )
+        .unique(),
+      childLegacyNode: await ctx.db
+        .query("pageCanvasNodes")
+        .withIndex("by_pageId", (q) => q.eq("pageId", child.pageId))
+        .unique(),
+      legacyOnlyEdge: await ctx.db.get("pageEdges", legacyOnlyEdgeId),
+      viewport: await ctx.db
+        .query("pageCanvasViewports")
+        .withIndex("by_rootPageId", (q) =>
+          q.eq("rootPageId", root.pageId),
+        )
+        .first(),
+    }));
+    expect(stored.root).toMatchObject({
+      areaId: areaA2,
+      parentPageId: null,
+      position: 77,
+    });
+    expect(stored.child).toMatchObject({
+      areaId: areaA2,
+      parentPageId: root.pageId,
+    });
+    expect(stored.rootPlacement?.areaId).toBe(areaA2);
+    expect(
+      `${stored.rootPlacement?.x}:${stored.rootPlacement?.y}`,
+    ).not.toBe(
+      `${stored.occupiedPlacement?.x}:${stored.occupiedPlacement?.y}`,
+    );
+    expect(stored.childLegacyNode?.areaId).toBe(areaA2);
+    expect(stored.legacyOnlyEdge?.archivedAt).toEqual(expect.any(Number));
+    expect(stored.viewport?.areaId).toBe(areaA2);
+  });
+
+  test("legacy cross-area move rejects a nested destination atomically", async () => {
+    const { t, startupA, areaA1, areaA2, asActor } =
+      await seedPagesSecurityWorkspace();
+    const source = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Izvor",
+    });
+    const targetParent = await asActor.mutation(
+      api.areasV2.createPage,
+      {
+        startupId: startupA,
+        areaId: areaA2,
+        rootPageId: null,
+        kind: "task",
+        title: "Ciljni roditelj",
+      },
+    );
+    const before = await t.run(async (ctx) => ({
+      page: await ctx.db.get("pages", source.pageId),
+      placement: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", source.pageId))
+        .unique(),
+    }));
+
+    await expect(
+      asActor.mutation(api.pages.move, {
+        pageId: source.pageId,
+        areaId: areaA2,
+        parentPageId: targetParent.pageId,
+      }),
+    ).rejects.toThrow("samo u koren oblasti");
+
+    const after = await t.run(async (ctx) => ({
+      page: await ctx.db.get("pages", source.pageId),
+      placement: await ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", source.pageId))
+        .unique(),
+    }));
+    expect(after).toEqual(before);
   });
 
   test("cross-area move odbija granu sa aktivnim stranicama drugog autora", async () => {

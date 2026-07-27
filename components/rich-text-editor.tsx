@@ -172,7 +172,7 @@ export function RichTextEditor({
     <div className="relative">
       {editable ? (
         <div
-          className="sticky top-0 z-10 -mx-2 flex min-h-12 items-center gap-0.5 overflow-x-auto border-y border-border/60 bg-background/90 px-2 py-1.5 backdrop-blur-xl [scrollbar-width:none] sm:rounded-xl sm:border sm:shadow-[0_8px_28px_-24px_rgba(15,23,42,0.7)]"
+          className="sticky top-0 z-10 -mx-2 flex min-h-12 flex-wrap items-center gap-0.5 overflow-visible border-y border-border/60 bg-background/90 px-2 py-1.5 backdrop-blur-xl sm:flex-nowrap sm:overflow-x-auto sm:rounded-xl sm:border sm:shadow-[0_8px_28px_-24px_rgba(15,23,42,0.7)] sm:[scrollbar-width:thin]"
           role="toolbar"
           aria-label="Alati za uređivanje"
         >

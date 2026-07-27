@@ -25,6 +25,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AreaBriefingDock } from "@/components/workspace/area-briefing-dock";
 import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
+import { AreaSignedContributions } from "@/components/workspace/area-signed-contributions";
+import { NestingTargetMenu } from "@/components/workspace/nesting-target-menu";
+import { DetachPageButton } from "@/components/workspace/detach-page-button";
 import type {
   CreatePageTarget,
   ProfileWithAvatar,
@@ -104,6 +107,13 @@ export function AreaView({
         (page) => filter === "all" || page.kind === filter,
       ),
     [canvasData?.pages, filter],
+  );
+  const visibleGhosts = useMemo(
+    () =>
+      (canvasData?.ghosts ?? []).filter(
+        (ghost) => filter === "all" || ghost.kind === filter,
+      ),
+    [canvasData?.ghosts, filter],
   );
   const relationCounts = useMemo(() => {
     const counts = new Map<Id<"pages">, number>();
@@ -257,32 +267,38 @@ export function AreaView({
 
       <div data-workspace-enter className="mt-6">
         {canvasData ? (
-          <AreaBriefingDock
-            key={`${currentArea._id}:${canvasData.scope.briefing.revision}`}
-            areaLabel={currentArea.label}
-            content={canvasData.scope.briefing.content}
-            revision={canvasData.scope.briefing.revision}
-            canEdit={canvasData.scope.briefing.canEdit}
-            onSave={async (content, expectedRevision) => {
-              try {
-                const result = await updateAreaBody({
-                  startupId: startup._id,
-                  areaId: currentArea._id,
-                  content,
-                  expectedRevision,
-                });
-                toast.success("Briefing oblasti je sačuvan.");
-                return result.revision;
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                      : "Briefing nije sačuvan.",
-                );
-                throw error;
-              }
-            }}
-          />
+          <>
+            <AreaBriefingDock
+              key={`${currentArea._id}:${canvasData.scope.briefing.revision}`}
+              areaLabel={currentArea.label}
+              content={canvasData.scope.briefing.content}
+              revision={canvasData.scope.briefing.revision}
+              canEdit={canvasData.scope.briefing.canEdit}
+              onSave={async (content, expectedRevision) => {
+                try {
+                  const result = await updateAreaBody({
+                    startupId: startup._id,
+                    areaId: currentArea._id,
+                    content,
+                    expectedRevision,
+                  });
+                  toast.success("Briefing oblasti je sačuvan.");
+                  return result.revision;
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                        : "Briefing nije sačuvan.",
+                  );
+                  throw error;
+                }
+              }}
+            />
+            <AreaSignedContributions
+              areaId={currentArea._id}
+              areaLabel={currentArea.label}
+            />
+          </>
         ) : (
           <Skeleton className="h-56 rounded-[1.35rem]" />
         )}
@@ -393,7 +409,7 @@ export function AreaView({
               <Skeleton key={item} className="h-24 rounded-2xl" />
             ))}
           </div>
-        ) : visiblePages.length === 0 ? (
+        ) : visiblePages.length + visibleGhosts.length === 0 ? (
           <EmptyState
             icon={filter === "task" ? CheckSquare2 : FileText}
             title={
@@ -488,6 +504,29 @@ export function AreaView({
                     </button>
 
                     <div className="flex shrink-0 gap-1 self-end sm:self-auto">
+                      {page.canDetach ? (
+                        <DetachPageButton
+                          startupId={startup._id}
+                          pageId={page._id}
+                          title={page.title}
+                          compact
+                        />
+                      ) : null}
+                      {page.canMove ? (
+                        <NestingTargetMenu
+                          startupId={startup._id}
+                          childPageId={page._id}
+                          childTitle={page.title}
+                          candidates={canvasData.pages
+                            .filter((candidate) => candidate._id !== page._id)
+                            .map((candidate) => ({
+                              pageId: candidate._id,
+                              title: candidate.title,
+                              kind: candidate.kind,
+                            }))}
+                          compact
+                        />
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"
@@ -512,6 +551,41 @@ export function AreaView({
                   </li>
                 );
               })}
+              {visibleGhosts.map((ghost) => (
+                <li
+                  key={`pending-${ghost.requestId}`}
+                  className="flex flex-col gap-2 rounded-xl border border-dashed border-amber-500/45 bg-amber-500/6 px-3 py-3 sm:flex-row sm:items-center"
+                >
+                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-500/12 text-amber-800 dark:text-amber-200">
+                    {ghost.kind === "task" ? (
+                      <CheckSquare2 className="size-4" aria-hidden="true" />
+                    ) : (
+                      <FileText className="size-4" aria-hidden="true" />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">
+                      {ghost.title || "Bez naslova"}
+                    </span>
+                    <span className="mt-1 block text-xs text-amber-800 dark:text-amber-200">
+                      Čeka odobrenje autora roditeljskog kanvasa
+                      {ghost.requester?.displayName
+                        ? ` · predložio/la ${ghost.requester.displayName}`
+                        : ""}
+                    </span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="self-end sm:self-auto"
+                    onClick={() => onOpenDetails(ghost.pageId)}
+                  >
+                    <Eye aria-hidden="true" />
+                    Detalji
+                  </Button>
+                </li>
+              ))}
             </ul>
           </Card>
         )}
