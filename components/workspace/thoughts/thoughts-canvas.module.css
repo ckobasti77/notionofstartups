@@ -13,6 +13,10 @@
   background: transparent;
 }
 
+.canvas :global(.react-flow__node) {
+  overflow: visible;
+}
+
 .canvas :global(.react-flow__pane) {
   cursor: crosshair;
 }

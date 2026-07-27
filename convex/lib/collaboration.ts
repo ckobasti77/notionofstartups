@@ -19,6 +19,7 @@ export async function insertContribution(
     content: string;
     sourceKind?: "idea_original" | "page_entry" | "page_body";
     sourceId?: string;
+    moderationStatus?: "pending" | "approved" | "rejected";
     createdAt?: number;
   },
 ) {
@@ -33,6 +34,7 @@ export async function insertContribution(
     content: value.content,
     sourceKind: value.sourceKind,
     sourceId: value.sourceId,
+    moderationStatus: value.moderationStatus,
     archivedAt: null,
     createdAt: value.createdAt ?? now,
     updatedAt: now,
@@ -96,7 +98,7 @@ export async function archiveIdeaAndRelations(
     )
     .take(201);
   if (contributions.length > 200) {
-    throw new Error("Ova ideja ima previše doprinosa za jedno atomsko brisanje.");
+    throw new Error("Ova ideja ima previše izmena za jedno atomsko brisanje.");
   }
   for (const contribution of contributions) {
     await ctx.db.patch("contentContributions", contribution._id, {
@@ -105,4 +107,3 @@ export async function archiveIdeaAndRelations(
     });
   }
 }
-

@@ -35,6 +35,8 @@ import {
   Link2,
   LoaderCircle,
   Plus,
+  Redo2,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,6 +52,7 @@ import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-c
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
+import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 
 type AreaCanvasViewProps = {
   startupId: Id<"startups">;
@@ -166,12 +169,15 @@ function AreaCanvasReady({
   onCreatePage,
 }: AreaCanvasReadyProps) {
   const flowRef = useRef<ReactFlowInstance<AreaFlowNode, AreaFlowEdge> | null>(null);
+  const preDragPositionsRef = useRef(new Map<string, { x: number; y: number }>());
   const viewportInitialized = useRef(false);
   const movePages = useMutation(api.canvases.moveAreaCanvasPages);
   const resizePage = useMutation(api.canvases.resizeAreaCanvasPage);
+  const resetPageSize = useMutation(api.canvases.resetAreaCanvasPageSize);
   const saveViewport = useMutation(api.canvases.saveAreaCanvasViewport);
   const connectPages = useMutation(api.canvases.connectAreaCanvasPages);
   const disconnectPages = useMutation(api.canvases.disconnectAreaCanvasPages);
+  const { historyState, pushHistory, runHistory } = useWorkspaceHistory();
 
   const incomingNodes = useMemo<AreaFlowNode[]>(
     () =>
@@ -184,12 +190,14 @@ function AreaCanvasReady({
         style: { width: page.width, height: page.height },
         data: {
           title: page.title,
+          text: page.text,
           kind: page.kind,
           taskStatus: page.taskStatus,
           taskPriority: page.taskPriority,
           creatorName: page.creator?.displayName ?? "Član tima",
           creatorAvatarUrl: page.creator?.avatarUrl ?? null,
           updatedAt: page.updatedAt,
+          canResize: page.canResize,
         },
         deletable: false,
         ariaLabel: `${page.kind === "task" ? "Zadatak" : "Beleška"}: ${page.title}`,
@@ -270,18 +278,30 @@ function AreaCanvasReady({
       addEdge({ ...connection, id: temporaryId, type: "default" }, current),
     );
     try {
-      await connectPages({
+      let currentEdgeId = await connectPages({
         startupId,
         areaId,
         source: connection.source as Id<"pages">,
         target: connection.target as Id<"pages">,
+      });
+      pushHistory({
+        label: "povezivanje kartica",
+        undo: () => disconnectPages({ startupId, edgeIds: [currentEdgeId] }),
+        redo: async () => {
+          currentEdgeId = await connectPages({
+            startupId,
+            areaId,
+            source: connection.source as Id<"pages">,
+            target: connection.target as Id<"pages">,
+          });
+        },
       });
       toast.success("Kartice su povezane.");
     } catch (error) {
       setEdges((current) => current.filter((edge) => edge.id !== temporaryId));
       toast.error(error instanceof Error ? error.message : "Veza nije sačuvana.");
     }
-  }, [areaId, connectPages, startupId]);
+  }, [areaId, connectPages, disconnectPages, pushHistory, startupId]);
 
   const handleMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, next: Viewport) => {
     setViewport(next);
@@ -301,18 +321,59 @@ function AreaCanvasReady({
     <AreaNodeActionsProvider
       open={onOpenPage}
       resize={(pageId, layout) => {
+        const previous = canvasData.pages.find((page) => page._id === pageId);
+        if (!previous) return;
+        const after = {
+          width: Math.round(layout.width),
+          height: Math.round(layout.height),
+        };
         void resizePage({
           startupId,
           pageId,
-          width: Math.round(layout.width),
-          height: Math.round(layout.height),
-        }).catch((error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Veličina kartice nije sačuvana.",
-          );
-        });
+          ...after,
+        })
+          .then(() => {
+            pushHistory({
+              label: `promena veličine ${kind === "task" ? "zadatka" : "beleške"}`,
+              undo: () => resizePage({
+                startupId,
+                pageId,
+                width: previous.width,
+                height: previous.height,
+              }),
+              redo: () => resizePage({ startupId, pageId, ...after }),
+            });
+          })
+          .catch((error) => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : "Veličina kartice nije sačuvana.",
+            );
+          });
+      }}
+      resetSize={(pageId) => {
+        const previous = canvasData.pages.find((page) => page._id === pageId);
+        if (!previous) return;
+        void resetPageSize({ startupId, pageId })
+          .then(() => {
+            pushHistory({
+              label: `vraćanje početne veličine ${kind === "task" ? "zadatka" : "beleške"}`,
+              undo: () => resizePage({
+                startupId,
+                pageId,
+                width: previous.width,
+                height: previous.height,
+              }),
+              redo: () => resetPageSize({ startupId, pageId }),
+            });
+            toast.success("Vraćena je početna veličina kartice.");
+          })
+          .catch((error) => {
+            toast.error(
+              error instanceof Error ? error.message : "Početna veličina nije vraćena.",
+            );
+          });
       }}
     >
       <div
@@ -331,6 +392,12 @@ function AreaCanvasReady({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void handleConnect(connection)}
+          onNodeDragStart={(_event, node) => {
+            preDragPositionsRef.current.set(node.id, {
+              x: node.position.x,
+              y: node.position.y,
+            });
+          }}
           onNodeClick={(event, node) => {
             const target = event.target as HTMLElement;
             if (
@@ -343,17 +410,33 @@ function AreaCanvasReady({
             onOpenPage(node.id as Id<"pages">);
           }}
           onNodeDragStop={(_event, node) => {
+            const before = preDragPositionsRef.current.get(node.id);
+            const after = {
+              pageId: node.id as Id<"pages">,
+              x: Math.round(node.position.x),
+              y: Math.round(node.position.y),
+            };
+            preDragPositionsRef.current.delete(node.id);
+            if (!before || (before.x === after.x && before.y === after.y)) return;
             void movePages({
               startupId,
               areaId,
-              updates: [{
-                pageId: node.id as Id<"pages">,
-                x: Math.round(node.position.x),
-                y: Math.round(node.position.y),
-              }],
-            }).catch((error) => {
-              toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
-            });
+              updates: [after],
+            })
+              .then(() => {
+                pushHistory({
+                  label: `pomeranje ${kind === "task" ? "zadatka" : "beleške"}`,
+                  undo: () => movePages({
+                    startupId,
+                    areaId,
+                    updates: [{ pageId: after.pageId, x: before.x, y: before.y }],
+                  }),
+                  redo: () => movePages({ startupId, areaId, updates: [after] }),
+                });
+              })
+              .catch((error) => {
+                toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
+              });
           }}
           onNodeDoubleClick={(_event, node) => onOpenPage(node.id as Id<"pages">)}
           onEdgesDelete={(deletedEdges) => {
@@ -361,9 +444,33 @@ function AreaCanvasReady({
               .filter((edge) => !edge.id.startsWith("pending:"))
               .map((edge) => edge.id as Id<"pageEdges">);
             if (edgeIds.length) {
-              void disconnectPages({ startupId, edgeIds }).catch((error) => {
-                toast.error(error instanceof Error ? error.message : "Veza nije uklonjena.");
-              });
+              const removed = deletedEdges
+                .filter((edge) => !edge.id.startsWith("pending:"))
+                .map((edge) => ({
+                  source: edge.source as Id<"pages">,
+                  target: edge.target as Id<"pages">,
+                }));
+              let currentEdgeIds = edgeIds;
+              void disconnectPages({ startupId, edgeIds })
+                .then(() => {
+                  pushHistory({
+                    label: "uklanjanje veze kartica",
+                    undo: async () => {
+                      currentEdgeIds = await Promise.all(
+                        removed.map((edge) =>
+                          connectPages({ startupId, areaId, ...edge }),
+                        ),
+                      );
+                    },
+                    redo: () => disconnectPages({
+                      startupId,
+                      edgeIds: currentEdgeIds,
+                    }),
+                  });
+                })
+                .catch((error) => {
+                  toast.error(error instanceof Error ? error.message : "Veza nije uklonjena.");
+                });
             }
           }}
           onMove={(_event, next) => setViewport(next)}
@@ -427,6 +534,28 @@ function AreaCanvasReady({
                 onClick={() => onCreatePage(kind)}
               >
                 <Plus className="size-4" /> {isTask ? "Novi zadatak" : "Nova beleška"}
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-10 rounded-2xl shadow-md"
+                aria-label="Poništi poslednju promenu"
+                disabled={historyState.undoCount === 0 || historyState.busy}
+                onClick={() => void runHistory("undo")}
+              >
+                <Undo2 className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-10 rounded-2xl shadow-md"
+                aria-label="Ponovi promenu"
+                disabled={historyState.redoCount === 0 || historyState.busy}
+                onClick={() => void runHistory("redo")}
+              >
+                <Redo2 className="size-4" />
               </Button>
             </div>
           </Panel>

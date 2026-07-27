@@ -1,0 +1,223 @@
+.shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  overflow: visible;
+  color: var(--foreground);
+  isolation: isolate;
+}
+
+.surface {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--node-accent) 34%, var(--border));
+  border-radius: var(
+    --orbital-shape,
+    42% 58% 52% 48% / 46% 44% 56% 54%
+  );
+  background: color-mix(in oklab, var(--node-accent) 8%, var(--card));
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
+    0 16px 36px color-mix(in oklab, var(--node-accent) 9%, transparent);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.shell:hover .surface,
+.selected .surface {
+  border-color: color-mix(in oklab, var(--node-accent) 74%, var(--border));
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--node-accent) 12%, transparent),
+    0 18px 42px color-mix(in oklab, var(--node-accent) 15%, transparent);
+}
+
+.textViewport {
+  position: absolute;
+  z-index: 10;
+  inset: 2.9rem 2.2rem 2.65rem;
+  overflow: auto;
+  outline: none;
+  color: color-mix(in oklab, var(--foreground) 84%, transparent);
+  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 20px;
+  scrollbar-gutter: stable;
+}
+
+.textViewport:focus-visible {
+  border-radius: 1rem;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--node-accent) 55%, transparent);
+}
+
+.measuredText {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+}
+
+.measuredLine {
+  position: absolute;
+  display: block;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: clip;
+}
+
+.fallbackText {
+  margin: 0 auto;
+  max-width: 82%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.flowChildren {
+  position: relative;
+  z-index: 1;
+  width: min(86%, 32rem);
+  margin: 0 auto;
+  padding: 0.75rem 0 0.5rem;
+}
+
+.orbit {
+  position: absolute;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  max-width: 68%;
+  border: 1px solid color-mix(in oklab, var(--node-accent) 34%, var(--border));
+  background: color-mix(in oklab, var(--node-accent) 9%, var(--popover));
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--foreground) 11%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.titleOrbit {
+  top: 0;
+  left: 50%;
+  min-height: 2.15rem;
+  max-width: 70%;
+  transform: translate(-50%, -48%);
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 0.42rem 0.9rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.founderOrbit {
+  top: 16%;
+  left: 2%;
+  transform: translate(-18%, -50%);
+  gap: 0.42rem;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem 0.28rem 0.3rem;
+}
+
+.statusOrbit {
+  top: 16%;
+  right: 2%;
+  transform: translate(18%, -50%);
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.38rem 0.65rem;
+}
+
+.actionOrbit {
+  bottom: 12%;
+  left: 3%;
+  transform: translate(-15%, 50%);
+  border-radius: 999px;
+  padding: 0.25rem;
+}
+
+.dateOrbit {
+  right: 3%;
+  bottom: 12%;
+  transform: translate(15%, 50%);
+  gap: 0.32rem;
+  border-radius: 999px;
+  padding: 0.38rem 0.62rem;
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.founderLabel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.founderEyebrow {
+  color: var(--muted-foreground);
+  font-size: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.founderName {
+  max-width: 8rem;
+  overflow: hidden;
+  font-size: 0.625rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.handle {
+  z-index: 42 !important;
+}
+
+.resizeControl {
+  z-index: 44 !important;
+}
+
+.toolbar {
+  z-index: 50;
+}
+
+@media (max-width: 639px), (pointer: coarse) {
+  .textViewport {
+    inset: 3rem 2.25rem 2.75rem;
+  }
+
+  .titleOrbit {
+    max-width: 74%;
+  }
+
+  .founderOrbit {
+    left: 4%;
+  }
+
+  .statusOrbit {
+    right: 4%;
+  }
+
+  .founderEyebrow {
+    display: none;
+  }
+
+  .orbit button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface {
+    transition: none;
+  }
+}

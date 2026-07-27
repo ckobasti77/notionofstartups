@@ -1,6 +1,11 @@
 "use client";
 
-import { Maximize2, Minimize2, RectangleHorizontal } from "lucide-react";
+import {
+  Maximize2,
+  Minimize2,
+  RectangleHorizontal,
+  RotateCcw,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -31,10 +36,12 @@ export const workspaceItemDialogContentClass =
 export function ItemSizePicker({
   value,
   onChange,
+  onReset,
   className,
 }: {
   value?: ItemSizePreset;
   onChange: (preset: ItemSizePreset) => void;
+  onReset?: () => void;
   className?: string;
 }) {
   return (
@@ -61,6 +68,18 @@ export function ItemSizePicker({
           );
         })}
       </div>
+      {onReset ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-9 w-full gap-1.5 rounded-xl text-xs text-muted-foreground hover:text-foreground"
+          onClick={onReset}
+        >
+          <RotateCcw className="size-3.5" />
+          Vrati početnu veličinu
+        </Button>
+      ) : null}
     </fieldset>
   );
 }

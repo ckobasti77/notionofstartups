@@ -558,7 +558,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
       await deleteEntry({
         contributionId: entry._id,
       });
-      toast.success("Doprinos je uklonjen.", {
+      toast.success("Tekst je uklonjen.", {
         duration: 8_000,
         action: {
           label: "Undo",
@@ -567,7 +567,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
               toast.error(
                 error instanceof Error
                   ? error.message
-                  : "Doprinos nije vraćen.",
+                  : "Tekst nije vraćen.",
               ),
             ),
         },
@@ -581,7 +581,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
     <div className="my-8 space-y-6 border-t border-border/60 pt-6">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-wide uppercase text-muted-foreground">
-          Sadržaji i Doprinosi Članova ({entries?.length ?? 0})
+          Osnovni sadržaj i izmene članova ({entries?.length ?? 0})
         </h3>
         <span className="text-xs text-muted-foreground">
           Svaki član ima svoj označen blok sa avatarom i vremenom
@@ -594,7 +594,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
           <Skeleton className="h-28 rounded-2xl" />
         ) : entries.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            Još nema doprinosa.
+            Još nema izmena članova.
           </div>
         ) : entries.map((entry) => {
           const formattedTime = new Date(entry.createdAt).toLocaleString("sr-RS", {
@@ -652,8 +652,8 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
                       className="size-7 text-muted-foreground hover:text-destructive"
                       aria-label={
                         entry.canDeleteDirectly
-                          ? "Obriši moj doprinos"
-                          : "Zatraži brisanje doprinosa"
+                          ? "Obriši moj tekst"
+                          : "Zatraži brisanje teksta"
                       }
                       onClick={() => void handleDeleteEntry(entry)}
                     >
@@ -688,13 +688,13 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
                           })
                             .then(() => {
                               setEditingEntryId(null);
-                              toast.success("Doprinos je sačuvan.");
+                              toast.success("Tekst je sačuvan.");
                             })
                             .catch((error) =>
                               toast.error(
                                 error instanceof Error
                                   ? error.message
-                                  : "Doprinos nije sačuvan.",
+                                  : "Tekst nije sačuvan.",
                               ),
                             )
                         }
@@ -724,7 +724,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
       {/* Add New Entry Box */}
       <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-4 space-y-3">
         <label className="text-xs font-semibold text-foreground block">
-          Dodaj svoj doprinos na ovoj stranici (sa tvojim avatarom i pečatom vremena):
+          Dodaj svoj tekst na ovoj stranici (sa tvojim avatarom i vremenom):
         </label>
         <textarea
           value={newEntryText}

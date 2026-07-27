@@ -130,8 +130,15 @@ export const list = query({
             .eq("archivedAt", null),
         )
         .order("desc")
-        .take(4);
+        .take(200);
       const ownsNode = node.authorProfileId === profile._id;
+      const visibleContributions = contributions.filter(
+        (item) =>
+          item.sourceKind !== "idea_original" &&
+          (item.moderationStatus !== "rejected" ||
+            item.authorProfileId === profile._id ||
+            ownsNode),
+      );
       const parent =
         node.parentIdeaId === undefined
           ? null
@@ -145,8 +152,7 @@ export const list = query({
         userVote,
         isApproved,
         netVotes: upvotes - downvotes,
-        contributionCount: contributions.length,
-        contributionPreview: contributions.map((item) => item.content),
+        contributionCount: visibleContributions.length,
         pendingDeletionRequest:
           pendingDeletionByIdeaId.get(node._id) ?? null,
         canEdit: ownsNode,
@@ -185,7 +191,7 @@ export const list = query({
 export const create = mutation({
   args: {
     startupId: v.id("startups"),
-    title: v.optional(v.string()),
+    title: v.string(),
     text: v.string(),
     x: v.optional(v.number()),
     y: v.optional(v.number()),
@@ -196,7 +202,11 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
     const cleanedText = cleanRequiredText(args.text, "Tekst ideje", 12000);
-    const cleanedTitle = args.title ? args.title.trim() : null;
+    const cleanedTitle = cleanRequiredText(
+      args.title,
+      "Naslov ideje",
+      MAX_IDEA_TITLE,
+    );
     const now = Date.now();
 
     const ideaId = await ctx.db.insert("ideaNodes", {
@@ -223,6 +233,7 @@ export const create = mutation({
       content: cleanedText,
       sourceKind: "idea_original",
       sourceId: ideaId,
+      moderationStatus: "approved",
       createdAt: now,
     });
 
@@ -338,7 +349,7 @@ export const update = mutation({
   args: {
     startupId: v.id("startups"),
     ideaId: v.id("ideaNodes"),
-    title: v.union(v.string(), v.null()),
+    title: v.string(),
     text: v.string(),
     color: ideaColorValidator,
   },
@@ -357,9 +368,14 @@ export const update = mutation({
       throw new Error("Možete urediti samo svoju ideju.");
     }
 
+    const title = cleanRequiredText(
+      args.title,
+      "Naslov ideje",
+      MAX_IDEA_TITLE,
+    );
     const text = cleanRequiredText(args.text, "Tekst ideje", MAX_IDEA_TEXT);
     await ctx.db.patch(args.ideaId, {
-      title: cleanOptionalText(args.title, "Naslov", MAX_IDEA_TITLE),
+      title,
       text,
       color: args.color,
       updatedAt: Date.now(),
@@ -419,6 +435,35 @@ export const updateLayout = mutation({
         MIN_IDEA_HEIGHT,
         MAX_IDEA_HEIGHT,
       ),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const resetLayoutSize = mutation({
+  args: {
+    startupId: v.id("startups"),
+    ideaId: v.id("ideaNodes"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const idea = await ctx.db.get(args.ideaId);
+    if (
+      idea === null ||
+      idea.startupId !== args.startupId ||
+      idea.archivedAt !== null
+    ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    if (idea.authorProfileId !== profile._id) {
+      throw new Error("Možete promeniti veličinu samo svoje kartice.");
+    }
+
+    await ctx.db.patch(args.ideaId, {
+      width: undefined,
+      height: undefined,
       updatedAt: Date.now(),
     });
     return null;
@@ -705,7 +750,7 @@ export const archive = mutation({
       )
       .take(201);
     if (contributions.length > 200) {
-      throw new Error("Ideja ima previše doprinosa za jedno atomsko brisanje.");
+      throw new Error("Ideja ima previše izmena za jedno atomsko brisanje.");
     }
     const now = Date.now();
     const foreign = contributions.filter(
@@ -739,7 +784,7 @@ export const archive = mutation({
         action: "content_recovered",
         targetType: "recovered",
         targetId: recoveredId,
-        title: "Tuđi doprinosi su sačuvani u Oporavljeno",
+        title: "Tuđe izmene su sačuvane u Oporavljeno",
       });
     }
     const foreignIds = new Set(foreign.map((item) => item._id));
@@ -798,9 +843,6 @@ export const restoreOwn = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (Date.now() - idea.archivedAt > 8_000) {
-      throw new Error("Vreme za Undo je isteklo.");
-    }
     const recovered = await ctx.db
       .query("recoveredContent")
       .withIndex("by_startupId_and_archivedAt_and_createdAt", (q) =>
@@ -810,7 +852,7 @@ export const restoreOwn = mutation({
       .take(50);
     if (recovered.some((item) => item.sourceTargetId === idea._id)) {
       throw new Error(
-        "Ideja sa izdvojenim tuđim doprinosima ne može se vratiti Undo akcijom.",
+        "Ideja sa izdvojenim tuđim izmenama ne može se vratiti Undo akcijom.",
       );
     }
     const now = Date.now();

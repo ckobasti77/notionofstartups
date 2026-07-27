@@ -45,6 +45,7 @@ export function ThoughtEditorDialog({
   pending,
   sizePreset,
   onSizePresetChange,
+  onSizeReset,
   onOpenChange,
   onSubmit,
 }: {
@@ -55,6 +56,7 @@ export function ThoughtEditorDialog({
   pending: boolean;
   sizePreset?: ItemSizePreset;
   onSizePresetChange?: (preset: ItemSizePreset) => void;
+  onSizeReset?: () => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: (value: ThoughtEditorValue) => void | Promise<void>;
 }) {
@@ -100,13 +102,13 @@ export function ThoughtEditorDialog({
             <DialogDescription>
               {connected
                 ? "Nova misao će odmah biti povezana sa izabranom."
-                : "Naslov je opcion, a tekst ostaje privatan samo tebi."}
+                : "Naslov i tekst ostaju privatni samo tebi."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
             <div className="space-y-2">
-              <Label htmlFor="thought-title">Naslov <span className="font-normal text-muted-foreground">(opciono)</span></Label>
+              <Label htmlFor="thought-title">Naslov</Label>
               <Input
                 id="thought-title"
                 value={title}
@@ -133,6 +135,7 @@ export function ThoughtEditorDialog({
               <ItemSizePicker
                 value={sizePreset}
                 onChange={onSizePresetChange}
+                onReset={onSizeReset}
               />
             ) : null}
             <fieldset>
@@ -166,7 +169,14 @@ export function ThoughtEditorDialog({
             <Button type="button" variant="ghost" onClick={requestClose} disabled={pending}>
               Otkaži
             </Button>
-            <Button type="submit" disabled={pending || text.trim().length === 0}>
+            <Button
+              type="submit"
+              disabled={
+                pending ||
+                title.trim().length === 0 ||
+                text.trim().length === 0
+              }
+            >
               {pending ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
               {mode === "edit" ? "Sačuvaj" : "Dodaj misao"}
             </Button>

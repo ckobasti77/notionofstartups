@@ -401,7 +401,7 @@ export const saveViewport = mutation({
 export const createNode = mutation({
   args: {
     startupId: v.id("startups"),
-    title: v.optional(v.string()),
+    title: v.string(),
     text: v.string(),
     x: v.number(),
     y: v.number(),
@@ -411,7 +411,7 @@ export const createNode = mutation({
   returns: v.id("thoughtNodes"),
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
-    const title = cleanNullableText(
+    const title = cleanRequiredText(
       args.title,
       "Naslov misli",
       MAX_THOUGHT_TITLE,
@@ -443,7 +443,7 @@ export const createNode = mutation({
 export const updateNode = mutation({
   args: {
     nodeId: v.id("thoughtNodes"),
-    title: v.optional(v.union(v.string(), v.null())),
+    title: v.optional(v.string()),
     text: v.optional(v.string()),
     color: v.optional(thoughtColorValidator),
     isParent: v.optional(v.boolean()),
@@ -455,7 +455,11 @@ export const updateNode = mutation({
     const title =
       args.title === undefined
         ? node.title
-        : cleanNullableText(args.title, "Naslov misli", MAX_THOUGHT_TITLE);
+        : cleanRequiredText(
+            args.title,
+            "Naslov misli",
+            MAX_THOUGHT_TITLE,
+          );
     const text =
       args.text === undefined ? node.text : cleanThoughtText(args.text);
     const color: ThoughtColor = args.color ?? node.color;
@@ -553,6 +557,22 @@ export const updateNodeLayout = mutation({
         MIN_THOUGHT_HEIGHT,
         MAX_THOUGHT_HEIGHT,
       ),
+      updatedAt: Date.now(),
+    });
+    return nodes[0]._id;
+  },
+});
+
+export const resetNodeLayoutSize = mutation({
+  args: {
+    nodeId: v.id("thoughtNodes"),
+  },
+  returns: v.id("thoughtNodes"),
+  handler: async (ctx, args) => {
+    const { nodes } = await requireOwnedNodes(ctx, [args.nodeId]);
+    await ctx.db.patch("thoughtNodes", args.nodeId, {
+      width: undefined,
+      height: undefined,
       updatedAt: Date.now(),
     });
     return nodes[0]._id;
@@ -1319,7 +1339,7 @@ export const convertToIdeas = mutation({
       const ideaId = await ctx.db.insert("ideaNodes", {
         startupId: args.startupId,
         authorProfileId: profile._id,
-        title: node.title,
+        title: node.title ?? defaultThoughtTitle(node),
         text: node.text,
         x: node.x,
         y: node.y,
@@ -1339,6 +1359,7 @@ export const convertToIdeas = mutation({
         content: node.text,
         sourceKind: "idea_original",
         sourceId: ideaId,
+        moderationStatus: "approved",
         createdAt: now,
       });
       await ctx.db.insert("ideaVotes", {

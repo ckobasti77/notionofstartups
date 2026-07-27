@@ -62,6 +62,7 @@ import {
   ITEM_SIZE_DIMENSIONS,
   type ItemSizePreset,
 } from "@/components/workspace/workspace-item-dialog";
+import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -101,12 +102,6 @@ type ConversionState = {
   nodeIds: Id<"thoughtNodes">[];
 } | null;
 
-type HistoryEntry = {
-  label: string;
-  undo: () => Promise<unknown>;
-  redo: () => Promise<unknown>;
-};
-
 const NODE_TYPES = { thought: ThoughtNode };
 const EDGE_TYPES = { default: ThoughtEdge };
 
@@ -142,7 +137,10 @@ const SERBIAN_ARIA_LABELS = {
   "handle.ariaLabel": "Tačka za povezivanje misli",
 } as const;
 
-function toFlowNode(doc: ThoughtNodeDoc): ThoughtFlowNode {
+function toFlowNode(
+  doc: ThoughtNodeDoc,
+  founder: { displayName: string; avatarUrl: string | null },
+): ThoughtFlowNode {
   const width = doc.width ?? (doc.isParent ? 240 : 232);
   const height = doc.height ?? 160;
   return {
@@ -158,6 +156,9 @@ function toFlowNode(doc: ThoughtNodeDoc): ThoughtFlowNode {
       conversionCount: doc.conversionCount,
       lastConvertedIdeaId: doc.lastConvertedIdeaId ?? null,
       lastConvertedPageId: doc.lastConvertedPageId,
+      authorName: founder.displayName,
+      authorAvatarUrl: founder.avatarUrl,
+      createdAt: doc.createdAt,
     },
     parentId: doc.parentThoughtId,
     expandParent: doc.parentThoughtId !== undefined,
@@ -320,10 +321,6 @@ function ThoughtsCanvasBody({
   const sidebarDragTerminatedRef = useRef(false);
   const sidebarDragSessionIdRef = useRef<string | null>(null);
   const sidebarDragInputRef = useRef<ThoughtSidebarDragReleaseDetail | null>(null);
-  const undoStackRef = useRef<HistoryEntry[]>([]);
-  const redoStackRef = useRef<HistoryEntry[]>([]);
-  const historyBusyRef = useRef(false);
-
   const dark = useDarkTheme();
   const reducedMotion = useReducedMotion();
   const convex = useConvex();
@@ -344,6 +341,7 @@ function ThoughtsCanvasBody({
   const updateNode = useMutation(api.thoughts.updateNode);
   const moveNodes = useMutation(api.thoughts.moveNodes);
   const updateNodeLayout = useMutation(api.thoughts.updateNodeLayout);
+  const resetNodeLayoutSize = useMutation(api.thoughts.resetNodeLayoutSize);
   const nestNode = useMutation(api.thoughts.nestNode);
   const detachNode = useMutation(api.thoughts.detachNode);
   const duplicateNodes = useMutation(api.thoughts.duplicateNodes);
@@ -373,11 +371,7 @@ function ThoughtsCanvasBody({
   });
   const [contextOpen, setContextOpen] = useState(false);
   const [conversion, setConversion] = useState<ConversionState>(null);
-  const [historyState, setHistoryState] = useState({
-    undoCount: 0,
-    redoCount: 0,
-    busy: false,
-  });
+  const { historyState, pushHistory, runHistory } = useWorkspaceHistory();
   const [sidebarDragActive, setSidebarDragActive] = useState(false);
 
   useEffect(() => {
@@ -451,10 +445,10 @@ function ThoughtsCanvasBody({
           !ids.has(rawDoc.parentThoughtId)
             ? { ...rawDoc, parentThoughtId: undefined }
             : rawDoc;
-        return { ...toFlowNode(doc), selected: selection.has(doc._id) };
+        return { ...toFlowNode(doc, profile), selected: selection.has(doc._id) };
       });
     });
-  }, [nodeDocs]);
+  }, [nodeDocs, profile]);
 
   useEffect(() => {
     // See the node reconciliation above. Edge selection remains client-local.
@@ -481,48 +475,6 @@ function ThoughtsCanvasBody({
       });
     }
   }, [canvas, flowInstance, nodeDocs.length, reducedMotion]);
-
-  const pushHistory = useCallback((entry: HistoryEntry) => {
-    if (historyBusyRef.current) return;
-    undoStackRef.current = [...undoStackRef.current.slice(-49), entry];
-    redoStackRef.current = [];
-    setHistoryState({
-      undoCount: undoStackRef.current.length,
-      redoCount: 0,
-      busy: false,
-    });
-  }, []);
-
-  const runHistory = useCallback(async (direction: "undo" | "redo") => {
-    if (historyBusyRef.current) return;
-    const source = direction === "undo" ? undoStackRef : redoStackRef;
-    const destination = direction === "undo" ? redoStackRef : undoStackRef;
-    const entry = source.current.at(-1);
-    if (!entry) return;
-
-    historyBusyRef.current = true;
-    setHistoryState((current) => ({ ...current, busy: true }));
-    try {
-      await (direction === "undo" ? entry.undo() : entry.redo());
-      source.current = source.current.slice(0, -1);
-      destination.current = [...destination.current, entry];
-      setHistoryState({
-        undoCount: undoStackRef.current.length,
-        redoCount: redoStackRef.current.length,
-        busy: false,
-      });
-      toast.success(direction === "undo" ? `Poništeno: ${entry.label}` : `Ponovljeno: ${entry.label}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Promena nije mogla da se primeni.");
-    } finally {
-      historyBusyRef.current = false;
-      setHistoryState({
-        undoCount: undoStackRef.current.length,
-        redoCount: redoStackRef.current.length,
-        busy: false,
-      });
-    }
-  }, []);
 
   const openEditor = useCallback((nodeId: Id<"thoughtNodes">) => {
     setEditor({ mode: "edit", nodeId });
@@ -624,7 +576,7 @@ function ThoughtsCanvasBody({
       setConnectedNodeIds(ids);
       setNodes((current) => {
         const merged = new Map(current.map((node) => [node.id, node]));
-        result.nodes.forEach((doc) => merged.set(doc._id, toFlowNode(doc)));
+        result.nodes.forEach((doc) => merged.set(doc._id, toFlowNode(doc, profile)));
         return Array.from(merged.values()).map((node) => ({ ...node, selected: ids.has(node.id) }));
       });
       if (result.truncated) {
@@ -635,13 +587,20 @@ function ThoughtsCanvasBody({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Povezane misli nisu učitane.");
     }
-  }, [convex, startup._id]);
+  }, [convex, profile, startup._id]);
 
   const edgeReconnectSuccessfulRef = useRef(false);
 
   const toggleParent = useCallback(async (nodeId: Id<"thoughtNodes">) => {
+    const previous = nodeDocsById.get(nodeId);
+    if (!previous) return;
     try {
       const isParent = await toggleNodeParent({ nodeId });
+      pushHistory({
+        label: isParent ? "postavljanje glavne misli" : "uklanjanje glavne misli",
+        undo: () => toggleNodeParent({ nodeId, isParent: previous.isParent }),
+        redo: () => toggleNodeParent({ nodeId, isParent }),
+      });
       toast.success(
         isParent
           ? "Misao je postavljena kao glavna (Parent)."
@@ -650,7 +609,7 @@ function ThoughtsCanvasBody({
     } catch {
       toast.error("Glavna misao nije izmenjena.");
     }
-  }, [toggleNodeParent]);
+  }, [nodeDocsById, pushHistory, toggleNodeParent]);
 
   const onReconnectStart = useCallback(() => {
     edgeReconnectSuccessfulRef.current = false;
@@ -937,7 +896,7 @@ function ThoughtsCanvasBody({
           x: editor.position.x,
           y: editor.position.y,
           color: value.color,
-          ...(value.title ? { title: value.title } : {}),
+          title: value.title,
         });
         let edgeId: Id<"thoughtEdges"> | null = null;
         if (editor.connectFrom) {
@@ -970,13 +929,13 @@ function ThoughtsCanvasBody({
       } else {
         const previous = nodeDocsById.get(editor.nodeId);
         if (!previous) throw new Error("Misao više nije dostupna.");
-        const next = { title: value.title || null, text: value.text, color: value.color };
+        const next = { title: value.title, text: value.text, color: value.color };
         await updateNode({ nodeId: editor.nodeId, ...next });
         pushHistory({
           label: "uređivanje misli",
           undo: () => updateNode({
             nodeId: editor.nodeId,
-            title: previous.title,
+            title: previous.title ?? "Bez naslova",
             text: previous.text,
             color: previous.color,
           }),
@@ -1044,16 +1003,6 @@ function ThoughtsCanvasBody({
       void duplicateSelection(selectedThoughtIds(nodes));
       return;
     }
-    if (modifier && event.key.toLowerCase() === "z") {
-      event.preventDefault();
-      void runHistory(event.shiftKey ? "redo" : "undo");
-      return;
-    }
-    if (modifier && event.key.toLowerCase() === "y") {
-      event.preventDefault();
-      void runHistory("redo");
-      return;
-    }
     if (event.shiftKey && event.key === "F10") {
       event.preventDefault();
       invokeKeyboardContextMenu();
@@ -1066,7 +1015,7 @@ function ThoughtsCanvasBody({
         edges.filter((edge) => edge.selected).map((edge) => edge.id as Id<"thoughtEdges">),
       );
     }
-  }, [archiveSelection, duplicateSelection, edges, invokeKeyboardContextMenu, nodes, runHistory]);
+  }, [archiveSelection, duplicateSelection, edges, invokeKeyboardContextMenu, nodes]);
 
   const selectedNodeIds = useMemo(() => selectedThoughtIds(nodes), [nodes]);
   const selectedEdgeIds = useMemo(
@@ -1087,6 +1036,82 @@ function ThoughtsCanvasBody({
   const canLoadEdges = edgePagination.status === "CanLoadMore" || edgePagination.status === "LoadingMore";
   const loadingFirstPage = nodePagination.status === "LoadingFirstPage";
 
+  const persistThoughtSize = useCallback(
+    (
+      nodeId: Id<"thoughtNodes">,
+      layout: { x: number; y: number; width?: number; height?: number },
+    ) => {
+      if (layout.width === undefined || layout.height === undefined) {
+        return resetNodeLayoutSize({ nodeId });
+      }
+      return updateNodeLayout({
+        nodeId,
+        x: Math.round(layout.x),
+        y: Math.round(layout.y),
+        width: Math.round(layout.width),
+        height: Math.round(layout.height),
+      });
+    },
+    [resetNodeLayoutSize, updateNodeLayout],
+  );
+
+  const resizeThought = useCallback(async (
+    nodeId: Id<"thoughtNodes">,
+    layout: { x: number; y: number; width: number; height: number },
+  ) => {
+    const previous = nodeDocsById.get(nodeId);
+    if (!previous) return;
+    const before = {
+      x: previous.x,
+      y: previous.y,
+      width: previous.width,
+      height: previous.height,
+    };
+    const after = {
+      x: Math.round(layout.x),
+      y: Math.round(layout.y),
+      width: Math.round(layout.width),
+      height: Math.round(layout.height),
+    };
+    try {
+      await persistThoughtSize(nodeId, after);
+      pushHistory({
+        label: "promena veličine misli",
+        undo: () => persistThoughtSize(nodeId, before),
+        redo: () => persistThoughtSize(nodeId, after),
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Veličina nije sačuvana.");
+    }
+  }, [nodeDocsById, persistThoughtSize, pushHistory]);
+
+  const resetThoughtSize = useCallback(async (nodeId: Id<"thoughtNodes">) => {
+    const previous = nodeDocsById.get(nodeId);
+    if (!previous) return;
+    const before = {
+      x: previous.x,
+      y: previous.y,
+      width: previous.width,
+      height: previous.height,
+    };
+    if (before.width === undefined && before.height === undefined) return;
+    try {
+      await resetNodeLayoutSize({ nodeId });
+      pushHistory({
+        label: "vraćanje početne veličine misli",
+        undo: () => persistThoughtSize(nodeId, before),
+        redo: () => resetNodeLayoutSize({ nodeId }),
+      });
+      toast.success("Vraćena je početna veličina misli.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Početna veličina nije vraćena.",
+      );
+    }
+  }, [nodeDocsById, persistThoughtSize, pushHistory, resetNodeLayoutSize]);
+
   const nodeActions = useMemo(() => ({
     connectedNodeIds,
     edit: openEditor,
@@ -1097,20 +1122,18 @@ function ThoughtsCanvasBody({
     resize: (
       nodeId: Id<"thoughtNodes">,
       layout: { x: number; y: number; width: number; height: number },
-    ) => {
-      void updateNodeLayout({
-        nodeId,
-        x: Math.round(layout.x),
-        y: Math.round(layout.y),
-        width: Math.round(layout.width),
-        height: Math.round(layout.height),
-      }).catch((error) =>
-        toast.error(
-          error instanceof Error ? error.message : "Veličina nije sačuvana.",
-        ),
-      );
-    },
-  }), [connectedNodeIds, onOpenIdeas, onOpenPage, openEditor, requestIdeaConversion, toggleParent, updateNodeLayout]);
+    ) => void resizeThought(nodeId, layout),
+    resetSize: (nodeId: Id<"thoughtNodes">) => void resetThoughtSize(nodeId),
+  }), [
+    connectedNodeIds,
+    onOpenIdeas,
+    onOpenPage,
+    openEditor,
+    requestIdeaConversion,
+    resetThoughtSize,
+    resizeThought,
+    toggleParent,
+  ]);
 
   const edgeActions = useMemo(() => ({
     editLabel: (edgeId: string) => setEdgeEditorId(edgeId as Id<"thoughtEdges">),
@@ -1551,23 +1574,17 @@ function ThoughtsCanvasBody({
             editingNode
               ? (preset: ItemSizePreset) => {
                   const dimensions = ITEM_SIZE_DIMENSIONS[preset];
-                  void updateNodeLayout({
-                    nodeId: editingNode._id,
+                  void resizeThought(editingNode._id, {
                     x: editingNode.x,
                     y: editingNode.y,
                     ...dimensions,
-                  })
-                    .then(() =>
-                      toast.success("Veličina oblačića je sačuvana."),
-                    )
-                    .catch((error) =>
-                      toast.error(
-                        error instanceof Error
-                          ? error.message
-                          : "Veličina oblačića nije sačuvana.",
-                      ),
-                    );
+                  });
                 }
+              : undefined
+          }
+          onSizeReset={
+            editingNode
+              ? () => void resetThoughtSize(editingNode._id)
               : undefined
           }
           onOpenChange={(open) => !open && !editorPending && setEditor(null)}

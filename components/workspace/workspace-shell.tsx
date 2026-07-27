@@ -49,6 +49,10 @@ import {
   workspaceItemDialogContentClass,
   type ItemSizePreset,
 } from "@/components/workspace/workspace-item-dialog";
+import {
+  useWorkspaceHistory,
+  WorkspaceHistoryProvider,
+} from "@/components/workspace/workspace-history";
 
 const PageEditorView = dynamic(
   () => import("@/components/workspace/page-editor-view").then((module) => module.PageEditorView),
@@ -74,7 +78,15 @@ const ThoughtsCanvasView = dynamic(
   },
 );
 
-export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAvatar; onSignOut: () => void }) {
+export function WorkspaceShell(props: { profile: ProfileWithAvatar; onSignOut: () => void }) {
+  return (
+    <WorkspaceHistoryProvider>
+      <WorkspaceShellContent {...props} />
+    </WorkspaceHistoryProvider>
+  );
+}
+
+function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAvatar; onSignOut: () => void }) {
   const {
     results: startups,
     status: startupsStatus,
@@ -110,10 +122,18 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
   const movePage = useMutation(api.pages.move);
   const resizeAreaCanvasPage = useMutation(api.canvases.resizeAreaCanvasPage);
+  const resetAreaCanvasPageSize = useMutation(api.canvases.resetAreaCanvasPageSize);
+  const { pushHistory } = useWorkspaceHistory();
   const startup = startups?.find((item) => item._id === selectedStartupId) ?? startups?.[0];
   const approvalsOverview = useQuery(
     api.collaboration.overview,
     startup ? { startupId: startup._id } : "skip",
+  );
+  const detailCardSize = useQuery(
+    api.canvases.getPageCanvasSize,
+    detailPageId && startup
+      ? { startupId: startup._id, pageId: detailPageId }
+      : "skip",
   );
 
   useEffect(() => {
@@ -267,18 +287,68 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
 
   function resizeDetailCard(preset: ItemSizePreset) {
     if (!detailPageId) return;
+    const pageId = detailPageId;
+    const before: { width?: number; height?: number } = detailCardSize ?? {};
     const dimensions = ITEM_SIZE_DIMENSIONS[preset];
     void resizeAreaCanvasPage({
       startupId: startup._id,
-      pageId: detailPageId,
+      pageId,
       ...dimensions,
     })
-      .then(() => toast.success("Veličina oblačića je sačuvana."))
+      .then(() => {
+        pushHistory({
+          label: "promena veličine kartice",
+          undo: () =>
+            before.width === undefined || before.height === undefined
+              ? resetAreaCanvasPageSize({ startupId: startup._id, pageId })
+              : resizeAreaCanvasPage({
+                  startupId: startup._id,
+                  pageId,
+                  width: before.width,
+                  height: before.height,
+                }),
+          redo: () => resizeAreaCanvasPage({
+            startupId: startup._id,
+            pageId,
+            ...dimensions,
+          }),
+        });
+        toast.success("Veličina oblačića je sačuvana.");
+      })
       .catch((error) =>
         toast.error(
           error instanceof Error
             ? error.message
             : "Veličina oblačića nije sačuvana.",
+        ),
+      );
+  }
+
+  function resetDetailCardSize() {
+    if (!detailPageId || !detailCardSize) return;
+    const pageId = detailPageId;
+    const before = detailCardSize;
+    if (before.width === undefined && before.height === undefined) return;
+    void resetAreaCanvasPageSize({ startupId: startup._id, pageId })
+      .then(() => {
+        pushHistory({
+          label: "vraćanje početne veličine kartice",
+          undo: () => resizeAreaCanvasPage({
+            startupId: startup._id,
+            pageId,
+            width: before.width ?? ITEM_SIZE_DIMENSIONS.compact.width,
+            height: before.height ?? ITEM_SIZE_DIMENSIONS.compact.height,
+          }),
+          redo: () => resetAreaCanvasPageSize({
+            startupId: startup._id,
+            pageId,
+          }),
+        });
+        toast.success("Vraćena je početna veličina kartice.");
+      })
+      .catch((error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Početna veličina nije vraćena.",
         ),
       );
   }
@@ -385,6 +455,7 @@ export function WorkspaceShell({ profile, onSignOut }: { profile: ProfileWithAva
             <ItemSizePicker
               className="ml-auto w-full sm:w-auto"
               onChange={resizeDetailCard}
+              onReset={resetDetailCardSize}
             />
             <Button
               type="button"

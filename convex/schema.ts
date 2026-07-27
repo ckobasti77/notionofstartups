@@ -428,6 +428,13 @@ export default defineSchema({
       ),
     ),
     sourceId: v.optional(v.string()),
+    moderationStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("approved"),
+        v.literal("rejected"),
+      ),
+    ),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),

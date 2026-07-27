@@ -65,11 +65,125 @@ async function seedWorkspace() {
 }
 
 describe("demokratske Canvas dozvole", () => {
+  test("naslovi ideje i privatne misli ne mogu biti prazni", async () => {
+    const { startupId, asAuthor } = await seedWorkspace();
+    await expect(
+      asAuthor.mutation(api.ideas.create, {
+        startupId,
+        title: "   ",
+        text: "Tekst ideje",
+      }),
+    ).rejects.toThrow("Naslov ideje");
+    await expect(
+      asAuthor.mutation(api.thoughts.createNode, {
+        startupId,
+        title: "",
+        text: "Privatni tekst",
+        x: 0,
+        y: 0,
+        color: "violet",
+      }),
+    ).rejects.toThrow("Naslov misli");
+  });
+
+  test("izmene članova prolaze pending, reject, ponovno slanje i approve bez dupliranja osnove", async () => {
+    const { startupId, asAuthor, asMember, asAdmin } =
+      await seedWorkspace();
+    const ideaId = await asAuthor.mutation(api.ideas.create, {
+      startupId,
+      title: "Moderacija",
+      text: "Originalna ideja",
+    });
+
+    expect(
+      await asAuthor.query(api.collaboration.listContributions, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).toHaveLength(0);
+
+    const textId = await asMember.mutation(
+      api.collaboration.addContribution,
+      {
+        target: { kind: "idea", id: ideaId },
+        content: "Predlog člana",
+      },
+    );
+    expect(
+      await asAdmin.query(api.collaboration.listContributions, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        _id: textId,
+        moderationStatus: "pending",
+        content: "Predlog člana",
+      }),
+    ]);
+    await expect(
+      asMember.mutation(api.collaboration.moderateContribution, {
+        contributionId: textId,
+        decision: "approve",
+      }),
+    ).rejects.toThrow("Samo osnivač");
+
+    await asAuthor.mutation(api.collaboration.moderateContribution, {
+      contributionId: textId,
+      decision: "reject",
+    });
+    expect(
+      await asAdmin.query(api.collaboration.listContributions, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).toHaveLength(0);
+    expect(
+      await asMember.query(api.collaboration.listContributions, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        _id: textId,
+        moderationStatus: "rejected",
+      }),
+    ]);
+
+    await asMember.mutation(api.collaboration.updateContribution, {
+      contributionId: textId,
+      content: "Dorađen predlog člana",
+    });
+    expect(
+      await asAdmin.query(api.collaboration.listContributions, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        _id: textId,
+        moderationStatus: "pending",
+        content: "Dorađen predlog člana",
+      }),
+    ]);
+
+    await asAuthor.mutation(api.collaboration.moderateContribution, {
+      contributionId: textId,
+      decision: "approve",
+    });
+    expect(
+      await asAdmin.query(api.collaboration.listContributions, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        _id: textId,
+        moderationStatus: "approved",
+      }),
+    ]);
+  });
+
   test("drugi član i admin ne mogu menjati, pomerati, resize-ovati ili direktno obrisati tuđu ideju", async () => {
     const { t, startupId, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
+      title: "Autorska ideja",
       text: "Autorska ideja",
       x: 10,
       y: 20,
@@ -79,7 +193,7 @@ describe("demokratske Canvas dozvole", () => {
       asMember.mutation(api.ideas.update, {
         startupId,
         ideaId,
-        title: null,
+        title: "Tuđa izmena",
         text: "Tuđa izmena",
         color: "rose",
       }),
@@ -111,12 +225,14 @@ describe("demokratske Canvas dozvole", () => {
       await seedWorkspace();
     const childIdeaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
+      title: "Dete",
       text: "Dete",
       x: 300,
       y: 220,
     });
     const parentIdeaId = await asMember.mutation(api.ideas.create, {
       startupId,
+      title: "Parent",
       text: "Parent",
       x: 100,
       y: 100,
@@ -147,10 +263,12 @@ describe("demokratske Canvas dozvole", () => {
 
     const first = await asAuthor.mutation(api.ideas.create, {
       startupId,
+      title: "Prva",
       text: "Prva",
     });
     const second = await asAuthor.mutation(api.ideas.create, {
       startupId,
+      title: "Druga",
       text: "Druga",
     });
     await asAuthor.mutation(api.collaboration.requestNesting, {
@@ -172,6 +290,7 @@ describe("demokratske Canvas dozvole", () => {
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
+      title: "Za timsko glasanje",
       text: "Za timsko glasanje",
     });
     const requestId = await asMember.mutation(
@@ -225,6 +344,7 @@ describe("demokratske Canvas dozvole", () => {
     });
     const childIdeaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
+      title: "Ugnježđeno dete",
       text: "Ugnježđeno dete",
       x: 340,
       y: 260,
@@ -307,6 +427,14 @@ describe("demokratske Canvas dozvole", () => {
         height: 420,
       }),
     ]);
+
+    await asAuthor.mutation(api.thoughts.resetNodeLayoutSize, { nodeId });
+    const resetThoughts = await asAuthor.query(api.thoughts.listNodes, {
+      startupId,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(resetThoughts.page[0]).not.toHaveProperty("width");
+    expect(resetThoughts.page[0]).not.toHaveProperty("height");
   });
 
   test("resize ideje se vraca kroz zajednicki canvas odgovor", async () => {
@@ -338,6 +466,15 @@ describe("demokratske Canvas dozvole", () => {
         height: 420,
       }),
     );
+
+    await asAuthor.mutation(api.ideas.resetLayoutSize, {
+      startupId,
+      ideaId,
+    });
+    const resetIdeas = await asAuthor.query(api.ideas.list, { startupId });
+    const resetIdea = resetIdeas.nodes.find((idea) => idea._id === ideaId);
+    expect(resetIdea).not.toHaveProperty("width");
+    expect(resetIdea).not.toHaveProperty("height");
   });
 
   test("resize beleske ili zadatka se vraca kroz area canvas odgovor", async () => {
@@ -393,5 +530,28 @@ describe("demokratske Canvas dozvole", () => {
         height: 420,
       }),
     );
+
+    await asAuthor.mutation(api.canvases.resetAreaCanvasPageSize, {
+      startupId,
+      pageId,
+    });
+    const resetCanvas = await asAuthor.query(api.canvases.getAreaCanvas, {
+      startupId,
+      areaId,
+      kind: "note",
+    });
+    expect(resetCanvas.pages).toContainEqual(
+      expect.objectContaining({
+        _id: pageId,
+        width: 288,
+        height: 196,
+      }),
+    );
+    expect(
+      await asAuthor.query(api.canvases.getPageCanvasSize, {
+        startupId,
+        pageId,
+      }),
+    ).toEqual({});
   });
 });

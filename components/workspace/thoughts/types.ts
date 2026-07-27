@@ -25,6 +25,9 @@ export type ThoughtNodeData = {
   conversionCount: number;
   lastConvertedIdeaId: Id<"ideaNodes"> | null;
   lastConvertedPageId: Id<"pages"> | null;
+  authorName: string;
+  authorAvatarUrl: string | null;
+  createdAt: number;
 };
 
 export type ThoughtFlowNode = Node<ThoughtNodeData, "thought">;

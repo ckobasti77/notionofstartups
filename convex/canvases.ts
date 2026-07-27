@@ -19,6 +19,7 @@ const canvasViewportValidator = v.object({
 const canvasPageValidator = v.object({
   _id: v.id("pages"),
   title: v.string(),
+  text: v.string(),
   kind: pageKindValidator,
   taskStatus: v.union(taskStatusValidator, v.null()),
   taskPriority: v.union(taskPriorityValidator, v.null()),
@@ -27,6 +28,7 @@ const canvasPageValidator = v.object({
   y: v.number(),
   width: v.number(),
   height: v.number(),
+  canResize: v.boolean(),
   creator: v.union(
     v.object({
       displayName: v.string(),
@@ -48,12 +50,54 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+function plainText(content: string | undefined) {
+  if (!content) return "";
+  return content
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 const DEFAULT_PAGE_NODE_WIDTH = 288;
 const DEFAULT_PAGE_NODE_HEIGHT = 196;
 const MIN_PAGE_NODE_WIDTH = 240;
 const MIN_PAGE_NODE_HEIGHT = 168;
 const MAX_PAGE_NODE_WIDTH = 720;
 const MAX_PAGE_NODE_HEIGHT = 1_000;
+
+export const getPageCanvasSize = query({
+  args: {
+    startupId: v.id("startups"),
+    pageId: v.id("pages"),
+  },
+  returns: v.union(
+    v.object({
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    const page = await ctx.db.get("pages", args.pageId);
+    if (!page || page.startupId !== args.startupId || page.archivedAt !== null) {
+      return null;
+    }
+    const layout = await ctx.db
+      .query("pageCanvasNodes")
+      .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
+      .unique();
+    return {
+      width: layout?.width,
+      height: layout?.height,
+    };
+  },
+});
 
 export const getAreaCanvas = query({
   args: {
@@ -126,13 +170,18 @@ export const getAreaCanvas = query({
     const creatorsById = new Map(creators);
 
     const columnCount = Math.max(1, Math.ceil(Math.sqrt(pages.length)));
-    const canvasPages = pages.map((page, index) => {
+    const canvasPages = await Promise.all(pages.map(async (page, index) => {
       const layout = layoutsByPageId.get(page._id);
+      const body = await ctx.db
+        .query("pageBodies")
+        .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
+        .unique();
       const column = index % columnCount;
       const row = Math.floor(index / columnCount);
       return {
         _id: page._id,
         title: page.title,
+        text: plainText(body?.content),
         kind: page.kind,
         taskStatus: page.taskStatus,
         taskPriority: page.taskPriority,
@@ -141,9 +190,10 @@ export const getAreaCanvas = query({
         y: layout?.y ?? (row - 1) * 205,
         width: layout?.width ?? DEFAULT_PAGE_NODE_WIDTH,
         height: layout?.height ?? DEFAULT_PAGE_NODE_HEIGHT,
+        canResize: page.createdByProfileId === profile._id,
         creator: creatorsById.get(page.createdByProfileId) ?? null,
       };
-    });
+    }));
 
     const visiblePageIds = new Set(canvasPages.map((page) => page._id));
     const edges = rawEdges
@@ -236,7 +286,7 @@ export const resizeAreaCanvasPage = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     const page = await ctx.db.get("pages", args.pageId);
     if (
       page === null ||
@@ -244,6 +294,9 @@ export const resizeAreaCanvasPage = mutation({
       page.archivedAt !== null
     ) {
       throw new Error("Kartica više nije dostupna.");
+    }
+    if (page.createdByProfileId !== profile._id) {
+      throw new Error("Možete promeniti veličinu samo svoje kartice.");
     }
 
     const existing = await ctx.db
@@ -273,6 +326,41 @@ export const resizeAreaCanvasPage = mutation({
       await ctx.db.patch(existing._id, layout);
     } else {
       await ctx.db.insert("pageCanvasNodes", layout);
+    }
+    return null;
+  },
+});
+
+export const resetAreaCanvasPageSize = mutation({
+  args: {
+    startupId: v.id("startups"),
+    pageId: v.id("pages"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const page = await ctx.db.get("pages", args.pageId);
+    if (
+      page === null ||
+      page.startupId !== args.startupId ||
+      page.archivedAt !== null
+    ) {
+      throw new Error("Kartica više nije dostupna.");
+    }
+    if (page.createdByProfileId !== profile._id) {
+      throw new Error("Možete vratiti veličinu samo svoje kartice.");
+    }
+
+    const existing = await ctx.db
+      .query("pageCanvasNodes")
+      .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        width: undefined,
+        height: undefined,
+        updatedAt: Date.now(),
+      });
     }
     return null;
   },

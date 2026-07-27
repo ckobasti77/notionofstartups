@@ -354,8 +354,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
         <TabsContent value="recovered" className="mt-5">
           <Surface
             icon={FolderHeart}
-            title="Oporavljeni doprinosi"
-            description="Tuđi doprinosi izdvojeni iz obrisanog kontejnera ostaju zajednički i dostupni autorima."
+            title="Oporavljene izmene članova"
+            description="Tuđe izmene izdvojene iz obrisanog kontejnera ostaju zajedničke i dostupne autorima."
           >
             {data.recovered.length === 0 ? (
               <EmptyState icon={FolderHeart}>
@@ -371,7 +371,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     <div>
                       <h3 className="font-semibold">{item.title}</h3>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {item.contributions.length} sačuvanih doprinosa
+                        {item.contributions.length} sačuvanih izmena
                       </p>
                     </div>
                     <Button

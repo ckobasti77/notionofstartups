@@ -10,7 +10,6 @@ import {
   FolderInput,
   LayoutGrid,
   Lightbulb,
-  MessageSquareText,
   Pencil,
   Plus,
   Search,
@@ -22,7 +21,7 @@ import {
 import { toast } from "sonner";
 
 import { IdeasCanvasView } from "@/components/workspace/ideas-canvas-view";
-import { IdeaDiscussionDialog } from "@/components/workspace/idea-discussion-dialog";
+import { IdeaInlineThread } from "@/components/workspace/idea-discussion-dialog";
 import type { StartupWithAreas } from "@/components/workspace/types";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { Button } from "@/components/ui/button";
@@ -50,6 +49,7 @@ import {
   workspaceItemDialogContentClass,
   type ItemSizePreset,
 } from "@/components/workspace/workspace-item-dialog";
+import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -90,8 +90,6 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
   const [editingIdea, setEditingIdea] = useState<IdeaNodeItem | null>(null);
   const [editorPending, setEditorPending] = useState(false);
   const [convertIdea, setConvertIdea] = useState<IdeaNodeItem | null>(null);
-  const [discussionIdea, setDiscussionIdea] =
-    useState<IdeaNodeItem | null>(null);
   const [nestingIdea, setNestingIdea] = useState<IdeaNodeItem | null>(null);
   const [nestParentId, setNestParentId] =
     useState<Id<"ideaNodes"> | "">("");
@@ -116,9 +114,13 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
   const createIdeaMutation = useMutation(api.ideas.create);
   const updateIdeaMutation = useMutation(api.ideas.update);
   const updateIdeaLayoutMutation = useMutation(api.ideas.updateLayout);
+  const resetIdeaLayoutSizeMutation = useMutation(api.ideas.resetLayoutSize);
+  const archiveIdeaMutation = useMutation(api.ideas.archive);
+  const restoreIdeaMutation = useMutation(api.ideas.restoreOwn);
   const voteMutation = useMutation(api.ideas.vote);
   const convertMutation = useMutation(api.ideas.convertToPage);
   const requestNestingMutation = useMutation(api.collaboration.requestNesting);
+  const { pushHistory } = useWorkspaceHistory();
 
   const closeIdeaEditor = () => {
     setCreateDialogOpen(false);
@@ -202,6 +204,10 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
   );
 
   const handleSaveIdea = async () => {
+    if (!newTitle.trim()) {
+      toast.error("Unesite naslov ideje.");
+      return;
+    }
     if (!newText.trim()) {
       toast.error("Unesite tekst ideje.");
       return;
@@ -209,23 +215,46 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
     setEditorPending(true);
     try {
       if (editingIdea) {
+        const next = {
+          title: newTitle.trim(),
+          text: newText.trim(),
+          color: newColor,
+        };
         await updateIdeaMutation({
           startupId: startup._id,
           ideaId: editingIdea._id,
-          title: newTitle.trim() || null,
-          text: newText.trim(),
-          color: newColor,
+          ...next,
+        });
+        pushHistory({
+          label: "uređivanje ideje",
+          undo: () => updateIdeaMutation({
+            startupId: startup._id,
+            ideaId: editingIdea._id,
+            title: editingIdea.title ?? "Bez naslova",
+            text: editingIdea.text,
+            color: editingIdea.color,
+          }),
+          redo: () => updateIdeaMutation({
+            startupId: startup._id,
+            ideaId: editingIdea._id,
+            ...next,
+          }),
         });
         toast.success("Ideja je sačuvana.");
       } else {
-        await createIdeaMutation({
+        const ideaId = await createIdeaMutation({
           startupId: startup._id,
-          title: newTitle.trim() || undefined,
+          title: newTitle.trim(),
           text: newText.trim(),
           color: newColor,
           parentIdeaId: selectedParentId,
           x: newPosition ? Math.round(newPosition.x) : undefined,
           y: newPosition ? Math.round(newPosition.y) : undefined,
+        });
+        pushHistory({
+          label: selectedParentId ? "dodavanje grane ideje" : "dodavanje ideje",
+          undo: () => archiveIdeaMutation({ startupId: startup._id, ideaId }),
+          redo: () => restoreIdeaMutation({ startupId: startup._id, ideaId }),
         });
         toast.success(
           selectedParentId
@@ -257,12 +286,80 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
       y: editingIdea.y,
       ...dimensions,
     })
-      .then(() => toast.success("Veličina oblačića je sačuvana."))
+      .then(() => {
+        const before = {
+          x: editingIdea.x,
+          y: editingIdea.y,
+          width: editingIdea.width,
+          height: editingIdea.height,
+        };
+        pushHistory({
+          label: "promena veličine ideje",
+          undo: () =>
+            before.width === undefined || before.height === undefined
+              ? resetIdeaLayoutSizeMutation({
+                  startupId: startup._id,
+                  ideaId: editingIdea._id,
+                })
+              : updateIdeaLayoutMutation({
+                  startupId: startup._id,
+                  ideaId: editingIdea._id,
+                  x: before.x,
+                  y: before.y,
+                  width: before.width,
+                  height: before.height,
+                }),
+          redo: () => updateIdeaLayoutMutation({
+            startupId: startup._id,
+            ideaId: editingIdea._id,
+            x: editingIdea.x,
+            y: editingIdea.y,
+            ...dimensions,
+          }),
+        });
+        toast.success("Veličina oblačića je sačuvana.");
+      })
       .catch((error) =>
         toast.error(
           error instanceof Error
             ? error.message
             : "Veličina oblačića nije sačuvana.",
+        ),
+      );
+  };
+
+  const resetEditingIdeaSize = () => {
+    if (
+      !editingIdea?.canEdit ||
+      (editingIdea.width === undefined && editingIdea.height === undefined)
+    ) {
+      return;
+    }
+    void resetIdeaLayoutSizeMutation({
+      startupId: startup._id,
+      ideaId: editingIdea._id,
+    })
+      .then(() => {
+        pushHistory({
+          label: "vraćanje početne veličine ideje",
+          undo: () => updateIdeaLayoutMutation({
+            startupId: startup._id,
+            ideaId: editingIdea._id,
+            x: editingIdea.x,
+            y: editingIdea.y,
+            width: editingIdea.width ?? ITEM_SIZE_DIMENSIONS.compact.width,
+            height: editingIdea.height ?? ITEM_SIZE_DIMENSIONS.compact.height,
+          }),
+          redo: () => resetIdeaLayoutSizeMutation({
+            startupId: startup._id,
+            ideaId: editingIdea._id,
+          }),
+        });
+        toast.success("Vraćena je početna veličina ideje.");
+      })
+      .catch((error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Početna veličina nije vraćena.",
         ),
       );
   };
@@ -373,7 +470,6 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
             searchActive={searchQuery.trim().length > 0}
             onConvertIdea={(idea) => setConvertIdea(idea)}
             onEditIdea={openEditEditor}
-            onOpenDiscussion={(idea) => setDiscussionIdea(idea)}
             onNestIdea={(idea) => {
               setNestingIdea(idea);
               setNestParentId("");
@@ -529,6 +625,11 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                                       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
                                         {node.text}
                                       </p>
+                                      <IdeaInlineThread
+                                        ideaId={node._id}
+                                        canAdd={!node.canEdit}
+                                        className="mt-4 border-t border-border/60 pt-4"
+                                      />
                                     </div>
                                     <div className="flex shrink-0 flex-wrap gap-2">
                                       {node.canEdit ? (
@@ -542,16 +643,6 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                                           <Pencil className="size-3.5" /> Uredi moje
                                         </Button>
                                       ) : null}
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        className="rounded-xl"
-                                        onClick={() => setDiscussionIdea(node)}
-                                      >
-                                        <MessageSquareText className="size-3.5" />
-                                        Doprinosi
-                                      </Button>
                                       {node.isApproved && !node.convertedPageId ? (
                                         <Button
                                           type="button"
@@ -608,7 +699,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
               {editingIdea
                 ? editingIdea.canEdit
                   ? "Izmene se odmah vide i u tabeli i na kanvasu."
-                  : "Pročitaj celu ideju ili dodaj svoj doprinos diskusiji."
+                   : "Pročitaj celu ideju ili dodaj svoju izmenu ispod osnovnog teksta."
                 : "Ideja je vidljiva timu. Članovi mogu da glasaju i povežu je sa drugim predlozima."}
             </DialogDescription>
           </DialogHeader>
@@ -629,7 +720,7 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
               </div>
             ) : null}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Naslov (opciono)</label>
+              <label className="text-xs font-semibold">Naslov</label>
               <Input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
@@ -686,26 +777,19 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                       : "compact"
                 }
                 onChange={resizeEditingIdea}
+                onReset={resetEditingIdeaSize}
+              />
+            ) : null}
+            {editingIdea ? (
+              <IdeaInlineThread
+                ideaId={editingIdea._id}
+                canAdd={!editingIdea.canEdit}
+                className="border-t border-border/60 pt-4"
               />
             ) : null}
           </div>
 
           <DialogFooter className="border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-6">
-            {editingIdea ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl sm:mr-auto"
-                onClick={() => {
-                  const idea = editingIdea;
-                  if (!requestCloseIdeaEditor()) return;
-                  setDiscussionIdea(idea);
-                }}
-              >
-                <MessageSquareText className="size-4" />
-                Doprinosi
-              </Button>
-            ) : null}
             <Button
               variant="ghost"
               onClick={requestCloseIdeaEditor}
@@ -718,7 +802,11 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
               <Button
               onClick={handleSaveIdea}
               className="rounded-xl font-medium"
-              disabled={editorPending || newText.trim().length === 0}
+              disabled={
+                editorPending ||
+                newTitle.trim().length === 0 ||
+                newText.trim().length === 0
+              }
             >
               {editorPending
                 ? "Čuvam…"
@@ -815,12 +903,6 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <IdeaDiscussionDialog
-        idea={discussionIdea}
-        open={discussionIdea !== null}
-        onOpenChange={(open) => !open && setDiscussionIdea(null)}
-      />
 
       <Dialog
         open={nestingIdea !== null}

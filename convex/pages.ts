@@ -225,7 +225,7 @@ export const update = mutation({
     const { profile } = await requireStartupMember(ctx, page.startupId);
     if (page.createdByProfileId !== profile._id) {
       throw new Error(
-        "Naslov i osnovni sadržaj menja samo kreator. Dodajte svoj doprinos.",
+        "Naslov i osnovni sadržaj menja samo kreator. Dodajte svoj tekst.",
       );
     }
     if (page.revision !== args.expectedRevision) {
@@ -259,7 +259,7 @@ export const update = mutation({
       authoredBodyContribution === undefined
     ) {
       throw new Error(
-        "Raniji zajednički sadržaj je zaključan. Dodajte svoj potpisani doprinos.",
+        "Raniji zajednički sadržaj je zaključan. Dodajte svoj potpisani tekst.",
       );
     }
     if (title === page.title && content === currentContent) {
@@ -466,13 +466,13 @@ export const updateEntry = mutation({
     const { profile } = await requireStartupMember(ctx, page.startupId);
     const entry = await ctx.db.get("pageEntries", args.entryId);
     if (entry === null || entry.pageId !== page._id) {
-      throw new Error("Doprinos nije pronađen.");
+      throw new Error("Tekst nije pronađen.");
     }
     if (entry.authorProfileId !== profile._id) {
-      throw new Error("Možete urediti samo svoj doprinos.");
+      throw new Error("Možete urediti samo svoj tekst.");
     }
     const content = cleanPageContent(args.content);
-    if (!content.trim()) throw new Error("Doprinos ne može biti prazan.");
+    if (!content.trim()) throw new Error("Tekst ne može biti prazan.");
     const now = Date.now();
     await ctx.db.patch("pageEntries", entry._id, { content, updatedAt: now });
     const contribution = await ctx.db
@@ -503,7 +503,7 @@ export const deleteEntry = mutation({
     if (entry && entry.pageId === page._id) {
       if (entry.authorProfileId !== profile._id) {
         throw new Error(
-          "Tuđ doprinos se uklanja samo jednoglasnim glasanjem.",
+          "Tuđa izmena se uklanja samo jednoglasnim glasanjem.",
         );
       }
       await ctx.db.delete("pageEntries", args.entryId);
