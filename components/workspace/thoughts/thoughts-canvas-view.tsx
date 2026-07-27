@@ -70,6 +70,7 @@ import { cn } from "@/lib/utils";
 import { ThoughtConversionDialog } from "./thought-conversion-dialog";
 import { EdgeEditorDialog, ThoughtEditorDialog } from "./thought-editor-dialog";
 import { ThoughtEdge, ThoughtEdgeActionsProvider } from "./thought-edge";
+import { isThoughtDescendant } from "./thought-hierarchy";
 import { ThoughtNode, ThoughtNodeActionsProvider } from "./thought-node";
 import styles from "./thoughts-canvas.module.css";
 import type {
@@ -843,7 +844,15 @@ function ThoughtsCanvasBody({
         const child = draggedNodes[0];
         const parent = flowRef.current
           ?.getIntersectingNodes(child)
-          .find((candidate) => candidate.id !== child.id);
+          .find(
+            (candidate) =>
+              candidate.id !== child.id &&
+              !isThoughtDescendant(
+                candidate.id as Id<"thoughtNodes">,
+                child.id as Id<"thoughtNodes">,
+                nodeDocsById,
+              ),
+          );
         if (parent) {
           await nestNode({
             childNodeId: child.id as Id<"thoughtNodes">,
@@ -861,7 +870,14 @@ function ThoughtsCanvasBody({
       restorePreDragPositions();
       toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
     }
-  }, [moveNodes, nestNode, pushHistory, restorePreDragPositions, restorePreDragViewport]);
+  }, [
+    moveNodes,
+    nestNode,
+    nodeDocsById,
+    pushHistory,
+    restorePreDragPositions,
+    restorePreDragViewport,
+  ]);
 
   const openNewThought = useCallback((position?: { x: number; y: number }) => {
     let nextPosition = position;
