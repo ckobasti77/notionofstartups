@@ -33,6 +33,130 @@ export const checkpointItemValidator = v.object({
   completed: v.boolean(),
 });
 
+export const MAX_TASK_INSTRUCTIONS_LENGTH = 20_000;
+export const MAX_TASK_CHECKPOINTS = 100;
+export const MAX_TASK_CHECKPOINT_ID_LENGTH = 128;
+export const MAX_TASK_CHECKPOINT_TEXT_LENGTH = 500;
+export const MAX_TASK_PAGE_SIZE = 100;
+export const MAX_TASK_DUE_DATE = 253_402_300_799_999;
+
+export type TaskCheckpointInput = {
+  id: string;
+  text: string;
+  completed: boolean;
+};
+
+export function normalizeTaskInstructions(
+  value: string | null | undefined,
+) {
+  if (value === undefined || value === null) return undefined;
+  if (value.length > MAX_TASK_INSTRUCTIONS_LENGTH) {
+    throw new Error(
+      `Instrukcije mogu imati najviše ${MAX_TASK_INSTRUCTIONS_LENGTH} znakova.`,
+    );
+  }
+  const cleaned = value.trim();
+  return cleaned.length === 0 ? undefined : cleaned;
+}
+
+export function normalizeTaskCheckpoints(
+  value: Array<TaskCheckpointInput> | null | undefined,
+) {
+  if (value === undefined || value === null) return undefined;
+  if (value.length > MAX_TASK_CHECKPOINTS) {
+    throw new Error(
+      `Zadatak može imati najviše ${MAX_TASK_CHECKPOINTS} checkpointa.`,
+    );
+  }
+
+  const ids = new Set<string>();
+  return value.map((checkpoint) => {
+    if (checkpoint.id.length > MAX_TASK_CHECKPOINT_ID_LENGTH) {
+      throw new Error(
+        `ID checkpointa može imati najviše ${MAX_TASK_CHECKPOINT_ID_LENGTH} znakova.`,
+      );
+    }
+    if (checkpoint.text.length > MAX_TASK_CHECKPOINT_TEXT_LENGTH) {
+      throw new Error(
+        `Tekst checkpointa može imati najviše ${MAX_TASK_CHECKPOINT_TEXT_LENGTH} znakova.`,
+      );
+    }
+
+    const id = checkpoint.id.trim();
+    const text = checkpoint.text.trim();
+    if (id.length === 0) throw new Error("ID checkpointa je obavezno polje.");
+    if (text.length === 0) {
+      throw new Error("Tekst checkpointa je obavezno polje.");
+    }
+    if (ids.has(id)) {
+      throw new Error("ID-jevi checkpointa moraju biti jedinstveni.");
+    }
+    ids.add(id);
+    return { id, text, completed: checkpoint.completed };
+  });
+}
+
+export function validateTaskDueDate(
+  value: number | null | undefined,
+) {
+  if (value === undefined || value === null) return value;
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > MAX_TASK_DUE_DATE
+  ) {
+    throw new Error("Rok nije ispravan.");
+  }
+  return value;
+}
+
+export const pageSummaryValidator = v.object({
+  _id: v.id("pages"),
+  _creationTime: v.number(),
+  startupId: v.id("startups"),
+  areaId: v.id("startupAreas"),
+  parentPageId: v.union(v.id("pages"), v.null()),
+  kind: pageKindValidator,
+  title: v.string(),
+  searchText: v.string(),
+  revision: v.number(),
+  position: v.number(),
+  taskStatus: v.union(taskStatusValidator, v.null()),
+  taskPriority: v.union(taskPriorityValidator, v.null()),
+  assigneeProfileId: v.union(v.id("profiles"), v.null()),
+  dueDate: v.union(v.number(), v.null()),
+  instructions: v.optional(v.string()),
+  checkpoints: v.optional(v.array(checkpointItemValidator)),
+  taskSortAt: v.number(),
+  createdByProfileId: v.id("profiles"),
+  updatedByProfileId: v.id("profiles"),
+  archivedAt: v.union(v.number(), v.null()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+export const startupDocumentValidator = v.object({
+  _id: v.id("startups"),
+  _creationTime: v.number(),
+  name: v.string(),
+  description: v.string(),
+  logoStorageId: v.optional(v.id("_storage")),
+  createdByProfileId: v.id("profiles"),
+  archivedAt: v.union(v.number(), v.null()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+export const startupAreaDocumentValidator = v.object({
+  _id: v.id("startupAreas"),
+  _creationTime: v.number(),
+  startupId: v.id("startups"),
+  key: v.string(),
+  label: v.string(),
+  position: v.number(),
+  createdAt: v.number(),
+});
+
 export const AREA_DEFINITIONS = [
   { key: "dev", label: "Dev notes", position: 0 },
   { key: "marketing", label: "Marketing notes", position: 1 },

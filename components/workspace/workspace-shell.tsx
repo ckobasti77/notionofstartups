@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { gsap } from "gsap";
 import { motion } from "framer-motion";
@@ -53,6 +53,12 @@ import {
   useWorkspaceHistory,
   WorkspaceHistoryProvider,
 } from "@/components/workspace/workspace-history";
+import {
+  readAreasRouteCandidate,
+  readWorkspaceStartupId,
+  resolvedAreasRoute,
+  workspaceRouteHref,
+} from "@/components/workspace/workspace-route";
 
 const PageEditorView = dynamic(
   () => import("@/components/workspace/page-editor-view").then((module) => module.PageEditorView),
@@ -61,6 +67,21 @@ const PageEditorView = dynamic(
       <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
         <Skeleton className="h-6 w-72" />
         <Skeleton className="h-[38rem] rounded-2xl" />
+      </div>
+    ),
+  },
+);
+
+const PageWorkspaceView = dynamic(
+  () =>
+    import("@/components/workspace/page-workspace-view").then(
+      (module) => module.PageWorkspaceView,
+    ),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-7xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
+        <Skeleton className="h-6 w-72" />
+        <Skeleton className="h-[42rem] rounded-3xl" />
       </div>
     ),
   },
@@ -98,6 +119,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   );
   const [selectedStartupId, setSelectedStartupId] = useState<Id<"startups"> | null>(null);
   const [route, setRoute] = useState<WorkspaceRoute>({ kind: "home" });
+  const routeResolutionRequestRef = useRef(0);
+  const activeStartupIdRef = useRef<Id<"startups"> | null>(null);
+  const resetForStartupIdRef = useRef<Id<"startups"> | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedAreas, setExpandedAreas] = useState<Record<string, boolean>>({});
   const [expandedPageIds, setExpandedPageIds] = useState<Set<Id<"pages">>>(new Set());
@@ -116,25 +140,218 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [detailPageId, setDetailPageId] = useState<Id<"pages"> | null>(null);
   const [detailSaveState, setDetailSaveState] =
     useState<PageEditorSaveState>("saved");
+  const [pageSaveState, setPageSaveState] =
+    useState<PageEditorSaveState>("saved");
   // Drag and drop state for pages in sidebar
   const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
-  const movePage = useMutation(api.pages.move);
-  const resizeAreaCanvasPage = useMutation(api.canvases.resizeAreaCanvasPage);
-  const resetAreaCanvasPageSize = useMutation(api.canvases.resetAreaCanvasPageSize);
+  const movePage = useMutation(api.areasV2.movePage);
+  const resizePage = useMutation(api.areasV2.resizePage);
+  const resetPageSize = useMutation(api.areasV2.resetPageSize);
+  const convex = useConvex();
   const { pushHistory } = useWorkspaceHistory();
-  const startup = startups?.find((item) => item._id === selectedStartupId) ?? startups?.[0];
+  const startupIdFromUrl =
+    typeof window === "undefined"
+      ? null
+      : readWorkspaceStartupId(window.location.search);
+  const startup =
+    startups?.find((item) => item._id === selectedStartupId) ??
+    (selectedStartupId === null
+      ? startups?.find((item) => item._id === startupIdFromUrl)
+      : undefined) ??
+    startups?.[0];
+  const startupId = startup?._id;
   const approvalsOverview = useQuery(
     api.collaboration.overview,
     startup ? { startupId: startup._id } : "skip",
   );
-  const detailCardSize = useQuery(
-    api.canvases.getPageCanvasSize,
-    detailPageId && startup
-      ? { startupId: startup._id, pageId: detailPageId }
+  const pageNestingInbox = useQuery(
+    api.areasV2.listNestingInbox,
+    startup ? { startupId: startup._id } : "skip",
+  );
+  const detailPage = useQuery(
+    api.pages.get,
+    detailPageId ? { pageId: detailPageId } : "skip",
+  );
+  const detailCanvas = useQuery(
+    api.areasV2.getCanvas,
+    detailPage && startup && detailPage.startupId === startup._id
+      ? {
+          startupId: startup._id,
+          areaId: detailPage.areaId,
+          rootPageId: detailPage.parentPageId,
+        }
       : "skip",
   );
+  const detailCardSize = detailCanvas?.pages.find(
+    (page) => page._id === detailPageId,
+  );
+
+  const canLeaveActivePage = useCallback((
+    nextRoute: WorkspaceRoute,
+  ) => {
+    const staysOnSamePage =
+      route.kind === "page" &&
+      nextRoute.kind === "page" &&
+      route.pageId === nextRoute.pageId;
+    if (route.kind !== "page" || staysOnSamePage) return true;
+
+    if (pageSaveState === "dirty" || pageSaveState === "saving") {
+      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
+      return false;
+    }
+    if (
+      (pageSaveState === "invalid" ||
+        pageSaveState === "error" ||
+        pageSaveState === "conflict") &&
+      !window.confirm(
+        pageSaveState === "invalid"
+          ? "Naslov je prazan i nacrt ne može da se sačuva. Napustiti stranicu i odbaciti nacrt?"
+          : "Izmene nisu sačuvane. Napustiti stranicu?",
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }, [pageSaveState, route]);
+
+  const navigateRoute = useCallback((
+    nextRoute: WorkspaceRoute,
+    options: { replace?: boolean; bypassGuard?: boolean } = {},
+  ) => {
+    if (!options.bypassGuard && !canLeaveActivePage(nextRoute)) return false;
+    const leavesCurrentPage =
+      route.kind === "page" &&
+      !(
+        nextRoute.kind === "page" &&
+        nextRoute.pageId === route.pageId
+      );
+    if (leavesCurrentPage) setPageSaveState("saved");
+    if (selectedStartupId === null && startupId) {
+      setSelectedStartupId(startupId);
+    }
+    routeResolutionRequestRef.current += 1;
+    setRoute(nextRoute);
+    if (typeof window === "undefined") return true;
+    const href = workspaceRouteHref(
+      nextRoute,
+      window.location.href,
+      startupId,
+    );
+    if (options.replace) {
+      window.history.replaceState(null, "", href);
+    } else {
+      window.history.pushState(null, "", href);
+    }
+    return true;
+  }, [
+    canLeaveActivePage,
+    route,
+    selectedStartupId,
+    startupId,
+  ]);
+
+  const resolveLocationRoute = useCallback(async (
+    currentStartupId: Id<"startups">,
+  ) => {
+    if (typeof window === "undefined") return;
+    const requestId = routeResolutionRequestRef.current + 1;
+    routeResolutionRequestRef.current = requestId;
+    const searchParams = new URLSearchParams(window.location.search);
+    const candidate = readAreasRouteCandidate(window.location.search);
+    const claimsAreasRoute =
+      searchParams.get("view") === "area" ||
+      searchParams.get("view") === "page";
+
+    if (!candidate) {
+      navigateRoute(
+        { kind: "home" },
+        { replace: true, bypassGuard: true },
+      );
+      if (claimsAreasRoute) {
+        toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
+      }
+      return;
+    }
+
+    try {
+      const value = await convex.query(
+        api.areasV2.resolveRoute,
+        candidate.kind === "area"
+          ? { startupId: currentStartupId, areaId: candidate.areaId }
+          : { startupId: currentStartupId, pageId: candidate.pageId },
+      );
+      if (routeResolutionRequestRef.current !== requestId) return;
+      const resolved = resolvedAreasRoute(value);
+      if (resolved) {
+        navigateRoute(resolved, {
+          replace: true,
+          bypassGuard: true,
+        });
+        return;
+      }
+    } catch {
+      if (routeResolutionRequestRef.current !== requestId) return;
+    }
+
+    navigateRoute(
+      { kind: "home" },
+      { replace: true, bypassGuard: true },
+    );
+    toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
+  }, [convex, navigateRoute]);
+
+  useEffect(() => {
+    if (!startupId) return;
+    const previousStartupId = activeStartupIdRef.current;
+    activeStartupIdRef.current = startupId;
+
+    if (previousStartupId === null) {
+      void resolveLocationRoute(startupId);
+    } else if (previousStartupId !== startupId) {
+      if (resetForStartupIdRef.current === startupId) {
+        resetForStartupIdRef.current = null;
+        void resolveLocationRoute(startupId);
+      } else {
+        navigateRoute({ kind: "home" }, { replace: true });
+      }
+    }
+
+    function onPopState() {
+      if (!canLeaveActivePage({ kind: "home" })) {
+        window.history.pushState(
+          null,
+          "",
+          workspaceRouteHref(route, window.location.href, startupId),
+        );
+        return;
+      }
+      setPageSaveState("saved");
+      const requestedStartupId = readWorkspaceStartupId(
+        window.location.search,
+      );
+      const requestedStartup = startups?.find(
+        (item) => item._id === requestedStartupId,
+      );
+      if (requestedStartup && requestedStartup._id !== startupId) {
+        resetForStartupIdRef.current = requestedStartup._id;
+        setSelectedStartupId(requestedStartup._id);
+        return;
+      }
+      void resolveLocationRoute(startupId);
+    }
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [
+    canLeaveActivePage,
+    navigateRoute,
+    resolveLocationRoute,
+    route,
+    startupId,
+    startups,
+  ]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -145,8 +362,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   }, [startup]);
 
   function selectStartup(startupId: Id<"startups">) {
+    if (startup?._id !== startupId) {
+      resetForStartupIdRef.current = startupId;
+      if (!navigateRoute({ kind: "home" }, { replace: true })) {
+        resetForStartupIdRef.current = null;
+        return;
+      }
+    }
     setSelectedStartupId(startupId);
-    setRoute((current) => current.kind === "thoughts" ? current : { kind: "home" });
     setExpandedAreas({});
     setExpandedPageIds(new Set());
     setTransientExpandedAreaIds(new Set());
@@ -202,13 +425,20 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   ) {
     if (pageId === targetParentPageId) return;
     try {
-      await movePage({
+      const result = await movePage({
+        startupId: startup._id,
         pageId,
-        areaId: targetAreaId,
-        parentPageId: targetParentPageId,
+        targetAreaId,
+        targetParentPageId,
       });
-      toast.success("Stranica je uspešno premeštena.");
-      if (targetParentPageId) {
+      if (result.nestingStatus === "pending") {
+        toast.info(
+          "Zahtev je poslat autoru roditeljske stranice. Stavka ostaje na trenutnom mestu do odobrenja.",
+        );
+      } else {
+        toast.success("Stranica je uspešno premeštena.");
+      }
+      if (result.nestingStatus === "none" && targetParentPageId) {
         setExpandedPageIds((current) => {
           const next = new Set(current);
           next.add(targetParentPageId);
@@ -265,8 +495,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       return false;
     }
     if (
-      (detailSaveState === "error" || detailSaveState === "conflict") &&
-      !window.confirm("Izmene nisu sačuvane. Napustiti detalje?")
+      (detailSaveState === "invalid" ||
+        detailSaveState === "error" ||
+        detailSaveState === "conflict") &&
+      !window.confirm(
+        detailSaveState === "invalid"
+          ? "Naslov je prazan i nacrt ne može da se sačuva. Napustiti detalje i odbaciti nacrt?"
+          : "Izmene nisu sačuvane. Napustiti detalje?",
+      )
     ) {
       return false;
     }
@@ -286,32 +522,33 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   }
 
   function resizeDetailCard(preset: ItemSizePreset) {
-    if (!detailPageId) return;
+    if (
+      !detailPageId ||
+      !detailPage ||
+      !detailCardSize ||
+      !detailCardSize.canResize ||
+      detailPage.startupId !== startup._id
+    ) {
+      return;
+    }
     const pageId = detailPageId;
-    const before: { width?: number; height?: number } = detailCardSize ?? {};
-    const dimensions = ITEM_SIZE_DIMENSIONS[preset];
-    void resizeAreaCanvasPage({
+    const scope = {
       startupId: startup._id,
+      areaId: detailPage.areaId,
+      rootPageId: detailPage.parentPageId,
       pageId,
-      ...dimensions,
-    })
+    };
+    const before = {
+      width: detailCardSize.width,
+      height: detailCardSize.height,
+    };
+    const dimensions = ITEM_SIZE_DIMENSIONS[preset];
+    void resizePage({ ...scope, ...dimensions })
       .then(() => {
         pushHistory({
           label: "promena veličine kartice",
-          undo: () =>
-            before.width === undefined || before.height === undefined
-              ? resetAreaCanvasPageSize({ startupId: startup._id, pageId })
-              : resizeAreaCanvasPage({
-                  startupId: startup._id,
-                  pageId,
-                  width: before.width,
-                  height: before.height,
-                }),
-          redo: () => resizeAreaCanvasPage({
-            startupId: startup._id,
-            pageId,
-            ...dimensions,
-          }),
+          undo: () => resizePage({ ...scope, ...before }),
+          redo: () => resizePage({ ...scope, ...dimensions }),
         });
         toast.success("Veličina oblačića je sačuvana.");
       })
@@ -325,24 +562,32 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   }
 
   function resetDetailCardSize() {
-    if (!detailPageId || !detailCardSize) return;
+    if (
+      !detailPageId ||
+      !detailPage ||
+      !detailCardSize ||
+      !detailCardSize.canResize ||
+      detailPage.startupId !== startup._id
+    ) {
+      return;
+    }
     const pageId = detailPageId;
-    const before = detailCardSize;
-    if (before.width === undefined && before.height === undefined) return;
-    void resetAreaCanvasPageSize({ startupId: startup._id, pageId })
+    const scope = {
+      startupId: startup._id,
+      areaId: detailPage.areaId,
+      rootPageId: detailPage.parentPageId,
+      pageId,
+    };
+    const before = {
+      width: detailCardSize.width,
+      height: detailCardSize.height,
+    };
+    void resetPageSize(scope)
       .then(() => {
         pushHistory({
           label: "vraćanje početne veličine kartice",
-          undo: () => resizeAreaCanvasPage({
-            startupId: startup._id,
-            pageId,
-            width: before.width ?? ITEM_SIZE_DIMENSIONS.compact.width,
-            height: before.height ?? ITEM_SIZE_DIMENSIONS.compact.height,
-          }),
-          redo: () => resetAreaCanvasPageSize({
-            startupId: startup._id,
-            pageId,
-          }),
+          undo: () => resizePage({ ...scope, ...before }),
+          redo: () => resetPageSize(scope),
         });
         toast.success("Vraćena je početna veličina kartice.");
       })
@@ -382,7 +627,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onAreaExpandedChange: setAreaExpanded,
     onPageExpandedChange: setPageExpanded,
     onStartupChange: selectStartup,
-    onRouteChange: setRoute,
+    onRouteChange: navigateRoute,
     onCreate: openCreate,
     onCreateArea: () => setCreateAreaOpen(true),
     onSearch: () => setSearchOpen(true),
@@ -395,7 +640,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     draggedPageId,
     activeDropPageId,
     activeDropAreaId,
-    pendingApprovals: approvalsOverview?.pendingCount ?? 0,
+    pendingApprovals:
+      (approvalsOverview?.pendingCount ?? 0) +
+      (pageNestingInbox?.incoming.length ?? 0),
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
     onDragPageOver: handleDragPageOver,
@@ -409,9 +656,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
         <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas"}>
           {route.kind === "home" ? (
-            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => setRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
+            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
-            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => setRoute({ kind: "ideas" })} />
+            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
             <IdeasView startup={startup} onOpenPage={openPageDetails} />
           ) : route.kind === "today" ? (
@@ -423,9 +670,35 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           ) : route.kind === "approvals" ? (
             <ApprovalsView startup={startup} />
           ) : route.kind === "area" ? (
-            <AreaView startup={startup} profile={profile} areaId={route.areaId} onOpenPage={openPageDetails} onCreate={openCreate} onCreateArea={() => setCreateAreaOpen(true)} />
+            <AreaView
+              startup={startup}
+              profile={profile}
+              areaId={route.areaId}
+              onOpenCanvas={(pageId) =>
+                navigateRoute({ kind: "page", pageId })
+              }
+              onOpenDetails={openPageDetails}
+              onCreate={openCreate}
+              onCreateArea={() => setCreateAreaOpen(true)}
+            />
           ) : (
-            <PageEditorView startup={startup} pageId={route.pageId} onOpenPage={(pageId) => setRoute({ kind: "page", pageId })} onCreateChild={openCreate} onArchived={() => setRoute({ kind: "home" })} />
+            <PageWorkspaceView
+              startup={startup}
+              pageId={route.pageId}
+              onOpenCanvas={(pageId) =>
+                navigateRoute({ kind: "page", pageId })
+              }
+              onOpenDetails={openPageDetails}
+              onCreateChild={openCreate}
+              onSaveStateChange={setPageSaveState}
+              onArchived={() => {
+                setPageSaveState("saved");
+                navigateRoute(
+                  { kind: "home" },
+                  { bypassGuard: true },
+                );
+              }}
+            />
           )}
         </WorkspaceStage>
       </div>
@@ -452,11 +725,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               </span>
               Detalji stavke
             </span>
-            <ItemSizePicker
-              className="ml-auto w-full sm:w-auto"
-              onChange={resizeDetailCard}
-              onReset={resetDetailCardSize}
-            />
+            {detailCardSize?.canResize ? (
+              <ItemSizePicker
+                className="ml-auto w-full sm:w-auto"
+                onChange={resizeDetailCard}
+                onReset={resetDetailCardSize}
+              />
+            ) : null}
             <Button
               type="button"
               size="sm"
@@ -466,9 +741,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 if (!detailPageId) return;
                 if (!canLeavePageDetails()) return;
                 const pageId = detailPageId;
+                if (!navigateRoute({ kind: "page", pageId })) return;
                 setDetailPageId(null);
                 setDetailSaveState("saved");
-                setRoute({ kind: "page", pageId });
               }}
             >
               <ExternalLink className="size-4" />
@@ -501,7 +776,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       </Dialog>
 
       <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={openPageDetails} />
-      <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => setRoute({ kind: "area", areaId })} />
+      <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => navigateRoute({ kind: "area", areaId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
         setSearchOpen(false);
         openPageDetails(pageId);

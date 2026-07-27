@@ -20,6 +20,7 @@ import type { CreatePageTarget } from "@/components/workspace/types";
 type PageTreeProps = {
   startupId: Id<"startups">;
   areaId: Id<"startupAreas">;
+  currentProfileId: Id<"profiles">;
   selectedPageId?: Id<"pages">;
   expandedPageIds: ReadonlySet<Id<"pages">>;
   transientExpandedPageIds: ReadonlySet<Id<"pages">>;
@@ -39,6 +40,7 @@ type PageTreeProps = {
 export function PageTree({
   startupId,
   areaId,
+  currentProfileId,
   selectedPageId,
   expandedPageIds,
   transientExpandedPageIds,
@@ -101,6 +103,7 @@ export function PageTree({
           page={page}
           startupId={startupId}
           areaId={areaId}
+          currentProfileId={currentProfileId}
           selectedPageId={selectedPageId}
           expandedPageIds={expandedPageIds}
           transientExpandedPageIds={transientExpandedPageIds}
@@ -143,6 +146,7 @@ function PageTreeNode({
   page,
   startupId,
   areaId,
+  currentProfileId,
   selectedPageId,
   expandedPageIds,
   transientExpandedPageIds,
@@ -179,13 +183,18 @@ function PageTreeNode({
   const Icon = page.kind === "task" ? CheckSquare2 : FileText;
   const selected = selectedPageId === page._id;
   const activeDropTarget = activeDropPageId === page._id;
+  const canMove = page.createdByProfileId === currentProfileId;
   const currentPath = [...path, page._id];
 
   return (
     <div className="threadline-item group/node pr-1">
       <div
-        draggable
+        draggable={canMove}
         onDragStart={(e) => {
+          if (!canMove) {
+            e.preventDefault();
+            return;
+          }
           e.stopPropagation();
           onDragPageStart(page._id);
           e.dataTransfer.setData("application/x-page-id", page._id);
@@ -293,6 +302,7 @@ function PageTreeNode({
                   page={child}
                   startupId={startupId}
                   areaId={areaId}
+                  currentProfileId={currentProfileId}
                   selectedPageId={selectedPageId}
                   expandedPageIds={expandedPageIds}
                   transientExpandedPageIds={transientExpandedPageIds}

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { archivePageWithV2Sidecars } from "./areasV2";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import {
@@ -16,6 +17,14 @@ const targetValidator = v.union(
   v.object({ kind: v.literal("idea"), id: v.id("ideaNodes") }),
   v.object({ kind: v.literal("idea_edge"), id: v.id("ideaEdges") }),
   v.object({ kind: v.literal("page"), id: v.id("pages") }),
+  v.object({
+    kind: v.literal("page_edge"),
+    id: v.id("pageCanvasEdgesV2"),
+  }),
+  v.object({
+    kind: v.literal("page_relation"),
+    id: v.id("pageRelations"),
+  }),
   v.object({
     kind: v.literal("contribution"),
     id: v.id("contentContributions"),
@@ -34,6 +43,8 @@ type DeletionTarget =
   | { kind: "idea"; id: Id<"ideaNodes"> }
   | { kind: "idea_edge"; id: Id<"ideaEdges"> }
   | { kind: "page"; id: Id<"pages"> }
+  | { kind: "page_edge"; id: Id<"pageCanvasEdgesV2"> }
+  | { kind: "page_relation"; id: Id<"pageRelations"> }
   | { kind: "contribution"; id: Id<"contentContributions"> }
   | { kind: "recovered"; id: Id<"recoveredContent"> };
 
@@ -175,6 +186,28 @@ async function deletionTargetInfo(
       ownerProfileId: page.createdByProfileId,
     };
   }
+  if (target.kind === "page_edge") {
+    const edge = await ctx.db.get("pageCanvasEdgesV2", target.id);
+    if (edge === null || edge.archivedAt !== null) {
+      throw new Error("Veza stranica nije pronađena.");
+    }
+    return {
+      startupId: edge.startupId,
+      title: edge.label ?? "Veza između stranica",
+      ownerProfileId: edge.authorProfileId ?? null,
+    };
+  }
+  if (target.kind === "page_relation") {
+    const relation = await ctx.db.get("pageRelations", target.id);
+    if (relation === null || relation.archivedAt !== null) {
+      throw new Error("Relacija stranica nije pronađena.");
+    }
+    return {
+      startupId: relation.startupId,
+      title: relation.label ?? "Note ↔ Task relacija",
+      ownerProfileId: relation.authorProfileId,
+    };
+  }
   if (target.kind === "contribution") {
     const contribution = await ctx.db.get("contentContributions", target.id);
     if (contribution === null || contribution.archivedAt !== null) {
@@ -234,19 +267,41 @@ export async function applyApprovedDeletion(
     const id = ctx.db.normalizeId("pages", request.targetId);
     const page = id === null ? null : await ctx.db.get("pages", id);
     if (page !== null && page.archivedAt === null) {
-      const children = await ctx.db
-        .query("pages")
-        .withIndex("by_parentPageId_and_archivedAt", (q) =>
-          q.eq("parentPageId", page._id).eq("archivedAt", null),
-        )
-        .take(200);
-      for (const child of children) {
-        await ctx.db.patch("pages", child._id, {
-          parentPageId: page.parentPageId,
-          updatedAt: now,
-        });
-      }
-      await ctx.db.patch("pages", page._id, {
+      await archivePageWithV2Sidecars(
+        ctx,
+        page,
+        request.requesterProfileId,
+        now,
+      );
+    }
+    return;
+  }
+  if (request.targetKind === "page_edge") {
+    const id = ctx.db.normalizeId("pageCanvasEdgesV2", request.targetId);
+    const edge =
+      id === null ? null : await ctx.db.get("pageCanvasEdgesV2", id);
+    if (
+      edge !== null &&
+      edge.archivedAt === null &&
+      edge.startupId === request.startupId
+    ) {
+      await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
+        archivedAt: now,
+        updatedAt: now,
+      });
+    }
+    return;
+  }
+  if (request.targetKind === "page_relation") {
+    const id = ctx.db.normalizeId("pageRelations", request.targetId);
+    const relation =
+      id === null ? null : await ctx.db.get("pageRelations", id);
+    if (
+      relation !== null &&
+      relation.archivedAt === null &&
+      relation.startupId === request.startupId
+    ) {
+      await ctx.db.patch("pageRelations", relation._id, {
         archivedAt: now,
         updatedAt: now,
       });
@@ -303,6 +358,7 @@ export const listContributions = query({
         .filter(
           (row) =>
             !(args.target.kind === "idea" && row.sourceKind === "idea_original") &&
+            !(args.target.kind === "page" && row.sourceKind === "page_body") &&
             contributionIsVisible(row, profile._id, resolved.ownerProfileId),
         )
         .map((row) =>
@@ -340,6 +396,7 @@ export const listContributionsPaginated = query({
     const visibleRows = result.page.filter(
       (row) =>
         !(args.target.kind === "idea" && row.sourceKind === "idea_original") &&
+        !(args.target.kind === "page" && row.sourceKind === "page_body") &&
         contributionIsVisible(row, profile._id, resolved.ownerProfileId),
     );
     return {

@@ -1,0 +1,1058 @@
+/// <reference types="vite/client" />
+
+import { convexTest } from "convex-test";
+import { describe, expect, test } from "vitest";
+
+import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+async function seedPagesSecurityWorkspace() {
+  const t = convexTest(schema, modules);
+  const seeded = await t.run(async (ctx) => {
+    const now = Date.now();
+    const createPerson = async (name: string) => {
+      const userId = await ctx.db.insert("users", {
+        name,
+        email: `${name.toLowerCase()}@example.test`,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        userId,
+        displayName: name,
+        email: `${name.toLowerCase()}@example.test`,
+        role: "member",
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { userId, profileId };
+    };
+    const actor = await createPerson("Actor");
+    const member = await createPerson("Member");
+    const outsider = await createPerson("Outsider");
+    const startupA = await ctx.db.insert("startups", {
+      name: "Startup A",
+      description: "",
+      createdByProfileId: actor.profileId,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const startupB = await ctx.db.insert("startups", {
+      name: "Startup B",
+      description: "",
+      createdByProfileId: outsider.profileId,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const profileId of [actor.profileId, member.profileId]) {
+      await ctx.db.insert("startupMembers", {
+        startupId: startupA,
+        profileId,
+        addedByProfileId: actor.profileId,
+        archivedAt: null,
+        createdAt: now,
+      });
+    }
+    await ctx.db.insert("startupMembers", {
+      startupId: startupB,
+      profileId: outsider.profileId,
+      addedByProfileId: outsider.profileId,
+      archivedAt: null,
+      createdAt: now,
+    });
+    const createArea = (
+      startupId: Id<"startups">,
+      key: string,
+      position: number,
+    ) =>
+      ctx.db.insert("startupAreas", {
+        startupId,
+        key,
+        label: key,
+        position,
+        createdAt: now,
+      });
+    const areaA1 = await createArea(startupA, "a-1", 0);
+    const areaA2 = await createArea(startupA, "a-2", 1);
+    const areaB = await createArea(startupB, "b", 0);
+    return {
+      actor,
+      member,
+      outsider,
+      startupA,
+      startupB,
+      areaA1,
+      areaA2,
+      areaB,
+    };
+  });
+  const asPerson = (person: { userId: Id<"users"> }) =>
+    t.withIdentity({ subject: `${person.userId}|test-session` });
+  return {
+    t,
+    ...seeded,
+    asActor: asPerson(seeded.actor),
+    asMember: asPerson(seeded.member),
+    asOutsider: asPerson(seeded.outsider),
+  };
+}
+
+describe("bezbednost stranica i poslovnih oblasti", () => {
+  test("kind pagination ne skriva belešku iza prvih 50 taskova", async () => {
+    const { t, actor, startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const noteId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const insertedNoteId = await ctx.db.insert("pages", {
+        startupId: startupA,
+        areaId: areaA1,
+        parentPageId: null,
+        kind: "note",
+        title: "Beleška na kraju mešovite stranice",
+        searchText: "",
+        revision: 0,
+        position: 0,
+        taskStatus: null,
+        taskPriority: null,
+        assigneeProfileId: null,
+        dueDate: null,
+        taskSortAt: now,
+        createdByProfileId: actor.profileId,
+        updatedByProfileId: actor.profileId,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (let index = 1; index <= 51; index += 1) {
+        await ctx.db.insert("pages", {
+          startupId: startupA,
+          areaId: areaA1,
+          parentPageId: null,
+          kind: "task",
+          title: `Task ${index}`,
+          searchText: "",
+          revision: 0,
+          position: index,
+          taskStatus: "backlog",
+          taskPriority: null,
+          assigneeProfileId: null,
+          dueDate: null,
+          taskSortAt: now,
+          createdByProfileId: actor.profileId,
+          updatedByProfileId: actor.profileId,
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      return insertedNoteId;
+    });
+
+    const mixedPage = await asActor.query(api.pages.listChildren, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      paginationOpts: { numItems: 50, cursor: null },
+    });
+    expect(mixedPage.page).toHaveLength(50);
+    expect(mixedPage.page.map((page) => page._id)).not.toContain(noteId);
+
+    const notePage = await asActor.query(api.pages.listChildren, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      paginationOpts: { numItems: 50, cursor: null },
+    });
+    expect(notePage.page).toEqual([
+      expect.objectContaining({ _id: noteId, kind: "note" }),
+    ]);
+  });
+
+  test("kanvas prikazuje instrukciju taska i tekst tela beleške", async () => {
+    const { startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const taskId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "task",
+      title: "Task sa instrukcijom",
+      instructions: "  Pripremi materijal za sastanak.  ",
+    });
+    const convertedTaskId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "task",
+      title: "Task sa body fallback-om",
+      content: "<p>Tekst prenet iz ideje</p>",
+    });
+    const noteId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Beleška sa sadržajem",
+      content: "<p>Važan <strong>tekst</strong></p>",
+    });
+
+    const [taskCanvas, noteCanvas] = await Promise.all([
+      asActor.query(api.canvases.getAreaCanvas, {
+        startupId: startupA,
+        areaId: areaA1,
+        kind: "task",
+      }),
+      asActor.query(api.canvases.getAreaCanvas, {
+        startupId: startupA,
+        areaId: areaA1,
+        kind: "note",
+      }),
+    ]);
+
+    expect(taskCanvas.pages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: taskId,
+          text: "Pripremi materijal za sastanak.",
+        }),
+        expect.objectContaining({
+          _id: convertedTaskId,
+          text: "Tekst prenet iz ideje",
+        }),
+      ]),
+    );
+    expect(noteCanvas.pages).toEqual([
+      expect.objectContaining({
+        _id: noteId,
+        text: "Važan tekst",
+      }),
+    ]);
+  });
+
+  test("oštećen cross-tenant parent lanac ne otkriva tuđ naslov", async () => {
+    const {
+      t,
+      startupA,
+      startupB,
+      areaA1,
+      areaB,
+      asActor,
+      asOutsider,
+    } = await seedPagesSecurityWorkspace();
+    const localPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Lokalna stranica",
+    });
+    const foreignParentId = await asOutsider.mutation(api.pages.create, {
+      startupId: startupB,
+      areaId: areaB,
+      parentPageId: null,
+      kind: "note",
+      title: "Tajni naslov drugog startupa",
+    });
+    await t.run((ctx) =>
+      ctx.db.patch("pages", localPageId, { parentPageId: foreignParentId }),
+    );
+
+    await expect(
+      asActor.query(api.pages.get, { pageId: localPageId }),
+    ).rejects.toThrow("Stranica nije pronađena");
+    await expect(
+      asActor.query(api.pages.getBreadcrumbs, { pageId: localPageId }),
+    ).rejects.toThrow("Stranica nije pronađena");
+  });
+
+  test.each(["note", "task"] as const)(
+    "autor može odmah da upiše sadržaj u praznu %s stranicu",
+    async (kind) => {
+      const { t, actor, startupA, areaA1, asActor } =
+        await seedPagesSecurityWorkspace();
+      const pageId = await asActor.mutation(api.pages.create, {
+        startupId: startupA,
+        areaId: areaA1,
+        parentPageId: null,
+        kind,
+        title: `Prazan ${kind}`,
+      });
+
+      const created = await asActor.query(api.pages.get, { pageId });
+      expect(created.content).toBe("");
+      expect(created.permissions.canEditBody).toBe(true);
+
+      const provenance = await t.run((ctx) =>
+        ctx.db
+          .query("contentContributions")
+          .withIndex("by_sourceKind_and_sourceId", (q) =>
+            q.eq("sourceKind", "page_body").eq("sourceId", pageId),
+          )
+          .unique(),
+      );
+      expect(provenance).toMatchObject({
+        startupId: startupA,
+        targetKind: "page",
+        targetId: pageId,
+        authorProfileId: actor.profileId,
+        attribution: "author",
+        sourceKind: "page_body",
+        sourceId: pageId,
+        content: "",
+        archivedAt: null,
+      });
+
+      await expect(
+        asActor.mutation(api.pages.update, {
+          pageId,
+          expectedRevision: 0,
+          content: "<p>Prvi sadržaj</p>",
+        }),
+      ).resolves.toMatchObject({ pageId, revision: 1 });
+
+      const updated = await asActor.query(api.pages.get, { pageId });
+      expect(updated.content).toBe("<p>Prvi sadržaj</p>");
+      expect(updated.permissions.canEditBody).toBe(true);
+    },
+  );
+
+  test("postojeća prazna stranica sama obnavlja nedostajući zapis autorstva", async () => {
+    const { t, actor, startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const pageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "task",
+      title: "Raniji prazan task",
+    });
+    await t.run(async (ctx) => {
+      const contribution = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", pageId),
+        )
+        .unique();
+      if (contribution === null) throw new Error("Test zapis nije pronađen.");
+      await ctx.db.delete("contentContributions", contribution._id);
+    });
+
+    const before = await asActor.query(api.pages.get, { pageId });
+    expect(before.permissions.canEditBody).toBe(true);
+    await asActor.mutation(api.pages.update, {
+      pageId,
+      expectedRevision: 0,
+      content: "<p>Oporavljen sadržaj</p>",
+    });
+
+    const repaired = await t.run((ctx) =>
+      ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", pageId),
+        )
+        .unique(),
+    );
+    expect(repaired).toMatchObject({
+      authorProfileId: actor.profileId,
+      content: "<p>Oporavljen sadržaj</p>",
+      attribution: "author",
+    });
+  });
+
+  test("nepotpisan raniji sadržaj ne može naknadno da prisvoji kreator", async () => {
+    const { t, startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const pageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Raniji zajednički sadržaj",
+      content: "<p>Nasleđen tekst</p>",
+    });
+    await t.run(async (ctx) => {
+      const contribution = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", pageId),
+        )
+        .unique();
+      if (contribution === null) throw new Error("Test zapis nije pronađen.");
+      await ctx.db.delete("contentContributions", contribution._id);
+    });
+
+    const page = await asActor.query(api.pages.get, { pageId });
+    expect(page.permissions.canEditBody).toBe(false);
+    await expect(
+      asActor.mutation(api.pages.update, {
+        pageId,
+        expectedRevision: 0,
+        content: "<p>Pokušaj prisvajanja</p>",
+      }),
+    ).rejects.toThrow("Raniji zajednički sadržaj je zaključan");
+  });
+
+  test("legacy body backfill ne duplira canonical ni raniji bodyId zapis", async () => {
+    const { t, startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const pageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Idempotentna migracija",
+      content: "<p>Potpisan sadržaj</p>",
+    });
+    const legacyPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Raniji migration ključ",
+      content: "<p>Raniji sadržaj</p>",
+    });
+    const legacyBodyId = await t.run(async (ctx) => {
+      const body = await ctx.db
+        .query("pageBodies")
+        .withIndex("by_pageId", (q) => q.eq("pageId", legacyPageId))
+        .unique();
+      const contribution = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", legacyPageId),
+        )
+        .unique();
+      if (body === null || contribution === null) {
+        throw new Error("Test zapis nije pronađen.");
+      }
+      await ctx.db.patch("contentContributions", contribution._id, {
+        attribution: "legacy_neutral",
+        sourceId: body._id,
+      });
+      return body._id;
+    });
+
+    await t.mutation(internal.migrations.backfillLegacyPageBodies, {
+      cursor: null,
+      batchSize: 50,
+      oneBatchOnly: true,
+    });
+
+    const contributions = await t.run((ctx) =>
+      ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", pageId),
+        )
+        .take(3),
+    );
+    expect(contributions).toHaveLength(1);
+    expect(contributions[0]).toMatchObject({
+      targetId: pageId,
+      attribution: "author",
+      sourceId: pageId,
+    });
+    const legacyContributions = await t.run(async (ctx) => {
+      const byLegacyBodyId = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", legacyBodyId),
+        )
+        .take(3);
+      const byCanonicalPageId = await ctx.db
+        .query("contentContributions")
+        .withIndex("by_sourceKind_and_sourceId", (q) =>
+          q.eq("sourceKind", "page_body").eq("sourceId", legacyPageId),
+        )
+        .take(3);
+      return { byLegacyBodyId, byCanonicalPageId };
+    });
+    expect(legacyContributions.byLegacyBodyId).toHaveLength(1);
+    expect(legacyContributions.byCanonicalPageId).toHaveLength(0);
+  });
+
+  test("osnovni HTML nije prikazan među plain-text doprinosima članova", async () => {
+    const { startupA, areaA1, asActor, asMember } =
+      await seedPagesSecurityWorkspace();
+    const pageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Bezbedan prikaz",
+      content: "<p>Formatirana osnova</p>",
+    });
+    const payload =
+      '<img src=x onerror="globalThis.__xss = true">Tekst člana';
+    const entryId = await asMember.mutation(api.pages.addEntry, {
+      pageId,
+      content: payload,
+    });
+
+    const visible = await asActor.query(
+      api.collaboration.listContributions,
+      { target: { kind: "page", id: pageId } },
+    );
+    expect(visible).toEqual([
+      expect.objectContaining({
+        sourceKind: "page_entry",
+        sourceId: entryId,
+        content: payload,
+      }),
+    ]);
+  });
+
+  test("paginacija ne gubi 200. unos zbog skrivenog osnovnog sadržaja", async () => {
+    const { t, actor, startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const pageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Mnogo doprinosa",
+      content: "<p>Osnova koja se ne prikazuje u listi</p>",
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 200; index += 1) {
+        await ctx.db.insert("contentContributions", {
+          startupId: startupA,
+          targetKind: "page",
+          targetKey: `page:${pageId}`,
+          targetId: pageId,
+          authorProfileId: actor.profileId,
+          attribution: "author",
+          content: `Doprinos ${index + 1}`,
+          sourceKind: "page_entry",
+          sourceId: `legacy-entry-${index + 1}`,
+          moderationStatus: "approved",
+          archivedAt: null,
+          createdAt: now + index,
+          updatedAt: now + index,
+        });
+      }
+    });
+
+    const visibleIds = new Set<string>();
+    let cursor: string | null = null;
+    let isDone = false;
+    for (let pageIndex = 0; pageIndex < 10 && !isDone; pageIndex += 1) {
+      const result: {
+        page: Array<{
+          _id: Id<"contentContributions">;
+          sourceKind?: "idea_original" | "page_entry" | "page_body";
+        }>;
+        continueCursor: string;
+        isDone: boolean;
+      } = await asActor.query(
+        api.collaboration.listContributionsPaginated,
+        {
+          target: { kind: "page", id: pageId },
+          paginationOpts: { numItems: 40, cursor },
+        },
+      );
+      for (const contribution of result.page) {
+        expect(contribution.sourceKind).toBe("page_entry");
+        visibleIds.add(contribution._id);
+      }
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
+
+    expect(isDone).toBe(true);
+    expect(visibleIds.size).toBe(200);
+  });
+
+  test("tuđi parent ne može da se zaobiđe kroz kreiranje stranice", async () => {
+    const { t, startupA, areaA1, asActor, asMember } =
+      await seedPagesSecurityWorkspace();
+    const foreignParentId = await asMember.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Tuđi parent",
+    });
+
+    await expect(
+      asActor.mutation(api.pages.create, {
+        startupId: startupA,
+        areaId: areaA1,
+        parentPageId: foreignParentId,
+        kind: "task",
+        title: "Neodobreno dete",
+      }),
+    ).rejects.toThrow("potrebno je odobrenje");
+
+    const children = await t.run((ctx) =>
+      ctx.db
+        .query("pages")
+        .withIndex("by_parentPageId_and_archivedAt", (q) =>
+          q.eq("parentPageId", foreignParentId).eq("archivedAt", null),
+        )
+        .take(2),
+    );
+    expect(children).toHaveLength(0);
+  });
+
+  test("arhiviranje se bezbedno zaustavlja pre nego što ostavi dete iza arhiviranog parenta", async () => {
+    const { t, actor, startupA, areaA1, asActor } =
+      await seedPagesSecurityWorkspace();
+    const parentPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Veliki parent",
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 201; index += 1) {
+        await ctx.db.insert("pages", {
+          startupId: startupA,
+          areaId: areaA1,
+          parentPageId,
+          kind: "note",
+          title: `Dete ${index + 1}`,
+          searchText: "",
+          revision: 0,
+          position: index,
+          taskStatus: null,
+          taskPriority: null,
+          assigneeProfileId: null,
+          dueDate: null,
+          taskSortAt: now,
+          createdByProfileId: actor.profileId,
+          updatedByProfileId: actor.profileId,
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await expect(
+      asActor.mutation(api.pages.archive, { pageId: parentPageId }),
+    ).rejects.toThrow("više od 200");
+
+    const state = await t.run(async (ctx) => {
+      const parent = await ctx.db.get("pages", parentPageId);
+      const children = await ctx.db
+        .query("pages")
+        .withIndex("by_parentPageId_and_archivedAt", (q) =>
+          q.eq("parentPageId", parentPageId).eq("archivedAt", null),
+        )
+        .take(202);
+      return { parent, children };
+    });
+    expect(state.parent?.archivedAt).toBeNull();
+    expect(state.children).toHaveLength(201);
+  });
+
+  test("samo autor pomera svoju vidljivu karticu na kanvasu oblasti", async () => {
+    const { t, startupA, areaA1, asActor, asMember } =
+      await seedPagesSecurityWorkspace();
+    const actorPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Autorova kartica",
+    });
+    const nestedPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: actorPageId,
+      kind: "task",
+      title: "Ugnježđena kartica",
+    });
+
+    const memberCanvas = await asMember.query(api.canvases.getAreaCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      kind: "note",
+    });
+    expect(memberCanvas.pages).toEqual([
+      expect.objectContaining({ _id: actorPageId, canMove: false }),
+    ]);
+    await expect(
+      asMember.mutation(api.canvases.moveAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        updates: [{ pageId: actorPageId, x: 120, y: 80 }],
+      }),
+    ).rejects.toThrow("samo svoje kartice");
+    await expect(
+      asActor.mutation(api.canvases.moveAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        updates: [{ pageId: nestedPageId, x: 120, y: 80 }],
+      }),
+    ).rejects.toThrow("kanvasa oblasti");
+
+    await expect(
+      asActor.mutation(api.canvases.moveAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        updates: [{ pageId: actorPageId, x: 120, y: 80 }],
+      }),
+    ).resolves.toBeNull();
+    const layouts = await t.run((ctx) =>
+      ctx.db.query("pageCanvasNodes").withIndex("by_pageId", (q) =>
+        q.eq("pageId", actorPageId),
+      ).take(2),
+    );
+    expect(layouts).toEqual([
+      expect.objectContaining({ pageId: actorPageId, x: 120, y: 80 }),
+    ]);
+  });
+
+  test("veze kanvasa čuvaju autorstvo, scope i bezbedno uklanjanje", async () => {
+    const {
+      t,
+      actor,
+      startupA,
+      startupB,
+      areaA1,
+      asActor,
+      asMember,
+    } = await seedPagesSecurityWorkspace();
+    const actorPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Autorova kartica",
+    });
+    const actorPeerId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Autorova druga kartica",
+    });
+    const memberPageId = await asMember.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Članova kartica",
+    });
+    const actorTaskId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "task",
+      title: "Autorov task",
+    });
+    const nestedPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: actorPageId,
+      kind: "task",
+      title: "Dete",
+    });
+
+    await expect(
+      asMember.mutation(api.canvases.connectAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        source: actorPageId,
+        target: actorPeerId,
+      }),
+    ).rejects.toThrow("posedujete bar jednu karticu");
+    await expect(
+      asActor.mutation(api.canvases.connectAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        source: actorPageId,
+        target: nestedPageId,
+      }),
+    ).rejects.toThrow("kanvasa iste poslovne oblasti");
+    await expect(
+      asActor.mutation(api.canvases.connectAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        source: actorPageId,
+        target: actorTaskId,
+      }),
+    ).rejects.toThrow("istog tipa");
+    await expect(
+      asActor.mutation(api.pages.connectCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        nodeAId: actorPageId,
+        nodeBId: actorTaskId,
+      }),
+    ).rejects.toThrow("istog tipa");
+    await expect(
+      asActor.mutation(api.pages.connectCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        nodeAId: actorPageId,
+        nodeBId: nestedPageId,
+      }),
+    ).rejects.toThrow("posedujete bar jednu karticu");
+
+    const edgeId = await asActor.mutation(
+      api.canvases.connectAreaCanvasPages,
+      {
+        startupId: startupA,
+        areaId: areaA1,
+        source: actorPageId,
+        target: memberPageId,
+      },
+    );
+    const createdEdge = await t.run((ctx) => ctx.db.get("pageEdges", edgeId));
+    expect(createdEdge).toMatchObject({
+      authorProfileId: actor.profileId,
+      archivedAt: null,
+    });
+
+    await expect(
+      asMember.mutation(api.canvases.disconnectAreaCanvasPages, {
+        startupId: startupA,
+        edgeIds: [edgeId],
+      }),
+    ).rejects.toThrow("samo vezu koju ste napravili");
+    await asActor.mutation(api.canvases.disconnectAreaCanvasPages, {
+      startupId: startupA,
+      edgeIds: [edgeId],
+    });
+    await expect(
+      t.run((ctx) => ctx.db.get("pageEdges", edgeId)),
+    ).resolves.toBeNull();
+    const afterArchive = await asActor.query(api.canvases.getAreaCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      kind: "note",
+    });
+    expect(afterArchive.edges).toHaveLength(0);
+
+    const reconnectedEdgeId = await asActor.mutation(
+      api.canvases.connectAreaCanvasPages,
+      {
+        startupId: startupA,
+        areaId: areaA1,
+        source: actorPageId,
+        target: memberPageId,
+      },
+    );
+    expect(reconnectedEdgeId).not.toBe(edgeId);
+
+    const legacyEdgeId = await asActor.mutation(api.pages.connectCanvasPages, {
+      startupId: startupA,
+      areaId: areaA1,
+      nodeAId: actorPageId,
+      nodeBId: actorPeerId,
+    });
+    await expect(
+      asMember.mutation(api.pages.disconnectCanvasPages, {
+        startupId: startupA,
+        edgeId: legacyEdgeId,
+      }),
+    ).rejects.toThrow("samo vezu koju ste napravili");
+    await asActor.mutation(api.pages.disconnectCanvasPages, {
+      startupId: startupA,
+      edgeId: legacyEdgeId,
+    });
+    await expect(
+      t.run((ctx) => ctx.db.get("pageEdges", legacyEdgeId)),
+    ).resolves.toBeNull();
+
+    const taintedEdgeId = await t.run((ctx) =>
+      ctx.db.insert("pageEdges", {
+        startupId: startupB,
+        areaId: areaA1,
+        nodeAId: actorPageId,
+        nodeBId: actorPeerId,
+        pairKey: [actorPageId, actorPeerId].sort().join(":"),
+        label: "Pogrešan tenant",
+        authorProfileId: actor.profileId,
+        archivedAt: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const visibleCanvas = await asActor.query(api.canvases.getAreaCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      kind: "note",
+    });
+    expect(visibleCanvas.edges.map((edge) => edge._id)).toEqual([
+      reconnectedEdgeId,
+    ]);
+    expect(visibleCanvas.edges.map((edge) => edge._id)).not.toContain(
+      taintedEdgeId,
+    );
+  });
+
+  test("legacy i aktivni Canvas API odbijaju tuđu oblast i cross-area vezu", async () => {
+    const {
+      t,
+      startupA,
+      startupB,
+      areaA1,
+      areaA2,
+      areaB,
+      asActor,
+      asOutsider,
+    } = await seedPagesSecurityWorkspace();
+    await asOutsider.mutation(api.pages.create, {
+      startupId: startupB,
+      areaId: areaB,
+      parentPageId: null,
+      kind: "note",
+      title: "Tajna drugog startupa",
+      content: "Ne sme biti vidljivo.",
+    });
+    const taintedPageId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Interna A kartica",
+    });
+    const taintedPeerId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Druga interna A kartica",
+    });
+    const taintedEdgeId = await t.run((ctx) =>
+      ctx.db.insert("pageEdges", {
+        startupId: startupA,
+        areaId: areaB,
+        nodeAId: taintedPageId,
+        nodeBId: taintedPeerId,
+        pairKey: [taintedPageId, taintedPeerId].sort().join(":"),
+        label: "Legacy cross-tenant oznaka",
+        archivedAt: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    await expect(
+      asActor.query(api.pages.listAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaB,
+      }),
+    ).rejects.toThrow("Oblast nije pronađena");
+    await expect(
+      asActor.query(api.canvases.getAreaCanvas, {
+        startupId: startupA,
+        areaId: areaB,
+        kind: "note",
+      }),
+    ).rejects.toThrow("Oblast nije pronađena");
+    const outsiderCanvas = await asOutsider.query(
+      api.pages.listAreaCanvasPages,
+      { startupId: startupB, areaId: areaB },
+    );
+    expect(outsiderCanvas.edges).toHaveLength(0);
+
+    const pageA = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Oblast A",
+    });
+    const pageB = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA2,
+      parentPageId: null,
+      kind: "task",
+      title: "Oblast B",
+    });
+
+    await expect(
+      asActor.mutation(api.pages.connectCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        nodeAId: pageA,
+        nodeBId: pageB,
+      }),
+    ).rejects.toThrow("bar jednu karticu");
+    await expect(
+      asActor.mutation(api.canvases.connectAreaCanvasPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        source: pageA,
+        target: pageB,
+      }),
+    ).rejects.toThrow("iste poslovne oblasti");
+
+    const edges = await t.run((ctx) => ctx.db.query("pageEdges").take(2));
+    expect(edges).toEqual([
+      expect.objectContaining({
+        _id: taintedEdgeId,
+        startupId: startupA,
+        areaId: areaB,
+      }),
+    ]);
+  });
+
+  test("cross-area move odbija granu sa aktivnim stranicama drugog autora", async () => {
+    const { t, actor, member, startupA, areaA1, areaA2, asActor } =
+      await seedPagesSecurityWorkspace();
+    const { parentId, childId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const base = {
+        startupId: startupA,
+        areaId: areaA1,
+        kind: "note" as const,
+        searchText: "",
+        revision: 0,
+        position: 0,
+        taskStatus: null,
+        taskPriority: null,
+        assigneeProfileId: null,
+        dueDate: null,
+        taskSortAt: now,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const parentId = await ctx.db.insert("pages", {
+        ...base,
+        parentPageId: null,
+        title: "Grana autora",
+        createdByProfileId: actor.profileId,
+        updatedByProfileId: actor.profileId,
+      });
+      const childId = await ctx.db.insert("pages", {
+        ...base,
+        parentPageId: parentId,
+        title: "Dete drugog autora",
+        createdByProfileId: member.profileId,
+        updatedByProfileId: member.profileId,
+      });
+      return { parentId, childId };
+    });
+
+    await expect(
+      asActor.mutation(api.pages.move, {
+        pageId: parentId,
+        areaId: areaA2,
+        parentPageId: null,
+      }),
+    ).rejects.toThrow("stranice drugih autora");
+
+    const persisted = await t.run(async (ctx) => ({
+      parent: await ctx.db.get("pages", parentId),
+      child: await ctx.db.get("pages", childId),
+    }));
+    expect(persisted.parent?.areaId).toBe(areaA1);
+    expect(persisted.child?.areaId).toBe(areaA1);
+  });
+});

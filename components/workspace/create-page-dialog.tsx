@@ -23,8 +23,14 @@ type CheckpointItem = {
 };
 
 export function CreatePageDialog({ open, onOpenChange, startup, target, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; startup: StartupWithAreas; target?: CreatePageTarget; onCreated: (pageId: Id<"pages">) => void }) {
-  const createPage = useMutation(api.pages.create);
+  const createPage = useMutation(api.areasV2.createPage);
   const members = useQuery(api.startups.listMembers, open ? { startupId: startup._id, limit: 50 } : "skip");
+  const targetParent = useQuery(
+    api.pages.get,
+    open && target?.parentPageId
+      ? { pageId: target.parentPageId }
+      : "skip",
+  );
   const fallbackAreaId = startup.areas[0]?._id;
   const [title, setTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
@@ -43,7 +49,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
 
   function addCheckpoint() {
     const text = newCheckpointText.trim();
-    if (!text) return;
+    if (!text || checkpoints.length >= 100) return;
     setCheckpoints((prev) => [
       ...prev,
       { id: `cp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`, text, completed: false },
@@ -66,10 +72,10 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
     if (!areaId || title.trim().length === 0) return;
     setSubmitting(true);
     try {
-      const pageId = await createPage({
+      const result = await createPage({
         startupId: startup._id,
         areaId,
-        parentPageId: target?.parentPageId ?? null,
+        rootPageId: target?.parentPageId ?? null,
         kind,
         title: title.trim(),
         content: kind === "note" ? noteContent : "",
@@ -82,9 +88,15 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
           ...(checkpoints.length > 0 ? { checkpoints } : {}),
         } : {}),
       });
-      toast.success(kind === "task" ? "Zadatak je kreiran." : "Beleška je kreirana.");
+      toast.success(
+        result.nestingStatus === "pending"
+          ? `${kind === "task" ? "Zadatak" : "Beleška"} je kreiran/a u oblasti i čeka odobrenje autora ciljne stranice.`
+          : kind === "task"
+            ? "Zadatak je kreiran."
+            : "Beleška je kreirana.",
+      );
       onOpenChange(false);
-      onCreated(pageId);
+      onCreated(result.pageId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Stranica nije kreirana.");
     } finally {
@@ -98,7 +110,13 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
         <form onSubmit={submit}>
           <DialogHeader className="border-b border-border/70 px-5 py-5 sm:px-6">
             <DialogTitle className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"><Plus className="size-4" /></span> Nova stranica</DialogTitle>
-            <DialogDescription>{target?.parentPageId ? "Biće ugnježdena unutar izabrane stranice." : `Dodaješ sadržaj u ${selectedArea?.label ?? "oblast"}.`}</DialogDescription>
+            <DialogDescription>
+              {target?.parentPageId
+                ? targetParent && !targetParent.permissions.canEdit
+                  ? "Stavka će biti kreirana u korenu oblasti, a autor ciljne stranice dobija zahtev za ugnježđavanje."
+                  : "Biće ugnježdena unutar izabrane stranice."
+                : `Dodaješ sadržaj u ${selectedArea?.label ?? "oblast"}.`}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 px-5 py-5 sm:px-6">
             <fieldset className="grid grid-cols-2 gap-2 rounded-xl bg-muted/55 p-1">
@@ -154,9 +172,10 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                     id="new-task-instructions"
                     value={instructions}
                     onChange={(e) => setInstructions(e.target.value)}
-                    placeholder="Napišite slobodne instrukcije za ovaj zadatak..."
+                    placeholder="Napiši šta treba uraditi i koji rezultat se očekuje…"
                     className="flex min-h-20 w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     rows={3}
+                    maxLength={20_000}
                   />
                 </div>
 
@@ -168,8 +187,16 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                       onChange={(e) => setNewCheckpointText(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
                       placeholder="Dodaj podzadatak / checkpoint..."
+                      maxLength={500}
                     />
-                    <Button type="button" variant="secondary" onClick={addCheckpoint}><Plus className="size-4" /> Dodaj</Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={addCheckpoint}
+                      disabled={checkpoints.length >= 100}
+                    >
+                      <Plus className="size-4" /> Dodaj
+                    </Button>
                   </div>
                   {checkpoints.length > 0 ? (
                     <div className="mt-3 space-y-1.5 rounded-xl border border-border/60 bg-muted/20 p-2.5">
@@ -186,7 +213,14 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                               {cp.text}
                             </span>
                           </label>
-                          <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => removeCheckpoint(cp.id)}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeCheckpoint(cp.id)}
+                            aria-label={`Ukloni checkpoint: ${cp.text}`}
+                          >
                             <Trash2 className="size-3.5" />
                           </Button>
                         </div>

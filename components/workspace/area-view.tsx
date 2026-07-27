@@ -1,313 +1,521 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, usePaginatedQuery } from "convex/react";
-import { Blocks, CheckSquare2, FilePlus2, FileText, FolderPlus, Layers, LayoutGrid, List, Pencil, Plus } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import {
+  AlertTriangle,
+  Blocks,
+  CheckSquare2,
+  Eye,
+  FilePlus2,
+  FileText,
+  FolderPlus,
+  LayoutGrid,
+  Link2,
+  List,
+  Maximize2,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { CreatePageTarget, ProfileWithAvatar, StartupWithAreas } from "@/components/workspace/types";
-import { TaskTableView } from "@/components/workspace/task-table-view";
-import { AREA_ICONS, getAreaTint, getAreaDescription, EmptyState } from "@/components/workspace/workspace-ui";
+import { AreaBriefingDock } from "@/components/workspace/area-briefing-dock";
+import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
+import type {
+  CreatePageTarget,
+  ProfileWithAvatar,
+  StartupWithAreas,
+} from "@/components/workspace/types";
+import {
+  AREA_ICONS,
+  EmptyState,
+  getAreaDescription,
+  getAreaTint,
+} from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-import { formatShortDate, type AreaKey } from "@/lib/workspace";
+import {
+  formatShortDate,
+  TASK_PRIORITY_META,
+  TASK_STATUS_META,
+  type AreaKey,
+} from "@/lib/workspace";
 
-import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
+type ContentFilter = "all" | "note" | "task";
+type ViewMode = "canvas" | "list";
+
+const FILTER_OPTIONS: Array<{
+  value: ContentFilter;
+  label: string;
+  icon: typeof LayoutGrid;
+}> = [
+  { value: "all", label: "Sve", icon: LayoutGrid },
+  { value: "note", label: "Beleške", icon: FileText },
+  { value: "task", label: "Zadaci", icon: CheckSquare2 },
+];
 
 export function AreaView({
   startup,
   profile,
   areaId,
-  onOpenPage,
+  onOpenCanvas,
+  onOpenDetails,
   onCreate,
   onCreateArea,
 }: {
   startup: StartupWithAreas;
   profile: ProfileWithAvatar;
   areaId: Id<"startupAreas">;
-  onOpenPage: (pageId: Id<"pages">) => void;
+  onOpenCanvas: (pageId: Id<"pages">) => void;
+  onOpenDetails: (pageId: Id<"pages">) => void;
   onCreate: (target: CreatePageTarget) => void;
   onCreateArea?: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"notes" | "tasks">("notes");
-  const [viewMode, setViewMode] = useState<"list" | "canvas">("list");
-  const [selectedTaskAreaId, setSelectedTaskAreaId] = useState<Id<"startupAreas">>(areaId);
+  const [filter, setFilter] = useState<ContentFilter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("canvas");
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
 
   const updateArea = useMutation(api.startups.updateArea);
-
+  const updateAreaBody = useMutation(api.areasV2.updateAreaBody);
   const currentArea = useMemo(
-    () => startup.areas.find((item) => item._id === areaId) ?? startup.areas[0],
+    () => startup.areas.find((area) => area._id === areaId),
     [areaId, startup.areas],
   );
-
-  const activeTaskArea = useMemo(
-    () => startup.areas.find((item) => item._id === selectedTaskAreaId) ?? currentArea ?? startup.areas[0],
-    [selectedTaskAreaId, currentArea, startup.areas],
+  const canvasData = useQuery(
+    api.areasV2.getCanvas,
+    currentArea
+      ? {
+          startupId: startup._id,
+          areaId: currentArea._id,
+          rootPageId: null,
+        }
+      : "skip",
   );
 
-  const { results: pages, status, loadMore } = usePaginatedQuery(
-    api.pages.listChildren,
-    currentArea ? { startupId: startup._id, areaId: currentArea._id, parentPageId: null } : "skip",
-    { initialNumItems: 50 },
+  const visiblePages = useMemo(
+    () =>
+      (canvasData?.pages ?? []).filter(
+        (page) => filter === "all" || page.kind === filter,
+      ),
+    [canvasData?.pages, filter],
   );
+  const relationCounts = useMemo(() => {
+    const counts = new Map<Id<"pages">, number>();
+    for (const relation of canvasData?.relations ?? []) {
+      counts.set(relation.source, (counts.get(relation.source) ?? 0) + 1);
+      counts.set(relation.target, (counts.get(relation.target) ?? 0) + 1);
+    }
+    return counts;
+  }, [canvasData?.relations]);
 
-  const notesPages = useMemo(() => pages.filter((page) => page.kind === "note"), [pages]);
+  if (!currentArea) {
+    return (
+      <EmptyState
+        title="Oblast nije pronađena"
+        description="Izaberi drugu oblast iz navigacije."
+      />
+    );
+  }
 
-  async function handleSaveLabel() {
-    if (!currentArea) return;
+  const area = currentArea;
+  const Icon = AREA_ICONS[area.key as AreaKey] || Blocks;
+  const canEditArea = startup.createdByProfileId === profile._id;
+  const tintClass = getAreaTint(area.key);
+  const description = getAreaDescription(area.key);
+
+  async function saveLabel() {
     const trimmed = labelInput.trim();
-    if (!trimmed) {
+    if (!canEditArea || !trimmed || trimmed === area.label) {
+      setLabelInput(area.label);
       setIsEditingLabel(false);
       return;
     }
-    if (trimmed !== currentArea.label) {
-      try {
-        await updateArea({ areaId: currentArea._id, label: trimmed });
-        toast.success("Naziv oblasti je sačuvan.");
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Greška pri čuvanju naziva.");
-      }
+    try {
+      await updateArea({ areaId: area._id, label: trimmed });
+      toast.success("Naziv oblasti je sačuvan.");
+      setIsEditingLabel(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Naziv oblasti nije sačuvan.",
+      );
     }
-    setIsEditingLabel(false);
   }
 
-  if (!currentArea) return <EmptyState title="Oblast nije pronađena" description="Izaberi drugu oblast iz navigacije." />;
-  const Icon = AREA_ICONS[currentArea.key as AreaKey] || Blocks;
-  const tintClass = getAreaTint(currentArea.key);
-  const description = getAreaDescription(currentArea.key);
+  function createPage(kind: "note" | "task") {
+    onCreate({
+      areaId: area._id,
+      parentPageId: null,
+      initialKind: kind,
+    });
+  }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pb-20 pt-5 sm:px-7 lg:px-10 lg:pt-8">
-      {/* Area Header */}
-      <header data-workspace-enter className="flex flex-wrap items-end justify-between gap-5 border-b border-border/70 pb-6">
-        <div className="flex items-start gap-4">
-          <span className={cn("grid size-12 shrink-0 place-items-center rounded-2xl", tintClass)}>
-            <Icon className="size-5" />
+    <div className="mx-auto w-full max-w-7xl px-4 pb-24 pt-5 sm:px-7 lg:px-10 lg:pt-8">
+      <header
+        data-workspace-enter
+        className="flex flex-col gap-5 border-b border-border/70 pb-6 xl:flex-row xl:items-end xl:justify-between"
+      >
+        <div className="flex min-w-0 items-start gap-4">
+          <span
+            className={cn(
+              "grid size-12 shrink-0 place-items-center rounded-2xl",
+              tintClass,
+            )}
+          >
+            <Icon className="size-5" aria-hidden="true" />
           </span>
-          <div>
-            <p className="mb-1 text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{startup.name}</p>
+          <div className="min-w-0">
+            <p className="mb-1 text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              {startup.name}
+            </p>
             {isEditingLabel ? (
-              <div className="flex items-center gap-2">
-                <Input
-                  value={labelInput}
-                  onChange={(e) => setLabelInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSaveLabel();
-                    } else if (e.key === "Escape") {
-                      setIsEditingLabel(false);
-                      setLabelInput(currentArea.label);
-                    }
-                  }}
-                  onBlur={handleSaveLabel}
-                  autoFocus
-                  className="h-10 text-2xl font-bold tracking-[-0.035em] sm:text-3xl"
-                />
-              </div>
-            ) : (
-              <div className="group flex items-center gap-2">
-                <h1
-                  className="cursor-pointer text-2xl font-bold tracking-[-0.035em] transition-colors hover:text-primary sm:text-3xl"
-                  onDoubleClick={() => {
+              <Input
+                value={labelInput}
+                onChange={(event) => setLabelInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  } else if (event.key === "Escape") {
                     setLabelInput(currentArea.label);
-                    setIsEditingLabel(true);
-                  }}
-                  title="Dupli klik za promenu naziva"
-                >
+                    setIsEditingLabel(false);
+                  }
+                }}
+                onBlur={() => void saveLabel()}
+                autoFocus
+                aria-label="Naziv oblasti"
+                maxLength={80}
+                className="h-11 max-w-xl text-2xl font-bold tracking-[-0.035em] sm:text-3xl"
+              />
+            ) : (
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-2xl font-bold tracking-[-0.035em] sm:text-3xl">
                   {currentArea.label}
                 </h1>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                  title="Izmeni naziv oblasti"
-                  onClick={() => {
-                    setLabelInput(currentArea.label);
-                    setIsEditingLabel(true);
-                  }}
-                >
-                  <Pencil className="size-3.5 text-muted-foreground" />
-                </Button>
+                {canEditArea ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 shrink-0 rounded-xl text-muted-foreground"
+                    aria-label={`Izmeni naziv oblasti ${currentArea.label}`}
+                    onClick={() => {
+                      setLabelInput(currentArea.label);
+                      setIsEditingLabel(true);
+                    }}
+                  >
+                    <Pencil className="size-4" aria-hidden="true" />
+                  </Button>
+                ) : null}
               </div>
             )}
-            <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              {description}
+            </p>
           </div>
         </div>
 
-        {/* View Switch: Notes vs Tasks & Layout Mode */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="grid grid-cols-2 rounded-xl bg-muted/70 p-1 text-xs font-semibold">
-            <button
+        <div className="flex flex-wrap items-center gap-2">
+          {onCreateArea ? (
+            <Button
               type="button"
-              onClick={() => setActiveTab("notes")}
-              className={cn(
-                "flex items-center gap-2 rounded-lg px-3.5 py-1.5 transition-colors",
-                activeTab === "notes" ? "bg-card text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground",
-              )}
+              variant="ghost"
+              className="h-10 rounded-xl text-muted-foreground"
+              onClick={onCreateArea}
             >
-              <FileText className="size-4" /> Beleške
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("tasks")}
-              className={cn(
-                "flex items-center gap-2 rounded-lg px-3.5 py-1.5 transition-colors",
-                activeTab === "tasks" ? "bg-card text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <CheckSquare2 className="size-4" /> Taskovi
-            </button>
-          </div>
-
-          {/* Mode Switch: Lista vs Canvas */}
-          <div className="flex items-center rounded-xl border border-border/60 bg-muted/30 p-1 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => setViewMode("list")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1 transition-colors",
-                viewMode === "list" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <List className="size-3.5" />
-              <span>Lista</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("canvas")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1 transition-colors",
-                viewMode === "canvas" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <LayoutGrid className="size-3.5" />
-              <span>Kanvas</span>
-            </button>
-          </div>
-
-          {activeTab === "notes" ? (
-            <Button variant="outline" onClick={() => onCreate({ areaId: currentArea._id, parentPageId: null, initialKind: "note" })}>
-              <FilePlus2 className="size-4" /> Nova Beleška
+              <FolderPlus aria-hidden="true" />
+              Nova oblast
             </Button>
-          ) : (
-            <Button onClick={() => onCreate({ areaId: activeTaskArea._id, parentPageId: null, initialKind: "task" })}>
-              <Plus className="size-4" /> Novi Task
-            </Button>
-          )}
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 rounded-xl"
+            onClick={() => createPage("note")}
+          >
+            <FilePlus2 aria-hidden="true" />
+            Nova beleška
+          </Button>
+          <Button
+            type="button"
+            className="h-10 rounded-xl"
+            onClick={() => createPage("task")}
+          >
+            <Plus aria-hidden="true" />
+            Novi zadatak
+          </Button>
         </div>
       </header>
 
-      {/* Main Content Area */}
       <div data-workspace-enter className="mt-6">
+        {canvasData ? (
+          <AreaBriefingDock
+            key={`${currentArea._id}:${canvasData.scope.briefing.revision}`}
+            areaLabel={currentArea.label}
+            content={canvasData.scope.briefing.content}
+            revision={canvasData.scope.briefing.revision}
+            canEdit={canvasData.scope.briefing.canEdit}
+            onSave={async (content, expectedRevision) => {
+              try {
+                const result = await updateAreaBody({
+                  startupId: startup._id,
+                  areaId: currentArea._id,
+                  content,
+                  expectedRevision,
+                });
+                toast.success("Briefing oblasti je sačuvan.");
+                return result.revision;
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                      : "Briefing nije sačuvan.",
+                );
+                throw error;
+              }
+            }}
+          />
+        ) : (
+          <Skeleton className="h-56 rounded-[1.35rem]" />
+        )}
+      </div>
+
+      <section data-workspace-enter className="mt-7" aria-label="Sadržaj oblasti">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[0.6875rem] font-bold uppercase tracking-[0.13em] text-primary">
+              Radni prostor oblasti
+            </p>
+            <h2 className="mt-1 text-lg font-bold tracking-[-0.025em]">
+              Beleške, zadaci i njihove veze
+            </h2>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="grid grid-cols-3 rounded-xl border border-border/65 bg-muted/35 p-1"
+              aria-label="Filtriraj sadržaj oblasti"
+            >
+              {FILTER_OPTIONS.map(({ value, label, icon: FilterIcon }) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-9 rounded-lg px-3 text-xs",
+                    filter === value
+                      ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
+                      : "text-muted-foreground",
+                  )}
+                  aria-pressed={filter === value}
+                  onClick={() => setFilter(value)}
+                >
+                  <FilterIcon className="size-3.5" aria-hidden="true" />
+                  {label}
+                </Button>
+              ))}
+            </div>
+
+            <div
+              className="grid grid-cols-2 rounded-xl border border-border/65 bg-muted/35 p-1"
+              aria-label="Izaberi prikaz oblasti"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-9 rounded-lg px-3 text-xs",
+                  viewMode === "canvas"
+                    ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
+                    : "text-muted-foreground",
+                )}
+                aria-pressed={viewMode === "canvas"}
+                onClick={() => setViewMode("canvas")}
+              >
+                <LayoutGrid className="size-3.5" aria-hidden="true" />
+                Kanvas
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-9 rounded-lg px-3 text-xs",
+                  viewMode === "list"
+                    ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
+                    : "text-muted-foreground",
+                )}
+                aria-pressed={viewMode === "list"}
+                onClick={() => setViewMode("list")}
+              >
+                <List className="size-3.5" aria-hidden="true" />
+                Lista
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {canvasData?.truncated ? (
+          <div
+            className="mb-4 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-xs leading-5 text-amber-800 dark:text-amber-200"
+            role="status"
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            Prikazan je bezbedan ograničen skup najskorijih stavki. Filter se
+            primenjuje samo na taj učitani skup.
+          </div>
+        ) : null}
+
         {viewMode === "canvas" ? (
           <AreaCanvasView
             startupId={startup._id}
             areaId={currentArea._id}
-            areaLabel={currentArea.label}
-            kind={activeTab === "notes" ? "note" : "task"}
-            onOpenPage={onOpenPage}
-            onCreatePage={(kind) =>
-              onCreate({ areaId: currentArea._id, parentPageId: null, initialKind: kind })
+            rootPageId={null}
+            canvasLabel={currentArea.label}
+            filter={filter}
+            onOpenCanvas={onOpenCanvas}
+            onOpenDetails={onOpenDetails}
+            onCreatePage={createPage}
+          />
+        ) : canvasData === undefined ? (
+          <div className="space-y-3">
+            {[0, 1, 2].map((item) => (
+              <Skeleton key={item} className="h-24 rounded-2xl" />
+            ))}
+          </div>
+        ) : visiblePages.length === 0 ? (
+          <EmptyState
+            icon={filter === "task" ? CheckSquare2 : FileText}
+            title={
+              filter === "all"
+                ? `Još nema sadržaja u oblasti ${currentArea.label}`
+                : filter === "note"
+                  ? `Nema beleški u oblasti ${currentArea.label}`
+                  : `Nema zadataka u oblasti ${currentArea.label}`
+            }
+            description={
+              canvasData.truncated
+                ? "U učitanom skupu nema stavki koje odgovaraju ovom prikazu. Promeni filter ili arhiviraj starije stavke."
+                : "Dodaj belešku za kontekst ili zadatak za izvršenje. Kasnije ih možeš povezati."
+            }
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={() => createPage("note")}>
+                  <FilePlus2 aria-hidden="true" />
+                  Nova beleška
+                </Button>
+                <Button onClick={() => createPage("task")}>
+                  <Plus aria-hidden="true" />
+                  Novi zadatak
+                </Button>
+              </div>
             }
           />
-        ) : activeTab === "notes" ? (
-          /* Notes View */
-          status === "LoadingFirstPage" ? (
-            <div className="space-y-3">{[0, 1, 2].map((item) => <Skeleton key={item} className="h-20 rounded-xl" />)}</div>
-          ) : notesPages.length === 0 ? (
-            <EmptyState
-              icon={FilePlus2}
-              title={`Nema beleški u ${currentArea.label}`}
-              description="Napravi prvu belešku. Mozete koristiti Rich Text Editor sa stilovima i formatiranjem."
-              action={
-                <Button onClick={() => onCreate({ areaId: currentArea._id, parentPageId: null, initialKind: "note" })}>
-                  <Plus /> Prva beleška
-                </Button>
-              }
-            />
-          ) : (
-            <Card className="threadline overflow-hidden border-border/75 bg-card/80 p-2">
-              {notesPages.map((page) => (
-                <button
-                  key={page._id}
-                  type="button"
-                  className="threadline-item flex min-h-16 w-full items-center gap-3 rounded-xl pr-3 text-left hover:bg-accent/35 transition-colors"
-                  onClick={() => onOpenPage(page._id)}
-                >
-                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/8 text-primary">
-                    <FileText className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">{page.title}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">Izmenjeno {formatShortDate(page.updatedAt)}</span>
-                  </span>
-                </button>
-              ))}
-              {status === "CanLoadMore" || status === "LoadingMore" ? (
-                <Button type="button" variant="ghost" className="mt-1 w-full" disabled={status === "LoadingMore"} onClick={() => loadMore(50)}>
-                  {status === "LoadingMore" ? "Učitavam…" : "Učitaj još"}
-                </Button>
-              ) : null}
-            </Card>
-          )
         ) : (
-          /* Tasks View with Task Areas Sub-navigation & TaskTableView */
-          <div className="space-y-6">
-            {/* Task Areas Sub-navigation */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Oblasti u Taskovima:</span>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {startup.areas.map((area) => {
-                    const isSelected = area._id === selectedTaskAreaId;
-                    return (
-                      <button
-                        key={area._id}
-                        type="button"
-                        onClick={() => setSelectedTaskAreaId(area._id)}
+          <Card className="overflow-hidden border-border/75 bg-card/80 p-2">
+            <ul className="space-y-1" aria-label="Stavke oblasti">
+              {visiblePages.map((page) => {
+                const status =
+                  page.kind === "task" && page.taskStatus
+                    ? TASK_STATUS_META[page.taskStatus]
+                    : null;
+                const priority =
+                  page.kind === "task" && page.taskPriority
+                    ? TASK_PRIORITY_META[page.taskPriority]
+                    : null;
+                const relationCount = relationCounts.get(page._id) ?? 0;
+                return (
+                  <li
+                    key={page._id}
+                    className="flex flex-col gap-2 rounded-xl border border-transparent px-2 py-2 transition-colors hover:border-border/65 hover:bg-accent/25 sm:flex-row sm:items-center"
+                  >
+                    <button
+                      type="button"
+                      className="flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-lg px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => onOpenCanvas(page._id)}
+                    >
+                      <span
                         className={cn(
-                          "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all border",
-                          isSelected
-                            ? "bg-primary/10 text-primary border-primary/30 shadow-sm"
-                            : "bg-muted/40 text-muted-foreground border-transparent hover:bg-accent hover:text-foreground",
+                          "grid size-9 shrink-0 place-items-center rounded-xl",
+                          page.kind === "note"
+                            ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                            : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
                         )}
                       >
-                        <Layers className="size-3.5" />
-                        {area.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                        {page.kind === "note" ? (
+                          <FileText className="size-4" aria-hidden="true" />
+                        ) : (
+                          <CheckSquare2
+                            className="size-4"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">
+                          {page.title || "Bez naslova"}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            {page.kind === "note" ? "Beleška" : "Zadatak"}
+                          </span>
+                          {status ? <span>{status.label}</span> : null}
+                          {priority ? <span>{priority.label}</span> : null}
+                          {relationCount > 0 ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Link2 className="size-3" aria-hidden="true" />
+                              {relationCount}
+                            </span>
+                          ) : null}
+                          <span>
+                            {page.creator?._id === profile._id
+                              ? "Tvoje"
+                              : page.creator?.displayName ?? "Autor nije dostupan"}
+                          </span>
+                          <span>Izmenjeno {formatShortDate(page.updatedAt)}</span>
+                        </span>
+                      </span>
+                    </button>
 
-              {onCreateArea ? (
-                <Button variant="ghost" size="sm" onClick={onCreateArea} className="text-xs text-muted-foreground hover:text-foreground">
-                  <FolderPlus className="size-4" /> Dodaj novu Oblast
-                </Button>
-              ) : null}
-            </div>
-
-            {/* Render Task Management Table for Selected Task Area */}
-            <TaskTableView
-              key={selectedTaskAreaId}
-              startup={startup}
-              profile={profile}
-              areaId={selectedTaskAreaId}
-              onOpenPage={onOpenPage}
-              onCreateTask={() => onCreate({ areaId: selectedTaskAreaId, initialKind: "task" })}
-            />
-          </div>
+                    <div className="flex shrink-0 gap-1 self-end sm:self-auto">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-10 rounded-xl"
+                        onClick={() => onOpenDetails(page._id)}
+                      >
+                        <Eye aria-hidden="true" />
+                        Detalji
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-10 rounded-xl"
+                        aria-label={`Otvori kanvas: ${page.title || "Bez naslova"}`}
+                        onClick={() => onOpenCanvas(page._id)}
+                      >
+                        <Maximize2 aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
         )}
-      </div>
+      </section>
     </div>
   );
 }

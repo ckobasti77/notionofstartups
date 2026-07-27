@@ -4,7 +4,12 @@ import { recordActivity } from "./activity";
 import { requireProfileInStartup } from "./auth";
 import { insertContribution } from "./collaboration";
 import { pageSearchText, pageTaskSortAt, requireVisiblePage } from "./pages";
-import { cleanRequiredText } from "./validators";
+import {
+  cleanRequiredText,
+  normalizeTaskCheckpoints,
+  normalizeTaskInstructions,
+  validateTaskDueDate,
+} from "./validators";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -42,6 +47,28 @@ export function cleanPageContent(content: string) {
     throw new Error("Sadržaj može imati najviše 80.000 znakova.");
   }
   return content;
+}
+
+export function workspaceCanvasPreview(
+  title: string,
+  content: string,
+  instructions?: string | null,
+) {
+  const source = instructions || content || title;
+  return source
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim()
+    .slice(0, 480);
 }
 
 export function cleanPagePosition(position: number | undefined, fallback: number) {
@@ -119,13 +146,9 @@ export async function validateWorkspacePageTarget(
       args.assigneeProfileId,
     );
   }
-  if (
-    args.dueDate !== undefined &&
-    args.dueDate !== null &&
-    (!Number.isFinite(args.dueDate) || args.dueDate < 0)
-  ) {
-    throw new Error("Rok nije ispravan.");
-  }
+  const dueDate = validateTaskDueDate(args.dueDate);
+  const instructions = normalizeTaskInstructions(args.instructions);
+  const checkpoints = normalizeTaskCheckpoints(args.checkpoints);
 
   return {
     startupId: args.startupId,
@@ -136,9 +159,9 @@ export async function validateWorkspacePageTarget(
     taskPriority: args.kind === "task" ? args.taskPriority ?? "medium" : null,
     assigneeProfileId:
       args.kind === "task" ? args.assigneeProfileId ?? null : null,
-    dueDate: args.kind === "task" ? args.dueDate ?? null : null,
-    instructions: args.kind === "task" ? args.instructions ?? null : null,
-    checkpoints: args.kind === "task" ? args.checkpoints ?? null : null,
+    dueDate: args.kind === "task" ? dueDate ?? null : null,
+    instructions: args.kind === "task" ? instructions ?? null : null,
+    checkpoints: args.kind === "task" ? checkpoints ?? null : null,
   };
 }
 
@@ -179,13 +202,23 @@ export async function insertWorkspacePage(
     title: args.page.title,
     searchText: pageSearchText(args.page.title, args.page.content),
     revision: 0,
+    treeRevision: 0,
+    canvasPreview: workspaceCanvasPreview(
+      args.page.title,
+      args.page.content,
+      args.target.instructions,
+    ),
     position: args.page.position,
     taskStatus: args.target.taskStatus,
     taskPriority: args.target.taskPriority,
     assigneeProfileId: args.target.assigneeProfileId,
     dueDate: args.target.dueDate,
-    ...(args.target.instructions ? { instructions: args.target.instructions } : {}),
-    ...(args.target.checkpoints ? { checkpoints: args.target.checkpoints } : {}),
+    ...(args.target.instructions === null
+      ? {}
+      : { instructions: args.target.instructions }),
+    ...(args.target.checkpoints === null
+      ? {}
+      : { checkpoints: args.target.checkpoints }),
     taskSortAt: args.page.taskSortAt,
     createdByProfileId: args.actorProfileId,
     updatedByProfileId: args.actorProfileId,
@@ -198,18 +231,27 @@ export async function insertWorkspacePage(
     content: args.page.content,
     updatedAt: args.now,
   });
-  if (args.page.content.trim()) {
-    await insertContribution(ctx, {
-      startupId: args.target.startupId,
-      targetKind: "page",
-      targetId: pageId,
-      authorProfileId: args.actorProfileId,
-      content: args.page.content,
-      sourceKind: "page_body",
-      sourceId: pageId,
-      createdAt: args.now,
-    });
-  }
+  await ctx.db.insert("pageCanvasPlacements", {
+    startupId: args.target.startupId,
+    areaId: args.target.areaId,
+    rootPageId: args.target.parentPageId,
+    pageId,
+    x: 0,
+    y: 0,
+    updatedByProfileId: args.actorProfileId,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  await insertContribution(ctx, {
+    startupId: args.target.startupId,
+    targetKind: "page",
+    targetId: pageId,
+    authorProfileId: args.actorProfileId,
+    content: args.page.content,
+    sourceKind: "page_body",
+    sourceId: pageId,
+    createdAt: args.now,
+  });
   await recordActivity(ctx, {
     startupId: args.target.startupId,
     actorProfileId: args.actorProfileId,

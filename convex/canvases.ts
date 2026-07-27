@@ -28,6 +28,7 @@ const canvasPageValidator = v.object({
   y: v.number(),
   width: v.number(),
   height: v.number(),
+  canMove: v.boolean(),
   canResize: v.boolean(),
   creator: v.union(
     v.object({
@@ -181,7 +182,10 @@ export const getAreaCanvas = query({
       return {
         _id: page._id,
         title: page.title,
-        text: plainText(body?.content),
+        text:
+          page.kind === "task" && page.instructions?.trim()
+            ? page.instructions.trim()
+            : plainText(body?.content),
         kind: page.kind,
         taskStatus: page.taskStatus,
         taskPriority: page.taskPriority,
@@ -190,6 +194,7 @@ export const getAreaCanvas = query({
         y: layout?.y ?? (row - 1) * 205,
         width: layout?.width ?? DEFAULT_PAGE_NODE_WIDTH,
         height: layout?.height ?? DEFAULT_PAGE_NODE_HEIGHT,
+        canMove: page.createdByProfileId === profile._id,
         canResize: page.createdByProfileId === profile._id,
         creator: creatorsById.get(page.createdByProfileId) ?? null,
       };
@@ -199,6 +204,8 @@ export const getAreaCanvas = query({
     const edges = rawEdges
       .filter(
         (edge) =>
+          edge.startupId === args.startupId &&
+          (edge.archivedAt === undefined || edge.archivedAt === null) &&
           visiblePageIds.has(edge.nodeAId) && visiblePageIds.has(edge.nodeBId),
       )
       .map((edge) => ({
@@ -238,10 +245,10 @@ export const moveAreaCanvasPages = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     await requirePageArea(ctx, args.startupId, args.areaId);
-    if (args.updates.length > 100) {
-      throw new Error("Pomeri najviše 100 kartica odjednom.");
+    if (args.updates.length > 250) {
+      throw new Error("Pomeri najviše 250 kartica odjednom.");
     }
 
     const now = Date.now();
@@ -251,9 +258,13 @@ export const moveAreaCanvasPages = mutation({
         !page ||
         page.startupId !== args.startupId ||
         page.areaId !== args.areaId ||
-        page.archivedAt !== null
+        page.archivedAt !== null ||
+        page.parentPageId !== null
       ) {
-        throw new Error("Jedna od kartica više nije dostupna.");
+        throw new Error("Pomeri samo dostupne kartice sa kanvasa oblasti.");
+      }
+      if (page.createdByProfileId !== profile._id) {
+        throw new Error("Možete pomerati samo svoje kartice.");
       }
       const existing = await ctx.db
         .query("pageCanvasNodes")
@@ -417,7 +428,7 @@ export const connectAreaCanvasPages = mutation({
   },
   returns: v.id("pageEdges"),
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     await requirePageArea(ctx, args.startupId, args.areaId);
     if (args.source === args.target) {
       throw new Error("Kartica ne može biti povezana sa samom sobom.");
@@ -434,9 +445,24 @@ export const connectAreaCanvasPages = mutation({
       source.areaId !== args.areaId ||
       target.areaId !== args.areaId ||
       source.archivedAt !== null ||
-      target.archivedAt !== null
+      target.archivedAt !== null ||
+      source.parentPageId !== null ||
+      target.parentPageId !== null
     ) {
-      throw new Error("Poveži samo dostupne kartice iz iste poslovne oblasti.");
+      throw new Error(
+        "Poveži samo dostupne kartice sa kanvasa iste poslovne oblasti.",
+      );
+    }
+    if (source.kind !== target.kind) {
+      throw new Error("Na podeljenom kanvasu poveži kartice istog tipa.");
+    }
+    if (
+      source.createdByProfileId !== profile._id &&
+      target.createdByProfileId !== profile._id
+    ) {
+      throw new Error(
+        "Vezu možete napraviti samo ako posedujete bar jednu karticu.",
+      );
     }
 
     const pairKey = [args.source, args.target].sort().join(":");
@@ -446,7 +472,20 @@ export const connectAreaCanvasPages = mutation({
         q.eq("areaId", args.areaId).eq("pairKey", pairKey),
       )
       .unique();
-    if (existing) return existing._id;
+    const now = Date.now();
+    if (existing) {
+      if (existing.startupId !== args.startupId) {
+        throw new Error("Postojeća veza ne pripada ovom startupu.");
+      }
+      if (existing.archivedAt !== undefined && existing.archivedAt !== null) {
+        await ctx.db.patch("pageEdges", existing._id, {
+          authorProfileId: profile._id,
+          archivedAt: null,
+          updatedAt: now,
+        });
+      }
+      return existing._id;
+    }
 
     return await ctx.db.insert("pageEdges", {
       startupId: args.startupId,
@@ -455,7 +494,10 @@ export const connectAreaCanvasPages = mutation({
       nodeBId: args.target,
       pairKey,
       label: null,
-      createdAt: Date.now(),
+      authorProfileId: profile._id,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
     });
   },
 });
@@ -467,13 +509,27 @@ export const disconnectAreaCanvasPages = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireStartupMember(ctx, args.startupId);
+    const { profile } = await requireStartupMember(ctx, args.startupId);
     if (args.edgeIds.length > 100) {
       throw new Error("Ukloni najviše 100 veza odjednom.");
     }
     for (const edgeId of args.edgeIds) {
       const edge = await ctx.db.get("pageEdges", edgeId);
-      if (edge?.startupId === args.startupId) {
+      if (edge === null || edge.startupId !== args.startupId) {
+        throw new Error("Veza nije pronađena.");
+      }
+      const [source, target] = await Promise.all([
+        ctx.db.get("pages", edge.nodeAId),
+        ctx.db.get("pages", edge.nodeBId),
+      ]);
+      const ownsLegacyEndpoint =
+        edge.authorProfileId === undefined &&
+        (source?.createdByProfileId === profile._id ||
+          target?.createdByProfileId === profile._id);
+      if (edge.authorProfileId !== profile._id && !ownsLegacyEndpoint) {
+        throw new Error("Možete ukloniti samo vezu koju ste napravili.");
+      }
+      if (edge.archivedAt === undefined || edge.archivedAt === null) {
         await ctx.db.delete("pageEdges", edgeId);
       }
     }

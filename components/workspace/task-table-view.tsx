@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   CheckCircle2,
   CheckSquare2,
@@ -57,8 +57,16 @@ type CheckpointItem = {
   completed: boolean;
 };
 
+function nextCheckpointId(checkpoints: Array<CheckpointItem>) {
+  const usedIds = new Set(checkpoints.map((checkpoint) => checkpoint.id));
+  let sequence = checkpoints.length + 1;
+  while (usedIds.has(`cp-${sequence}`)) sequence += 1;
+  return `cp-${sequence}`;
+}
+
 export function TaskTableView({
   startup,
+  profile,
   areaId,
   onOpenPage,
   onCreateTask,
@@ -66,7 +74,7 @@ export function TaskTableView({
   const [now] = useState(() => Date.now());
   const { results: tasks, status: tasksStatus, loadMore } = usePaginatedQuery(
     api.pages.listChildren,
-    { startupId: startup._id, areaId, parentPageId: null },
+    { startupId: startup._id, areaId, parentPageId: null, kind: "task" },
     { initialNumItems: 50 },
   );
 
@@ -81,10 +89,7 @@ export function TaskTableView({
 
   const [expandedTaskId, setExpandedTaskId] = useState<Id<"pages"> | null>(null);
 
-  // Filter tasks to only show kind === "task"
-  const taskPages = useMemo(() => {
-    return tasks.filter((page) => page.kind === "task");
-  }, [tasks]);
+  const taskPages = tasks;
 
   const filteredTasks = useMemo(() => {
     return taskPages.filter((task) => {
@@ -217,7 +222,9 @@ export function TaskTableView({
           description={
             taskPages.length === 0
               ? "U ovoj oblasti još nema zadataka. Napravi prvi zadatak odmah!"
-              : "Nijedan zadatak ne odgovara trenutno izabranim filterima."
+              : tasksStatus === "CanLoadMore"
+                ? "Nema podudaranja među trenutno učitanim zadacima. Učitaj još zadataka ili promeni filtere."
+                : "Nijedan zadatak ne odgovara trenutno izabranim filterima."
           }
           action={
             <Button onClick={onCreateTask}>
@@ -244,6 +251,7 @@ export function TaskTableView({
                 key={task._id}
                 task={task}
                 members={members}
+                canEdit={task.createdByProfileId === profile._id}
                 isExpanded={expandedTaskId === task._id}
                 onToggleExpand={() =>
                   setExpandedTaskId((curr) => (curr === task._id ? null : task._id))
@@ -273,21 +281,34 @@ export function TaskTableView({
 function TaskTableRow({
   task,
   members,
+  canEdit,
   isExpanded,
   onToggleExpand,
   onOpenPage,
 }: {
   task: Doc<"pages">;
   members: Array<StartupMember>;
+  canEdit: boolean;
   isExpanded: boolean;
   onToggleExpand: () => void;
   onOpenPage: (pageId: Id<"pages">) => void;
 }) {
-  const updateMetadata = useMutation(api.tasks.updateMetadata);
+  const updateTaskPage = useMutation(api.areasV2.updatePage);
+  const revisionRef = useRef(task.revision);
+  const updateQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [now] = useState(() => Date.now());
   const [updating, setUpdating] = useState(false);
-  const [instructionsText, setInstructionsText] = useState(task.instructions ?? "");
+  const serverInstructions = task.instructions ?? "";
+  const [instructionsDraft, setInstructionsDraft] = useState(() => ({
+    base: serverInstructions,
+    value: serverInstructions,
+  }));
+  const instructionsText =
+    instructionsDraft.base === serverInstructions
+      ? instructionsDraft.value
+      : serverInstructions;
   const [newCpText, setNewCpText] = useState("");
+  const prefersReducedMotion = useReducedMotion();
 
   const checkpoints: Array<CheckpointItem> = useMemo(
     () => (task.checkpoints as Array<CheckpointItem>) ?? [],
@@ -297,10 +318,54 @@ function TaskTableRow({
   const completedCount = checkpoints.filter((cp) => cp.completed).length;
   const totalCount = checkpoints.length;
 
+  useEffect(() => {
+    if (task.revision > revisionRef.current) {
+      revisionRef.current = task.revision;
+    }
+  }, [task.revision]);
+
+  async function updateMetadata(patch: {
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    assigneeProfileId?: Id<"profiles"> | null;
+    dueDate?: number | null;
+    instructions?: string | null;
+    checkpoints?: Array<CheckpointItem> | null;
+  }) {
+    const operation = updateQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const result = await updateTaskPage({
+          startupId: task.startupId,
+          pageId: task._id,
+          expectedRevision: revisionRef.current,
+          ...(patch.status === undefined ? {} : { taskStatus: patch.status }),
+          ...(patch.priority === undefined
+            ? {}
+            : { taskPriority: patch.priority }),
+          ...(patch.assigneeProfileId === undefined
+            ? {}
+            : { assigneeProfileId: patch.assigneeProfileId }),
+          ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
+          ...(patch.instructions === undefined
+            ? {}
+            : { instructions: patch.instructions }),
+          ...(patch.checkpoints === undefined
+            ? {}
+            : { checkpoints: patch.checkpoints }),
+        });
+        revisionRef.current = result.revision;
+        return result;
+      });
+    updateQueueRef.current = operation;
+    await operation;
+  }
+
   async function updateStatus(newStatus: TaskStatus) {
+    if (!canEdit) return;
     setUpdating(true);
     try {
-      await updateMetadata({ pageId: task._id, status: newStatus });
+      await updateMetadata({ status: newStatus });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Status nije sačuvan.");
     } finally {
@@ -309,9 +374,10 @@ function TaskTableRow({
   }
 
   async function updatePriority(newPriority: TaskPriority) {
+    if (!canEdit) return;
     setUpdating(true);
     try {
-      await updateMetadata({ pageId: task._id, priority: newPriority });
+      await updateMetadata({ priority: newPriority });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Prioritet nije sačuvan.");
     } finally {
@@ -320,10 +386,10 @@ function TaskTableRow({
   }
 
   async function updateAssignee(newAssigneeId: string) {
+    if (!canEdit) return;
     setUpdating(true);
     try {
       await updateMetadata({
-        pageId: task._id,
         assigneeProfileId: newAssigneeId === "none" ? null : (newAssigneeId as Id<"profiles">),
       });
     } catch (err) {
@@ -334,10 +400,11 @@ function TaskTableRow({
   }
 
   async function updateDueDate(newDateStr: string) {
+    if (!canEdit) return;
     setUpdating(true);
     try {
       const parsedDate = newDateStr ? fromDateInputValue(newDateStr) : null;
-      await updateMetadata({ pageId: task._id, dueDate: parsedDate });
+      await updateMetadata({ dueDate: parsedDate });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Rok nije sačuvan.");
     } finally {
@@ -346,9 +413,10 @@ function TaskTableRow({
   }
 
   async function saveInstructions() {
-    if (instructionsText === (task.instructions ?? "")) return;
+    if (!canEdit) return;
+    if (instructionsText === serverInstructions) return;
     try {
-      await updateMetadata({ pageId: task._id, instructions: instructionsText.trim() });
+      await updateMetadata({ instructions: instructionsText.trim() });
       toast.success("Instrukcije sačuvane.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Instrukcije nisu sačuvane.");
@@ -356,39 +424,51 @@ function TaskTableRow({
   }
 
   async function toggleCheckpoint(cpId: string) {
+    if (!canEdit) return;
     const updated = checkpoints.map((cp) =>
       cp.id === cpId ? { ...cp, completed: !cp.completed } : cp,
     );
+    setUpdating(true);
     try {
-      await updateMetadata({ pageId: task._id, checkpoints: updated });
+      await updateMetadata({ checkpoints: updated });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Podzadatak nije ažuriran.");
+    } finally {
+      setUpdating(false);
     }
   }
 
   async function addCheckpoint() {
+    if (!canEdit) return;
     const text = newCpText.trim();
-    if (!text) return;
+    if (!text || checkpoints.length >= 100) return;
     const newItem: CheckpointItem = {
-      id: `cp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: nextCheckpointId(checkpoints),
       text,
       completed: false,
     };
     const updated = [...checkpoints, newItem];
     setNewCpText("");
+    setUpdating(true);
     try {
-      await updateMetadata({ pageId: task._id, checkpoints: updated });
+      await updateMetadata({ checkpoints: updated });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Podzadatak nije dodat.");
+    } finally {
+      setUpdating(false);
     }
   }
 
   async function removeCheckpoint(cpId: string) {
+    if (!canEdit) return;
     const updated = checkpoints.filter((cp) => cp.id !== cpId);
+    setUpdating(true);
     try {
-      await updateMetadata({ pageId: task._id, checkpoints: updated });
+      await updateMetadata({ checkpoints: updated });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Podzadatak nije izbrisan.");
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -404,6 +484,7 @@ function TaskTableRow({
             className="size-7 shrink-0 text-muted-foreground"
             onClick={onToggleExpand}
             title="Prikaži/sakrij podzadatke"
+            aria-label={`${isExpanded ? "Sakrij" : "Prikaži"} detalje zadatka ${task.title}`}
           >
             {isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
           </Button>
@@ -442,7 +523,7 @@ function TaskTableRow({
           <Select
             value={task.taskStatus ?? "backlog"}
             onValueChange={(val) => updateStatus(val as TaskStatus)}
-            disabled={updating}
+            disabled={updating || !canEdit}
           >
             <SelectTrigger className="h-8 border-transparent bg-transparent p-0 shadow-none focus:ring-0">
               <SelectValue>
@@ -464,7 +545,7 @@ function TaskTableRow({
           <Select
             value={task.taskPriority ?? "medium"}
             onValueChange={(val) => updatePriority(val as TaskPriority)}
-            disabled={updating}
+            disabled={updating || !canEdit}
           >
             <SelectTrigger className="h-8 border-transparent bg-transparent p-0 shadow-none focus:ring-0">
               <SelectValue>
@@ -486,7 +567,7 @@ function TaskTableRow({
           <Select
             value={task.assigneeProfileId ?? "none"}
             onValueChange={updateAssignee}
-            disabled={updating}
+            disabled={updating || !canEdit}
           >
             <SelectTrigger className="h-8 w-full border-border/50 bg-background/60 text-xs">
               <SelectValue placeholder="Nije dodeljen" />
@@ -513,9 +594,10 @@ function TaskTableRow({
           <div className="flex items-center gap-1">
             <Input
               type="date"
+              aria-label={`Rok za zadatak ${task.title}`}
               value={toDateInputValue(task.dueDate)}
               onChange={(e) => updateDueDate(e.target.value)}
-              disabled={updating}
+              disabled={updating || !canEdit}
               className={cn(
                 "h-8 text-xs border-border/50 bg-background/60 px-2 py-0",
                 task.dueDate && task.dueDate < now && task.taskStatus !== "done" && "border-destructive/60 text-destructive font-semibold"
@@ -528,9 +610,17 @@ function TaskTableRow({
         <div className="min-w-0">
           <Input
             value={instructionsText}
-            onChange={(e) => setInstructionsText(e.target.value)}
+            onChange={(e) =>
+              setInstructionsDraft({
+                base: serverInstructions,
+                value: e.target.value,
+              })
+            }
             onBlur={saveInstructions}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveInstructions(); } }}
+            readOnly={!canEdit}
+            maxLength={20_000}
+            aria-label={`Kratke instrukcije za zadatak ${task.title}`}
             placeholder="Unesi instrukcije..."
             className="h-8 text-xs border-border/40 bg-background/40 hover:bg-background/80 transition-colors"
           />
@@ -554,12 +644,18 @@ function TaskTableRow({
       <AnimatePresence>
         {isExpanded ? (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
+            initial={prefersReducedMotion ? false : { height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
+            transition={prefersReducedMotion ? { duration: 0 } : undefined}
             className="overflow-hidden border-t border-border/40 bg-muted/20 px-6 py-4"
           >
             <div className="grid gap-6 md:grid-cols-2">
+              {!canEdit ? (
+                <p className="text-xs text-muted-foreground md:col-span-2">
+                  Task podatke i checkpoint-e menja samo autor. Detalje možeš da pregledaš.
+                </p>
+              ) : null}
               {/* Checkpoints List */}
               <div className="space-y-3">
                 <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -571,10 +667,20 @@ function TaskTableRow({
                     value={newCpText}
                     onChange={(e) => setNewCpText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
+                    disabled={!canEdit || updating}
+                    maxLength={500}
+                    aria-label={`Novi checkpoint za zadatak ${task.title}`}
                     placeholder="Novi podzadatak..."
                     className="h-8 text-xs"
                   />
-                  <Button type="button" size="sm" variant="secondary" onClick={addCheckpoint} className="h-8 text-xs">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={addCheckpoint}
+                    disabled={!canEdit || updating || checkpoints.length >= 100}
+                    className="h-8 text-xs"
+                  >
                     <Plus className="size-3.5" /> Dodaj
                   </Button>
                 </div>
@@ -590,6 +696,7 @@ function TaskTableRow({
                             type="checkbox"
                             checked={cp.completed}
                             onChange={() => toggleCheckpoint(cp.id)}
+                            disabled={!canEdit || updating}
                             className="size-4 rounded border-primary text-primary accent-primary"
                           />
                           <span className={cp.completed ? "line-through text-muted-foreground truncate" : "font-medium truncate text-foreground"}>
@@ -602,6 +709,8 @@ function TaskTableRow({
                           size="icon"
                           className="size-6 text-muted-foreground hover:text-destructive"
                           onClick={() => removeCheckpoint(cp.id)}
+                          disabled={!canEdit || updating}
+                          aria-label={`Ukloni checkpoint: ${cp.text}`}
                         >
                           <Trash2 className="size-3" />
                         </Button>
@@ -618,8 +727,16 @@ function TaskTableRow({
                 </h4>
                 <textarea
                   value={instructionsText}
-                  onChange={(e) => setInstructionsText(e.target.value)}
+                  onChange={(e) =>
+                    setInstructionsDraft({
+                      base: serverInstructions,
+                      value: e.target.value,
+                    })
+                  }
                   onBlur={saveInstructions}
+                  readOnly={!canEdit}
+                  maxLength={20_000}
+                  aria-label={`Detaljne instrukcije za zadatak ${task.title}`}
                   placeholder="Napišite proizvoljne instrukcije za izvođenje ovog zadatka..."
                   className="flex min-h-24 w-full rounded-xl border border-input bg-card px-3 py-2 text-xs leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   rows={4}

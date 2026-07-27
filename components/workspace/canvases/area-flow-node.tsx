@@ -14,7 +14,9 @@ import {
   ArrowUpRight,
   CalendarDays,
   CheckSquare2,
+  Clock3,
   FileText,
+  Info,
   RotateCcw,
 } from "lucide-react";
 
@@ -40,30 +42,37 @@ export type AreaCanvasNodeData = {
   creatorName: string;
   creatorAvatarUrl: string | null;
   updatedAt: number;
+  canMove: boolean;
   canResize: boolean;
+  pendingNesting: boolean;
 };
 
 export type AreaFlowNode = Node<AreaCanvasNodeData, "areaPage">;
 
 const AreaNodeActionsContext = createContext<{
-  open: (pageId: Id<"pages">) => void;
+  openCanvas: (pageId: Id<"pages">) => void;
+  openDetails: (pageId: Id<"pages">) => void;
   resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
   resetSize: (pageId: Id<"pages">) => void;
 } | null>(null);
 
 export function AreaNodeActionsProvider({
-  open,
+  openCanvas,
+  openDetails,
   resize,
   resetSize,
   children,
 }: {
-  open: (pageId: Id<"pages">) => void;
+  openCanvas: (pageId: Id<"pages">) => void;
+  openDetails: (pageId: Id<"pages">) => void;
   resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
   resetSize: (pageId: Id<"pages">) => void;
   children: ReactNode;
 }) {
   return (
-    <AreaNodeActionsContext.Provider value={{ open, resize, resetSize }}>
+    <AreaNodeActionsContext.Provider
+      value={{ openCanvas, openDetails, resize, resetSize }}
+    >
       {children}
     </AreaNodeActionsContext.Provider>
   );
@@ -77,6 +86,8 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
   const actions = useContext(AreaNodeActionsContext);
   const pageId = id as Id<"pages">;
   const isTask = data.kind === "task";
+  const title = data.title || "Bez naslova";
+  const canResize = data.canResize && !data.pendingNesting;
 
   return (
     <article
@@ -84,47 +95,82 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
       className={cn(
         orbital.shell,
         isTask ? styles.task : styles.note,
+        data.pendingNesting && styles.amber,
+        (!data.canMove || data.pendingNesting) && "nodrag !cursor-default",
         selected && orbital.selected,
       )}
-      aria-label={`${isTask ? "Zadatak" : "Beleška"}: ${data.title || "Bez naslova"}. ${data.text}`}
+      tabIndex={0}
+      aria-keyshortcuts="Enter"
+      aria-label={`${isTask ? "Zadatak" : "Beleška"}: ${title}. ${data.text}${data.pendingNesting ? ". Čeka odobrenje" : ""}`}
+      title="Dupli klik ili Enter otvara kanvas"
       onDoubleClick={(event) => {
         event.stopPropagation();
-        actions?.open(pageId);
+        actions?.openCanvas(pageId);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" || event.repeat) return;
+        event.preventDefault();
+        event.stopPropagation();
+        actions?.openCanvas(pageId);
       }}
     >
-      <div className={orbital.surface} aria-hidden="true" />
+      <div
+        className={cn(
+          orbital.surface,
+          data.pendingNesting &&
+            "!border-dashed !border-amber-500/70 !bg-amber-500/10 dark:!border-amber-300/60",
+        )}
+        aria-hidden="true"
+      />
 
       <NodeResizer
-        isVisible={selected && data.canResize}
+        isVisible={selected && canResize}
         minWidth={240}
         minHeight={168}
         maxWidth={720}
         maxHeight={1_000}
         handleClassName={cn(styles.resizeHandle, orbital.resizeControl)}
         lineClassName={styles.resizeLine}
-        onResizeEnd={(_event, layout) => actions?.resize(pageId, layout)}
+        onResizeEnd={(_event, layout) => {
+          if (canResize) actions?.resize(pageId, layout);
+        }}
       />
 
       <NodeToolbar isVisible={selected} position={Position.Top} offset={24}>
         <div className={cn(orbital.toolbar, "nodrag flex items-center gap-1 rounded-xl border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur")}>
-          {data.canResize ? (
+          {canResize ? (
             <Button
               type="button"
               size="sm"
               variant="ghost"
               className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+              aria-label={`Vrati početnu veličinu za ${title}`}
+              title="Vrati početnu veličinu"
               onClick={() => actions?.resetSize(pageId)}
             >
-              <RotateCcw className="size-3.5" /> Početna veličina
+              <RotateCcw className="size-3.5" aria-hidden="true" /> Početna veličina
             </Button>
           ) : null}
           <Button
             type="button"
             size="sm"
+            variant="ghost"
             className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
-            onClick={() => actions?.open(pageId)}
+            aria-label={`Otvori detalje za ${title}`}
+            title="Otvori detalje"
+            onClick={() => actions?.openDetails(pageId)}
           >
-            Otvori <ArrowUpRight className="size-3.5" />
+            <Info className="size-3.5" aria-hidden="true" /> Detalji
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+            aria-label={`Otvori kanvas za ${title}`}
+            title="Otvori kanvas"
+            onClick={() => actions?.openCanvas(pageId)}
+          >
+            Otvori kanvas <ArrowUpRight className="size-3.5" aria-hidden="true" />
           </Button>
         </div>
       </NodeToolbar>
@@ -133,7 +179,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         data-circular-text-obstacle
         className={cn(orbital.orbit, orbital.titleOrbit)}
       >
-        {data.title || "Bez naslova"}
+        {title}
       </div>
 
       <div
@@ -148,7 +194,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
           className="size-7 shrink-0 ring-2 ring-background"
         />
         <span className={orbital.founderLabel}>
-          <span className={orbital.founderEyebrow}>Osnivač</span>
+          <span className={orbital.founderEyebrow}>Autor</span>
           <span className={orbital.founderName}>{data.creatorName}</span>
         </span>
       </div>
@@ -173,7 +219,15 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         data-circular-text-obstacle
         className={cn(orbital.orbit, orbital.actionOrbit)}
       >
-        {isTask && data.taskStatus ? (
+        {data.pendingNesting ? (
+          <span
+            role="status"
+            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[0.625rem] font-extrabold text-amber-800 dark:text-amber-200"
+          >
+            <Clock3 className="size-3.5" aria-hidden="true" />
+            Čeka odobrenje
+          </span>
+        ) : isTask && data.taskStatus ? (
           <div className="flex flex-wrap items-center gap-1">
             <TaskStatusBadge status={data.taskStatus} />
             {data.taskPriority ? (
@@ -201,7 +255,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
 
       <CircularTextFlow
         text={data.text}
-        ariaLabel={`${isTask ? "Tekst zadatka" : "Tekst beleške"} ${data.title || "Bez naslova"}`}
+        ariaLabel={`${isTask ? "Tekst zadatka" : "Tekst beleške"} ${title}`}
       />
 
       <Handle

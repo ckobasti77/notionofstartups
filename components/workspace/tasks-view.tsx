@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -125,7 +125,12 @@ export function TasksView({
             />
           </TabsContent>
           <TabsContent value="board">
-            <KanbanBoard tasks={visibleTasks} members={members} onOpenPage={onOpenPage} />
+            <KanbanBoard
+              tasks={visibleTasks}
+              members={members}
+              currentProfileId={profile._id}
+              onOpenPage={onOpenPage}
+            />
           </TabsContent>
         </Tabs>
       ) : (
@@ -238,10 +243,12 @@ function TaskList({
 function KanbanBoard({
   tasks,
   members,
+  currentProfileId,
   onOpenPage,
 }: {
   tasks: Array<Doc<"pages">>;
   members: Array<StartupMember>;
+  currentProfileId: Id<"profiles">;
   onOpenPage: (pageId: Id<"pages">) => void;
 }) {
   return (
@@ -261,7 +268,13 @@ function KanbanBoard({
               <div className="min-h-40 space-y-2">
                 <AnimatePresence initial={false} mode="popLayout">
                   {columnTasks.map((task) => (
-                    <KanbanCard key={task._id} task={task} members={members} onOpenPage={onOpenPage} />
+                    <KanbanCard
+                      key={task._id}
+                      task={task}
+                      members={members}
+                      currentProfileId={currentProfileId}
+                      onOpenPage={onOpenPage}
+                    />
                   ))}
                 </AnimatePresence>
               </div>
@@ -276,23 +289,41 @@ function KanbanBoard({
 function KanbanCard({
   task,
   members,
+  currentProfileId,
   onOpenPage,
 }: {
   task: Doc<"pages">;
   members: Array<StartupMember>;
+  currentProfileId: Id<"profiles">;
   onOpenPage: (pageId: Id<"pages">) => void;
 }) {
-  const updateMetadata = useMutation(api.tasks.updateMetadata);
+  const updateTaskPage = useMutation(api.areasV2.updatePage);
   const [updating, setUpdating] = useState(false);
+  const revisionRef = useRef(task.revision);
+  const updatingRef = useRef(false);
   const assignee = memberById(members, task.assigneeProfileId);
+  const canEdit = task.createdByProfileId === currentProfileId;
+
+  useEffect(() => {
+    revisionRef.current = task.revision;
+  }, [task.revision]);
 
   async function changeStatus(status: TaskStatus) {
+    if (!canEdit || updatingRef.current || status === task.taskStatus) return;
+    updatingRef.current = true;
     setUpdating(true);
     try {
-      await updateMetadata({ pageId: task._id, status });
+      const result = await updateTaskPage({
+        startupId: task.startupId,
+        pageId: task._id,
+        expectedRevision: revisionRef.current,
+        taskStatus: status,
+      });
+      revisionRef.current = result.revision;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Status nije sačuvan.");
     } finally {
+      updatingRef.current = false;
       setUpdating(false);
     }
   }
@@ -313,8 +344,20 @@ function KanbanCard({
         </div>
       </button>
       <div className="mt-3 border-t border-border/60 pt-2">
-        <Select value={task.taskStatus ?? "backlog"} onValueChange={(value) => changeStatus(value as TaskStatus)} disabled={updating}>
-          <SelectTrigger className="h-8 w-full border-transparent bg-muted/55 text-xs shadow-none" aria-label={`Promeni status za ${task.title}`}>
+        <Select
+          value={task.taskStatus ?? "backlog"}
+          onValueChange={(value) => changeStatus(value as TaskStatus)}
+          disabled={updating || !canEdit}
+        >
+          <SelectTrigger
+            className="h-8 w-full border-transparent bg-muted/55 text-xs shadow-none"
+            aria-label={`Promeni status za ${task.title}`}
+            title={
+              canEdit
+                ? undefined
+                : "Status može menjati samo kreator zadatka."
+            }
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

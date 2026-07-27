@@ -1,13 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
+  ArrowRight,
   Check,
   Clock3,
   FolderHeart,
   GitPullRequestArrow,
   History,
   Inbox,
+  LoaderCircle,
   ThumbsDown,
   ThumbsUp,
   Undo2,
@@ -27,6 +30,7 @@ import {
 import type { StartupWithAreas } from "@/components/workspace/types";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
 function formatDate(value: number) {
@@ -84,12 +88,22 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
   const data = useQuery(api.collaboration.overview, {
     startupId: startup._id,
   });
+  const pageNestingInbox = useQuery(api.areasV2.listNestingInbox, {
+    startupId: startup._id,
+  });
   const vote = useMutation(api.collaboration.voteOnDeletion);
   const withdraw = useMutation(api.collaboration.withdrawDeletion);
   const resolveNesting = useMutation(api.collaboration.resolveNesting);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
+  const approvePageNesting = useMutation(api.areasV2.approveNesting);
+  const rejectPageNesting = useMutation(api.areasV2.rejectNesting);
+  const withdrawPageNesting = useMutation(api.areasV2.withdrawNesting);
+  const [activePageNestingAction, setActivePageNestingAction] = useState<{
+    requestId: Id<"pageNestingRequests">;
+    action: "approve" | "reject" | "withdraw";
+  } | null>(null);
 
-  if (data === undefined) {
+  if (data === undefined || pageNestingInbox === undefined) {
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-5 sm:p-8">
         <Skeleton className="h-24 rounded-3xl" />
@@ -97,6 +111,57 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
       </div>
     );
   }
+
+  async function handlePageNestingAction(
+    requestId: Id<"pageNestingRequests">,
+    action: "approve" | "reject" | "withdraw",
+  ) {
+    if (activePageNestingAction !== null) return;
+    setActivePageNestingAction({ requestId, action });
+    try {
+      const result =
+        action === "approve"
+          ? await approvePageNesting({ startupId: startup._id, requestId })
+          : action === "reject"
+            ? await rejectPageNesting({ startupId: startup._id, requestId })
+            : await withdrawPageNesting({ startupId: startup._id, requestId });
+      const expectedStatus =
+        action === "approve"
+          ? "approved"
+          : action === "reject"
+            ? "rejected"
+            : "withdrawn";
+
+      if (result.status !== expectedStatus) {
+        toast.info(
+          result.status === "cancelled"
+            ? "Zahtev više nije važeći."
+            : "Zahtev je već obrađen.",
+        );
+        return;
+      }
+
+      toast.success(
+        action === "approve"
+          ? "Ugnježđavanje stranice je odobreno."
+          : action === "reject"
+            ? "Zahtev za ugnježđavanje je odbijen."
+            : "Zahtev za ugnježđavanje je povučen.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Odluka o ugnježđavanju nije sačuvana.",
+      );
+    } finally {
+      setActivePageNestingAction(null);
+    }
+  }
+
+  const pendingCount = data.pendingCount + pageNestingInbox.incoming.length;
+  const nestingForMeCount =
+    data.nestingForMe.length + pageNestingInbox.incoming.length;
 
   return (
     <div className="mx-auto w-full max-w-6xl p-4 sm:p-7 lg:p-9">
@@ -118,11 +183,11 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
             </p>
           </div>
           <Badge
-            variant={data.pendingCount > 0 ? "default" : "secondary"}
+            variant={pendingCount > 0 ? "default" : "secondary"}
             className="rounded-full px-3 py-1.5"
           >
-            {data.pendingCount > 0
-              ? `${data.pendingCount} za tvoju reakciju`
+            {pendingCount > 0
+              ? `${pendingCount} za tvoju reakciju`
               : "Sve je rešeno"}
           </Badge>
         </div>
@@ -140,9 +205,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
           </TabsTrigger>
           <TabsTrigger value="nesting" className="rounded-xl">
             Ugnježđavanje
-            {data.nestingForMe.length ? (
+            {nestingForMeCount ? (
               <span className="ml-1 rounded-full bg-primary px-1.5 text-[0.625rem] text-primary-foreground">
-                {data.nestingForMe.length}
+                {nestingForMeCount}
               </span>
             ) : null}
           </TabsTrigger>
@@ -226,10 +291,120 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
           </Surface>
         </TabsContent>
 
-        <TabsContent value="nesting" className="mt-5">
+        <TabsContent value="nesting" className="mt-5 space-y-5">
           <Surface
             icon={GitPullRequestArrow}
-            title="Zahtevi za tvoj Parent"
+            title="Stranice koje čekaju tvoju odluku"
+            description="Odobri da stranica uđe u roditeljski kanvas ili odbij zahtev bez pomeranja sadržaja."
+          >
+            {pageNestingInbox.incoming.length === 0 ? (
+              <EmptyState icon={Check}>
+                Nema zahteva za ugnježđavanje stranica.
+              </EmptyState>
+            ) : (
+              pageNestingInbox.incoming.map((request) => {
+                const isBusy =
+                  activePageNestingAction?.requestId === request.requestId;
+                return (
+                  <article
+                    key={request.requestId}
+                    className="rounded-2xl border border-border/70 bg-background/70 p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {request.requester ? (
+                          <ProfileAvatar
+                            profile={request.requester}
+                            className="size-9"
+                          />
+                        ) : null}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className="rounded-full text-[0.625rem]"
+                            >
+                              {request.child.kind === "task"
+                                ? "Zadatak"
+                                : "Beleška"}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(request.createdAt)}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex min-w-0 items-center gap-2 text-sm">
+                            <span className="truncate font-semibold">
+                              {request.child.title || "Bez naslova"}
+                            </span>
+                            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                            <span className="truncate text-muted-foreground">
+                              {request.targetParent.title || "Bez naslova"}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                            {request.requester?.displayName ?? "Član tima"} traži
+                            novo roditeljsko mesto.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {request.canReject ? (
+                          <Button
+                            variant="outline"
+                            className="rounded-xl"
+                            disabled={activePageNestingAction !== null}
+                            onClick={() =>
+                              void handlePageNestingAction(
+                                request.requestId,
+                                "reject",
+                              )
+                            }
+                          >
+                            {isBusy &&
+                            activePageNestingAction?.action === "reject" ? (
+                              <LoaderCircle className="animate-spin" />
+                            ) : (
+                              <X />
+                            )}
+                            Odbij
+                          </Button>
+                        ) : null}
+                        {request.canApprove ? (
+                          <Button
+                            className="rounded-xl"
+                            disabled={activePageNestingAction !== null}
+                            onClick={() =>
+                              void handlePageNestingAction(
+                                request.requestId,
+                                "approve",
+                              )
+                            }
+                          >
+                            {isBusy &&
+                            activePageNestingAction?.action === "approve" ? (
+                              <LoaderCircle className="animate-spin" />
+                            ) : (
+                              <Check />
+                            )}
+                            Odobri
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+            {pageNestingInbox.truncated ? (
+              <p className="px-1 text-xs text-muted-foreground">
+                Prikazano je najnovijih 100 zahteva.
+              </p>
+            ) : null}
+          </Surface>
+
+          <Surface
+            icon={GitPullRequestArrow}
+            title="Zahtevi za tvoj čvor ideje"
             description="Odobrenjem kartica fizički ulazi u tvoju karticu i od tada se pomera zajedno sa njom."
           >
             {data.nestingForMe.length === 0 ? (
@@ -302,7 +477,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
             description="Zahtev nema rok i možeš ga povući sve dok je otvoren."
           >
             {data.myRequests.deletion.length === 0 &&
-            data.myRequests.nesting.length === 0 ? (
+            data.myRequests.nesting.length === 0 &&
+            pageNestingInbox.outgoing.length === 0 ? (
               <EmptyState icon={Check}>Nemaš otvorenih zahteva.</EmptyState>
             ) : (
               <>
@@ -335,6 +511,61 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     </Button>
                   </article>
                 ))}
+                {pageNestingInbox.outgoing.map((request) => {
+                  const isWithdrawing =
+                    activePageNestingAction?.requestId ===
+                      request.requestId &&
+                    activePageNestingAction.action === "withdraw";
+                  return (
+                    <article
+                      key={request.requestId}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/70 p-4"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className="rounded-full text-[0.625rem]"
+                          >
+                            Ugnježđavanje stranice
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(request.createdAt)}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex min-w-0 items-center gap-2 text-sm">
+                          <span className="truncate font-semibold">
+                            {request.child.title || "Bez naslova"}
+                          </span>
+                          <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-muted-foreground">
+                            {request.targetParent.title || "Bez naslova"}
+                          </span>
+                        </div>
+                      </div>
+                      {request.canWithdraw ? (
+                        <Button
+                          variant="ghost"
+                          className="rounded-xl"
+                          disabled={activePageNestingAction !== null}
+                          onClick={() =>
+                            void handlePageNestingAction(
+                              request.requestId,
+                              "withdraw",
+                            )
+                          }
+                        >
+                          {isWithdrawing ? (
+                            <LoaderCircle className="animate-spin" />
+                          ) : (
+                            <Undo2 />
+                          )}
+                          Povuci
+                        </Button>
+                      ) : null}
+                    </article>
+                  );
+                })}
                 {data.myRequests.nesting.map((request) => (
                   <article
                     key={request._id}

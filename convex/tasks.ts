@@ -1,5 +1,8 @@
 import { v } from "convex/values";
-import { paginationOptsValidator } from "convex/server";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import {
@@ -7,12 +10,20 @@ import {
   requireProfileInStartup,
   requireStartupMember,
 } from "./lib/auth";
+import { workspaceCanvasPreview } from "./lib/page_creation";
 import { pageTaskSortAt, requireVisiblePage, summarizePage } from "./lib/pages";
 import {
   boundedLimit,
   checkpointItemValidator,
+  MAX_TASK_PAGE_SIZE,
+  normalizeTaskCheckpoints,
+  normalizeTaskInstructions,
+  pageSummaryValidator,
+  startupAreaDocumentValidator,
+  startupDocumentValidator,
   taskPriorityValidator,
   taskStatusValidator,
+  validateTaskDueDate,
 } from "./lib/validators";
 
 export const listForStartup = query({
@@ -24,10 +35,35 @@ export const listForStartup = query({
     dueEnd: v.optional(v.number()),
     paginationOpts: paginationOptsValidator,
   },
+  returns: paginationResultValidator(pageSummaryValidator),
   handler: async (ctx, args) => {
     await requireStartupMember(ctx, args.startupId);
+    boundedLimit(
+      args.paginationOpts.numItems,
+      MAX_TASK_PAGE_SIZE,
+      MAX_TASK_PAGE_SIZE,
+    );
     if ((args.dueStart === undefined) !== (args.dueEnd === undefined)) {
       throw new Error("Za raspon roka potrebni su početak i kraj.");
+    }
+    if (args.assigneeProfileId !== undefined) {
+      await requireProfileInStartup(
+        ctx,
+        args.startupId,
+        args.assigneeProfileId,
+      );
+    }
+    if (args.dueStart !== undefined && args.dueEnd !== undefined) {
+      validateTaskDueDate(args.dueStart);
+      validateTaskDueDate(args.dueEnd);
+      if (args.dueStart >= args.dueEnd) {
+        throw new Error("Početak raspona roka mora biti pre kraja.");
+      }
+      if (args.status !== undefined || args.assigneeProfileId !== undefined) {
+        throw new Error(
+          "Raspon roka se ne kombinuje sa statusom ili dodeljenim članom.",
+        );
+      }
     }
     const tasks = args.dueStart !== undefined && args.dueEnd !== undefined
       ? await ctx.db
@@ -98,6 +134,12 @@ export const listForStartup = query({
 
 export const listMine = query({
   args: { status: v.optional(taskStatusValidator), limit: v.optional(v.number()) },
+  returns: v.array(
+    pageSummaryValidator.extend({
+      startup: startupDocumentValidator,
+      area: v.union(startupAreaDocumentValidator, v.null()),
+    }),
+  ),
   handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
     const limit = boundedLimit(args.limit, 40, 100);
@@ -151,6 +193,7 @@ export const updateMetadata = mutation({
     instructions: v.optional(v.union(v.string(), v.null())),
     checkpoints: v.optional(v.union(v.array(checkpointItemValidator), v.null())),
   },
+  returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije task.");
@@ -161,24 +204,64 @@ export const updateMetadata = mutation({
     if (args.assigneeProfileId !== undefined && args.assigneeProfileId !== null) {
       await requireProfileInStartup(ctx, page.startupId, args.assigneeProfileId);
     }
-    if (
-      args.dueDate !== undefined &&
-      args.dueDate !== null &&
-      (!Number.isFinite(args.dueDate) || args.dueDate < 0)
-    ) {
-      throw new Error("Rok nije ispravan.");
-    }
+    const normalizedDueDate = validateTaskDueDate(args.dueDate);
+    const normalizedInstructions =
+      args.instructions === undefined
+        ? undefined
+        : normalizeTaskInstructions(args.instructions);
+    const normalizedCheckpoints =
+      args.checkpoints === undefined
+        ? undefined
+        : normalizeTaskCheckpoints(args.checkpoints);
+    const updatedDueDate = normalizedDueDate ?? null;
+    const dueDate =
+      args.dueDate === undefined ? page.dueDate : updatedDueDate;
+    const taskStatus =
+      args.status === undefined ? page.taskStatus : args.status;
+    const taskPriority =
+      args.priority === undefined ? page.taskPriority : args.priority;
+    const assigneeProfileId =
+      args.assigneeProfileId === undefined
+        ? page.assigneeProfileId
+        : args.assigneeProfileId;
+    const instructions =
+      args.instructions === undefined
+        ? page.instructions
+        : normalizedInstructions;
+    const checkpoints =
+      args.checkpoints === undefined
+        ? page.checkpoints
+        : normalizedCheckpoints;
+    const body = await ctx.db
+      .query("pageBodies")
+      .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
+      .unique();
+    const canvasPreview = workspaceCanvasPreview(
+      page.title,
+      body?.content ?? "",
+      instructions,
+    );
+    const unchanged =
+      taskStatus === page.taskStatus &&
+      taskPriority === page.taskPriority &&
+      assigneeProfileId === page.assigneeProfileId &&
+      dueDate === page.dueDate &&
+      instructions === page.instructions &&
+      JSON.stringify(checkpoints ?? null) ===
+        JSON.stringify(page.checkpoints ?? null) &&
+      canvasPreview === page.canvasPreview;
+    if (unchanged) return page._id;
+
     const now = Date.now();
-    const dueDate = args.dueDate === undefined ? page.dueDate : args.dueDate;
     await ctx.db.patch("pages", page._id, {
-      ...(args.status === undefined ? {} : { taskStatus: args.status }),
-      ...(args.priority === undefined ? {} : { taskPriority: args.priority }),
-      ...(args.assigneeProfileId === undefined
-        ? {}
-        : { assigneeProfileId: args.assigneeProfileId }),
-      ...(args.dueDate === undefined ? {} : { dueDate: args.dueDate }),
-      ...(args.instructions === undefined ? {} : { instructions: args.instructions ?? undefined }),
-      ...(args.checkpoints === undefined ? {} : { checkpoints: args.checkpoints ?? undefined }),
+      taskStatus,
+      taskPriority,
+      assigneeProfileId,
+      dueDate,
+      instructions,
+      checkpoints,
+      revision: page.revision + 1,
+      canvasPreview,
       taskSortAt: pageTaskSortAt(dueDate, now),
       updatedByProfileId: profile._id,
       updatedAt: now,

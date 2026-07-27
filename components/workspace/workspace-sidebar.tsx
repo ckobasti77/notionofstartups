@@ -552,6 +552,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                   <PageTree
                     startupId={startup._id}
                     areaId={area._id}
+                    currentProfileId={profile._id}
                     selectedPageId={selectedPageId}
                     expandedPageIds={props.expandedPageIds}
                     transientExpandedPageIds={props.transientExpandedPageIds}

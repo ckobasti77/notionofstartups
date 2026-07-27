@@ -9,6 +9,8 @@
  */
 
 import type * as activity from "../activity.js";
+import type * as areasV2 from "../areasV2.js";
+import type * as areasV2Migrations from "../areasV2Migrations.js";
 import type * as auth from "../auth.js";
 import type * as canvases from "../canvases.js";
 import type * as collaboration from "../collaboration.js";
@@ -41,6 +43,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   activity: typeof activity;
+  areasV2: typeof areasV2;
+  areasV2Migrations: typeof areasV2Migrations;
   auth: typeof auth;
   canvases: typeof canvases;
   collaboration: typeof collaboration;

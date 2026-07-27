@@ -1,23 +1,15 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  checkpointItemValidator,
+  pageKindValidator,
+  taskPriorityValidator,
+  taskStatusValidator,
+} from "./lib/validators";
 
 const role = v.union(v.literal("admin"), v.literal("member"));
 const areaKey = v.string();
-const pageKind = v.union(v.literal("note"), v.literal("task"));
-const taskStatus = v.union(
-  v.literal("backlog"),
-  v.literal("next"),
-  v.literal("in_progress"),
-  v.literal("blocked"),
-  v.literal("done"),
-);
-const taskPriority = v.union(
-  v.literal("low"),
-  v.literal("medium"),
-  v.literal("high"),
-  v.literal("urgent"),
-);
 const thoughtColor = v.union(
   v.literal("neutral"),
   v.literal("violet"),
@@ -26,12 +18,6 @@ const thoughtColor = v.union(
   v.literal("amber"),
   v.literal("rose"),
 );
-
-const checkpointItem = v.object({
-  id: v.string(),
-  text: v.string(),
-  completed: v.boolean(),
-});
 
 export default defineSchema({
   ...authTables,
@@ -211,17 +197,19 @@ export default defineSchema({
     startupId: v.id("startups"),
     areaId: v.id("startupAreas"),
     parentPageId: v.union(v.id("pages"), v.null()),
-    kind: pageKind,
+    kind: pageKindValidator,
     title: v.string(),
     searchText: v.string(),
     revision: v.number(),
+    treeRevision: v.optional(v.number()),
+    canvasPreview: v.optional(v.string()),
     position: v.number(),
-    taskStatus: v.union(taskStatus, v.null()),
-    taskPriority: v.union(taskPriority, v.null()),
+    taskStatus: v.union(taskStatusValidator, v.null()),
+    taskPriority: v.union(taskPriorityValidator, v.null()),
     assigneeProfileId: v.union(v.id("profiles"), v.null()),
     dueDate: v.union(v.number(), v.null()),
     instructions: v.optional(v.string()),
-    checkpoints: v.optional(v.array(checkpointItem)),
+    checkpoints: v.optional(v.array(checkpointItemValidator)),
     taskSortAt: v.number(),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
@@ -237,6 +225,13 @@ export default defineSchema({
       "position",
     ])
     .index("by_areaId_and_parentPageId_and_archivedAt_and_position", [
+      "areaId",
+      "parentPageId",
+      "archivedAt",
+      "position",
+    ])
+    .index("by_startup_area_parent_active_position", [
+      "startupId",
       "areaId",
       "parentPageId",
       "archivedAt",
@@ -310,6 +305,19 @@ export default defineSchema({
     )
     .index("by_startupId_and_archivedAt_and_updatedAt", [
       "startupId",
+      "archivedAt",
+      "updatedAt",
+    ])
+    .index("by_areaId_and_kind_and_archivedAt_and_updatedAt", [
+      "areaId",
+      "kind",
+      "archivedAt",
+      "updatedAt",
+    ])
+    .index("by_startup_area_kind_active_updated", [
+      "startupId",
+      "areaId",
+      "kind",
       "archivedAt",
       "updatedAt",
     ])
@@ -472,6 +480,8 @@ export default defineSchema({
       v.literal("idea"),
       v.literal("idea_edge"),
       v.literal("page"),
+      v.literal("page_edge"),
+      v.literal("page_relation"),
       v.literal("contribution"),
       v.literal("recovered"),
     ),
@@ -585,7 +595,7 @@ export default defineSchema({
     startupId: v.id("startups"),
     areaId: v.id("startupAreas"),
     ownerProfileId: v.id("profiles"),
-    kind: pageKind,
+    kind: pageKindValidator,
     x: v.number(),
     y: v.number(),
     zoom: v.number(),
@@ -596,6 +606,186 @@ export default defineSchema({
     "areaId",
     "kind",
   ]),
+
+  areaBodies: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    ownerProfileId: v.id("profiles"),
+    content: v.string(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_areaId", ["areaId"])
+    .index("by_startupId_and_updatedAt", ["startupId", "updatedAt"]),
+
+  pageCanvasPlacements: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    rootPageId: v.union(v.id("pages"), v.null()),
+    pageId: v.id("pages"),
+    x: v.number(),
+    y: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    updatedByProfileId: v.id("profiles"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_pageId", ["pageId"])
+    .index("by_startupId_and_areaId_and_rootPageId", [
+      "startupId",
+      "areaId",
+      "rootPageId",
+    ]),
+
+  pageCanvasEdgesV2: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    rootPageId: v.union(v.id("pages"), v.null()),
+    nodeAId: v.id("pages"),
+    nodeBId: v.id("pages"),
+    pairKey: v.string(),
+    label: v.union(v.string(), v.null()),
+    authorProfileId: v.optional(v.id("profiles")),
+    attribution: v.union(v.literal("author"), v.literal("legacy_neutral")),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index(
+      "by_scope_active_pair",
+      [
+        "startupId",
+        "areaId",
+        "rootPageId",
+        "archivedAt",
+        "pairKey",
+      ],
+    )
+    .index("by_nodeAId_and_archivedAt", ["nodeAId", "archivedAt"])
+    .index("by_nodeBId_and_archivedAt", ["nodeBId", "archivedAt"]),
+
+  pageCanvasViewports: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    rootPageId: v.union(v.id("pages"), v.null()),
+    viewerProfileId: v.id("profiles"),
+    x: v.number(),
+    y: v.number(),
+    zoom: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index(
+    "by_viewerProfileId_and_startupId_and_areaId_and_rootPageId",
+    ["viewerProfileId", "startupId", "areaId", "rootPageId"],
+  ).index("by_rootPageId", ["rootPageId"]),
+
+  pageNestingRequests: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    childPageId: v.id("pages"),
+    sourceParentPageId: v.union(v.id("pages"), v.null()),
+    targetParentPageId: v.id("pages"),
+    requesterProfileId: v.id("profiles"),
+    parentAuthorProfileId: v.id("profiles"),
+    expectedTreeRevision: v.number(),
+    proposedPosition: v.optional(v.number()),
+    proposedX: v.optional(v.number()),
+    proposedY: v.optional(v.number()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("withdrawn"),
+      v.literal("cancelled"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.union(v.number(), v.null()),
+  })
+    .index("by_childPageId_and_status_and_updatedAt", [
+      "childPageId",
+      "status",
+      "updatedAt",
+    ])
+    .index("by_targetParentPageId_and_status_and_createdAt", [
+      "targetParentPageId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_parentAuthorProfileId_and_status_and_createdAt", [
+      "parentAuthorProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_requesterProfileId_and_status_and_createdAt", [
+      "requesterProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_startupId_and_status_and_updatedAt", [
+      "startupId",
+      "status",
+      "updatedAt",
+    ]),
+
+  pageRelations: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    notePageId: v.id("pages"),
+    taskPageId: v.id("pages"),
+    pairKey: v.string(),
+    label: v.union(v.string(), v.null()),
+    authorProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_areaId_and_archivedAt_and_createdAt", [
+      "areaId",
+      "archivedAt",
+      "createdAt",
+    ])
+    .index("by_areaId_and_pairKey_and_archivedAt", [
+      "areaId",
+      "pairKey",
+      "archivedAt",
+    ])
+    .index("by_startup_area_active_created", [
+      "startupId",
+      "areaId",
+      "archivedAt",
+      "createdAt",
+    ])
+    .index("by_scope_pair_active", [
+      "startupId",
+      "areaId",
+      "pairKey",
+      "archivedAt",
+    ])
+    .index("by_notePageId_and_archivedAt", ["notePageId", "archivedAt"])
+    .index("by_taskPageId_and_archivedAt", ["taskPageId", "archivedAt"]),
+
+  areasMigrationIssues: defineTable({
+    migrationKey: v.string(),
+    sourceTable: v.string(),
+    sourceId: v.string(),
+    reason: v.string(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_migrationKey_and_status_and_createdAt", [
+      "migrationKey",
+      "status",
+      "createdAt",
+    ])
+    .index("by_sourceTable_and_sourceId_and_status", [
+      "sourceTable",
+      "sourceId",
+      "status",
+    ]),
 
   activities: defineTable({
     startupId: v.id("startups"),

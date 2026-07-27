@@ -1,7 +1,8 @@
 import { Migrations } from "@convex-dev/migrations";
+import { v } from "convex/values";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { insertContribution } from "./lib/collaboration";
 
 const migrations = new Migrations<DataModel>(components.migrations, {
@@ -61,15 +62,29 @@ export const backfillLegacyPageBodies = migrations.define({
   table: "pageBodies",
   migrateOne: async (ctx, body) => {
     if (!body.content.trim()) return;
-    const existing = await ctx.db
-      .query("contentContributions")
-      .withIndex("by_sourceKind_and_sourceId", (q) =>
-        q.eq("sourceKind", "page_body").eq("sourceId", body._id),
-      )
-      .unique();
-    if (existing !== null) return;
     const page = await ctx.db.get("pages", body.pageId);
     if (page === null) return;
+    const existingBySource = await Promise.all(
+      [page._id, body._id].map((sourceId) =>
+        ctx.db
+          .query("contentContributions")
+          .withIndex("by_sourceKind_and_sourceId", (q) =>
+            q.eq("sourceKind", "page_body").eq("sourceId", sourceId),
+          )
+          .take(2),
+      ),
+    );
+    if (
+      existingBySource
+        .flat()
+        .some(
+          (contribution) =>
+            contribution.targetKind === "page" &&
+            contribution.targetId === page._id,
+        )
+    ) {
+      return;
+    }
     await insertContribution(ctx, {
       startupId: page.startupId,
       targetKind: "page",
@@ -77,7 +92,7 @@ export const backfillLegacyPageBodies = migrations.define({
       attribution: "legacy_neutral",
       content: body.content,
       sourceKind: "page_body",
-      sourceId: body._id,
+      sourceId: page._id,
       createdAt: page.createdAt,
     });
   },
@@ -85,8 +100,22 @@ export const backfillLegacyPageBodies = migrations.define({
 
 export const run = migrations.runner();
 
-export const verifyContributionBackfill = query({
+export const verifyContributionBackfill = internalQuery({
   args: {},
+  returns: v.object({
+    scanned: v.object({
+      ideas: v.number(),
+      entries: v.number(),
+      bodies: v.number(),
+    }),
+    remaining: v.object({
+      ideas: v.number(),
+      entries: v.number(),
+      bodies: v.number(),
+    }),
+    complete: v.boolean(),
+    note: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx) => {
     const [ideas, entries, bodies] = await Promise.all([
       ctx.db.query("ideaNodes").take(500),
@@ -116,14 +145,32 @@ export const verifyContributionBackfill = query({
     }
     for (const body of bodies) {
       if (!body.content.trim()) continue;
-      const contribution = await ctx.db
-        .query("contentContributions")
-        .withIndex("by_sourceKind_and_sourceId", (q) =>
-          q.eq("sourceKind", "page_body").eq("sourceId", body._id),
-        )
-        .unique();
-      if (contribution === null) missingBodies.push(body._id);
+      const page = await ctx.db.get("pages", body.pageId);
+      if (page === null) {
+        missingBodies.push(body._id);
+        continue;
+      }
+      const contributionBatches = await Promise.all(
+        [page._id, body._id].map((sourceId) =>
+          ctx.db
+            .query("contentContributions")
+            .withIndex("by_sourceKind_and_sourceId", (q) =>
+              q.eq("sourceKind", "page_body").eq("sourceId", sourceId),
+            )
+            .take(2),
+        ),
+      );
+      const hasContribution = contributionBatches
+        .flat()
+        .some(
+          (contribution) =>
+            contribution.targetKind === "page" &&
+            contribution.targetId === page._id,
+        );
+      if (!hasContribution) missingBodies.push(body._id);
     }
+    const truncated =
+      ideas.length === 500 || entries.length === 500 || bodies.length === 500;
     return {
       scanned: {
         ideas: ideas.length,
@@ -136,12 +183,13 @@ export const verifyContributionBackfill = query({
         bodies: missingBodies.length,
       },
       complete:
+        !truncated &&
         missingIdeas.length === 0 &&
         missingEntries.length === 0 &&
         missingBodies.length === 0,
       note:
-        ideas.length === 500 || entries.length === 500 || bodies.length === 500
-          ? "Provera je ograničena na prvih 500 zapisa po tabeli."
+        truncated
+          ? "Provera je ograničena na prvih 500 zapisa po tabeli i ne može potvrditi završetak."
           : null,
     };
   },

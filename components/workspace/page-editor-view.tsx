@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -10,8 +16,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
+import { PageRelationsPanel } from "@/components/workspace/page-relations";
+import {
+  activatePageRevision,
+  createTaskInstructionsDraft,
+  createPageRevisionLedger,
+  editTaskInstructionsDraft,
+  prepareTaskInstructionsSave,
+  readPageRevision,
+  reconcileTaskInstructionsDraft,
+  rejectTaskInstructionsSave,
+  resolvePageRevision,
+  resolveTaskInstructionsSave,
+  taskInstructionsSaveState,
+  type PageRevisionLedger,
+  type TaskInstructionsDraft,
+  type TaskInstructionsSaveState,
+  type TaskInstructionsServerState,
+} from "@/components/workspace/task-instructions-draft";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
-import { ProfileAvatar, TaskPriorityBadge, TaskStatusBadge } from "@/components/workspace/workspace-ui";
+import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, toDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
@@ -22,7 +47,26 @@ export type PageEditorSaveState =
   | "saving"
   | "dirty"
   | "error"
-  | "conflict";
+  | "conflict"
+  | "invalid";
+
+function combinedEditorSaveState(
+  pageState: PageEditorSaveState,
+  instructionsState: TaskInstructionsSaveState,
+): PageEditorSaveState {
+  if (pageState === "saving" || instructionsState === "saving") {
+    return "saving";
+  }
+  if (pageState === "dirty" || instructionsState === "dirty") {
+    return "dirty";
+  }
+  if (pageState === "invalid") return "invalid";
+  if (pageState === "conflict") return "conflict";
+  if (pageState === "error" || instructionsState === "error") {
+    return "error";
+  }
+  return "saved";
+}
 
 export function PageEditorView({
   startup,
@@ -44,25 +88,56 @@ export function PageEditorView({
   const page = useQuery(api.pages.get, { pageId });
   const breadcrumbs = useQuery(api.pages.getBreadcrumbs, { pageId });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
-  const updatePage = useMutation(api.pages.update);
-  const updateMetadata = useMutation(api.tasks.updateMetadata);
-  const archivePage = useMutation(api.pages.archive);
+  const updatePage = useMutation(api.areasV2.updatePage);
+  const archivePage = useMutation(api.areasV2.archivePage);
+  const relationsResult = useQuery(api.areasV2.listRelations, {
+    startupId: startup._id,
+    pageId,
+  });
+  const createRelation = useMutation(api.areasV2.createRelation);
+  const deleteRelation = useMutation(api.areasV2.deleteRelation);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [draftPageId, setDraftPageId] = useState<Id<"pages"> | null>(null);
   const [saveState, setSaveState] = useState<PageEditorSaveState>("saved");
+  const [instructionsSaveState, setInstructionsSaveState] =
+    useState<TaskInstructionsSaveState>("saved");
   const [autosaveTick, setAutosaveTick] = useState(0);
+  const [selectedRelationPageId, setSelectedRelationPageId] = useState<
+    Id<"pages"> | ""
+  >("");
+  const [relationBusy, setRelationBusy] = useState(false);
   const loadedPageId = useRef<string | null>(null);
   const activePageIdRef = useRef<string>(pageId);
   const baseRevisionRef = useRef(0);
   const localVersionRef = useRef(0);
   const saveInFlightRef = useRef(false);
   const saveQueuedRef = useRef(false);
+  const pageUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pageRevisionLedgerRef = useRef<PageRevisionLedger>(
+    createPageRevisionLedger(pageId, 0),
+  );
   const latestDraftRef = useRef({ title: "", content: "" });
+  const editorSaveState = combinedEditorSaveState(
+    saveState,
+    instructionsSaveState,
+  );
+  const enqueuePageUpdate = useCallback(
+    <Result,>(operation: () => Promise<Result>) => {
+      const queued = pageUpdateQueueRef.current.then(operation, operation);
+      pageUpdateQueueRef.current = queued.then(
+        () => undefined,
+        () => undefined,
+      );
+      return queued;
+    },
+    [],
+  );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     activePageIdRef.current = pageId;
+    activatePageRevision(pageRevisionLedgerRef.current, pageId);
   }, [pageId]);
 
   useEffect(() => {
@@ -71,7 +146,16 @@ export function PageEditorView({
     if (loadedPageId.current !== page._id) {
       loadedPageId.current = page._id;
       activePageIdRef.current = page._id;
-      baseRevisionRef.current = page.revision;
+      activatePageRevision(
+        pageRevisionLedgerRef.current,
+        page._id,
+        page.revision,
+      );
+      baseRevisionRef.current = readPageRevision(
+        pageRevisionLedgerRef.current,
+        page._id,
+        page.revision,
+      );
       localVersionRef.current = 0;
       saveQueuedRef.current = false;
       const remoteDraft = { title: page.title, content: page.content };
@@ -80,6 +164,7 @@ export function PageEditorView({
       setContent(remoteDraft.content);
       setDraftPageId(page._id);
       setSaveState("saved");
+      setInstructionsSaveState("saved");
       return;
     }
 
@@ -94,7 +179,16 @@ export function PageEditorView({
       && page.content === latestDraftRef.current.content
     ) return;
 
-    baseRevisionRef.current = page.revision;
+    activatePageRevision(
+      pageRevisionLedgerRef.current,
+      page._id,
+      page.revision,
+    );
+    baseRevisionRef.current = readPageRevision(
+      pageRevisionLedgerRef.current,
+      page._id,
+      page.revision,
+    );
     const remoteDraft = { title: page.title, content: page.content };
     latestDraftRef.current = remoteDraft;
     setTitle(remoteDraft.title);
@@ -116,23 +210,37 @@ export function PageEditorView({
       if (!snapshot.title) return;
 
       const requestPageId = pageId;
+      const fallbackRevision = baseRevisionRef.current;
       const snapshotVersion = localVersionRef.current;
-      const expectedRevision = baseRevisionRef.current;
       saveInFlightRef.current = true;
       saveQueuedRef.current = false;
       setSaveState("saving");
       let conflictDetected = false;
 
       try {
-        const result = await updatePage({
-          pageId: requestPageId,
-          title: snapshot.title,
-          content: snapshot.content,
-          expectedRevision,
-        });
+        const result = await enqueuePageUpdate(() =>
+          updatePage({
+            startupId: startup._id,
+            pageId: requestPageId,
+            title: snapshot.title,
+            content: snapshot.content,
+            expectedRevision: readPageRevision(
+              pageRevisionLedgerRef.current,
+              requestPageId,
+              fallbackRevision,
+            ),
+          }),
+        );
+        const activeRevision = resolvePageRevision(
+          pageRevisionLedgerRef.current,
+          requestPageId,
+          result.revision,
+        );
         if (activePageIdRef.current !== requestPageId) return;
 
-        baseRevisionRef.current = result.revision;
+        if (activeRevision !== null) {
+          baseRevisionRef.current = activeRevision;
+        }
         setSaveState(localVersionRef.current === snapshotVersion ? "saved" : "dirty");
       } catch (error) {
         if (activePageIdRef.current !== requestPageId) return;
@@ -157,26 +265,42 @@ export function PageEditorView({
       }
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [autosaveTick, content, page, pageId, saveState, title, updatePage]);
+  }, [
+    autosaveTick,
+    content,
+    enqueuePageUpdate,
+    page,
+    pageId,
+    saveState,
+    startup._id,
+    title,
+    updatePage,
+  ]);
 
   useEffect(() => {
-    if (saveState === "saved") return;
+    if (editorSaveState === "saved") return;
     const warnAboutUnsavedDraft = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warnAboutUnsavedDraft);
     return () => window.removeEventListener("beforeunload", warnAboutUnsavedDraft);
-  }, [saveState]);
+  }, [editorSaveState]);
 
   useEffect(() => {
-    onSaveStateChange?.(saveState);
-  }, [onSaveStateChange, saveState]);
+    onSaveStateChange?.(editorSaveState);
+  }, [editorSaveState, onSaveStateChange]);
 
   function markDraftChanged(nextDraft: { title: string; content: string }) {
     latestDraftRef.current = nextDraft;
     localVersionRef.current += 1;
-    setSaveState((current) => current === "conflict" ? "conflict" : "dirty");
+    setSaveState((current) =>
+      !nextDraft.title.trim()
+        ? "invalid"
+        : current === "conflict"
+          ? "conflict"
+          : "dirty",
+    );
   }
 
   async function copyLocalDraft() {
@@ -199,7 +323,16 @@ export function PageEditorView({
     }
 
     const remoteDraft = { title: page.title, content: page.content };
-    baseRevisionRef.current = page.revision;
+    activatePageRevision(
+      pageRevisionLedgerRef.current,
+      page._id,
+      page.revision,
+    );
+    baseRevisionRef.current = readPageRevision(
+      pageRevisionLedgerRef.current,
+      page._id,
+      page.revision,
+    );
     localVersionRef.current += 1;
     latestDraftRef.current = remoteDraft;
     saveQueuedRef.current = false;
@@ -209,13 +342,80 @@ export function PageEditorView({
     toast.success("Učitana je poslednja timska verzija.");
   }
 
+  async function updateTaskMetadata(patch: {
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    assigneeProfileId?: Id<"profiles"> | null;
+    dueDate?: number | null;
+    instructions?: string | null;
+    checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
+  }) {
+    const requestPageId = pageId;
+    const fallbackRevision = baseRevisionRef.current;
+    const result = await enqueuePageUpdate(() =>
+      updatePage({
+        startupId: startup._id,
+        pageId: requestPageId,
+        expectedRevision: readPageRevision(
+          pageRevisionLedgerRef.current,
+          requestPageId,
+          fallbackRevision,
+        ),
+        ...(patch.status === undefined ? {} : { taskStatus: patch.status }),
+        ...(patch.priority === undefined
+          ? {}
+          : { taskPriority: patch.priority }),
+        ...(patch.assigneeProfileId === undefined
+          ? {}
+          : { assigneeProfileId: patch.assigneeProfileId }),
+        ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
+        ...(patch.instructions === undefined
+          ? {}
+          : { instructions: patch.instructions }),
+        ...(patch.checkpoints === undefined
+          ? {}
+          : { checkpoints: patch.checkpoints }),
+      }),
+    );
+    const activeRevision = resolvePageRevision(
+      pageRevisionLedgerRef.current,
+      requestPageId,
+      result.revision,
+    );
+    if (
+      activeRevision !== null &&
+      activePageIdRef.current === requestPageId
+    ) {
+      baseRevisionRef.current = activeRevision;
+    }
+    return result;
+  }
+
   async function setTaskMetadata(patch: { status?: TaskStatus; priority?: TaskPriority; assigneeProfileId?: Id<"profiles"> | null; dueDate?: number | null }) {
-    try { await updateMetadata({ pageId, ...patch }); toast.success("Zadatak je ažuriran."); }
+    if (!page?.permissions.canEdit) return;
+    try { await updateTaskMetadata(patch); toast.success("Zadatak je ažuriran."); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Podaci zadatka nisu sačuvani."); }
   }
 
   async function archive() {
     if (!page) return;
+    if (
+      editorSaveState === "dirty" ||
+      editorSaveState === "saving"
+    ) {
+      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
+      return;
+    }
+    if (
+      (editorSaveState === "invalid" ||
+        editorSaveState === "error" ||
+        editorSaveState === "conflict") &&
+      !window.confirm(
+        "Postoje izmene koje nisu sačuvane. Arhivirati stranicu i odbaciti taj nacrt?",
+      )
+    ) {
+      return;
+    }
     if (!page.permissions.canDeleteDirectly) {
       try {
         await requestDeletion({
@@ -230,8 +430,53 @@ export function PageEditorView({
       return;
     }
     if (!window.confirm("Arhivirati ovu stranicu? Podstranice će biti izvučene nivo iznad.")) return;
-    try { await archivePage({ pageId }); toast.success("Stranica je arhivirana."); onArchived(); }
+    try { await archivePage({ startupId: startup._id, pageId }); toast.success("Stranica je arhivirana."); onArchived(); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Stranica nije arhivirana."); }
+  }
+
+  async function linkSelectedPage() {
+    if (!selectedRelationPageId || relationBusy) return;
+    setRelationBusy(true);
+    try {
+      await createRelation({
+        startupId: startup._id,
+        pageAId: pageId,
+        pageBId: selectedRelationPageId,
+      });
+      setSelectedRelationPageId("");
+      toast.success("Stavke su povezane.");
+    } finally {
+      setRelationBusy(false);
+    }
+  }
+
+  async function unlinkPage(relationId: Id<"pageRelations">) {
+    if (relationBusy) return;
+    setRelationBusy(true);
+    try {
+      await deleteRelation({
+        startupId: startup._id,
+        relationId,
+      });
+      toast.success("Veza je uklonjena.");
+    } finally {
+      setRelationBusy(false);
+    }
+  }
+
+  async function requestUnlinkPage(relationId: Id<"pageRelations">) {
+    if (relationBusy) return;
+    setRelationBusy(true);
+    try {
+      await requestDeletion({
+        target: { kind: "page_relation", id: relationId },
+      });
+      toast.success(
+        "Zahtev za uklanjanje veze je poslat na odobravanje.",
+      );
+    } finally {
+      setRelationBusy(false);
+    }
   }
 
   // Tiptap must not mount with the empty local defaults. Its initial update can
@@ -289,21 +534,79 @@ export function PageEditorView({
             </div>
           </section>
         ) : null}
-        <header className="border-b border-border/65 px-5 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-7">
-          <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input disabled={!page.permissions.canEdit} aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{page.permissions.canEdit ? (saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />) : <UserRound className="size-3.5" />}{page.permissions.canEdit ? (saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : !title.trim() ? "Unesi naslov za čuvanje" : "Izmene čekaju") : "Osnovni sadržaj menja samo kreator"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label={page.permissions.canDeleteDirectly ? "Arhiviraj stranicu" : "Zatraži brisanje stranice"} onClick={archive}><Archive /></Button></div>
-          {page.kind === "task" ? <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4"><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Status</span><Select value={status} onValueChange={(value) => setTaskMetadata({ status: value as TaskStatus })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Prioritet</span><Select value={priority} onValueChange={(value) => setTaskMetadata({ priority: value as TaskPriority })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Dodeljeno</span><Select value={page.assigneeProfileId ?? "none"} onValueChange={(value) => setTaskMetadata({ assigneeProfileId: value === "none" ? null : value as Id<"profiles"> })}><SelectTrigger className="h-9 bg-card"><SelectValue placeholder="Nije dodeljen" /></SelectTrigger><SelectContent><SelectItem value="none">Nije dodeljen</SelectItem>{members?.map(({ profile }) => <SelectItem key={profile._id} value={profile._id}>{profile.displayName}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground" htmlFor="task-due-date">Rok</label><Input id="task-due-date" type="date" className="h-9 bg-card" value={toDateInputValue(page.dueDate)} onChange={(event) => setTaskMetadata({ dueDate: event.target.value ? fromDateInputValue(event.target.value) ?? null : null })} /></div></div> : null}
+        <header
+          className={cn(
+            "border-b border-border/65 bg-card px-5 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-7",
+            presentation === "dialog" && "sticky top-0 z-20",
+          )}
+        >
+          <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input disabled={!page.permissions.canEdit} aria-invalid={saveState === "invalid"} aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{page.permissions.canEdit ? (saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" || saveState === "invalid" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />) : <UserRound className="size-3.5" />}{page.permissions.canEdit ? (saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : saveState === "invalid" ? "Naslov je obavezan" : "Izmene čekaju") : "Osnovni sadržaj menja samo kreator"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label={page.permissions.canDeleteDirectly ? "Arhiviraj stranicu" : "Zatraži brisanje stranice"} onClick={archive}><Archive /></Button></div>
+          {page.kind === "task" ? <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4"><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Status</span><Select value={status} disabled={!page.permissions.canEdit} onValueChange={(value) => setTaskMetadata({ status: value as TaskStatus })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Prioritet</span><Select value={priority} disabled={!page.permissions.canEdit} onValueChange={(value) => setTaskMetadata({ priority: value as TaskPriority })}><SelectTrigger className="h-9 bg-card"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div><div><span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">Dodeljeno</span><Select value={page.assigneeProfileId ?? "none"} disabled={!page.permissions.canEdit} onValueChange={(value) => setTaskMetadata({ assigneeProfileId: value === "none" ? null : value as Id<"profiles"> })}><SelectTrigger className="h-9 bg-card"><SelectValue placeholder="Nije dodeljen" /></SelectTrigger><SelectContent><SelectItem value="none">Nije dodeljen</SelectItem>{members?.map(({ profile }) => <SelectItem key={profile._id} value={profile._id}>{profile.displayName}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground" htmlFor="task-due-date">Rok</label><Input id="task-due-date" type="date" disabled={!page.permissions.canEdit} className="h-9 bg-card" value={toDateInputValue(page.dueDate)} onChange={(event) => setTaskMetadata({ dueDate: event.target.value ? fromDateInputValue(event.target.value) ?? null : null })} /></div></div> : null}
         </header>
         <div className="px-5 sm:px-8">
-          <RichTextEditor
-            key={page._id}
-            documentKey={page._id}
-            content={content}
-            editable={page.permissions.canEditBody}
-            onChange={({ html }) => {
-              setContent(html);
-              markDraftChanged({ ...latestDraftRef.current, content: html });
-            }}
-          />
+          {page.kind === "note" ? (
+            <RichTextEditor
+              key={page._id}
+              documentKey={page._id}
+              content={content}
+              editable={page.permissions.canEditBody}
+              onChange={({ html }) => {
+                setContent(html);
+                markDraftChanged({ ...latestDraftRef.current, content: html });
+              }}
+            />
+          ) : (
+            <div className="py-6">
+              <TaskDetailWidgets
+                page={page}
+                canEdit={page.permissions.canEdit}
+                updateMetadata={updateTaskMetadata}
+                onSaveStateChange={setInstructionsSaveState}
+              />
+              {pageEntryDisplayText(content).trim() ? (
+                <section className="mt-5 rounded-2xl border border-border/70 bg-muted/20 p-5">
+                  <p className="text-[0.6875rem] font-bold uppercase tracking-[0.11em] text-muted-foreground">
+                    Dodatni kontekst
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/85">
+                    {pageEntryDisplayText(content)}
+                  </p>
+                </section>
+              ) : null}
+            </div>
+          )}
+
+          <div className="pb-1 pt-2">
+            <PageRelationsPanel
+              loading={relationsResult === undefined}
+              currentKind={page.kind}
+              relations={(relationsResult?.relations ?? []).map((relation) => ({
+                id: relation._id,
+                pageId: relation.linkedPage.pageId,
+                title: relation.linkedPage.title,
+                kind: relation.linkedPage.kind,
+                canDelete: relation.canDelete,
+                canRequestDeletion: relation.canRequestDeletion,
+              }))}
+              candidates={(relationsResult?.candidates ?? []).map(
+                (candidate) => ({
+                  pageId: candidate.pageId,
+                  title: candidate.title,
+                  kind: candidate.kind,
+                }),
+              )}
+              candidatesTruncated={
+                relationsResult?.candidatesTruncated ?? false
+              }
+              selectedCandidate={selectedRelationPageId}
+              onSelectedCandidate={setSelectedRelationPageId}
+              busy={relationBusy}
+              onCreate={linkSelectedPage}
+              onDelete={unlinkPage}
+              onRequestDeletion={requestUnlinkPage}
+              onOpenPage={onOpenPage}
+            />
+          </div>
 
           {/* Block-level Author Entries (Sadržaj sa autorstvom članova) */}
           <PageAuthorEntries page={page} />
@@ -326,36 +629,47 @@ export function PageEditorView({
           </Button>
         </footer>
       </article>
-      {page.kind === "task" ? (
-        <div data-workspace-enter className="mt-5 space-y-4">
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card/50 px-4 py-3">
-            <TaskStatusBadge status={status} />
-            <TaskPriorityBadge priority={priority} />
-          </div>
-
-          <TaskDetailWidgets page={page} updateMetadata={updateMetadata} />
-        </div>
-      ) : null}
     </div>
   );
 }
 
 function TaskDetailWidgets({
   page,
+  canEdit,
   updateMetadata,
+  onSaveStateChange,
 }: {
   page: Doc<"pages">;
+  canEdit: boolean;
   updateMetadata: (args: {
-    pageId: Id<"pages">;
     status?: TaskStatus;
     priority?: TaskPriority;
     assigneeProfileId?: Id<"profiles"> | null;
     dueDate?: number | null;
     instructions?: string | null;
     checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
-  }) => Promise<Id<"pages">>;
+  }) => Promise<{ revision: number }>;
+  onSaveStateChange: (state: TaskInstructionsSaveState) => void;
 }) {
-  const [instructions, setInstructions] = useState(page.instructions ?? "");
+  const serverInstructions: TaskInstructionsServerState = {
+    pageId: page._id,
+    value: page.instructions ?? "",
+    revision: page.revision,
+  };
+  const [instructionsDraft, setInstructionsDraft] =
+    useState<TaskInstructionsDraft>(() =>
+      createTaskInstructionsDraft(serverInstructions),
+    );
+  const instructionsDraftRef = useRef(instructionsDraft);
+  const instructionsSubmissionIdRef = useRef(0);
+  const instructions =
+    instructionsDraft.pageId === page._id
+      ? instructionsDraft.value
+      : serverInstructions.value;
+  const instructionsState =
+    instructionsDraft.pageId === page._id
+      ? taskInstructionsSaveState(instructionsDraft)
+      : "saved";
   const [newCpText, setNewCpText] = useState("");
   const checkpoints: Array<{ id: string; text: string; completed: boolean }> =
     (page.checkpoints as Array<{ id: string; text: string; completed: boolean }>) ?? [];
@@ -363,30 +677,84 @@ function TaskDetailWidgets({
   const completedCount = checkpoints.filter((c) => c.completed).length;
   const totalCount = checkpoints.length;
 
+  useEffect(() => {
+    const next = reconcileTaskInstructionsDraft(
+      instructionsDraftRef.current,
+      {
+        pageId: page._id,
+        value: page.instructions ?? "",
+        revision: page.revision,
+      },
+    );
+    if (next === instructionsDraftRef.current) return;
+    instructionsDraftRef.current = next;
+    setInstructionsDraft(next);
+  }, [page._id, page.instructions, page.revision]);
+
+  useEffect(() => {
+    onSaveStateChange(instructionsState);
+  }, [instructionsState, onSaveStateChange]);
+
+  function changeInstructions(value: string) {
+    const next = editTaskInstructionsDraft(
+      instructionsDraftRef.current,
+      serverInstructions,
+      value,
+    );
+    instructionsDraftRef.current = next;
+    setInstructionsDraft(next);
+  }
+
   async function saveInstructions() {
-    if (instructions === (page.instructions ?? "")) return;
+    if (!canEdit) return;
+    instructionsSubmissionIdRef.current += 1;
+    const prepared = prepareTaskInstructionsSave(
+      instructionsDraftRef.current,
+      serverInstructions,
+      instructionsSubmissionIdRef.current,
+    );
+    instructionsDraftRef.current = prepared.draft;
+    setInstructionsDraft(prepared.draft);
+    if (prepared.submission === null) return;
     try {
-      await updateMetadata({ pageId: page._id, instructions: instructions.trim() });
+      const result = await updateMetadata({
+        instructions: prepared.submission.value,
+      });
+      const next = resolveTaskInstructionsSave(
+        instructionsDraftRef.current,
+        prepared.submission,
+        result.revision,
+      );
+      instructionsDraftRef.current = next;
+      setInstructionsDraft(next);
       toast.success("Instrukcije sačuvane.");
     } catch (error) {
+      const next = rejectTaskInstructionsSave(
+        instructionsDraftRef.current,
+        prepared.submission,
+      );
+      instructionsDraftRef.current = next;
+      setInstructionsDraft(next);
       toast.error(error instanceof Error ? error.message : "Instrukcije nisu sačuvane.");
     }
   }
 
   async function toggleCheckpoint(cpId: string) {
+    if (!canEdit) return;
     const updated = checkpoints.map((cp) =>
       cp.id === cpId ? { ...cp, completed: !cp.completed } : cp,
     );
     try {
-      await updateMetadata({ pageId: page._id, checkpoints: updated });
+      await updateMetadata({ checkpoints: updated });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri ažuriranju podzadataka.");
     }
   }
 
   async function addCheckpoint() {
+    if (!canEdit) return;
     const text = newCpText.trim();
-    if (!text) return;
+    if (!text || checkpoints.length >= 100) return;
     const newItem = {
       id: `cp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       text,
@@ -394,7 +762,7 @@ function TaskDetailWidgets({
     };
     setNewCpText("");
     try {
-      await updateMetadata({ pageId: page._id, checkpoints: [...checkpoints, newItem] });
+      await updateMetadata({ checkpoints: [...checkpoints, newItem] });
       toast.success("Podzadatak je dodat.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri dodavanju podzadatka.");
@@ -402,16 +770,70 @@ function TaskDetailWidgets({
   }
 
   async function removeCheckpoint(cpId: string) {
+    if (!canEdit) return;
     const updated = checkpoints.filter((cp) => cp.id !== cpId);
     try {
-      await updateMetadata({ pageId: page._id, checkpoints: updated });
+      await updateMetadata({ checkpoints: updated });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Greska pri brisanju podzadatka.");
     }
   }
 
   return (
-    <div className="grid gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm md:grid-cols-2">
+    <div className="grid gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+      {!canEdit ? (
+        <p className="text-xs text-muted-foreground md:col-span-2">
+          Task podatke i checkpoint-e menja samo autor. Detalje možeš da pregledaš.
+        </p>
+      ) : null}
+      {/* Instructions are the task's main content, so they lead the reading order. */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Instrukcije
+          </h3>
+          <span className="text-[0.6875rem] tabular-nums text-muted-foreground">
+            {instructions.length}/20.000
+          </span>
+        </div>
+        <textarea
+          value={instructions}
+          onChange={(e) => changeInstructions(e.target.value)}
+          onBlur={saveInstructions}
+          readOnly={!canEdit}
+          maxLength={20_000}
+          aria-label="Instrukcije zadatka"
+          placeholder="Napiši šta treba uraditi i koji rezultat se očekuje…"
+          className="flex min-h-[11rem] w-full rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-6 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <div
+          className="flex min-h-7 items-center justify-between gap-3 text-xs text-muted-foreground"
+          aria-live="polite"
+        >
+          <span>
+            {instructionsState === "saving"
+              ? "Čuvam instrukcije…"
+              : instructionsState === "dirty"
+                ? "Instrukcije imaju nesačuvane izmene."
+                : instructionsState === "error"
+                  ? "Instrukcije nisu sačuvane."
+                  : "Instrukcije su sačuvane."}
+          </span>
+          {instructionsState === "error" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={saveInstructions}
+            >
+              <RefreshCw className="size-3.5" />
+              Pokušaj ponovo
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
       {/* Checkpoints Section */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -430,6 +852,11 @@ function TaskDetailWidgets({
             <div
               className="h-full bg-primary transition-all duration-300"
               style={{ width: `${Math.round((completedCount / totalCount) * 100)}%` }}
+              role="progressbar"
+              aria-label="Napredak checkpointa"
+              aria-valuemin={0}
+              aria-valuemax={totalCount}
+              aria-valuenow={completedCount}
             />
           </div>
         ) : null}
@@ -439,10 +866,20 @@ function TaskDetailWidgets({
             value={newCpText}
             onChange={(e) => setNewCpText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
+            disabled={!canEdit}
+            maxLength={500}
+            aria-label="Novi checkpoint"
             placeholder="Dodaj novi podzadatak..."
             className="h-9 text-xs"
           />
-          <Button type="button" size="sm" variant="secondary" onClick={addCheckpoint} className="h-9 text-xs">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={addCheckpoint}
+            disabled={!canEdit || checkpoints.length >= 100}
+            className="h-9 text-xs"
+          >
             <Plus className="size-3.5" /> Dodaj
           </Button>
         </div>
@@ -458,6 +895,7 @@ function TaskDetailWidgets({
                     type="checkbox"
                     checked={cp.completed}
                     onChange={() => toggleCheckpoint(cp.id)}
+                    disabled={!canEdit}
                     className="size-4 rounded border-primary text-primary accent-primary"
                   />
                   <span className={cp.completed ? "line-through text-muted-foreground truncate" : "font-semibold truncate text-foreground"}>
@@ -470,6 +908,8 @@ function TaskDetailWidgets({
                   size="icon"
                   className="size-7 text-muted-foreground hover:text-destructive"
                   onClick={() => removeCheckpoint(cp.id)}
+                  disabled={!canEdit}
+                  aria-label={`Ukloni checkpoint: ${cp.text}`}
                 >
                   <Archive className="size-3.5" />
                 </Button>
@@ -479,19 +919,6 @@ function TaskDetailWidgets({
         )}
       </div>
 
-      {/* Instructions Section */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Instrukcije i Uputstva
-        </h3>
-        <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          onBlur={saveInstructions}
-          placeholder="Napišite slobodne instrukcije za ovaj zadatak..."
-          className="flex min-h-[8.5rem] w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        />
-      </div>
     </div>
   );
 }
@@ -521,9 +948,15 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
   const [editingEntryId, setEditingEntryId] =
     useState<Id<"contentContributions"> | null>(null);
   const [editingEntryText, setEditingEntryText] = useState("");
-  const entries = useQuery(api.collaboration.listContributions, {
-    target: { kind: "page", id: page._id },
-  });
+  const {
+    results: entries,
+    status: entriesStatus,
+    loadMore: loadMoreEntries,
+  } = usePaginatedQuery(
+    api.collaboration.listContributionsPaginated,
+    { target: { kind: "page", id: page._id } },
+    { initialNumItems: 40 },
+  );
   const addEntry = useMutation(api.pages.addEntry);
   const updateEntry = useMutation(api.collaboration.updateContribution);
   const deleteEntry = useMutation(api.collaboration.deleteOwnContribution);
@@ -581,7 +1014,7 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
     <div className="my-8 space-y-6 border-t border-border/60 pt-6">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-wide uppercase text-muted-foreground">
-          Osnovni sadržaj i izmene članova ({entries?.length ?? 0})
+          Potpisani doprinosi članova ({entries?.length ?? 0})
         </h3>
         <span className="text-xs text-muted-foreground">
           Svaki član ima svoj označen blok sa avatarom i vremenom
@@ -590,9 +1023,9 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
 
       {/* Render existing author entries */}
       <div className="space-y-4">
-        {entries === undefined ? (
+        {entriesStatus === "LoadingFirstPage" ? (
           <Skeleton className="h-28 rounded-2xl" />
-        ) : entries.length === 0 ? (
+        ) : entries.length === 0 && entriesStatus === "Exhausted" ? (
           <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
             Još nema izmena članova.
           </div>
@@ -704,10 +1137,9 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
                     </div>
                   </div>
                 ) : (
-                  <div
-                    className="text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none"
-                    dangerouslySetInnerHTML={{ __html: entry.content }}
-                  />
+                  <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
+                    {pageEntryDisplayText(entry.content)}
+                  </div>
                 )}
 
                 {/* Bottom Timestamp */}
@@ -720,11 +1152,27 @@ function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
           );
         })}
       </div>
+      {entriesStatus === "CanLoadMore" ||
+      entriesStatus === "LoadingMore" ? (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={entriesStatus === "LoadingMore"}
+            onClick={() => loadMoreEntries(40)}
+          >
+            {entriesStatus === "LoadingMore"
+              ? "Učitavanje…"
+              : "Učitaj još izmena"}
+          </Button>
+        </div>
+      ) : null}
 
       {/* Add New Entry Box */}
       <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-4 space-y-3">
         <label className="text-xs font-semibold text-foreground block">
-          Dodaj svoj tekst na ovoj stranici (sa tvojim avatarom i vremenom):
+          Dodaj svoj doprinos na ovoj stranici (sa tvojim avatarom i vremenom):
         </label>
         <textarea
           value={newEntryText}

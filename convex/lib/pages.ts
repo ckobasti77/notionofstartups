@@ -10,7 +10,12 @@ export async function requireVisiblePage(ctx: ReadCtx, pageId: Id<"pages">) {
   let parentPageId = page.parentPageId;
   for (let depth = 0; parentPageId !== null && depth < 64; depth += 1) {
     const parent = await ctx.db.get("pages", parentPageId);
-    if (parent === null || parent.archivedAt !== null) {
+    if (
+      parent === null ||
+      parent.archivedAt !== null ||
+      parent.startupId !== page.startupId ||
+      parent.areaId !== page.areaId
+    ) {
       throw new Error("Stranica nije pronađena.");
     }
     parentPageId = parent.parentPageId;
