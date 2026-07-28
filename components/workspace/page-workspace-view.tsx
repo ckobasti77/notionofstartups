@@ -110,7 +110,7 @@ export function PageWorkspaceView({
   }, [page]);
 
   return (
-    <div className="pb-24">
+    <div className={page?.kind === "task" ? "pb-8" : "pb-24"}>
       <PageEditorView
         startup={startup}
         pageId={pageId}
@@ -123,13 +123,27 @@ export function PageWorkspaceView({
           }
         }}
         onSaveStateChange={onSaveStateChange}
+        presentation={page?.kind === "task" ? "task-canvas" : "page"}
+        taskViewMode={viewMode}
+        onTaskViewModeChange={setViewMode}
       />
 
       {page ? (
         <section
-          className="mx-auto w-full max-w-7xl px-4 sm:px-7 lg:px-10"
-          aria-labelledby="page-canvas-heading"
+          className={cn(
+            "mx-auto w-full max-w-7xl px-4 sm:px-7 lg:px-10",
+            page.kind === "task" && "mt-2",
+          )}
+          aria-labelledby={
+            page.kind === "task" ? undefined : "page-canvas-heading"
+          }
+          aria-label={
+            page.kind === "task"
+              ? `Kanvas zadatka ${page.title || "bez naslova"}`
+              : undefined
+          }
         >
+          {page.kind !== "task" || viewMode === "list" ? (
           <div className="mb-4 flex flex-col gap-4 border-t border-border/70 pt-7 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <p className="text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-primary">
@@ -246,6 +260,7 @@ export function PageWorkspaceView({
               </div>
             </div>
           </div>
+          ) : null}
 
           {viewMode === "canvas" ? (
             <AreaCanvasView
@@ -265,6 +280,7 @@ export function PageWorkspaceView({
                   initialKind: kind,
                 })
               }
+              layout={page.kind === "task" ? "task-focus" : "standard"}
             />
           ) : canvasData === undefined ? (
             <div className="space-y-3">

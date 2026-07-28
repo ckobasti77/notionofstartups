@@ -25,6 +25,7 @@ import {
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
+  type ResizeParams,
   type Viewport,
 } from "@xyflow/react";
 import { useMutation, useQuery } from "convex/react";
@@ -57,6 +58,7 @@ import {
 } from "@/components/workspace/canvases/task-checkpoint-layout";
 import {
   TaskCheckpointFlowNodeCard,
+  TaskCheckpointNodeActionsProvider,
   type TaskCheckpointFlowNodeData,
   type TaskCheckpointFlowNode,
 } from "@/components/workspace/canvases/task-checkpoint-flow-node";
@@ -87,6 +89,7 @@ export type AreaCanvasViewProps = {
   onOpenCanvas: (pageId: Id<"pages">) => void;
   onOpenDetails: (pageId: Id<"pages">) => void;
   onCreatePage: (kind: "task" | "note") => void;
+  layout?: "standard" | "task-focus";
 };
 
 type AreaFlowEdgeData = {
@@ -191,6 +194,7 @@ function AreaCanvasBody({
   onOpenCanvas,
   onOpenDetails,
   onCreatePage,
+  layout = "standard",
 }: AreaCanvasViewProps) {
   const canvasData = useQuery(api.areasV2.getCanvas, {
     startupId,
@@ -200,7 +204,19 @@ function AreaCanvasBody({
 
   if (canvasData === undefined) {
     return (
-      <div className="grid h-[min(72vh,52rem)] min-h-[32rem] place-items-center overflow-hidden rounded-3xl border border-border/70 bg-muted/20">
+      <div
+        className={cn(
+          "grid place-items-center overflow-hidden rounded-3xl border border-border/70 bg-muted/20",
+          layout === "task-focus"
+            ? "min-h-[28rem]"
+            : "h-[min(72vh,52rem)] min-h-[32rem]",
+        )}
+        style={
+          layout === "task-focus"
+            ? { height: "clamp(28rem, calc(100dvh - 12rem), 56rem)" }
+            : undefined
+        }
+      >
         <div className="text-center text-sm font-medium text-muted-foreground">
           <LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary motion-reduce:animate-none" />
           Otvaram kanvas oblasti…
@@ -223,6 +239,7 @@ function AreaCanvasBody({
       onOpenCanvas={onOpenCanvas}
       onOpenDetails={onOpenDetails}
       onCreatePage={onCreatePage}
+      layout={layout}
     />
   );
 }
@@ -245,11 +262,24 @@ function AreaCanvasReady({
   onOpenCanvas,
   onOpenDetails,
   onCreatePage,
+  layout = "standard",
 }: AreaCanvasReadyProps) {
   const flowRef =
     useRef<ReactFlowInstance<CanvasFlowNode, AreaFlowEdge> | null>(null);
   const preDragPositionsRef = useRef(
     new Map<string, { x: number; y: number }>(),
+  );
+  const checkpointResizeStartRef = useRef(
+    new Map<
+      Id<"taskCheckpoints">,
+      {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        manuallySized: boolean;
+      }
+    >(),
   );
   const pointerDragActiveRef = useRef(false);
   const nestingTargetIdRef = useRef<string | null>(null);
@@ -270,6 +300,9 @@ function AreaCanvasReady({
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const saveCheckpointPlacement = useMutation(
     api.taskCheckpoints.saveCanvasPlacement,
+  );
+  const resetCheckpointCanvasSize = useMutation(
+    api.taskCheckpoints.resetCanvasSize,
   );
   const { historyState, pushHistory, runHistory } = useWorkspaceHistory();
 
@@ -378,9 +411,16 @@ function AreaCanvasReady({
       visibleCheckpointTaskId === null ||
       taskCheckpoints === undefined ||
       (ownTaskPageId === null && visibleTaskNode === undefined)
-        ? []
-        : taskCheckpoints.map((checkpoint, index) => {
+          ? []
+          : taskCheckpoints.map((checkpoint, index) => {
             const metrics = taskCheckpointNodeMetrics(checkpoint.text);
+            const width = checkpoint.placement?.width ?? metrics.width;
+            const height = checkpoint.placement?.height ?? metrics.height;
+            const manuallySized =
+              checkpoint.placement?.width !== null &&
+              checkpoint.placement?.width !== undefined &&
+              checkpoint.placement?.height !== null &&
+              checkpoint.placement?.height !== undefined;
             const taskNode = visibleTaskNode;
             const center =
               ownTaskPageId !== null || taskNode === undefined
@@ -408,24 +448,32 @@ function AreaCanvasReady({
             return {
               id: taskCheckpointNodeId(checkpoint._id),
               type: "taskCheckpoint",
-              position: checkpoint.placement ?? defaultPosition,
-              width: metrics.width,
-              height: metrics.height,
-              style: metrics,
+              position: checkpoint.placement
+                ? {
+                    x: checkpoint.placement.x,
+                    y: checkpoint.placement.y,
+                  }
+                : defaultPosition,
+              width,
+              height,
+              style: { width, height },
               data: {
                 checkpointId: checkpoint._id,
+                ordinal: checkpoint.ordinal,
                 text: checkpoint.text,
                 completed: checkpoint.completed,
                 canEdit: checkpoint.canEdit,
                 canToggle: checkpoint.canToggle,
                 canMove: checkpoint.canMove,
+                canResize: checkpoint.canMove,
+                manuallySized,
                 canDeleteDirectly: checkpoint.canDeleteDirectly,
                 canRequestDeletion: checkpoint.canRequestDeletion,
               },
               draggable: checkpoint.canMove,
               connectable: false,
               deletable: false,
-              ariaLabel: `Checkpoint: ${checkpoint.text}. ${
+              ariaLabel: `Checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}. ${
                 checkpoint.completed ? "Završen" : "Otvoren"
               }.`,
             };
@@ -1252,6 +1300,171 @@ function AreaCanvasReady({
     [areaId, rootPageId, saveViewport, startupId],
   );
 
+  const beginCheckpointResize = useCallback(
+    (checkpointId: Id<"taskCheckpoints">) => {
+      const node = nodesRef.current.find(
+        (candidate): candidate is TaskCheckpointFlowNode =>
+          isTaskCheckpointNode(candidate) &&
+          candidate.data.checkpointId === checkpointId,
+      );
+      if (!node || !node.data.canResize) return;
+      checkpointResizeStartRef.current.set(checkpointId, {
+        x: node.position.x,
+        y: node.position.y,
+        width: node.width ?? (Number(node.style?.width) || 164),
+        height: node.height ?? (Number(node.style?.height) || 92),
+        manuallySized: node.data.manuallySized,
+      });
+    },
+    [],
+  );
+
+  const resizeCheckpoint = useCallback(
+    (
+      checkpointId: Id<"taskCheckpoints">,
+      layoutUpdate: ResizeParams,
+    ) => {
+      const before = checkpointResizeStartRef.current.get(checkpointId);
+      checkpointResizeStartRef.current.delete(checkpointId);
+      if (!before) return;
+      const after = {
+        x: Math.round(layoutUpdate.x),
+        y: Math.round(layoutUpdate.y),
+        width: Math.round(layoutUpdate.width),
+        height: Math.round(layoutUpdate.height),
+      };
+      void saveCheckpointPlacement({
+        checkpointId,
+        canvasRootPageId: rootPageId,
+        ...after,
+      })
+        .then(() => {
+          pushHistory({
+            label: "promena veličine checkpointa",
+            undo: async () => {
+              if (before.manuallySized) {
+                await saveCheckpointPlacement({
+                  checkpointId,
+                  canvasRootPageId: rootPageId,
+                  x: Math.round(before.x),
+                  y: Math.round(before.y),
+                  width: Math.round(before.width),
+                  height: Math.round(before.height),
+                });
+                return;
+              }
+              await saveCheckpointPlacement({
+                checkpointId,
+                canvasRootPageId: rootPageId,
+                x: Math.round(before.x),
+                y: Math.round(before.y),
+              });
+              await resetCheckpointCanvasSize({
+                checkpointId,
+                canvasRootPageId: rootPageId,
+              });
+            },
+            redo: () =>
+              saveCheckpointPlacement({
+                checkpointId,
+                canvasRootPageId: rootPageId,
+                ...after,
+              }),
+          });
+        })
+        .catch((error) => {
+          setNodes((current) =>
+            current.map((node) =>
+              isTaskCheckpointNode(node) &&
+              node.data.checkpointId === checkpointId
+                ? {
+                    ...node,
+                    position: { x: before.x, y: before.y },
+                    width: before.width,
+                    height: before.height,
+                    style: {
+                      ...node.style,
+                      width: before.width,
+                      height: before.height,
+                    },
+                  }
+                : node,
+            ),
+          );
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Veličina checkpointa nije sačuvana.",
+          );
+        });
+    },
+    [
+      pushHistory,
+      resetCheckpointCanvasSize,
+      rootPageId,
+      saveCheckpointPlacement,
+    ],
+  );
+
+  const resetCheckpointSize = useCallback(
+    (checkpointId: Id<"taskCheckpoints">) => {
+      const node = nodesRef.current.find(
+        (candidate): candidate is TaskCheckpointFlowNode =>
+          isTaskCheckpointNode(candidate) &&
+          candidate.data.checkpointId === checkpointId,
+      );
+      if (
+        !node ||
+        !node.data.canResize ||
+        !node.data.manuallySized ||
+        node.width === undefined ||
+        node.height === undefined
+      ) {
+        return;
+      }
+      const before = {
+        x: Math.round(node.position.x),
+        y: Math.round(node.position.y),
+        width: Math.round(node.width),
+        height: Math.round(node.height),
+      };
+      void resetCheckpointCanvasSize({
+        checkpointId,
+        canvasRootPageId: rootPageId,
+      })
+        .then(() => {
+          pushHistory({
+            label: "vraćanje automatske veličine checkpointa",
+            undo: () =>
+              saveCheckpointPlacement({
+                checkpointId,
+                canvasRootPageId: rootPageId,
+                ...before,
+              }),
+            redo: () =>
+              resetCheckpointCanvasSize({
+                checkpointId,
+                canvasRootPageId: rootPageId,
+              }),
+          });
+          toast.success("Vraćena je automatska veličina checkpointa.");
+        })
+        .catch((error) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Automatska veličina checkpointa nije vraćena.",
+          );
+        });
+    },
+    [
+      pushHistory,
+      resetCheckpointCanvasSize,
+      rootPageId,
+      saveCheckpointPlacement,
+    ],
+  );
+
   const isTaskFilter = filter === "task";
   const isNoteFilter = filter === "note";
   const pendingCount = nodes.filter(
@@ -1262,7 +1475,12 @@ function AreaCanvasReady({
     AREA_ICONS[areaKey as AreaKey] || Blocks;
 
   return (
-    <AreaNodeActionsProvider
+    <TaskCheckpointNodeActionsProvider
+      startResize={beginCheckpointResize}
+      resize={resizeCheckpoint}
+      resetSize={resetCheckpointSize}
+    >
+      <AreaNodeActionsProvider
       startupId={startupId}
       nestingCandidates={canvasData.pages.map((page) => ({
         pageId: page._id,
@@ -1384,7 +1602,7 @@ function AreaCanvasReady({
           });
       }}
     >
-      <div
+        <div
         className={cn(
           styles.canvas,
           isTaskFilter
@@ -1392,11 +1610,17 @@ function AreaCanvasReady({
             : isNoteFilter
               ? styles.notesCanvas
               : undefined,
-          "min-h-[32rem] rounded-3xl border border-border/70 shadow-inner",
+          layout === "task-focus" ? "min-h-[28rem]" : "min-h-[32rem]",
+          "rounded-3xl border border-border/70 shadow-inner",
         )}
         // AreaView does not provide a fixed-height parent. Keep a definite
         // containing-block height so React Flow's 100% height cannot collapse.
-        style={{ height: "min(72vh, 52rem)" }}
+        style={{
+          height:
+            layout === "task-focus"
+              ? "clamp(28rem, calc(100dvh - 12rem), 56rem)"
+              : "min(72vh, 52rem)",
+        }}
         onKeyDownCapture={(event) => {
           const modifier = event.ctrlKey || event.metaKey;
           if (modifier && event.key.toLowerCase() === "a") {
@@ -1861,7 +2085,8 @@ function AreaCanvasReady({
             Prikaz je skraćen zbog velikog broja kartica ili veza.
           </div>
         ) : null}
-      </div>
-    </AreaNodeActionsProvider>
+        </div>
+      </AreaNodeActionsProvider>
+    </TaskCheckpointNodeActionsProvider>
   );
 }

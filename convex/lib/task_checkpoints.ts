@@ -24,7 +24,13 @@ export async function listActiveTaskCheckpoints(
       `Zadatak može imati najviše ${MAX_TASK_CHECKPOINTS} checkpointa.`,
     );
   }
-  return rows;
+  return rows.sort(
+    (left, right) =>
+      left.createdAt - right.createdAt ||
+      left.position - right.position ||
+      left._creationTime - right._creationTime ||
+      left._id.localeCompare(right._id),
+  );
 }
 
 export function normalizeCheckpointText(value: string) {

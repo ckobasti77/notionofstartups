@@ -16,7 +16,12 @@ import { MAX_TASK_CHECKPOINTS } from "./lib/validators";
 
 const canvasRootPageIdValidator = v.union(v.id("pages"), v.null());
 const placementValidator = v.union(
-  v.object({ x: v.number(), y: v.number() }),
+  v.object({
+    x: v.number(),
+    y: v.number(),
+    width: v.union(v.number(), v.null()),
+    height: v.union(v.number(), v.null()),
+  }),
   v.null(),
 );
 const checkpointValidator = v.object({
@@ -27,6 +32,7 @@ const checkpointValidator = v.object({
   text: v.string(),
   completed: v.boolean(),
   position: v.number(),
+  ordinal: v.number(),
   createdAt: v.number(),
   updatedAt: v.number(),
   placement: placementValidator,
@@ -42,6 +48,18 @@ function clampCoordinate(value: number) {
     throw new Error("Pozicija checkpointa nije ispravna.");
   }
   return Math.min(Math.max(value, -100_000), 100_000);
+}
+
+function clampDimension(
+  value: number,
+  minimum: number,
+  maximum: number,
+  label: string,
+) {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} checkpointa nije ispravna.`);
+  }
+  return Math.min(Math.max(value, minimum), maximum);
 }
 
 async function requireTaskCheckpoint(
@@ -106,7 +124,7 @@ export const listForTask = query({
     const canEdit = page.createdByProfileId === profile._id;
     const canToggle =
       canEdit || page.assigneeProfileId === profile._id;
-    return rows.map((row) => {
+    return rows.map((row, index) => {
       const placement = placementsByCheckpoint.get(row._id);
       return {
         _id: row._id,
@@ -116,9 +134,17 @@ export const listForTask = query({
         text: row.text,
         completed: row.completed,
         position: row.position,
+        ordinal: index + 1,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
-        placement: placement ? { x: placement.x, y: placement.y } : null,
+        placement: placement
+          ? {
+              x: placement.x,
+              y: placement.y,
+              width: placement.width ?? null,
+              height: placement.height ?? null,
+            }
+          : null,
         canEdit,
         canToggle,
         canMove: canEdit,
@@ -264,7 +290,6 @@ export const restoreOwn = mutation({
     const now = Date.now();
     await ctx.db.patch("taskCheckpoints", checkpoint._id, {
       archivedAt: null,
-      position: rows.length,
       updatedAt: now,
     });
     await syncTaskCheckpointProjection(ctx, page._id, profile._id, now);
@@ -278,6 +303,8 @@ export const saveCanvasPlacement = mutation({
     canvasRootPageId: canvasRootPageIdValidator,
     x: v.number(),
     y: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -293,7 +320,17 @@ export const saveCanvasPlacement = mutation({
     ) {
       throw new Error("Checkpoint nije prikazan u ovom Canvas-u.");
     }
+    if ((args.width === undefined) !== (args.height === undefined)) {
+      throw new Error("Širina i visina checkpointa moraju biti sačuvane zajedno.");
+    }
     const now = Date.now();
+    const dimensions =
+      args.width === undefined || args.height === undefined
+        ? {}
+        : {
+            width: clampDimension(args.width, 140, 520, "Širina"),
+            height: clampDimension(args.height, 92, 600, "Visina"),
+          };
     const value = {
       startupId: page.startupId,
       areaId: page.areaId,
@@ -301,6 +338,7 @@ export const saveCanvasPlacement = mutation({
       checkpointId: checkpoint._id,
       x: clampCoordinate(args.x),
       y: clampCoordinate(args.y),
+      ...dimensions,
       updatedByProfileId: profile._id,
       updatedAt: now,
     };
@@ -323,6 +361,45 @@ export const saveCanvasPlacement = mutation({
         existing._id,
         value,
       );
+    }
+    return null;
+  },
+});
+
+export const resetCanvasSize = mutation({
+  args: {
+    checkpointId: v.id("taskCheckpoints"),
+    canvasRootPageId: canvasRootPageIdValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+      ctx,
+      args.checkpointId,
+    );
+    if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
+    assertOwner(page, profile._id);
+    if (
+      args.canvasRootPageId !== page._id &&
+      args.canvasRootPageId !== page.parentPageId
+    ) {
+      throw new Error("Checkpoint nije prikazan u ovom Canvas-u.");
+    }
+    const existing = await ctx.db
+      .query("taskCheckpointCanvasPlacements")
+      .withIndex("by_checkpointId_and_canvasRootPageId", (q) =>
+        q
+          .eq("checkpointId", checkpoint._id)
+          .eq("canvasRootPageId", args.canvasRootPageId),
+      )
+      .unique();
+    if (existing !== null) {
+      await ctx.db.patch("taskCheckpointCanvasPlacements", existing._id, {
+        width: undefined,
+        height: undefined,
+        updatedByProfileId: profile._id,
+        updatedAt: Date.now(),
+      });
     }
     return null;
   },

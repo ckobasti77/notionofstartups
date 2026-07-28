@@ -65,7 +65,6 @@ export function CanvasActionRail({
           identity.className,
         )}
         aria-label={identityDescription}
-        title={identityDescription}
       >
         <span className={styles.label} aria-hidden="true">
           <span className={cn(styles.labelText, "text-xs font-bold")}>
@@ -107,7 +106,6 @@ export function CanvasActionRail({
                 )}
                 aria-label={item.label}
                 aria-pressed={item.active === undefined ? undefined : item.active}
-                title={item.label}
                 disabled={item.disabled}
                 onClick={item.onSelect}
                 whileTap={

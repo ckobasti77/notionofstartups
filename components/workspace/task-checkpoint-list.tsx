@@ -238,11 +238,13 @@ export function TaskCheckpointList({
   taskPageId,
   canCreate,
   compact = false,
+  autoFocusCreate = false,
   className,
 }: {
   taskPageId: Id<"pages">;
   canCreate: boolean;
   compact?: boolean;
+  autoFocusCreate?: boolean;
   className?: string;
 }) {
   const checkpoints = useQuery(api.taskCheckpoints.listForTask, {
@@ -327,6 +329,7 @@ export function TaskCheckpointList({
       {canCreate ? (
         <div className="flex gap-2">
           <Input
+            autoFocus={autoFocusCreate}
             value={draft}
             maxLength={500}
             placeholder="Dodaj novi checkpoint..."
@@ -370,6 +373,7 @@ export function TaskCheckpointList({
           {checkpoints.map((checkpoint) => (
             <article
               key={checkpoint._id}
+              aria-label={`Checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}`}
               className={cn(
                 "rounded-xl border px-2.5 py-2 transition-colors",
                 checkpoint.completed
@@ -378,14 +382,17 @@ export function TaskCheckpointList({
               )}
             >
               <div className="flex items-center gap-2">
+                <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-full border border-border/70 bg-background/80 px-1.5 text-[0.6875rem] font-extrabold text-muted-foreground">
+                  #{checkpoint.ordinal}
+                </span>
                 <button
                   type="button"
                   className="grid size-11 shrink-0 place-items-center rounded-full hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!checkpoint.canToggle || pendingId === checkpoint._id}
                   aria-label={
                     checkpoint.completed
-                      ? `Ponovo otvori checkpoint: ${checkpoint.text}`
-                      : `Završi checkpoint: ${checkpoint.text}`
+                      ? `Ponovo otvori checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}`
+                      : `Završi checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}`
                   }
                   title={
                     checkpoint.completed

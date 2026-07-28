@@ -1,7 +1,19 @@
 "use client";
 
-import { memo, useState, type SyntheticEvent } from "react";
-import { type Node, type NodeProps } from "@xyflow/react";
+import {
+  createContext,
+  memo,
+  useContext,
+  useState,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
+import {
+  NodeResizer,
+  type Node,
+  type NodeProps,
+  type ResizeParams,
+} from "@xyflow/react";
 import { useMutation } from "convex/react";
 import {
   Check,
@@ -9,6 +21,7 @@ import {
   LoaderCircle,
   MessageSquareText,
   Pencil,
+  RotateCcw,
   Trash2,
   X,
 } from "lucide-react";
@@ -25,11 +38,14 @@ import styles from "./task-checkpoint-node.module.css";
 
 export type TaskCheckpointFlowNodeData = {
   checkpointId: Id<"taskCheckpoints">;
+  ordinal: number;
   text: string;
   completed: boolean;
   canEdit: boolean;
   canToggle: boolean;
   canMove: boolean;
+  canResize: boolean;
+  manuallySized: boolean;
   canDeleteDirectly: boolean;
   canRequestDeletion: boolean;
 };
@@ -38,6 +54,38 @@ export type TaskCheckpointFlowNode = Node<
   TaskCheckpointFlowNodeData,
   "taskCheckpoint"
 >;
+
+const TaskCheckpointNodeActionsContext = createContext<{
+  startResize: (checkpointId: Id<"taskCheckpoints">) => void;
+  resize: (
+    checkpointId: Id<"taskCheckpoints">,
+    layout: ResizeParams,
+  ) => void;
+  resetSize: (checkpointId: Id<"taskCheckpoints">) => void;
+} | null>(null);
+
+export function TaskCheckpointNodeActionsProvider({
+  startResize,
+  resize,
+  resetSize,
+  children,
+}: {
+  startResize: (checkpointId: Id<"taskCheckpoints">) => void;
+  resize: (
+    checkpointId: Id<"taskCheckpoints">,
+    layout: ResizeParams,
+  ) => void;
+  resetSize: (checkpointId: Id<"taskCheckpoints">) => void;
+  children: ReactNode;
+}) {
+  return (
+    <TaskCheckpointNodeActionsContext.Provider
+      value={{ startResize, resize, resetSize }}
+    >
+      {children}
+    </TaskCheckpointNodeActionsContext.Provider>
+  );
+}
 
 function stopCanvasEvent(event: SyntheticEvent) {
   event.stopPropagation();
@@ -48,6 +96,7 @@ export const TaskCheckpointFlowNodeCard = memo(
     data,
     selected,
   }: NodeProps<TaskCheckpointFlowNode>) {
+    const nodeActions = useContext(TaskCheckpointNodeActionsContext);
     const setCompleted = useMutation(api.taskCheckpoints.setCompleted);
     const updateText = useMutation(api.taskCheckpoints.updateText);
     const archiveOwn = useMutation(api.taskCheckpoints.archiveOwn);
@@ -89,12 +138,38 @@ export const TaskCheckpointFlowNodeCard = memo(
             selected && styles.selected,
             !data.canMove && "nodrag !cursor-default",
           )}
-          aria-label={`Checkpoint: ${data.text}. ${
+          aria-label={`Checkpoint broj ${data.ordinal}: ${data.text}. ${
             data.completed ? "Završen" : "Otvoren"
           }.`}
           title="Izaberi checkpoint za izmenu, doprinos ili brisanje"
         >
+          <NodeResizer
+            isVisible={selected && data.canResize}
+            minWidth={140}
+            minHeight={92}
+            maxWidth={520}
+            maxHeight={600}
+            handleClassName={styles.resizeHandle}
+            lineClassName={styles.resizeLine}
+            onResizeStart={() => {
+              if (data.canResize) {
+                nodeActions?.startResize(data.checkpointId);
+              }
+            }}
+            onResizeEnd={(_event, layout) => {
+              if (data.canResize) {
+                nodeActions?.resize(data.checkpointId, layout);
+              }
+            }}
+          />
           <div className={styles.surface} aria-hidden="true" />
+          <span
+            className={styles.ordinal}
+            aria-hidden="true"
+            title={`Checkpoint broj ${data.ordinal}`}
+          >
+            #{data.ordinal}
+          </span>
           <button
             type="button"
             className={cn(styles.toggle, "nodrag nopan")}
@@ -190,6 +265,21 @@ export const TaskCheckpointFlowNodeCard = memo(
                   ) : (
                     <Pencil className="size-4" />
                   )}
+                </Button>
+              ) : null}
+              {data.canResize && data.manuallySized ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className={styles.action}
+                  aria-label={`Vrati automatsku veličinu checkpointa broj ${data.ordinal}`}
+                  title="Vrati automatsku veličinu"
+                  onClick={() =>
+                    nodeActions?.resetSize(data.checkpointId)
+                  }
+                >
+                  <RotateCcw className="size-4" />
                 </Button>
               ) : null}
               <Button

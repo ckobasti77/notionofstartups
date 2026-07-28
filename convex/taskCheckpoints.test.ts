@@ -117,6 +117,7 @@ describe("task checkpoint entiteti", () => {
     });
     expect(rows).toHaveLength(5);
     expect(rows.every((row) => !row.completed)).toBe(true);
+    expect(rows.map((row) => row.ordinal)).toEqual([1, 2, 3, 4, 5]);
     expect(rows[0]).toMatchObject({
       text: "Korak 1",
       canEdit: false,
@@ -194,7 +195,130 @@ describe("task checkpoint entiteti", () => {
       taskPageId: taskId,
       canvasRootPageId: null,
     });
-    expect(rows[0].placement).toEqual({ x: 321, y: -123 });
+    expect(rows[0].placement).toEqual({
+      x: 321,
+      y: -123,
+      width: null,
+      height: null,
+    });
+
+    await asOwner.mutation(api.taskCheckpoints.saveCanvasPlacement, {
+      checkpointId: rows[0]._id,
+      canvasRootPageId: null,
+      x: 321,
+      y: -123,
+      width: 360,
+      height: 240,
+    });
+    await asOwner.mutation(api.taskCheckpoints.saveCanvasPlacement, {
+      checkpointId: rows[0]._id,
+      canvasRootPageId: null,
+      x: 400,
+      y: 75,
+    });
+    rows = await asOwner.query(api.taskCheckpoints.listForTask, {
+      taskPageId: taskId,
+      canvasRootPageId: null,
+    });
+    expect(rows[0].placement).toEqual({
+      x: 400,
+      y: 75,
+      width: 360,
+      height: 240,
+    });
+    await expect(
+      asAssignee.mutation(api.taskCheckpoints.resetCanvasSize, {
+        checkpointId: rows[0]._id,
+        canvasRootPageId: null,
+      }),
+    ).rejects.toThrow("samo autor");
+    await asOwner.mutation(api.taskCheckpoints.resetCanvasSize, {
+      checkpointId: rows[0]._id,
+      canvasRootPageId: null,
+    });
+    rows = await asOwner.query(api.taskCheckpoints.listForTask, {
+      taskPageId: taskId,
+      canvasRootPageId: null,
+    });
+    expect(rows[0].placement).toEqual({
+      x: 400,
+      y: 75,
+      width: null,
+      height: null,
+    });
+    const persisted = await t.run(async (ctx) => {
+      const checkpoint = await ctx.db.get("taskCheckpoints", rows[0]._id);
+      const placements = await ctx.db
+        .query("taskCheckpointCanvasPlacements")
+        .withIndex("by_checkpointId_and_canvasRootPageId", (q) =>
+          q
+            .eq("checkpointId", rows[0]._id)
+            .eq("canvasRootPageId", null),
+        )
+        .collect();
+      return { checkpoint, placements };
+    });
+    expect(persisted.checkpoint).not.toBeNull();
+    expect(persisted.placements).toHaveLength(1);
+  });
+
+  test("aktivni checkpointi imaju determinističan hronološki red i izvedene brojeve", async () => {
+    const { t, startupId, areaId, owner, asOwner } =
+      await seedCheckpointWorkspace();
+    const taskId = await asOwner.mutation(api.pages.create, {
+      startupId,
+      areaId,
+      parentPageId: null,
+      kind: "task",
+      title: "Hronologija",
+      checkpoints: [],
+    });
+    const baseTime = Date.now() - 10_000;
+    await t.run(async (ctx) => {
+      for (const checkpoint of [
+        { legacyId: "same-2", text: "Treći po poziciji", position: 2 },
+        { legacyId: "same-0", text: "Prvi po poziciji", position: 0 },
+        { legacyId: "same-1", text: "Drugi po poziciji", position: 1 },
+      ]) {
+        await ctx.db.insert("taskCheckpoints", {
+          startupId,
+          areaId,
+          taskPageId: taskId,
+          legacyId: checkpoint.legacyId,
+          text: checkpoint.text,
+          completed: false,
+          position: checkpoint.position,
+          createdByProfileId: owner.profileId,
+          archivedAt: null,
+          createdAt: baseTime,
+          updatedAt: baseTime,
+        });
+      }
+      await ctx.db.insert("taskCheckpoints", {
+        startupId,
+        areaId,
+        taskPageId: taskId,
+        legacyId: "older",
+        text: "Najstariji",
+        completed: false,
+        position: 99,
+        createdByProfileId: owner.profileId,
+        archivedAt: null,
+        createdAt: baseTime - 1,
+        updatedAt: baseTime,
+      });
+    });
+
+    const rows = await asOwner.query(api.taskCheckpoints.listForTask, {
+      taskPageId: taskId,
+    });
+    expect(rows.map((row) => row.text)).toEqual([
+      "Najstariji",
+      "Prvi po poziciji",
+      "Drugi po poziciji",
+      "Treći po poziciji",
+    ]);
+    expect(rows.map((row) => row.ordinal)).toEqual([1, 2, 3, 4]);
   });
 
   test("arhiviranje ima Undo, član traži brisanje, a limit ostaje 100", async () => {
@@ -215,6 +339,7 @@ describe("task checkpoint entiteti", () => {
     let rows = await asOwner.query(api.taskCheckpoints.listForTask, {
       taskPageId: taskId,
     });
+    const oldestCheckpointId = rows[0]._id;
     await expect(
       asOwner.mutation(api.taskCheckpoints.create, {
         taskPageId: taskId,
@@ -240,6 +365,10 @@ describe("task checkpoint entiteti", () => {
       taskPageId: taskId,
     });
     expect(rows).toHaveLength(100);
+    expect(rows.map((row) => row.ordinal)).toEqual(
+      Array.from({ length: 100 }, (_, index) => index + 1),
+    );
+    expect(rows[0]._id).toBe(oldestCheckpointId);
   });
 
   test("legacy backfill je idempotentan i verifikacija ne nalazi propuste", async () => {

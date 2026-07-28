@@ -43,6 +43,37 @@
     transform 150ms ease;
 }
 
+.ordinal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 12;
+  display: grid;
+  min-width: 2.25rem;
+  height: 2rem;
+  place-items: center;
+  padding-inline: 0.55rem;
+  transform: translate(-24%, -28%);
+  border: 1px solid
+    color-mix(in oklab, var(--checkpoint-accent) 58%, var(--border));
+  border-radius: 999px;
+  background: color-mix(
+    in oklab,
+    var(--checkpoint-accent) 10%,
+    var(--popover)
+  );
+  color: color-mix(
+    in oklab,
+    var(--checkpoint-accent) 80%,
+    var(--foreground)
+  );
+  box-shadow: 0 6px 16px
+    color-mix(in oklab, var(--foreground) 10%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .shell:hover .surface,
 .selected .surface,
 .shell:focus-visible .surface {
@@ -66,15 +97,13 @@
 }
 
 .text {
-  display: -webkit-box;
+  display: block;
   overflow: hidden;
   color: color-mix(in oklab, var(--foreground) 90%, transparent);
   font-size: 0.75rem;
   font-weight: 750;
   line-height: 1.45;
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
 }
 
 .completed .text {
@@ -141,6 +170,33 @@
   inset: 1rem;
   display: grid;
   place-items: center;
+}
+
+.resizeHandle {
+  z-index: 24 !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  border: 2px solid var(--popover) !important;
+  border-radius: 999px !important;
+  background: var(--checkpoint-accent) !important;
+  box-shadow: 0 0 0 1px
+    color-mix(in oklab, var(--checkpoint-accent) 72%, var(--border));
+}
+
+.resizeLine {
+  z-index: 23 !important;
+  border-color: color-mix(
+    in oklab,
+    var(--checkpoint-accent) 72%,
+    var(--border)
+  ) !important;
+}
+
+@media (pointer: coarse) {
+  .resizeHandle {
+    width: 1.75rem !important;
+    height: 1.75rem !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -362,6 +362,8 @@ export default defineSchema({
     checkpointId: v.id("taskCheckpoints"),
     x: v.number(),
     y: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
     updatedByProfileId: v.id("profiles"),
     createdAt: v.number(),
     updatedAt: v.number(),

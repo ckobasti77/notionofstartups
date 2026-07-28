@@ -9,13 +9,27 @@ import {
   useState,
 } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, FolderOutput, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
+import { AlignLeft, AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, FolderOutput, Info, LayoutGrid, List, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
 import { PageRelationsPanel } from "@/components/workspace/page-relations";
@@ -78,6 +92,8 @@ export function PageEditorView({
   onCreateChild,
   onArchived,
   presentation = "page",
+  taskViewMode = "canvas",
+  onTaskViewModeChange,
   onSaveStateChange,
 }: {
   startup: StartupWithAreas;
@@ -86,10 +102,15 @@ export function PageEditorView({
   onOpenArea?: (areaId: Id<"startupAreas">) => void;
   onCreateChild: (target: CreatePageTarget) => void;
   onArchived: () => void;
-  presentation?: "page" | "dialog";
+  presentation?: "page" | "dialog" | "task-canvas";
+  taskViewMode?: "canvas" | "list";
+  onTaskViewModeChange?: (mode: "canvas" | "list") => void;
   onSaveStateChange?: (state: PageEditorSaveState) => void;
 }) {
   const taskDueDateId = useId();
+  const [taskSheetSection, setTaskSheetSection] = useState<
+    "checkpoints" | "instructions" | "details" | null
+  >(null);
   const page = useQuery(api.pages.get, { pageId });
   const breadcrumbs = useQuery(api.pages.getBreadcrumbs, { pageId });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
@@ -523,6 +544,395 @@ export function PageEditorView({
   const pageArea = startup.areas.find((area) => area._id === page.areaId);
   const status = (page.taskStatus ?? "backlog") as TaskStatus;
   const priority = (page.taskPriority ?? "medium") as TaskPriority;
+  const checkpointTotal = page.checkpointTotal ?? 0;
+  const checkpointCompleted = page.checkpointCompleted ?? 0;
+
+  if (presentation === "task-canvas" && page.kind === "task") {
+    const saveLabel = page.permissions.canEdit
+      ? saveState === "saving"
+        ? "Čuvam…"
+        : saveState === "saved"
+          ? "Sačuvano"
+          : saveState === "error"
+            ? "Čuvanje nije uspelo"
+            : saveState === "conflict"
+              ? "Konflikt izmena"
+              : saveState === "invalid"
+                ? "Naslov je obavezan"
+                : "Izmene čekaju"
+      : "Samo autor menja osnovni sadržaj";
+    const checkpointProgress =
+      checkpointTotal === 0
+        ? 0
+        : Math.round((checkpointCompleted / checkpointTotal) * 100);
+
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 pt-2 sm:px-7 lg:px-10">
+        <article
+          data-workspace-enter
+          className="rounded-2xl border border-border/75 bg-card px-3 py-3 shadow-sm sm:px-4"
+          aria-label="Komande zadatka"
+        >
+          {saveState === "conflict" ? (
+            <section
+              className="mb-3 flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+              role="alert"
+              aria-live="assertive"
+            >
+              <p className="font-semibold">
+                Neko iz tima je izmenio ovu stranicu. Tvoj nacrt je sačuvan
+                lokalno.
+              </p>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={copyLocalDraft}>
+                  <Copy /> Kopiraj nacrt
+                </Button>
+                <Button type="button" size="sm" onClick={loadTeamVersion}>
+                  <RefreshCw /> Učitaj timsku verziju
+                </Button>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/9 text-primary">
+              <CheckSquare2 className="size-4" aria-hidden="true" />
+            </span>
+            <Input
+              disabled={!page.permissions.canEdit}
+              aria-invalid={saveState === "invalid"}
+              aria-label="Naslov zadatka"
+              value={title}
+              onChange={(event) => {
+                const nextTitle = event.target.value;
+                setTitle(nextTitle);
+                markDraftChanged({
+                  ...latestDraftRef.current,
+                  title: nextTitle,
+                });
+              }}
+              className="h-9 min-w-0 flex-1 border-0 bg-transparent px-0 text-lg font-bold tracking-[-0.03em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-xl"
+              maxLength={200}
+            />
+            <span
+              className="hidden shrink-0 items-center gap-1.5 text-[0.6875rem] font-medium text-muted-foreground sm:inline-flex"
+              aria-live="polite"
+            >
+              {page.permissions.canEdit ? (
+                saveState === "saving" ? (
+                  <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
+                ) : saveState === "saved" ? (
+                  <Check className="size-3.5 text-success" />
+                ) : saveState === "conflict" || saveState === "invalid" ? (
+                  <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" />
+                ) : (
+                  <Clock3 className="size-3.5" />
+                )
+              ) : (
+                <UserRound className="size-3.5" />
+              )}
+              {saveLabel}
+            </span>
+          </div>
+
+          <div className="scrollbar-thin mt-2.5 flex items-center gap-2 overflow-x-auto border-t border-border/60 pb-1 pt-2.5">
+            <Select
+              value={status}
+              disabled={!page.permissions.canEdit}
+              onValueChange={(value) =>
+                setTaskMetadata({ status: value as TaskStatus })
+              }
+            >
+              <SelectTrigger className="h-9 w-[9.25rem] bg-background" aria-label="Status zadatka">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(TASK_STATUS_META).map(([value, meta]) => (
+                  <SelectItem key={value} value={value}>
+                    {meta.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={priority}
+              disabled={!page.permissions.canEdit}
+              onValueChange={(value) =>
+                setTaskMetadata({ priority: value as TaskPriority })
+              }
+            >
+              <SelectTrigger className="h-9 w-[9.25rem] bg-background" aria-label="Prioritet zadatka">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(TASK_PRIORITY_META).map(([value, meta]) => (
+                  <SelectItem key={value} value={value}>
+                    {meta.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div
+              className="flex h-9 min-w-[8.5rem] items-center gap-2 rounded-lg border border-border/65 bg-muted/25 px-3"
+              role="progressbar"
+              aria-label="Napredak checkpointa"
+              aria-valuemin={0}
+              aria-valuemax={checkpointTotal}
+              aria-valuenow={checkpointCompleted}
+            >
+              <span className="whitespace-nowrap text-xs font-bold tabular-nums">
+                {checkpointCompleted}/{checkpointTotal}
+              </span>
+              <span className="h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-muted">
+                <span
+                  className="block h-full rounded-full bg-emerald-500 transition-[width]"
+                  style={{ width: `${checkpointProgress}%` }}
+                />
+              </span>
+            </div>
+
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 rounded-lg"
+                disabled={!page.permissions.canEdit}
+                onClick={() => setTaskSheetSection("checkpoints")}
+              >
+                <Plus aria-hidden="true" /> Dodaj checkpoint
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-lg"
+                onClick={() => setTaskSheetSection("instructions")}
+              >
+                <AlignLeft aria-hidden="true" /> Instrukcije
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-lg"
+                onClick={() => setTaskSheetSection("details")}
+              >
+                <Info aria-hidden="true" /> Detalji
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 rounded-lg"
+                    aria-label="Više opcija zadatka"
+                  >
+                    <MoreHorizontal aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onTaskViewModeChange?.(
+                        taskViewMode === "canvas" ? "list" : "canvas",
+                      )
+                    }
+                  >
+                    {taskViewMode === "canvas" ? <List /> : <LayoutGrid />}
+                    {taskViewMode === "canvas" ? "Prikaži listu" : "Prikaži kanvas"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setTaskSheetSection("details")}
+                  >
+                    <Info /> Svi detalji
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onCreateChild({
+                        areaId: page.areaId,
+                        parentPageId: page._id,
+                      })
+                    }
+                  >
+                    <Plus /> Nova podstranica
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => void archive()}>
+                    <Archive />
+                    {page.permissions.canDeleteDirectly
+                      ? "Arhiviraj zadatak"
+                      : "Zatraži brisanje"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </article>
+
+        <Sheet
+          open={taskSheetSection !== null}
+          onOpenChange={(open) => {
+            if (!open) setTaskSheetSection(null);
+          }}
+        >
+          <SheetContent className="h-full w-full gap-0 overflow-hidden p-0 sm:max-w-2xl">
+            <SheetHeader className="border-b border-border/70 px-5 py-5 pr-12 sm:px-7">
+              <SheetTitle>Detalji zadatka</SheetTitle>
+              <SheetDescription>
+                Instrukcije, checkpointi, dodela, rok, relacije i doprinosi na
+                jednom mestu.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="scrollbar-thin flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+              <section className="mb-5 grid gap-3 rounded-2xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-2">
+                <div>
+                  <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+                    Dodeljeno
+                  </span>
+                  <Select
+                    value={page.assigneeProfileId ?? "none"}
+                    disabled={!page.permissions.canEdit}
+                    onValueChange={(value) =>
+                      setTaskMetadata({
+                        assigneeProfileId:
+                          value === "none"
+                            ? null
+                            : (value as Id<"profiles">),
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-10 bg-card" aria-label="Dodeljeno zadatku">
+                      <SelectValue placeholder="Nije dodeljen" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nije dodeljen</SelectItem>
+                      {members?.map(({ profile }) => (
+                        <SelectItem key={profile._id} value={profile._id}>
+                          {profile.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label
+                    className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground"
+                    htmlFor={taskDueDateId}
+                  >
+                    Rok
+                  </label>
+                  <Input
+                    id={taskDueDateId}
+                    type="date"
+                    disabled={!page.permissions.canEdit}
+                    className="h-10 bg-card"
+                    value={toDateInputValue(page.dueDate)}
+                    onChange={(event) =>
+                      setTaskMetadata({
+                        dueDate: event.target.value
+                          ? (fromDateInputValue(event.target.value) ?? null)
+                          : null,
+                      })
+                    }
+                  />
+                </div>
+              </section>
+
+              <TaskDetailWidgets
+                page={page}
+                canEdit={page.permissions.canEdit}
+                updateMetadata={updateTaskMetadata}
+                onSaveStateChange={setInstructionsSaveState}
+                focusCheckpointCreate={taskSheetSection === "checkpoints"}
+                focusInstructions={taskSheetSection === "instructions"}
+              />
+
+              {pageEntryDisplayText(content).trim() ? (
+                <section className="mt-5 rounded-2xl border border-border/70 bg-muted/20 p-5">
+                  <p className="text-[0.6875rem] font-bold uppercase tracking-[0.11em] text-muted-foreground">
+                    Dodatni kontekst
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/85">
+                    {pageEntryDisplayText(content)}
+                  </p>
+                </section>
+              ) : null}
+
+              <div className="pb-1 pt-5">
+                <PageRelationsPanel
+                  loading={relationsResult === undefined}
+                  currentKind={page.kind}
+                  relations={(relationsResult?.relations ?? []).map((relation) => ({
+                    id: relation._id,
+                    pageId: relation.linkedPage.pageId,
+                    title: relation.linkedPage.title,
+                    kind: relation.linkedPage.kind,
+                    canDelete: relation.canDelete,
+                    canRequestDeletion: relation.canRequestDeletion,
+                  }))}
+                  candidates={(relationsResult?.candidates ?? []).map(
+                    (candidate) => ({
+                      pageId: candidate.pageId,
+                      title: candidate.title,
+                      kind: candidate.kind,
+                    }),
+                  )}
+                  candidatesTruncated={relationsResult?.candidatesTruncated ?? false}
+                  selectedCandidate={selectedRelationPageId}
+                  onSelectedCandidate={setSelectedRelationPageId}
+                  busy={relationBusy}
+                  onCreate={linkSelectedPage}
+                  onDelete={unlinkPage}
+                  onRequestDeletion={requestUnlinkPage}
+                  onOpenPage={onOpenPage}
+                />
+              </div>
+
+              <PageAuthorEntries page={page} />
+
+              <footer className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border/65 pt-5">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {page.creator ? (
+                    <>
+                      <ProfileAvatar profile={page.creator} className="size-6" />
+                      <span>
+                        Kreirao/la{" "}
+                        <strong className="font-semibold text-foreground">
+                          {page.creator.displayName}
+                        </strong>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <UserRound className="size-4" /> Autor nije dostupan
+                    </>
+                  )}
+                </div>
+                {page.permissions.canDetach ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={detachBusy}
+                    onClick={detachFromParent}
+                  >
+                    {detachBusy ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <FolderOutput />
+                    )}
+                    Odvoji u oblast
+                  </Button>
+                ) : null}
+              </footer>
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -837,6 +1247,8 @@ function TaskDetailWidgets({
   canEdit,
   updateMetadata,
   onSaveStateChange,
+  focusCheckpointCreate = false,
+  focusInstructions = false,
 }: {
   page: Doc<"pages">;
   canEdit: boolean;
@@ -849,6 +1261,8 @@ function TaskDetailWidgets({
     checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
   }) => Promise<{ revision: number }>;
   onSaveStateChange: (state: TaskInstructionsSaveState) => void;
+  focusCheckpointCreate?: boolean;
+  focusInstructions?: boolean;
 }) {
   const serverInstructions: TaskInstructionsServerState = {
     pageId: page._id,
@@ -950,6 +1364,7 @@ function TaskDetailWidgets({
           </span>
         </div>
         <textarea
+          autoFocus={focusInstructions}
           value={instructions}
           onChange={(e) => changeInstructions(e.target.value)}
           onBlur={saveInstructions}
@@ -987,7 +1402,11 @@ function TaskDetailWidgets({
         </div>
       </div>
 
-      <TaskCheckpointList taskPageId={page._id} canCreate={canEdit} />
+      <TaskCheckpointList
+        taskPageId={page._id}
+        canCreate={canEdit}
+        autoFocusCreate={focusCheckpointCreate}
+      />
 
     </div>
   );
@@ -996,7 +1415,7 @@ function TaskDetailWidgets({
 function EditorSkeleton({
   presentation = "page",
 }: {
-  presentation?: "page" | "dialog";
+  presentation?: "page" | "dialog" | "task-canvas";
 }) {
   return (
     <div
@@ -1004,6 +1423,8 @@ function EditorSkeleton({
         "mx-auto w-full max-w-5xl space-y-4",
         presentation === "dialog"
           ? "px-4 py-5 sm:px-6"
+          : presentation === "task-canvas"
+            ? "max-w-7xl px-4 py-2 sm:px-7 lg:px-10"
           : "px-4 py-7 sm:px-7 lg:px-10",
       )}
     >
