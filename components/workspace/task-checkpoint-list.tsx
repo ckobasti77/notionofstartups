@@ -76,7 +76,6 @@ export function TaskCheckpointDraftList({
             }
           }}
           placeholder="Dodaj podzadatak / checkpoint..."
-          maxLength={500}
           className="min-h-11"
         />
         <Button
@@ -125,7 +124,6 @@ export function TaskCheckpointDraftList({
                 <Input
                   autoFocus
                   value={editingText}
-                  maxLength={500}
                   className="h-8 flex-1"
                   onChange={(event) => setEditingText(event.target.value)}
                   onKeyDown={(event) => {
@@ -363,7 +361,6 @@ export function TaskCheckpointList({
             <Input
               autoFocus={autoFocusCreate}
               value={draft}
-              maxLength={500}
               placeholder="Dodaj novi checkpoint..."
               aria-label="Novi checkpoint"
               className="min-h-11"
@@ -459,7 +456,6 @@ export function TaskCheckpointList({
                   <Input
                     autoFocus
                     value={editingText}
-                    maxLength={500}
                     className="h-9 flex-1"
                     onChange={(event) => setEditingText(event.target.value)}
                     onKeyDown={(event) => {

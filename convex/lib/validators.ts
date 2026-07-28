@@ -36,7 +36,6 @@ export const checkpointItemValidator = v.object({
 export const MAX_TASK_INSTRUCTIONS_LENGTH = 20_000;
 export const MAX_TASK_CHECKPOINTS = 100;
 export const MAX_TASK_CHECKPOINT_ID_LENGTH = 128;
-export const MAX_TASK_CHECKPOINT_TEXT_LENGTH = 500;
 export const MAX_TASK_PAGE_SIZE = 100;
 export const MAX_TASK_DUE_DATE = 253_402_300_799_999;
 
@@ -76,12 +75,6 @@ export function normalizeTaskCheckpoints(
         `ID checkpointa može imati najviše ${MAX_TASK_CHECKPOINT_ID_LENGTH} znakova.`,
       );
     }
-    if (checkpoint.text.length > MAX_TASK_CHECKPOINT_TEXT_LENGTH) {
-      throw new Error(
-        `Tekst checkpointa može imati najviše ${MAX_TASK_CHECKPOINT_TEXT_LENGTH} znakova.`,
-      );
-    }
-
     const id = checkpoint.id.trim();
     const text = checkpoint.text.trim();
     if (id.length === 0) throw new Error("ID checkpointa je obavezno polje.");

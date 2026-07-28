@@ -232,7 +232,6 @@ export const TaskCheckpointFlowNodeCard = memo(
                 <Input
                   autoFocus
                   value={draft}
-                  maxLength={500}
                   aria-label={`Tekst checkpointa: ${data.text}`}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {

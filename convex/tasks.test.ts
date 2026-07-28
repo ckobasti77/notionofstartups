@@ -7,7 +7,6 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
   MAX_TASK_CHECKPOINT_ID_LENGTH,
-  MAX_TASK_CHECKPOINT_TEXT_LENGTH,
   MAX_TASK_CHECKPOINTS,
   MAX_TASK_DUE_DATE,
   MAX_TASK_INSTRUCTIONS_LENGTH,
@@ -358,7 +357,7 @@ describe("task metadata ugovori", () => {
         checkpoints: [
           {
             id: "i".repeat(MAX_TASK_CHECKPOINT_ID_LENGTH),
-            text: "t".repeat(MAX_TASK_CHECKPOINT_TEXT_LENGTH),
+            text: "t".repeat(10_000),
             completed: false,
           },
         ],
@@ -392,18 +391,6 @@ describe("task metadata ugovori", () => {
         ],
       }),
     ).rejects.toThrow("ID checkpointa može imati najviše");
-    await expect(
-      asOwner.mutation(api.tasks.updateMetadata, {
-        pageId: taskId,
-        checkpoints: [
-          {
-            id: "cp-long-text",
-            text: "t".repeat(MAX_TASK_CHECKPOINT_TEXT_LENGTH + 1),
-            completed: false,
-          },
-        ],
-      }),
-    ).rejects.toThrow("Tekst checkpointa može imati najviše");
     await expect(
       asOwner.mutation(api.tasks.updateMetadata, {
         pageId: taskId,
