@@ -847,6 +847,8 @@ export function PageEditorView({
                 onSaveStateChange={setInstructionsSaveState}
                 focusCheckpointCreate={taskSheetSection === "checkpoints"}
                 focusInstructions={taskSheetSection === "instructions"}
+                stacked
+                collapsible
               />
 
               {pageEntryDisplayText(content).trim() ? (
@@ -1249,6 +1251,8 @@ function TaskDetailWidgets({
   onSaveStateChange,
   focusCheckpointCreate = false,
   focusInstructions = false,
+  stacked = false,
+  collapsible = false,
 }: {
   page: Doc<"pages">;
   canEdit: boolean;
@@ -1263,6 +1267,8 @@ function TaskDetailWidgets({
   onSaveStateChange: (state: TaskInstructionsSaveState) => void;
   focusCheckpointCreate?: boolean;
   focusInstructions?: boolean;
+  stacked?: boolean;
+  collapsible?: boolean;
 }) {
   const serverInstructions: TaskInstructionsServerState = {
     pageId: page._id,
@@ -1273,6 +1279,8 @@ function TaskDetailWidgets({
     useState<TaskInstructionsDraft>(() =>
       createTaskInstructionsDraft(serverInstructions),
     );
+  const [instructionsExpanded, setInstructionsExpanded] = useState(true);
+  const instructionsContentId = useId();
   const instructionsDraftRef = useRef(instructionsDraft);
   const instructionsSubmissionIdRef = useRef(0);
   const instructions =
@@ -1346,9 +1354,21 @@ function TaskDetailWidgets({
   }
 
   return (
-    <div className="grid gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+    <div
+      className={cn(
+        "grid gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm",
+        stacked
+          ? "grid-cols-1"
+          : "md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]",
+      )}
+    >
       {!canEdit ? (
-        <p className="text-xs text-muted-foreground md:col-span-2">
+        <p
+          className={cn(
+            "text-xs text-muted-foreground",
+            !stacked && "md:col-span-2",
+          )}
+        >
           Autor uređuje checkpoint, dodeljena osoba može da menja završeno
           stanje, a svaki član može da doda doprinos.
         </p>
@@ -1356,49 +1376,78 @@ function TaskDetailWidgets({
       {/* Instructions are the task's main content, so they lead the reading order. */}
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Instrukcije
-          </h3>
+          <div className="flex items-center gap-1">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Instrukcije
+            </h3>
+            {collapsible ? (
+              <button
+                type="button"
+                className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={
+                  instructionsExpanded
+                    ? "Skupi instrukcije"
+                    : "Proširi instrukcije"
+                }
+                aria-expanded={instructionsExpanded}
+                aria-controls={instructionsContentId}
+                onClick={() => setInstructionsExpanded((expanded) => !expanded)}
+              >
+                <ChevronRight
+                  className={cn(
+                    "size-3.5 transition-transform duration-200",
+                    instructionsExpanded && "rotate-90",
+                  )}
+                />
+              </button>
+            ) : null}
+          </div>
           <span className="text-[0.6875rem] tabular-nums text-muted-foreground">
             {instructions.length}/20.000
           </span>
         </div>
-        <textarea
-          autoFocus={focusInstructions}
-          value={instructions}
-          onChange={(e) => changeInstructions(e.target.value)}
-          onBlur={saveInstructions}
-          readOnly={!canEdit}
-          maxLength={20_000}
-          aria-label="Instrukcije zadatka"
-          placeholder="Napiši šta treba uraditi i koji rezultat se očekuje…"
-          className="flex min-h-[11rem] w-full rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-6 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        />
         <div
-          className="flex min-h-7 items-center justify-between gap-3 text-xs text-muted-foreground"
-          aria-live="polite"
+          id={instructionsContentId}
+          hidden={collapsible && !instructionsExpanded}
+          className="space-y-3"
         >
-          <span>
-            {instructionsState === "saving"
-              ? "Čuvam instrukcije…"
-              : instructionsState === "dirty"
-                ? "Instrukcije imaju nesačuvane izmene."
-                : instructionsState === "error"
-                  ? "Instrukcije nisu sačuvane."
-                  : "Instrukcije su sačuvane."}
-          </span>
-          {instructionsState === "error" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={saveInstructions}
-            >
-              <RefreshCw className="size-3.5" />
-              Pokušaj ponovo
-            </Button>
-          ) : null}
+          <textarea
+            autoFocus={focusInstructions}
+            value={instructions}
+            onChange={(e) => changeInstructions(e.target.value)}
+            onBlur={saveInstructions}
+            readOnly={!canEdit}
+            maxLength={20_000}
+            aria-label="Instrukcije zadatka"
+            placeholder="Napiši šta treba uraditi i koji rezultat se očekuje…"
+            className="flex min-h-[11rem] w-full rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-6 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          <div
+            className="flex min-h-7 items-center justify-between gap-3 text-xs text-muted-foreground"
+            aria-live="polite"
+          >
+            <span>
+              {instructionsState === "saving"
+                ? "Čuvam instrukcije…"
+                : instructionsState === "dirty"
+                  ? "Instrukcije imaju nesačuvane izmene."
+                  : instructionsState === "error"
+                    ? "Instrukcije nisu sačuvane."
+                    : "Instrukcije su sačuvane."}
+            </span>
+            {instructionsState === "error" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={saveInstructions}
+              >
+                <RefreshCw className="size-3.5" />
+                Pokušaj ponovo
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -1406,6 +1455,7 @@ function TaskDetailWidgets({
         taskPageId={page._id}
         canCreate={canEdit}
         autoFocusCreate={focusCheckpointCreate}
+        collapsible={collapsible}
       />
 
     </div>

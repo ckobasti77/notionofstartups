@@ -95,9 +95,13 @@ describe("ellipseLineBounds", () => {
   });
 
   test.each([
+    [140, 92],
+    [164, 110],
     [240, 160],
     [264, 196],
+    [360, 240],
     [480, 320],
+    [520, 600],
     [720, 1_000],
   ])("svaki red ostaje unutar elipse dimenzije %sx%s", (width, height) => {
     for (let centerY = 10; centerY < height - 10; centerY += 10) {

@@ -37,6 +37,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
 import type { TaskCheckpointSizePreset } from "./task-checkpoint-layout";
+import { CircularTextFlow } from "./circular-text-flow";
 import styles from "./task-checkpoint-node.module.css";
 
 export type TaskCheckpointFlowNodeData = {
@@ -144,6 +145,7 @@ export const TaskCheckpointFlowNodeCard = memo(
     return (
       <>
         <article
+          data-circular-text-shell
           className={cn(
             styles.shell,
             data.completed && styles.completed,
@@ -176,6 +178,7 @@ export const TaskCheckpointFlowNodeCard = memo(
           />
           <div className={styles.surface} aria-hidden="true" />
           <span
+            data-circular-text-obstacle
             className={styles.ordinal}
             aria-hidden="true"
             title={`Checkpoint broj ${data.ordinal}`}
@@ -183,6 +186,7 @@ export const TaskCheckpointFlowNodeCard = memo(
             #{data.ordinal}
           </span>
           <button
+            data-circular-text-obstacle
             type="button"
             className={cn(styles.toggle, "nodrag nopan")}
             disabled={!data.canToggle || pending}
@@ -219,8 +223,8 @@ export const TaskCheckpointFlowNodeCard = memo(
             )}
           </button>
 
-          <div className={styles.body}>
-            {editing ? (
+          {editing ? (
+            <div className={styles.body}>
               <div
                 className={cn(styles.editing, "nodrag nopan nowheel")}
                 onPointerDown={stopCanvasEvent}
@@ -244,10 +248,15 @@ export const TaskCheckpointFlowNodeCard = memo(
                   onBlur={() => void saveText()}
                 />
               </div>
-            ) : (
-              <p className={styles.text}>{data.text}</p>
-            )}
-          </div>
+            </div>
+          ) : (
+            <CircularTextFlow
+              text={data.text}
+              className={styles.checkpointTextViewport}
+              contentClassName={styles.checkpointMeasuredText}
+              ariaLabel={`Tekst checkpointa broj ${data.ordinal}`}
+            />
+          )}
 
           {selected ? (
             <div

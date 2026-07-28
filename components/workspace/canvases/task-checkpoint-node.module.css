@@ -99,7 +99,25 @@
   text-align: center;
 }
 
-.text {
+.shell .checkpointTextViewport {
+  inset:
+    clamp(1rem, 5%, 2rem)
+    clamp(0.9rem, 6%, 2.75rem);
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 17px;
+  text-align: center;
+  scrollbar-width: none;
+}
+
+.shell .checkpointTextViewport::-webkit-scrollbar {
+  display: none;
+}
+
+.checkpointMeasuredText {
   display: block;
   width: 100%;
   min-width: 0;
@@ -107,14 +125,11 @@
   max-height: 100%;
   overflow: hidden;
   color: color-mix(in oklab, var(--foreground) 90%, transparent);
-  font-size: 0.75rem;
-  font-weight: 750;
-  line-height: 1.45;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.completed .text {
+.completed .checkpointMeasuredText {
   color: var(--muted-foreground);
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;

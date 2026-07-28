@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   Check,
+  ChevronRight,
   Circle,
   ListChecks,
   LoaderCircle,
@@ -240,12 +241,14 @@ export function TaskCheckpointList({
   canCreate,
   compact = false,
   autoFocusCreate = false,
+  collapsible = false,
   className,
 }: {
   taskPageId: Id<"pages">;
   canCreate: boolean;
   compact?: boolean;
   autoFocusCreate?: boolean;
+  collapsible?: boolean;
   className?: string;
 }) {
   const checkpoints = useQuery(api.taskCheckpoints.listForTask, {
@@ -263,6 +266,8 @@ export function TaskCheckpointList({
   const [editingId, setEditingId] =
     useState<Id<"taskCheckpoints"> | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
   const [thread, setThread] = useState<{
     id: Id<"taskCheckpoints">;
     title: string;
@@ -302,6 +307,27 @@ export function TaskCheckpointList({
         <div className="flex items-center gap-2">
           <ListChecks className="size-4 text-primary" />
           <span className="text-sm font-bold">Podzadaci / Checkpointi</span>
+          {collapsible ? (
+            <button
+              type="button"
+              className="-ml-1 grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={
+                expanded
+                  ? "Skupi podzadatke i checkpointe"
+                  : "Proširi podzadatke i checkpointe"
+              }
+              aria-expanded={expanded}
+              aria-controls={contentId}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3.5 transition-transform duration-200",
+                  expanded && "rotate-90",
+                )}
+              />
+            </button>
+          ) : null}
           <span className="rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] font-bold text-muted-foreground">
             {completedCount}/{checkpoints.length}
           </span>
@@ -327,61 +353,66 @@ export function TaskCheckpointList({
         ) : null}
       </div>
 
-      {canCreate ? (
-        <div className="flex gap-2">
-          <Input
-            autoFocus={autoFocusCreate}
-            value={draft}
-            maxLength={500}
-            placeholder="Dodaj novi checkpoint..."
-            aria-label="Novi checkpoint"
-            className="min-h-11"
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void add();
+      <div
+        id={contentId}
+        hidden={collapsible && !expanded}
+        className="space-y-3"
+      >
+        {canCreate ? (
+          <div className="flex gap-2">
+            <Input
+              autoFocus={autoFocusCreate}
+              value={draft}
+              maxLength={500}
+              placeholder="Dodaj novi checkpoint..."
+              aria-label="Novi checkpoint"
+              className="min-h-11"
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void add();
+                }
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11"
+              disabled={
+                pendingId === "create" ||
+                !draft.trim() ||
+                checkpoints.length >= 100
               }
-            }}
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-11"
-            disabled={
-              pendingId === "create" ||
-              !draft.trim() ||
-              checkpoints.length >= 100
-            }
-            onClick={() => void add()}
-          >
-            {pendingId === "create" ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Plus className="size-4" />
-            )}
-            Dodaj
-          </Button>
-        </div>
-      ) : null}
-
-      {checkpoints.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border/70 px-4 py-5 text-center text-xs text-muted-foreground">
-          Još nema checkpointa.
-        </p>
-      ) : (
-        <div className={cn("space-y-2", compact && "space-y-1.5")}>
-          {checkpoints.map((checkpoint, index) => (
-            <article
-              key={checkpoint._id}
-              aria-label={`Checkpoint broj ${taskCheckpointOrdinal(checkpoint.ordinal, index)}: ${checkpoint.text}`}
-              className={cn(
-                "rounded-xl border px-2.5 py-2 transition-colors",
-                checkpoint.completed
-                  ? "border-emerald-500/30 bg-emerald-500/6"
-                  : "border-orange-500/30 bg-orange-500/6",
-              )}
+              onClick={() => void add()}
             >
+              {pendingId === "create" ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Plus className="size-4" />
+              )}
+              Dodaj
+            </Button>
+          </div>
+        ) : null}
+
+        {checkpoints.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border/70 px-4 py-5 text-center text-xs text-muted-foreground">
+            Još nema checkpointa.
+          </p>
+        ) : (
+          <div className={cn("space-y-2", compact && "space-y-1.5")}>
+            {checkpoints.map((checkpoint, index) => (
+              <article
+                key={checkpoint._id}
+                aria-label={`Checkpoint broj ${taskCheckpointOrdinal(checkpoint.ordinal, index)}: ${checkpoint.text}`}
+                className={cn(
+                  "rounded-xl border px-2.5 py-2 transition-colors",
+                  checkpoint.completed
+                    ? "border-emerald-500/30 bg-emerald-500/6"
+                    : "border-orange-500/30 bg-orange-500/6",
+                )}
+              >
               <div className="flex items-center gap-2">
                 <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-full border border-border/70 bg-background/80 px-1.5 text-[0.6875rem] font-extrabold text-muted-foreground">
                   #{taskCheckpointOrdinal(checkpoint.ordinal, index)}
@@ -565,10 +596,11 @@ export function TaskCheckpointList({
                   </Button>
                 ) : null}
               </div>
-            </article>
-          ))}
-        </div>
-      )}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
 
       <CheckpointContributionDialog
         checkpointId={thread?.id ?? null}

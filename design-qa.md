@@ -1,67 +1,48 @@
-# Design QA
+# Design QA — detalji zadatka
 
-- Source visual truth: `C:\Users\admin\AppData\Local\Temp\codex-clipboard-14f176e7-752b-481c-a89a-cef5bc00e6e5.png`
-- Desktop implementation capture: `C:\Users\admin\Desktop\Web Dev Projects\notion-clone\qa\implementation-auth-blocked-1440.jpg`
-- Mobile implementation capture: `C:\Users\admin\Desktop\Web Dev Projects\notion-clone\qa\implementation-auth-blocked-390.jpg`
-- Combined comparison evidence: `C:\Users\admin\Desktop\Web Dev Projects\notion-clone\qa\source-vs-implementation-blocked.png`
-- Intended route/state: signed-in Ideas canvas with orbital nodes and inline member edits
-- Captured route/state: local authentication screen; no authenticated local browser session was available
-- Desktop viewport: 1440 × 900 CSS px, density 1
-- Mobile viewport: 390 × 844 CSS px, density 1; captured image is 390 × 843 px because of browser viewport rounding
-- Source pixels: 1326 × 505
-- Desktop implementation pixels: 1440 × 900
-- Mobile implementation pixels: 390 × 843
-- Density normalization: the source was fitted without cropping into a 1440 × 900 comparison panel; the desktop capture stayed at native 1440 × 900. The two panels were placed in one 2888 × 900 image.
+## Evidence
+
+- Source visual truth: `C:\Users\admin\AppData\Local\Temp\codex-clipboard-7282feda-349e-4695-9051-bcba82b8c4fa.png`
+- Browser-rendered implementation: `C:\Users\admin\AppData\Local\Temp\notion-clone-task-details-dialog-desktop.png`
+- Collapsed state: `C:\Users\admin\AppData\Local\Temp\notion-clone-task-details-dialog-collapsed.png`
+- Mobile state: `C:\Users\admin\AppData\Local\Temp\notion-clone-task-details-dialog-mobile.png`
+- Side-by-side comparison: `C:\Users\admin\AppData\Local\Temp\notion-clone-task-details-comparison.png`
+- Desktop viewport: 900 × 850 CSS px; dialog crop: 672 × 850 px at device scale factor 1.
+- Mobile viewport: 390 × 844 CSS px; dialog: 390 × 844 CSS px at device scale factor 1.
+- Source pixels: 793 × 841. The source is a crop of the previous dialog state, so it was compared at native density rather than rescaled.
+- State: dark theme, task details dialog open, instructions and checkpoints expanded; both-collapsed and mobile states were also captured.
+
+## Full-view comparison evidence
+
+- The established dark palette, typography, borders, radii, field styling, header hierarchy, metadata card, and spacing language remain consistent with the source.
+- The requested intentional difference is present: instructions and checkpoints are no longer two columns. They are vertically ordered, share the same 563 px desktop content width, and remain full width at the 390 px mobile breakpoint.
+- The new chevrons are visually restrained, sit beside each section title, and rotate to communicate expanded/collapsed state.
+- No horizontal viewport overflow was present at either tested width.
+
+## Focused region comparison
+
+A separate focused crop was not needed because the implementation evidence is already a dialog-only 672 × 850 crop in which the typography, controls, spacing, and chevrons are clearly readable. The side-by-side image keeps the original and implementation dialog regions together in one comparison input.
 
 ## Findings
 
-- [P0] Authenticated node canvas cannot be visually compared
-  - Location: local app, Ideas canvas.
-  - Evidence: the combined comparison shows the source signed-in canvas on the left and the local sign-in screen on the right.
-  - Impact: orbital placement, Pretext line flow, resize handles, inline member edits, moderation controls, pan/zoom, focus states, and badge overlap cannot be accepted from browser evidence.
-  - Fix: sign in two local browser sessions, open the same idea canvas, then capture the owner and member states at the required desktop and mobile viewports.
+- No actionable P0, P1, or P2 visual differences remain.
+- The changed layout and chevrons are intentional requirements, not source drift.
+- Fonts and typography: existing family, hierarchy, weights, casing, line height, and muted utility text are preserved.
+- Spacing and layout rhythm: the sections now form one vertical reading flow with equal widths and consistent gaps.
+- Colors and visual tokens: existing card, border, foreground, muted, and primary tokens are preserved.
+- Image quality and asset fidelity: this view contains no raster assets; existing Lucide interface icons remain crisp and consistent.
+- Copy and content: existing Serbian-Latin labels and status text are unchanged; new accessible labels clearly describe expanding and collapsing.
 
-## Required Fidelity Surfaces
+## Interaction and accessibility checks
 
-- Fonts and typography: Geist remains configured in code, but node text wrapping and optical hierarchy are not visually verifiable behind auth.
-- Spacing and layout rhythm: orbital geometry and overlap cannot be judged in the captured state.
-- Colors and visual tokens: the local shell preserves the dark canvas palette, but node-level semantic colors are not visible.
-- Image quality and asset fidelity: the reference avatars and rendered node avatars cannot be compared in the same authenticated state.
-- Copy and content: the sign-in screen is correct for its state; node title, founder, status, date, and inline edit copy remain visually unverified.
+- Instructions button toggles `aria-expanded` from `true` to `false`; the textarea becomes non-visible and returns when expanded.
+- Checkpoints button toggles `aria-expanded` from `true` to `false`; the create field and list become non-visible and return when expanded.
+- Both buttons expose `aria-controls`, keyboard focus styling, and distinct expand/collapse accessible names.
+- Primary interactions tested: open task details, collapse and expand instructions, collapse and expand checkpoints, desktop and mobile responsive states.
+- Console checked. The captured Chrome session reported an extension-injected hydration attribute (`bis_skin_checked`) and existing React Flow size warnings during viewport overrides; neither originates from or affects the changed dialog controls. No collapse-related console error was observed.
 
-## Full-view Comparison Evidence
+## Comparison history
 
-`qa/source-vs-implementation-blocked.png` contains both artifacts in one normalized comparison input. The state mismatch is immediately visible and prevents a fidelity judgment.
+- Pass 1: no P0/P1/P2 mismatch found after the requested layout and interaction change; no visual correction loop was required.
 
-## Focused Region Comparison Evidence
-
-No focused comparison was performed because the implementation did not reach the target component. Cropping the sign-in screen would not produce valid evidence for orbital nodes.
-
-## Primary Interactions Tested
-
-- Local route loading at desktop and mobile sizes.
-- Responsive authentication layout.
-- Browser console checked at both sizes: no warnings or errors.
-- Authenticated add, publish, approve, reject, resubmit, resize, persistence, scroll, touch, and pan/zoom flows remain blocked.
-
-## Comparison History
-
-### Iteration 1
-
-- Earlier finding: target signed-in canvas was unavailable in the local browser.
-- Fix made: checked a second available browser for an existing local authenticated session; only a production-origin session existed and could not authenticate the localhost origin safely.
-- Post-fix visual evidence: desktop and mobile localhost captures still show the authentication screen, so the P0 blocker remains.
-
-## Implementation Checklist
-
-- Sign in as the idea owner in one local browser.
-- Sign in as another member in a second local browser.
-- Capture matching owner/member canvas states at 1440 × 900 and 390 × 844.
-- Compare orbital badges, Pretext lines, member edit cards, resize handles, and focus/touch states against the source.
-- Fix any P0/P1/P2 visual findings and repeat the combined comparison.
-
-## Follow-up Polish
-
-- None classified while the target component remains unavailable.
-
-final result: blocked
+final result: passed
