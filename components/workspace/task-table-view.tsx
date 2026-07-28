@@ -12,7 +12,6 @@ import {
   Plus,
   Search,
   UserRound,
-  Trash2,
   ExternalLink,
   MessageSquareText,
 } from "lucide-react";
@@ -23,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
 import type { ProfileWithAvatar, StartupMember, StartupWithAreas } from "@/components/workspace/types";
 import {
   EmptyState,
@@ -50,19 +50,6 @@ type TaskTableViewProps = {
   onOpenPage: (pageId: Id<"pages">) => void;
   onCreateTask: () => void;
 };
-
-type CheckpointItem = {
-  id: string;
-  text: string;
-  completed: boolean;
-};
-
-function nextCheckpointId(checkpoints: Array<CheckpointItem>) {
-  const usedIds = new Set(checkpoints.map((checkpoint) => checkpoint.id));
-  let sequence = checkpoints.length + 1;
-  while (usedIds.has(`cp-${sequence}`)) sequence += 1;
-  return `cp-${sequence}`;
-}
 
 export function TaskTableView({
   startup,
@@ -307,16 +294,18 @@ function TaskTableRow({
     instructionsDraft.base === serverInstructions
       ? instructionsDraft.value
       : serverInstructions;
-  const [newCpText, setNewCpText] = useState("");
   const prefersReducedMotion = useReducedMotion();
 
-  const checkpoints: Array<CheckpointItem> = useMemo(
-    () => (task.checkpoints as Array<CheckpointItem>) ?? [],
-    [task.checkpoints],
-  );
-
-  const completedCount = checkpoints.filter((cp) => cp.completed).length;
-  const totalCount = checkpoints.length;
+  const legacyCheckpoints =
+    task.checkpoints as
+      | Array<{ id: string; text: string; completed: boolean }>
+      | undefined;
+  const completedCount =
+    task.checkpointCompleted ??
+    legacyCheckpoints?.filter((checkpoint) => checkpoint.completed).length ??
+    0;
+  const totalCount =
+    task.checkpointTotal ?? legacyCheckpoints?.length ?? 0;
 
   useEffect(() => {
     if (task.revision > revisionRef.current) {
@@ -330,7 +319,6 @@ function TaskTableRow({
     assigneeProfileId?: Id<"profiles"> | null;
     dueDate?: number | null;
     instructions?: string | null;
-    checkpoints?: Array<CheckpointItem> | null;
   }) {
     const operation = updateQueueRef.current
       .catch(() => undefined)
@@ -350,9 +338,6 @@ function TaskTableRow({
           ...(patch.instructions === undefined
             ? {}
             : { instructions: patch.instructions }),
-          ...(patch.checkpoints === undefined
-            ? {}
-            : { checkpoints: patch.checkpoints }),
         });
         revisionRef.current = result.revision;
         return result;
@@ -420,55 +405,6 @@ function TaskTableRow({
       toast.success("Instrukcije sačuvane.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Instrukcije nisu sačuvane.");
-    }
-  }
-
-  async function toggleCheckpoint(cpId: string) {
-    if (!canEdit) return;
-    const updated = checkpoints.map((cp) =>
-      cp.id === cpId ? { ...cp, completed: !cp.completed } : cp,
-    );
-    setUpdating(true);
-    try {
-      await updateMetadata({ checkpoints: updated });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Podzadatak nije ažuriran.");
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  async function addCheckpoint() {
-    if (!canEdit) return;
-    const text = newCpText.trim();
-    if (!text || checkpoints.length >= 100) return;
-    const newItem: CheckpointItem = {
-      id: nextCheckpointId(checkpoints),
-      text,
-      completed: false,
-    };
-    const updated = [...checkpoints, newItem];
-    setNewCpText("");
-    setUpdating(true);
-    try {
-      await updateMetadata({ checkpoints: updated });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Podzadatak nije dodat.");
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  async function removeCheckpoint(cpId: string) {
-    if (!canEdit) return;
-    const updated = checkpoints.filter((cp) => cp.id !== cpId);
-    setUpdating(true);
-    try {
-      await updateMetadata({ checkpoints: updated });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Podzadatak nije izbrisan.");
-    } finally {
-      setUpdating(false);
     }
   }
 
@@ -653,72 +589,15 @@ function TaskTableRow({
             <div className="grid gap-6 md:grid-cols-2">
               {!canEdit ? (
                 <p className="text-xs text-muted-foreground md:col-span-2">
-                  Task podatke i checkpoint-e menja samo autor. Detalje možeš da pregledaš.
+                  Autor uređuje checkpoint, dodeljena osoba može da menja
+                  završeno stanje, a svaki član može da doda doprinos.
                 </p>
               ) : null}
-              {/* Checkpoints List */}
-              <div className="space-y-3">
-                <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  <ListChecks className="size-4 text-primary" /> Podzadaci / Checkpointi ({completedCount}/{totalCount})
-                </h4>
-
-                <div className="flex gap-2">
-                  <Input
-                    value={newCpText}
-                    onChange={(e) => setNewCpText(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
-                    disabled={!canEdit || updating}
-                    maxLength={500}
-                    aria-label={`Novi checkpoint za zadatak ${task.title}`}
-                    placeholder="Novi podzadatak..."
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={addCheckpoint}
-                    disabled={!canEdit || updating || checkpoints.length >= 100}
-                    className="h-8 text-xs"
-                  >
-                    <Plus className="size-3.5" /> Dodaj
-                  </Button>
-                </div>
-
-                {checkpoints.length === 0 ? (
-                  <p className="text-xs italic text-muted-foreground">Nema podzadataka. Dodajte prvi podzadatak iznad.</p>
-                ) : (
-                  <div className="space-y-1.5 rounded-xl border border-border/50 bg-card p-2">
-                    {checkpoints.map((cp) => (
-                      <div key={cp.id} className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent/40 transition-colors">
-                        <label className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1">
-                          <input
-                            type="checkbox"
-                            checked={cp.completed}
-                            onChange={() => toggleCheckpoint(cp.id)}
-                            disabled={!canEdit || updating}
-                            className="size-4 rounded border-primary text-primary accent-primary"
-                          />
-                          <span className={cp.completed ? "line-through text-muted-foreground truncate" : "font-medium truncate text-foreground"}>
-                            {cp.text}
-                          </span>
-                        </label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeCheckpoint(cp.id)}
-                          disabled={!canEdit || updating}
-                          aria-label={`Ukloni checkpoint: ${cp.text}`}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <TaskCheckpointList
+                taskPageId={task._id}
+                canCreate={canEdit}
+                compact
+              />
 
               {/* Instructions Detail */}
               <div className="space-y-3">

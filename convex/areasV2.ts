@@ -29,6 +29,7 @@ import {
   pageSearchText,
   pageTaskSortAt,
 } from "./lib/pages";
+import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
   checkpointItemValidator,
   cleanOptionalText,
@@ -87,6 +88,8 @@ const canvasPageValidator = v.object({
   taskStatus: v.union(taskStatusValidator, v.null()),
   taskPriority: v.union(taskPriorityValidator, v.null()),
   dueDate: v.union(v.number(), v.null()),
+  checkpointTotal: v.number(),
+  checkpointCompleted: v.number(),
   assignee: profileSummaryValidator,
   updatedAt: v.number(),
   x: v.number(),
@@ -1512,6 +1515,17 @@ export const getCanvas = query({
           taskStatus: page.taskStatus,
           taskPriority: page.taskPriority,
           dueDate: page.kind === "task" ? (page.dueDate ?? null) : null,
+          checkpointTotal:
+            page.kind === "task"
+              ? (page.checkpointTotal ?? page.checkpoints?.length ?? 0)
+              : 0,
+          checkpointCompleted:
+            page.kind === "task"
+              ? (page.checkpointCompleted ??
+                page.checkpoints?.filter((checkpoint) => checkpoint.completed)
+                  .length ??
+                0)
+              : 0,
           assignee,
           updatedAt: page.updatedAt,
           x: placement?.x ?? (column - (columnCount - 1) / 2) * 310,
@@ -1923,7 +1937,7 @@ export const updatePage = mutation({
         : page.instructions;
     const checkpoints =
       page.kind === "task" && args.checkpoints !== undefined
-        ? normalizeTaskCheckpoints(args.checkpoints)
+        ? (normalizeTaskCheckpoints(args.checkpoints) ?? [])
         : page.checkpoints;
     const bodyContributions = await getPageBodyContributions(
       ctx,
@@ -1978,6 +1992,14 @@ export const updatePage = mutation({
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
+    if (page.kind === "task" && args.checkpoints !== undefined) {
+      await reconcileLegacyTaskCheckpoints(ctx, {
+        page,
+        checkpoints,
+        actorProfileId: profile._id,
+        now,
+      });
+    }
     if (body === null) {
       await ctx.db.insert("pageBodies", {
         pageId: page._id,

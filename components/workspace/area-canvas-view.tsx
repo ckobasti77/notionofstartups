@@ -30,6 +30,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
+  Blocks,
   CheckSquare2,
   FileText,
   LayoutGrid,
@@ -42,19 +43,36 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
 import {
   AreaFlowNodeCard,
   AreaNodeActionsProvider,
+  type AreaCanvasNodeData,
   type AreaFlowNode,
 } from "@/components/workspace/canvases/area-flow-node";
+import {
+  taskCheckpointNodeId,
+  taskCheckpointNodeMetrics,
+  taskCheckpointOrbitPosition,
+} from "@/components/workspace/canvases/task-checkpoint-layout";
+import {
+  TaskCheckpointFlowNodeCard,
+  type TaskCheckpointFlowNodeData,
+  type TaskCheckpointFlowNode,
+} from "@/components/workspace/canvases/task-checkpoint-flow-node";
 import styles from "@/components/workspace/canvases/connected-canvas.module.css";
 import { selectNestingDropTarget } from "@/components/workspace/canvases/nesting-drop";
 import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
 import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
 import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
+import {
+  AREA_ICONS,
+  getAreaTint,
+} from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
+import type { AreaKey } from "@/lib/workspace";
 
 type AreaCanvasFilter = "all" | "note" | "task";
 
@@ -63,7 +81,9 @@ export type AreaCanvasViewProps = {
   areaId: Id<"startupAreas">;
   rootPageId: Id<"pages"> | null;
   canvasLabel: string;
+  areaKey: string;
   filter: AreaCanvasFilter;
+  onFilterChange: (filter: AreaCanvasFilter) => void;
   onOpenCanvas: (pageId: Id<"pages">) => void;
   onOpenDetails: (pageId: Id<"pages">) => void;
   onCreatePage: (kind: "task" | "note") => void;
@@ -87,10 +107,21 @@ type DeletedEdgeRecord = {
   currentId: Id<"pageCanvasEdgesV2"> | Id<"pageRelations">;
 };
 
-const NODE_TYPES = { areaPage: AreaFlowNodeCard };
+type CanvasFlowNode = AreaFlowNode | TaskCheckpointFlowNode;
+
+const NODE_TYPES = {
+  areaPage: AreaFlowNodeCard,
+  taskCheckpoint: TaskCheckpointFlowNodeCard,
+};
 const EDGE_TYPES = { default: ThoughtEdge };
 const GHOST_WIDTH = 288;
 const GHOST_HEIGHT = 196;
+
+function isTaskCheckpointNode(
+  node: CanvasFlowNode,
+): node is TaskCheckpointFlowNode {
+  return node.type === "taskCheckpoint";
+}
 
 function edgeUiId(
   kind: "canvas" | "relation",
@@ -154,7 +185,9 @@ function AreaCanvasBody({
   areaId,
   rootPageId,
   canvasLabel,
+  areaKey,
   filter,
+  onFilterChange,
   onOpenCanvas,
   onOpenDetails,
   onCreatePage,
@@ -183,7 +216,9 @@ function AreaCanvasBody({
       areaId={areaId}
       rootPageId={rootPageId}
       canvasLabel={canvasLabel}
+      areaKey={areaKey}
       filter={filter}
+      onFilterChange={onFilterChange}
       canvasData={canvasData}
       onOpenCanvas={onOpenCanvas}
       onOpenDetails={onOpenDetails}
@@ -203,21 +238,26 @@ function AreaCanvasReady({
   areaId,
   rootPageId,
   canvasLabel,
+  areaKey,
   filter,
+  onFilterChange,
   canvasData,
   onOpenCanvas,
   onOpenDetails,
   onCreatePage,
 }: AreaCanvasReadyProps) {
   const flowRef =
-    useRef<ReactFlowInstance<AreaFlowNode, AreaFlowEdge> | null>(null);
+    useRef<ReactFlowInstance<CanvasFlowNode, AreaFlowEdge> | null>(null);
   const preDragPositionsRef = useRef(
     new Map<string, { x: number; y: number }>(),
   );
   const pointerDragActiveRef = useRef(false);
   const nestingTargetIdRef = useRef<string | null>(null);
   const viewportInitialized = useRef(false);
+  const checkpointFitKeyRef = useRef("");
   const [pendingTimestamp] = useState(() => Date.now());
+  const [expandedTaskId, setExpandedTaskId] =
+    useState<Id<"pages"> | null>(null);
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
   const resetPageSize = useMutation(api.areasV2.resetPageSize);
@@ -228,9 +268,27 @@ function AreaCanvasReady({
   const createRelation = useMutation(api.areasV2.createRelation);
   const deleteRelation = useMutation(api.areasV2.deleteRelation);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
+  const saveCheckpointPlacement = useMutation(
+    api.taskCheckpoints.saveCanvasPlacement,
+  );
   const { historyState, pushHistory, runHistory } = useWorkspaceHistory();
 
-  const incomingNodes = useMemo<AreaFlowNode[]>(() => {
+  const ownTaskPageId =
+    canvasData.scope.pageKind === "task" && rootPageId !== null
+      ? rootPageId
+      : null;
+  const visibleCheckpointTaskId = ownTaskPageId ?? expandedTaskId;
+  const taskCheckpoints = useQuery(
+    api.taskCheckpoints.listForTask,
+    visibleCheckpointTaskId === null
+      ? "skip"
+      : {
+          taskPageId: visibleCheckpointTaskId,
+          canvasRootPageId: rootPageId,
+        },
+  );
+
+  const incomingNodes = useMemo<CanvasFlowNode[]>(() => {
     const acceptsKind = (kind: "note" | "task") =>
       filter === "all" || filter === kind;
     const directPageIds = new Set(canvasData.pages.map((page) => page._id));
@@ -256,6 +314,12 @@ function AreaCanvasReady({
           creatorName: page.creator?.displayName ?? "Član tima",
           creatorAvatarUrl: page.creator?.avatarUrl ?? null,
           updatedAt: page.updatedAt,
+          checkpointTotal: page.checkpointTotal,
+          checkpointCompleted: page.checkpointCompleted,
+          checkpointsExpanded:
+            ownTaskPageId === null &&
+            expandedTaskId === page._id &&
+            page.checkpointTotal > 0,
           canMove: page.canMove,
           canResize: page.canResize,
           canDetach: page.canDetach,
@@ -292,6 +356,9 @@ function AreaCanvasReady({
           creatorName: ghost.requester?.displayName ?? "Član tima",
           creatorAvatarUrl: ghost.requester?.avatarUrl ?? null,
           updatedAt: pendingTimestamp,
+          checkpointTotal: 0,
+          checkpointCompleted: 0,
+          checkpointsExpanded: false,
           canMove: false,
           canResize: false,
           canDetach: false,
@@ -304,8 +371,77 @@ function AreaCanvasReady({
         ariaLabel: `${ghost.kind === "task" ? "Zadatak" : "Beleška"}: ${ghost.title}. Čeka odobrenje za ugnežđavanje.`,
       }));
 
-    return [...pageNodes, ...ghostNodes];
-  }, [canvasData.ghosts, canvasData.pages, filter, pendingTimestamp]);
+    const visibleTaskNode = pageNodes.find(
+      (node) => node.id === visibleCheckpointTaskId,
+    );
+    const checkpointNodes: TaskCheckpointFlowNode[] =
+      visibleCheckpointTaskId === null ||
+      taskCheckpoints === undefined ||
+      (ownTaskPageId === null && visibleTaskNode === undefined)
+        ? []
+        : taskCheckpoints.map((checkpoint, index) => {
+            const metrics = taskCheckpointNodeMetrics(checkpoint.text);
+            const taskNode = visibleTaskNode;
+            const center =
+              ownTaskPageId !== null || taskNode === undefined
+                ? { x: 0, y: 0 }
+                : {
+                    x:
+                      taskNode.position.x +
+                      (taskNode.width ?? GHOST_WIDTH) / 2,
+                    y:
+                      taskNode.position.y +
+                      (taskNode.height ?? GHOST_HEIGHT) / 2,
+                  };
+            const defaultPosition = taskCheckpointOrbitPosition({
+              index,
+              center,
+              node: metrics,
+              exclusion:
+                taskNode === undefined
+                  ? { width: 176, height: 136 }
+                  : {
+                      width: taskNode.width ?? GHOST_WIDTH,
+                      height: taskNode.height ?? GHOST_HEIGHT,
+                    },
+            });
+            return {
+              id: taskCheckpointNodeId(checkpoint._id),
+              type: "taskCheckpoint",
+              position: checkpoint.placement ?? defaultPosition,
+              width: metrics.width,
+              height: metrics.height,
+              style: metrics,
+              data: {
+                checkpointId: checkpoint._id,
+                text: checkpoint.text,
+                completed: checkpoint.completed,
+                canEdit: checkpoint.canEdit,
+                canToggle: checkpoint.canToggle,
+                canMove: checkpoint.canMove,
+                canDeleteDirectly: checkpoint.canDeleteDirectly,
+                canRequestDeletion: checkpoint.canRequestDeletion,
+              },
+              draggable: checkpoint.canMove,
+              connectable: false,
+              deletable: false,
+              ariaLabel: `Checkpoint: ${checkpoint.text}. ${
+                checkpoint.completed ? "Završen" : "Otvoren"
+              }.`,
+            };
+          });
+
+    return [...pageNodes, ...ghostNodes, ...checkpointNodes];
+  }, [
+    canvasData.ghosts,
+    canvasData.pages,
+    expandedTaskId,
+    filter,
+    ownTaskPageId,
+    pendingTimestamp,
+    taskCheckpoints,
+    visibleCheckpointTaskId,
+  ]);
 
   const incomingEdges = useMemo<AreaFlowEdge[]>(() => {
     const visiblePageIds = new Set(incomingNodes.map((node) => node.id));
@@ -355,11 +491,57 @@ function AreaCanvasReady({
     nodesRef.current = nodes;
   }, [nodes]);
 
+  useEffect(() => {
+    if (
+      visibleCheckpointTaskId === null ||
+      taskCheckpoints === undefined ||
+      taskCheckpoints.length === 0
+    ) {
+      checkpointFitKeyRef.current = "";
+      return;
+    }
+    const fitKey = `${rootPageId ?? "root"}:${visibleCheckpointTaskId}:${taskCheckpoints.length}`;
+    if (checkpointFitKeyRef.current === fitKey) return;
+    checkpointFitKeyRef.current = fitKey;
+    const timeout = window.setTimeout(() => {
+      const instance = flowRef.current;
+      if (!instance) return;
+      const checkpointIds = new Set(
+        taskCheckpoints.map(
+          (checkpoint) => taskCheckpointNodeId(checkpoint._id),
+        ),
+      );
+      const visibleNodes = instance
+        .getNodes()
+        .filter(
+          (node) =>
+            checkpointIds.has(node.id) ||
+            node.id === visibleCheckpointTaskId,
+        );
+      if (visibleNodes.length === 0) return;
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      void instance.fitView({
+        nodes: visibleNodes,
+        padding: 0.22,
+        maxZoom: 1.15,
+        duration: reduceMotion ? 0 : 260,
+      });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [
+    rootPageId,
+    taskCheckpoints,
+    visibleCheckpointTaskId,
+  ]);
+
   const updateNestingTarget = useCallback((targetId: string | null) => {
     if (nestingTargetIdRef.current === targetId) return;
     nestingTargetIdRef.current = targetId;
     setNodes((current) =>
       current.map((node) => {
+        if (isTaskCheckpointNode(node)) return node;
         const nestingTarget = node.id === targetId;
         return node.data.nestingTarget === nestingTarget
           ? node
@@ -372,9 +554,13 @@ function AreaCanvasReady({
   }, []);
 
   const detectNestingTarget = useCallback(
-    (dragged: AreaFlowNode, draggedNodes: AreaFlowNode[]) => {
+    (dragged: CanvasFlowNode, draggedNodes: CanvasFlowNode[]) => {
+      if (isTaskCheckpointNode(dragged)) return null;
       const movableNodes = draggedNodes.filter(
-        (node) => node.data.canMove && !node.data.pendingNesting,
+        (node): node is AreaFlowNode =>
+          !isTaskCheckpointNode(node) &&
+          node.data.canMove &&
+          !node.data.pendingNesting,
       );
       if (movableNodes.length !== 1 || movableNodes[0].id !== dragged.id) {
         return null;
@@ -384,7 +570,11 @@ function AreaCanvasReady({
       const excludedIds = new Set(draggedNodes.map((node) => node.id));
       return selectNestingDropTarget(
         dragged,
-        intersections.filter((node) => !node.data.pendingNesting),
+        intersections.filter(
+          (node): node is AreaFlowNode =>
+            !isTaskCheckpointNode(node) &&
+            !node.data.pendingNesting,
+        ),
         excludedIds,
       );
     },
@@ -397,14 +587,22 @@ function AreaCanvasReady({
       const selected = new Set(
         current.filter((node) => node.selected).map((node) => node.id),
       );
-      return incomingNodes.map((node) => ({
-        ...node,
-        selected: selected.has(node.id),
-        data: {
-          ...node.data,
-          nestingTarget: nestingTargetIdRef.current === node.id,
-        },
-      }));
+      return incomingNodes.map((node): CanvasFlowNode => {
+        if (isTaskCheckpointNode(node)) {
+          return {
+            ...node,
+            selected: selected.has(node.id),
+          };
+        }
+        return {
+          ...node,
+          selected: selected.has(node.id),
+          data: {
+            ...node.data,
+            nestingTarget: nestingTargetIdRef.current === node.id,
+          },
+        };
+      });
     });
   }, [incomingNodes]);
 
@@ -434,7 +632,7 @@ function AreaCanvasReady({
   }, [nodes]);
 
   const onInit = useCallback(
-    (instance: ReactFlowInstance<AreaFlowNode, AreaFlowEdge>) => {
+    (instance: ReactFlowInstance<CanvasFlowNode, AreaFlowEdge>) => {
       flowRef.current = instance;
       if (viewportInitialized.current) return;
       viewportInitialized.current = true;
@@ -462,7 +660,7 @@ function AreaCanvasReady({
   );
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange<AreaFlowNode>[]) => {
+    (changes: NodeChange<CanvasFlowNode>[]) => {
       const current = nodesRef.current;
       const next = applyNodeChanges(changes, current);
       nodesRef.current = next;
@@ -471,6 +669,46 @@ function AreaCanvasReady({
       if (pointerDragActiveRef.current) return;
       const currentById = new Map(current.map((node) => [node.id, node]));
       const nextById = new Map(next.map((node) => [node.id, node]));
+      const checkpointKeyboardMoves = changes.flatMap((change) => {
+        if (change.type !== "position" || change.position === undefined) {
+          return [];
+        }
+        const previous = currentById.get(change.id);
+        const updated = nextById.get(change.id);
+        if (
+          !previous ||
+          !updated ||
+          !isTaskCheckpointNode(previous) ||
+          !isTaskCheckpointNode(updated) ||
+          !previous.data.canMove
+        ) {
+          return [];
+        }
+        return previous.position.x === updated.position.x &&
+          previous.position.y === updated.position.y
+          ? []
+          : [
+              {
+                checkpointId: updated.data.checkpointId,
+                x: Math.round(updated.position.x),
+                y: Math.round(updated.position.y),
+              },
+            ];
+      });
+      for (const move of checkpointKeyboardMoves) {
+        void saveCheckpointPlacement({
+          checkpointId: move.checkpointId,
+          canvasRootPageId: rootPageId,
+          x: move.x,
+          y: move.y,
+        }).catch((error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Pozicija checkpointa nije sačuvana.",
+          ),
+        );
+      }
       const keyboardMoves = changes.flatMap((change) => {
         if (change.type !== "position" || change.position === undefined) {
           return [];
@@ -480,6 +718,8 @@ function AreaCanvasReady({
         if (
           !previous ||
           !updated ||
+          isTaskCheckpointNode(previous) ||
+          isTaskCheckpointNode(updated) ||
           !previous.data.canMove ||
           previous.data.pendingNesting
         ) {
@@ -567,7 +807,14 @@ function AreaCanvasReady({
           );
         });
     },
-    [areaId, movePages, pushHistory, rootPageId, startupId],
+    [
+      areaId,
+      movePages,
+      pushHistory,
+      rootPageId,
+      saveCheckpointPlacement,
+      startupId,
+    ],
   );
 
   const handleEdgesChange = useCallback(
@@ -612,6 +859,8 @@ function AreaCanvasReady({
       if (
         !sourceNode ||
         !targetNode ||
+        isTaskCheckpointNode(sourceNode) ||
+        isTaskCheckpointNode(targetNode) ||
         sourceNode.data.pendingNesting ||
         targetNode.data.pendingNesting
       ) {
@@ -1006,8 +1255,11 @@ function AreaCanvasReady({
   const isTaskFilter = filter === "task";
   const isNoteFilter = filter === "note";
   const pendingCount = nodes.filter(
-    (node) => node.data.pendingNesting,
+    (node) =>
+      !isTaskCheckpointNode(node) && node.data.pendingNesting,
   ).length;
+  const CanvasIdentityIcon =
+    AREA_ICONS[areaKey as AreaKey] || Blocks;
 
   return (
     <AreaNodeActionsProvider
@@ -1019,6 +1271,15 @@ function AreaCanvasReady({
       }))}
       openCanvas={onOpenCanvas}
       openDetails={onOpenDetails}
+      toggleCheckpoints={(pageId) => {
+        const page = canvasData.pages.find(
+          (candidate) => candidate._id === pageId,
+        );
+        if (page?.kind !== "task" || page.checkpointTotal === 0) return;
+        setExpandedTaskId((current) =>
+          current === pageId ? null : pageId,
+        );
+      }}
       resize={(pageId, layout) => {
         const previous = canvasData.pages.find(
           (page) => page._id === pageId,
@@ -1153,7 +1414,7 @@ function AreaCanvasReady({
           }
         }}
       >
-        <ReactFlow<AreaFlowNode, AreaFlowEdge>
+        <ReactFlow<CanvasFlowNode, AreaFlowEdge>
           nodes={nodes}
           edges={edges}
           nodeTypes={NODE_TYPES}
@@ -1170,7 +1431,8 @@ function AreaCanvasReady({
                 .filter(
                   (dragged) =>
                     dragged.data.canMove &&
-                    !dragged.data.pendingNesting,
+                    (isTaskCheckpointNode(dragged) ||
+                      !dragged.data.pendingNesting),
                 )
                 .map((dragged) => [
                   dragged.id,
@@ -1197,9 +1459,35 @@ function AreaCanvasReady({
               draggedNodes,
             );
             updateNestingTarget(null);
+            if (isTaskCheckpointNode(draggedNode)) {
+              const movedCheckpoints = draggedNodes.filter(
+                (node): node is TaskCheckpointFlowNode =>
+                  isTaskCheckpointNode(node) && node.data.canMove,
+              );
+              preDragPositionsRef.current.clear();
+              void Promise.all(
+                movedCheckpoints.map((node) =>
+                  saveCheckpointPlacement({
+                    checkpointId: node.data.checkpointId,
+                    canvasRootPageId: rootPageId,
+                    x: Math.round(node.position.x),
+                    y: Math.round(node.position.y),
+                  }),
+                ),
+              ).catch((error) => {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Pozicija checkpointa nije sačuvana.",
+                );
+              });
+              return;
+            }
             const movableNodes = draggedNodes.filter(
-              (dragged) =>
-                dragged.data.canMove && !dragged.data.pendingNesting,
+              (dragged): dragged is AreaFlowNode =>
+                !isTaskCheckpointNode(dragged) &&
+                dragged.data.canMove &&
+                !dragged.data.pendingNesting,
             );
             const before = movableNodes.flatMap((dragged) => {
               const position = preDragPositionsRef.current.get(dragged.id);
@@ -1366,73 +1654,26 @@ function AreaCanvasReady({
             pannable
             zoomable
             nodeColor={(node) =>
-              node.data.pendingNesting
-                ? "#f59e0b"
-                : node.data.kind === "task"
+              node.type === "taskCheckpoint"
+                ? (node.data as TaskCheckpointFlowNodeData).completed
                   ? "#10b981"
-                  : "#38bdf8"
+                  : "#f97316"
+                : (node.data as AreaCanvasNodeData).pendingNesting
+                  ? "#f59e0b"
+                  : (node.data as AreaCanvasNodeData).kind === "task"
+                    ? "#10b981"
+                    : "#38bdf8"
             }
             maskColor="color-mix(in oklab, var(--background) 58%, transparent)"
           />
 
           <Panel position="top-left" className="m-3 sm:m-5">
-            <div className="flex max-w-[calc(100vw-5rem)] flex-wrap items-center gap-2">
-              <div className="flex min-h-10 items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 shadow-md backdrop-blur-xl">
-                {filter === "all" ? (
-                  <LayoutGrid className="size-4 text-violet-600 dark:text-violet-300" />
-                ) : isTaskFilter ? (
-                  <CheckSquare2 className="size-4 text-emerald-600 dark:text-emerald-300" />
-                ) : (
-                  <FileText className="size-4 text-sky-600 dark:text-sky-300" />
-                )}
-                <span className="max-w-36 truncate text-xs font-bold sm:max-w-56">
-                  {canvasLabel}
-                </span>
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-[0.6875rem] font-bold",
-                    filter === "all"
-                      ? "bg-violet-500/12 text-violet-700 dark:text-violet-300"
-                      : isTaskFilter
-                        ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-                        : "bg-sky-500/12 text-sky-700 dark:text-sky-300",
-                  )}
-                >
-                  {nodes.length}
-                </span>
-                {pendingCount > 0 ? (
-                  <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[0.6875rem] font-bold text-amber-800 dark:text-amber-200">
-                    {pendingCount} čeka
-                  </span>
-                ) : null}
-              </div>
-
-              {filter !== "note" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-10 rounded-2xl px-3.5 shadow-md"
-                  onClick={() => onCreatePage("task")}
-                >
-                  <Plus className="size-4" /> Novi zadatak
-                </Button>
-              ) : null}
-              {filter !== "task" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={filter === "all" ? "outline" : "default"}
-                  className="h-10 rounded-2xl px-3.5 shadow-md"
-                  onClick={() => onCreatePage("note")}
-                >
-                  <Plus className="size-4" /> Nova beleška
-                </Button>
-              ) : null}
+            <div className="flex items-center gap-1 rounded-2xl border border-border/80 bg-card/92 p-1 shadow-md backdrop-blur-xl">
               <Button
                 type="button"
                 size="icon"
-                variant="outline"
-                className="size-10 rounded-2xl shadow-md"
+                variant="ghost"
+                className="size-10 rounded-xl"
                 aria-label="Poništi poslednju promenu"
                 disabled={
                   historyState.undoCount === 0 || historyState.busy
@@ -1444,8 +1685,8 @@ function AreaCanvasReady({
               <Button
                 type="button"
                 size="icon"
-                variant="outline"
-                className="size-10 rounded-2xl shadow-md"
+                variant="ghost"
+                className="size-10 rounded-xl"
                 aria-label="Ponovi promenu"
                 disabled={
                   historyState.redoCount === 0 || historyState.busy
@@ -1454,12 +1695,97 @@ function AreaCanvasReady({
               >
                 <Redo2 className="size-4" />
               </Button>
+              <span className="sr-only" aria-live="polite">
+                Dostupno je {historyState.undoCount} poništavanja i{" "}
+                {historyState.redoCount} ponavljanja.
+              </span>
             </div>
           </Panel>
 
           <Panel
             position="top-right"
-            className="m-3 hidden sm:block sm:m-5"
+            className="m-3 sm:m-5"
+          >
+            <CanvasActionRail
+              ariaLabel={`Akcije kanvasa ${canvasLabel}`}
+              identity={{
+                label: `${canvasLabel} kanvas`,
+                icon: CanvasIdentityIcon,
+                count: nodes.length,
+                pendingCount,
+                className: getAreaTint(areaKey),
+              }}
+              sections={[
+                {
+                  id: "Kreiranje",
+                  items: [
+                    ...(filter !== "note"
+                      ? [
+                          {
+                            id: "new-task",
+                            label: "Novi zadatak",
+                            icon: CheckSquare2,
+                            onSelect: () => onCreatePage("task"),
+                            className:
+                              "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+                          },
+                        ]
+                      : []),
+                    ...(filter !== "task"
+                      ? [
+                          {
+                            id: "new-note",
+                            label: "Nova beleška",
+                            icon: FileText,
+                            onSelect: () => onCreatePage("note"),
+                            className:
+                              "text-sky-700 dark:text-sky-300",
+                          },
+                        ]
+                      : []),
+                  ],
+                },
+                {
+                  id: "Filter kanvasa",
+                  items: [
+                    {
+                      id: "filter-all",
+                      label: "Sve",
+                      icon: LayoutGrid,
+                      active: filter === "all",
+                      onSelect: () => onFilterChange("all"),
+                    },
+                    {
+                      id: "filter-notes",
+                      label: "Beleške",
+                      icon: FileText,
+                      active: filter === "note",
+                      onSelect: () => onFilterChange("note"),
+                      className:
+                        filter === "note"
+                          ? "text-sky-700 ring-sky-500/30 dark:text-sky-300"
+                          : undefined,
+                    },
+                    {
+                      id: "filter-tasks",
+                      label: "Zadaci",
+                      icon: CheckSquare2,
+                      active: filter === "task",
+                      onSelect: () => onFilterChange("task"),
+                      className:
+                        filter === "task"
+                          ? "text-emerald-700 ring-emerald-500/30 dark:text-emerald-300"
+                          : undefined,
+                    },
+                  ],
+                },
+              ]}
+            />
+          </Panel>
+
+          <Panel
+            position="bottom-center"
+            className="!mb-4 hidden md:block"
           >
             <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
               <Link2 className="size-3.5" />

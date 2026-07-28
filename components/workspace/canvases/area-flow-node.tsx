@@ -24,6 +24,9 @@ import {
   FileText,
   FolderInput,
   Info,
+  ListChecks,
+  Maximize2,
+  Minimize2,
   RotateCcw,
   UserRound,
 } from "lucide-react";
@@ -58,6 +61,9 @@ export type AreaCanvasNodeData = {
   creatorName: string;
   creatorAvatarUrl: string | null;
   updatedAt: number;
+  checkpointTotal: number;
+  checkpointCompleted: number;
+  checkpointsExpanded: boolean;
   canMove: boolean;
   canResize: boolean;
   canDetach: boolean;
@@ -72,6 +78,7 @@ const AreaNodeActionsContext = createContext<{
   nestingCandidates: NestingTargetOption[];
   openCanvas: (pageId: Id<"pages">) => void;
   openDetails: (pageId: Id<"pages">) => void;
+  toggleCheckpoints: (pageId: Id<"pages">) => void;
   resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
   resetSize: (pageId: Id<"pages">) => void;
 } | null>(null);
@@ -85,6 +92,7 @@ export function AreaNodeActionsProvider({
   nestingCandidates,
   openCanvas,
   openDetails,
+  toggleCheckpoints,
   resize,
   resetSize,
   children,
@@ -93,6 +101,7 @@ export function AreaNodeActionsProvider({
   nestingCandidates: NestingTargetOption[];
   openCanvas: (pageId: Id<"pages">) => void;
   openDetails: (pageId: Id<"pages">) => void;
+  toggleCheckpoints: (pageId: Id<"pages">) => void;
   resize: (pageId: Id<"pages">, layout: ResizeParams) => void;
   resetSize: (pageId: Id<"pages">) => void;
   children: ReactNode;
@@ -104,6 +113,7 @@ export function AreaNodeActionsProvider({
         nestingCandidates,
         openCanvas,
         openDetails,
+        toggleCheckpoints,
         resize,
         resetSize,
       }}
@@ -123,6 +133,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
   const isTask = data.kind === "task";
   const title = data.title || "Bez naslova";
   const canResize = data.canResize && !data.pendingNesting;
+  const hasCheckpoints = isTask && data.checkpointTotal > 0;
   const dueDateLabel =
     data.dueDate === null
       ? "Bez roka"
@@ -167,6 +178,29 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         )}
         aria-hidden="true"
       />
+      {hasCheckpoints ? (
+        <div
+          className={cn(
+            orbital.checkpointPeeks,
+            data.checkpointsExpanded && orbital.checkpointPeeksExpanded,
+          )}
+          aria-hidden="true"
+        >
+          {Array.from({
+            length: Math.min(3, data.checkpointTotal),
+          }).map((_, index) => (
+            <span
+              key={index}
+              className={cn(
+                orbital.checkpointPeek,
+                index < data.checkpointCompleted
+                  ? orbital.checkpointPeekDone
+                  : orbital.checkpointPeekOpen,
+              )}
+            />
+          ))}
+        </div>
+      ) : null}
       {data.nestingTarget ? (
         <div
           className={orbital.nestingPrompt}
@@ -308,6 +342,44 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
           {isTask ? "Zadatak" : "Beleška"}
         </span>
       </div>
+
+      {hasCheckpoints ? (
+        <button
+          type="button"
+          data-circular-text-obstacle
+          className={cn(
+            orbital.orbit,
+            orbital.checkpointOrbit,
+            "nodrag nopan nowheel",
+          )}
+          aria-expanded={data.checkpointsExpanded}
+          aria-label={
+            data.checkpointsExpanded
+              ? `Umanji prikaz ${data.checkpointTotal} checkpointa za ${title}`
+              : `Prikaži svih ${data.checkpointTotal} checkpointa za ${title}`
+          }
+          title={
+            data.checkpointsExpanded
+              ? "Umanji checkpoint grupu"
+              : "Raširi checkpoint grupu"
+          }
+          onPointerDown={stopToolbarEventPropagation}
+          onClick={(event) => {
+            stopToolbarEventPropagation(event);
+            actions?.toggleCheckpoints(pageId);
+          }}
+        >
+          <ListChecks className="size-3.5" aria-hidden="true" />
+          <span className="tabular-nums">
+            {data.checkpointCompleted}/{data.checkpointTotal}
+          </span>
+          {data.checkpointsExpanded ? (
+            <Minimize2 className="size-3.5" aria-hidden="true" />
+          ) : (
+            <Maximize2 className="size-3.5" aria-hidden="true" />
+          )}
+        </button>
+      ) : null}
 
       <div
         data-circular-text-obstacle

@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
 import { PageRelationsPanel } from "@/components/workspace/page-relations";
+import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
 import {
   activatePageRevision,
   createTaskInstructionsDraft,
@@ -868,13 +869,6 @@ function TaskDetailWidgets({
     instructionsDraft.pageId === page._id
       ? taskInstructionsSaveState(instructionsDraft)
       : "saved";
-  const [newCpText, setNewCpText] = useState("");
-  const checkpoints: Array<{ id: string; text: string; completed: boolean }> =
-    (page.checkpoints as Array<{ id: string; text: string; completed: boolean }>) ?? [];
-
-  const completedCount = checkpoints.filter((c) => c.completed).length;
-  const totalCount = checkpoints.length;
-
   useEffect(() => {
     const next = reconcileTaskInstructionsDraft(
       instructionsDraftRef.current,
@@ -937,51 +931,12 @@ function TaskDetailWidgets({
     }
   }
 
-  async function toggleCheckpoint(cpId: string) {
-    if (!canEdit) return;
-    const updated = checkpoints.map((cp) =>
-      cp.id === cpId ? { ...cp, completed: !cp.completed } : cp,
-    );
-    try {
-      await updateMetadata({ checkpoints: updated });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greska pri ažuriranju podzadataka.");
-    }
-  }
-
-  async function addCheckpoint() {
-    if (!canEdit) return;
-    const text = newCpText.trim();
-    if (!text || checkpoints.length >= 100) return;
-    const newItem = {
-      id: `cp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      text,
-      completed: false,
-    };
-    setNewCpText("");
-    try {
-      await updateMetadata({ checkpoints: [...checkpoints, newItem] });
-      toast.success("Podzadatak je dodat.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greska pri dodavanju podzadatka.");
-    }
-  }
-
-  async function removeCheckpoint(cpId: string) {
-    if (!canEdit) return;
-    const updated = checkpoints.filter((cp) => cp.id !== cpId);
-    try {
-      await updateMetadata({ checkpoints: updated });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Greska pri brisanju podzadatka.");
-    }
-  }
-
   return (
     <div className="grid gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
       {!canEdit ? (
         <p className="text-xs text-muted-foreground md:col-span-2">
-          Task podatke i checkpoint-e menja samo autor. Detalje možeš da pregledaš.
+          Autor uređuje checkpoint, dodeljena osoba može da menja završeno
+          stanje, a svaki član može da doda doprinos.
         </p>
       ) : null}
       {/* Instructions are the task's main content, so they lead the reading order. */}
@@ -1032,90 +987,7 @@ function TaskDetailWidgets({
         </div>
       </div>
 
-      {/* Checkpoints Section */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Podzadaci / Checkpointi
-          </h3>
-          {totalCount > 0 ? (
-            <span className="text-xs font-semibold text-primary">
-              {completedCount} / {totalCount} završeno ({Math.round((completedCount / totalCount) * 100)}%)
-            </span>
-          ) : null}
-        </div>
-
-        {totalCount > 0 ? (
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full bg-primary transition-all duration-300"
-              style={{ width: `${Math.round((completedCount / totalCount) * 100)}%` }}
-              role="progressbar"
-              aria-label="Napredak checkpointa"
-              aria-valuemin={0}
-              aria-valuemax={totalCount}
-              aria-valuenow={completedCount}
-            />
-          </div>
-        ) : null}
-
-        <div className="flex gap-2">
-          <Input
-            value={newCpText}
-            onChange={(e) => setNewCpText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
-            disabled={!canEdit}
-            maxLength={500}
-            aria-label="Novi checkpoint"
-            placeholder="Dodaj novi podzadatak..."
-            className="h-9 text-xs"
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={addCheckpoint}
-            disabled={!canEdit || checkpoints.length >= 100}
-            className="h-9 text-xs"
-          >
-            <Plus className="size-3.5" /> Dodaj
-          </Button>
-        </div>
-
-        {checkpoints.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground">Još nema podzadataka.</p>
-        ) : (
-          <div className="space-y-1.5 rounded-xl border border-border/60 bg-muted/20 p-2">
-            {checkpoints.map((cp) => (
-              <div key={cp.id} className="flex items-center justify-between gap-2 rounded-lg bg-card px-3 py-2 text-xs border border-border/40">
-                <label className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1">
-                  <input
-                    type="checkbox"
-                    checked={cp.completed}
-                    onChange={() => toggleCheckpoint(cp.id)}
-                    disabled={!canEdit}
-                    className="size-4 rounded border-primary text-primary accent-primary"
-                  />
-                  <span className={cp.completed ? "line-through text-muted-foreground truncate" : "font-semibold truncate text-foreground"}>
-                    {cp.text}
-                  </span>
-                </label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeCheckpoint(cp.id)}
-                  disabled={!canEdit}
-                  aria-label={`Ukloni checkpoint: ${cp.text}`}
-                >
-                  <Archive className="size-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <TaskCheckpointList taskPageId={page._id} canCreate={canEdit} />
 
     </div>
   );

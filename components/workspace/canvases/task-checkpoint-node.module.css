@@ -1,0 +1,150 @@
+.shell {
+  --checkpoint-open: oklch(0.68 0.17 55);
+  --checkpoint-done: oklch(0.63 0.14 155);
+  --checkpoint-accent: var(--checkpoint-open);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  overflow: visible;
+  cursor: grab;
+  color: var(--foreground);
+  isolation: isolate;
+}
+
+.shell:active {
+  cursor: grabbing;
+}
+
+.completed {
+  --checkpoint-accent: var(--checkpoint-done);
+}
+
+.surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid
+    color-mix(in oklab, var(--checkpoint-accent) 70%, var(--border));
+  border-radius: 47% 53% 45% 55% / 54% 45% 55% 46%;
+  background: color-mix(
+    in oklab,
+    var(--checkpoint-accent) 9%,
+    var(--card)
+  );
+  box-shadow:
+    0 0 0 4px
+      color-mix(in oklab, var(--checkpoint-accent) 13%, transparent),
+    0 14px 30px
+      color-mix(in oklab, var(--checkpoint-accent) 17%, transparent);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.shell:hover .surface,
+.selected .surface,
+.shell:focus-visible .surface {
+  border-color: var(--checkpoint-accent);
+  box-shadow:
+    0 0 0 5px
+      color-mix(in oklab, var(--checkpoint-accent) 20%, transparent),
+    0 18px 38px
+      color-mix(in oklab, var(--checkpoint-accent) 24%, transparent);
+  transform: translateY(-1px);
+}
+
+.body {
+  position: absolute;
+  z-index: 5;
+  inset: 1.35rem 1rem 1.15rem;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  text-align: center;
+}
+
+.text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.completed .text {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.toggle,
+.action {
+  position: absolute;
+  z-index: 12;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid
+    color-mix(in oklab, var(--checkpoint-accent) 65%, var(--border));
+  border-radius: 999px;
+  background: color-mix(
+    in oklab,
+    var(--checkpoint-accent) 12%,
+    var(--popover)
+  );
+  color: color-mix(
+    in oklab,
+    var(--checkpoint-accent) 84%,
+    var(--foreground)
+  );
+  box-shadow: 0 8px 18px
+    color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+
+.toggle {
+  top: 0;
+  right: 0;
+  transform: translate(30%, -30%);
+}
+
+.toggle:focus-visible,
+.action:focus-visible {
+  outline: 3px solid
+    color-mix(in oklab, var(--checkpoint-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.actions {
+  position: absolute;
+  z-index: 14;
+  right: 50%;
+  bottom: 0;
+  display: flex;
+  transform: translate(50%, 55%);
+  gap: 0.28rem;
+}
+
+.actions .action {
+  position: relative;
+}
+
+.editing {
+  position: absolute;
+  z-index: 20;
+  inset: 1rem;
+  display: grid;
+  place-items: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface {
+    transition: none;
+  }
+}

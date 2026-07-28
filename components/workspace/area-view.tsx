@@ -245,23 +245,27 @@ export function AreaView({
               Nova oblast
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            className="h-10 rounded-xl"
-            onClick={() => createPage("note")}
-          >
-            <FilePlus2 aria-hidden="true" />
-            Nova beleška
-          </Button>
-          <Button
-            type="button"
-            className="h-10 rounded-xl"
-            onClick={() => createPage("task")}
-          >
-            <Plus aria-hidden="true" />
-            Novi zadatak
-          </Button>
+          {viewMode === "list" ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-xl"
+                onClick={() => createPage("note")}
+              >
+                <FilePlus2 aria-hidden="true" />
+                Nova beleška
+              </Button>
+              <Button
+                type="button"
+                className="h-10 rounded-xl"
+                onClick={() => createPage("task")}
+              >
+                <Plus aria-hidden="true" />
+                Novi zadatak
+              </Button>
+            </>
+          ) : null}
         </div>
       </header>
 
@@ -316,30 +320,32 @@ export function AreaView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div
-              className="grid grid-cols-3 rounded-xl border border-border/65 bg-muted/35 p-1"
-              aria-label="Filtriraj sadržaj oblasti"
-            >
-              {FILTER_OPTIONS.map(({ value, label, icon: FilterIcon }) => (
-                <Button
-                  key={value}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "h-9 rounded-lg px-3 text-xs",
-                    filter === value
-                      ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
-                      : "text-muted-foreground",
-                  )}
-                  aria-pressed={filter === value}
-                  onClick={() => setFilter(value)}
-                >
-                  <FilterIcon className="size-3.5" aria-hidden="true" />
-                  {label}
-                </Button>
-              ))}
-            </div>
+            {viewMode === "list" ? (
+              <div
+                className="grid grid-cols-3 rounded-xl border border-border/65 bg-muted/35 p-1"
+                aria-label="Filtriraj sadržaj oblasti"
+              >
+                {FILTER_OPTIONS.map(({ value, label, icon: FilterIcon }) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-9 rounded-lg px-3 text-xs",
+                      filter === value
+                        ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
+                        : "text-muted-foreground",
+                    )}
+                    aria-pressed={filter === value}
+                    onClick={() => setFilter(value)}
+                  >
+                    <FilterIcon className="size-3.5" aria-hidden="true" />
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
 
             <div
               className="grid grid-cols-2 rounded-xl border border-border/65 bg-muted/35 p-1"
@@ -398,7 +404,9 @@ export function AreaView({
             areaId={currentArea._id}
             rootPageId={null}
             canvasLabel={currentArea.label}
+            areaKey={currentArea.key}
             filter={filter}
+            onFilterChange={setFilter}
             onOpenCanvas={onOpenCanvas}
             onOpenDetails={onOpenDetails}
             onCreatePage={createPage}

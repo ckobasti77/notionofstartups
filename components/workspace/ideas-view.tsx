@@ -448,14 +448,16 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
             </Button>
           </div>
 
-          <Button
-            onClick={() => openCreateEditor()}
-            size="sm"
-            className="rounded-xl h-9 text-xs gap-1.5 font-medium"
-          >
-            <Plus className="size-4" />
-            <span>Nova ideja</span>
-          </Button>
+          {viewMode === "table" ? (
+            <Button
+              onClick={() => openCreateEditor()}
+              size="sm"
+              className="h-9 gap-1.5 rounded-xl text-xs font-medium"
+            >
+              <Plus className="size-4" />
+              <span>Nova ideja</span>
+            </Button>
+          ) : null}
         </div>
       </div>
 

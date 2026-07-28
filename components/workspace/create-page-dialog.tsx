@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { CheckSquare2, FileText, LoaderCircle, Plus, Trash2, ListChecks } from "lucide-react";
+import { CheckSquare2, FileText, LoaderCircle, Plus, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -12,16 +12,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { workspaceItemDialogContentClass } from "@/components/workspace/workspace-item-dialog";
+import {
+  TaskCheckpointDraftList,
+  type TaskCheckpointDraft,
+} from "@/components/workspace/task-checkpoint-list";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
-
-type CheckpointItem = {
-  id: string;
-  text: string;
-  completed: boolean;
-};
 
 export function CreatePageDialog({ open, onOpenChange, startup, target, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; startup: StartupWithAreas; target?: CreatePageTarget; onCreated: (pageId: Id<"pages">) => void }) {
   const createPage = useMutation(api.areasV2.createPage);
@@ -42,31 +40,10 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
   const [assigneeId, setAssigneeId] = useState<string>("none");
   const [dueDate, setDueDate] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [checkpoints, setCheckpoints] = useState<Array<CheckpointItem>>([]);
-  const [newCheckpointText, setNewCheckpointText] = useState("");
+  const [checkpoints, setCheckpoints] = useState<TaskCheckpointDraft[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const selectedArea = useMemo(() => startup.areas.find((area) => area._id === areaId), [areaId, startup.areas]);
-
-  function addCheckpoint() {
-    const text = newCheckpointText.trim();
-    if (!text || checkpoints.length >= 100) return;
-    setCheckpoints((prev) => [
-      ...prev,
-      { id: `cp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`, text, completed: false },
-    ]);
-    setNewCheckpointText("");
-  }
-
-  function removeCheckpoint(id: string) {
-    setCheckpoints((prev) => prev.filter((cp) => cp.id !== id));
-  }
-
-  function toggleCheckpoint(id: string) {
-    setCheckpoints((prev) =>
-      prev.map((cp) => (cp.id === id ? { ...cp, completed: !cp.completed } : cp)),
-    );
-  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -187,52 +164,10 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
 
                 <div className="space-y-2">
                   <Label className="flex items-center gap-1.5"><ListChecks className="size-4 text-primary" /> Podzadaci / Checkpointi</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={newCheckpointText}
-                      onChange={(e) => setNewCheckpointText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheckpoint(); } }}
-                      placeholder="Dodaj podzadatak / checkpoint..."
-                      maxLength={500}
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={addCheckpoint}
-                      disabled={checkpoints.length >= 100}
-                    >
-                      <Plus className="size-4" /> Dodaj
-                    </Button>
-                  </div>
-                  {checkpoints.length > 0 ? (
-                    <div className="mt-3 space-y-1.5 rounded-xl border border-border/60 bg-muted/20 p-2.5">
-                      {checkpoints.map((cp) => (
-                        <div key={cp.id} className="flex items-center justify-between gap-2 rounded-lg bg-card px-3 py-1.5 text-sm border border-border/40">
-                          <label className="flex items-center gap-2 min-w-0 cursor-pointer flex-1">
-                            <input
-                              type="checkbox"
-                              checked={cp.completed}
-                              onChange={() => toggleCheckpoint(cp.id)}
-                              className="size-4 rounded border-primary text-primary accent-primary"
-                            />
-                            <span className={cp.completed ? "line-through text-muted-foreground truncate" : "truncate font-medium"}>
-                              {cp.text}
-                            </span>
-                          </label>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeCheckpoint(cp.id)}
-                            aria-label={`Ukloni checkpoint: ${cp.text}`}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
+                  <TaskCheckpointDraftList
+                    items={checkpoints}
+                    onChange={setCheckpoints}
+                  />
                 </div>
               </>
             )}

@@ -26,6 +26,7 @@ import type * as lib_collaboration from "../lib/collaboration.js";
 import type * as lib_onboarding from "../lib/onboarding.js";
 import type * as lib_page_creation from "../lib/page_creation.js";
 import type * as lib_pages from "../lib/pages.js";
+import type * as lib_task_checkpoints from "../lib/task_checkpoints.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
@@ -33,6 +34,7 @@ import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
 import type * as startups from "../startups.js";
 import type * as storage from "../storage.js";
+import type * as taskCheckpoints from "../taskCheckpoints.js";
 import type * as tasks from "../tasks.js";
 import type * as thoughts from "../thoughts.js";
 
@@ -61,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "lib/onboarding": typeof lib_onboarding;
   "lib/page_creation": typeof lib_page_creation;
   "lib/pages": typeof lib_pages;
+  "lib/task_checkpoints": typeof lib_task_checkpoints;
   "lib/validators": typeof lib_validators;
   migrations: typeof migrations;
   pages: typeof pages;
@@ -68,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   search: typeof search;
   startups: typeof startups;
   storage: typeof storage;
+  taskCheckpoints: typeof taskCheckpoints;
   tasks: typeof tasks;
   thoughts: typeof thoughts;
 }>;

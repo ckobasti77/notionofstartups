@@ -4,6 +4,7 @@ import { recordActivity } from "./activity";
 import { requireProfileInStartup } from "./auth";
 import { insertContribution } from "./collaboration";
 import { pageSearchText, pageTaskSortAt, requireVisiblePage } from "./pages";
+import { reconcileLegacyTaskCheckpoints } from "./task_checkpoints";
 import {
   cleanRequiredText,
   normalizeTaskCheckpoints,
@@ -219,6 +220,14 @@ export async function insertWorkspacePage(
     ...(args.target.checkpoints === null
       ? {}
       : { checkpoints: args.target.checkpoints }),
+    ...(args.target.kind === "task"
+      ? {
+          checkpointTotal: args.target.checkpoints?.length ?? 0,
+          checkpointCompleted:
+            args.target.checkpoints?.filter((item) => item.completed).length ?? 0,
+          checkpointRevision: 0,
+        }
+      : {}),
     taskSortAt: args.page.taskSortAt,
     createdByProfileId: args.actorProfileId,
     updatedByProfileId: args.actorProfileId,
@@ -242,6 +251,18 @@ export async function insertWorkspacePage(
     createdAt: args.now,
     updatedAt: args.now,
   });
+  if (args.target.kind === "task") {
+    const insertedPage = await ctx.db.get("pages", pageId);
+    if (insertedPage === null) {
+      throw new Error("Kreirani zadatak nije moguće učitati.");
+    }
+    await reconcileLegacyTaskCheckpoints(ctx, {
+      page: insertedPage,
+      checkpoints: args.target.checkpoints,
+      actorProfileId: args.actorProfileId,
+      now: args.now,
+    });
+  }
   await insertContribution(ctx, {
     startupId: args.target.startupId,
     targetKind: "page",

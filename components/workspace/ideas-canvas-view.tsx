@@ -51,6 +51,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
 import {
   ThoughtEdge,
   ThoughtEdgeActionsProvider,
@@ -1097,33 +1098,12 @@ function IdeasCanvasBody({
           />
 
           <Panel position="top-left" className="m-3 sm:m-5">
-            <div className="flex max-w-[calc(100vw-5rem)] flex-wrap items-center gap-2">
-              <div className="flex min-h-10 items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 shadow-md backdrop-blur-xl">
-                <Lightbulb className="size-4 text-amber-500" />
-                <span className="text-xs font-bold">Kanvas ideja</span>
-                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[0.6875rem] font-bold text-amber-700 dark:text-amber-300">
-                  {nodes.length}
-                </span>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                className="h-10 rounded-2xl px-3.5 shadow-md"
-                onClick={() => {
-                  const center = flowRef.current?.screenToFlowPosition({
-                    x: window.innerWidth / 2,
-                    y: window.innerHeight / 2,
-                  });
-                  onCreateIdea(undefined, center);
-                }}
-              >
-                <Plus className="size-4" /> Nova ideja
-              </Button>
+            <div className="flex items-center gap-1 rounded-2xl border border-border/80 bg-card/92 p-1 shadow-md backdrop-blur-xl">
               <Button
                 type="button"
                 size="icon"
-                variant="outline"
-                className="size-10 rounded-2xl shadow-md"
+                variant="ghost"
+                className="size-10 rounded-xl"
                 aria-label="Poništi poslednju promenu"
                 disabled={historyState.undoCount === 0 || historyState.busy}
                 onClick={() => void runHistory("undo")}
@@ -1133,18 +1113,57 @@ function IdeasCanvasBody({
               <Button
                 type="button"
                 size="icon"
-                variant="outline"
-                className="size-10 rounded-2xl shadow-md"
+                variant="ghost"
+                className="size-10 rounded-xl"
                 aria-label="Ponovi promenu"
                 disabled={historyState.redoCount === 0 || historyState.busy}
                 onClick={() => void runHistory("redo")}
               >
                 <Redo2 className="size-4" />
               </Button>
+              <span className="sr-only" aria-live="polite">
+                Dostupno je {historyState.undoCount} poništavanja i{" "}
+                {historyState.redoCount} ponavljanja.
+              </span>
             </div>
           </Panel>
 
-          <Panel position="top-right" className="m-3 hidden sm:block sm:m-5">
+          <Panel position="top-right" className="m-3 sm:m-5">
+            <CanvasActionRail
+              ariaLabel="Akcije kanvasa ideja"
+              identity={{
+                label: "Kanvas ideja",
+                icon: Lightbulb,
+                count: nodes.length,
+                className:
+                  "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+              }}
+              sections={[
+                {
+                  id: "Kreiranje",
+                  items: [
+                    {
+                      id: "new-idea",
+                      label: "Nova ideja",
+                      icon: Plus,
+                      onSelect: () => {
+                        const center =
+                          flowRef.current?.screenToFlowPosition({
+                            x: window.innerWidth / 2,
+                            y: window.innerHeight / 2,
+                          });
+                        onCreateIdea(undefined, center);
+                      },
+                      className:
+                        "bg-amber-500 text-white hover:bg-amber-500/90 hover:text-white dark:text-slate-950",
+                    },
+                  ],
+                },
+              ]}
+            />
+          </Panel>
+
+          <Panel position="bottom-center" className="!mb-4 hidden md:block">
             <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
               <MousePointer2 className="size-3.5" />
               Otvori karticu · izaberi za resize · preimenuj vezu

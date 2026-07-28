@@ -10,6 +10,58 @@ const migrations = new Migrations<DataModel>(components.migrations, {
   defaultBatchSize: 50,
 });
 
+export const backfillTaskCheckpoints = migrations.define({
+  table: "pages",
+  batchSize: 5,
+  migrateOne: async (ctx, page) => {
+    if (page.kind !== "task") return;
+    const checkpoints = page.checkpoints ?? [];
+    for (const [position, checkpoint] of checkpoints.entries()) {
+      const existing = await ctx.db
+        .query("taskCheckpoints")
+        .withIndex("by_taskPageId_and_legacyId", (q) =>
+          q
+            .eq("taskPageId", page._id)
+            .eq("legacyId", checkpoint.id),
+        )
+        .unique();
+      if (existing === null) {
+        await ctx.db.insert("taskCheckpoints", {
+          startupId: page.startupId,
+          areaId: page.areaId,
+          taskPageId: page._id,
+          legacyId: checkpoint.id,
+          text: checkpoint.text,
+          completed: checkpoint.completed,
+          position,
+          createdByProfileId: page.createdByProfileId,
+          archivedAt: null,
+          createdAt: page.createdAt,
+          updatedAt: page.updatedAt,
+        });
+      } else if (
+        existing.text !== checkpoint.text ||
+        existing.completed !== checkpoint.completed ||
+        existing.position !== position ||
+        existing.archivedAt !== null
+      ) {
+        await ctx.db.patch("taskCheckpoints", existing._id, {
+          text: checkpoint.text,
+          completed: checkpoint.completed,
+          position,
+          archivedAt: null,
+          updatedAt: page.updatedAt,
+        });
+      }
+    }
+    await ctx.db.patch("pages", page._id, {
+      checkpointTotal: checkpoints.length,
+      checkpointCompleted: checkpoints.filter((item) => item.completed).length,
+      checkpointRevision: page.checkpointRevision ?? 0,
+    });
+  },
+});
+
 export const backfillIdeaOriginalContributions = migrations.define({
   table: "ideaNodes",
   migrateOne: async (ctx, idea) => {
@@ -191,6 +243,59 @@ export const verifyContributionBackfill = internalQuery({
         truncated
           ? "Provera je ograničena na prvih 500 zapisa po tabeli i ne može potvrditi završetak."
           : null,
+    };
+  },
+});
+
+export const verifyTaskCheckpointBackfill = internalQuery({
+  args: {},
+  returns: v.object({
+    scannedTasks: v.number(),
+    missingRows: v.number(),
+    mismatchedCounts: v.number(),
+    complete: v.boolean(),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const pages = await ctx.db.query("pages").take(501);
+    const tasks = pages.filter((page) => page.kind === "task");
+    let missingRows = 0;
+    let mismatchedCounts = 0;
+    for (const task of tasks) {
+      const checkpoints = task.checkpoints ?? [];
+      if (
+        task.checkpointTotal !== checkpoints.length ||
+        task.checkpointCompleted !==
+          checkpoints.filter((item) => item.completed).length
+      ) {
+        mismatchedCounts += 1;
+      }
+      for (const checkpoint of checkpoints) {
+        const row = await ctx.db
+          .query("taskCheckpoints")
+          .withIndex("by_taskPageId_and_legacyId", (q) =>
+            q
+              .eq("taskPageId", task._id)
+              .eq("legacyId", checkpoint.id),
+          )
+          .unique();
+        if (
+          row === null ||
+          row.archivedAt !== null ||
+          row.text !== checkpoint.text ||
+          row.completed !== checkpoint.completed
+        ) {
+          missingRows += 1;
+        }
+      }
+    }
+    const truncated = pages.length > 500;
+    return {
+      scannedTasks: tasks.length,
+      missingRows,
+      mismatchedCounts,
+      complete: !truncated && missingRows === 0 && mismatchedCounts === 0,
+      truncated,
     };
   },
 });

@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CheckSquare2,
+  FilePlus2,
   FileText,
   LayoutGrid,
   List,
+  Plus,
 } from "lucide-react";
 import { useQuery } from "convex/react";
 
@@ -93,6 +95,13 @@ export function PageWorkspaceView({
       ),
     [canvasData?.ghosts, filter],
   );
+  const canvasArea = useMemo(
+    () =>
+      page
+        ? startup.areas.find((area) => area._id === page.areaId)
+        : undefined,
+    [page, startup.areas],
+  );
 
   useEffect(() => {
     if (page) {
@@ -139,30 +148,65 @@ export function PageWorkspaceView({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div
-                className="grid grid-cols-3 rounded-xl border border-border/65 bg-muted/35 p-1"
-                aria-label="Filtriraj sadržaj kanvasa"
-              >
-                {FILTERS.map(({ value, label, icon: Icon }) => (
-                  <Button
-                    key={value}
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-9 rounded-lg px-3 text-xs",
-                      filter === value
-                        ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
-                        : "text-muted-foreground",
-                    )}
-                    aria-pressed={filter === value}
-                    onClick={() => setFilter(value)}
+              {viewMode === "list" ? (
+                <>
+                  <div
+                    className="grid grid-cols-3 rounded-xl border border-border/65 bg-muted/35 p-1"
+                    aria-label="Filtriraj sadržaj kanvasa"
                   >
-                    <Icon className="size-3.5" aria-hidden="true" />
-                    {label}
+                    {FILTERS.map(({ value, label, icon: Icon }) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          "h-9 rounded-lg px-3 text-xs",
+                          filter === value
+                            ? "bg-background font-bold text-foreground shadow-sm hover:bg-background"
+                            : "text-muted-foreground",
+                        )}
+                        aria-pressed={filter === value}
+                        onClick={() => setFilter(value)}
+                      >
+                        <Icon className="size-3.5" aria-hidden="true" />
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-xl"
+                    onClick={() =>
+                      onCreateChild({
+                        areaId: page.areaId,
+                        parentPageId: page._id,
+                        initialKind: "note",
+                      })
+                    }
+                  >
+                    <FilePlus2 aria-hidden="true" />
+                    Nova beleška
                   </Button>
-                ))}
-              </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-9 rounded-xl"
+                    onClick={() =>
+                      onCreateChild({
+                        areaId: page.areaId,
+                        parentPageId: page._id,
+                        initialKind: "task",
+                      })
+                    }
+                  >
+                    <Plus aria-hidden="true" />
+                    Novi zadatak
+                  </Button>
+                </>
+              ) : null}
               <div
                 className="grid grid-cols-2 rounded-xl border border-border/65 bg-muted/35 p-1"
                 aria-label="Izaberi prikaz podstavki"
@@ -209,7 +253,9 @@ export function PageWorkspaceView({
               areaId={page.areaId}
               rootPageId={page._id}
               canvasLabel={page.title || "Stranica bez naslova"}
+              areaKey={canvasArea?.key ?? "other"}
               filter={filter}
+              onFilterChange={setFilter}
               onOpenCanvas={onOpenCanvas}
               onOpenDetails={onOpenDetails}
               onCreatePage={(kind) =>

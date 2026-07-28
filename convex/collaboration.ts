@@ -18,11 +18,16 @@ import {
   insertContribution,
 } from "./lib/collaboration";
 import { cleanPageContent } from "./lib/page_creation";
+import { syncTaskCheckpointProjection } from "./lib/task_checkpoints";
 
 const targetValidator = v.union(
   v.object({ kind: v.literal("idea"), id: v.id("ideaNodes") }),
   v.object({ kind: v.literal("idea_edge"), id: v.id("ideaEdges") }),
   v.object({ kind: v.literal("page"), id: v.id("pages") }),
+  v.object({
+    kind: v.literal("task_checkpoint"),
+    id: v.id("taskCheckpoints"),
+  }),
   v.object({
     kind: v.literal("page_edge"),
     id: v.id("pageCanvasEdgesV2"),
@@ -42,12 +47,17 @@ const contributionTargetValidator = v.union(
   v.object({ kind: v.literal("idea"), id: v.id("ideaNodes") }),
   v.object({ kind: v.literal("page"), id: v.id("pages") }),
   v.object({ kind: v.literal("area"), id: v.id("startupAreas") }),
+  v.object({
+    kind: v.literal("task_checkpoint"),
+    id: v.id("taskCheckpoints"),
+  }),
   v.object({ kind: v.literal("recovered"), id: v.id("recoveredContent") }),
 );
 const contributionTargetKindValidator = v.union(
   v.literal("idea"),
   v.literal("page"),
   v.literal("area"),
+  v.literal("task_checkpoint"),
   v.literal("recovered"),
 );
 const contributionSourceKindValidator = v.union(
@@ -100,6 +110,7 @@ type DeletionTarget =
   | { kind: "idea"; id: Id<"ideaNodes"> }
   | { kind: "idea_edge"; id: Id<"ideaEdges"> }
   | { kind: "page"; id: Id<"pages"> }
+  | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> }
   | { kind: "page_edge"; id: Id<"pageCanvasEdgesV2"> }
   | { kind: "page_relation"; id: Id<"pageRelations"> }
   | { kind: "contribution"; id: Id<"contentContributions"> }
@@ -134,6 +145,7 @@ async function requireContributionTarget(
     | { kind: "idea"; id: Id<"ideaNodes"> }
     | { kind: "page"; id: Id<"pages"> }
     | { kind: "area"; id: Id<"startupAreas"> }
+    | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> }
     | { kind: "recovered"; id: Id<"recoveredContent"> },
 ) {
   if (target.kind === "idea") {
@@ -176,6 +188,26 @@ async function requireContributionTarget(
       startupId: area.startupId,
       targetId: area._id,
       ownerProfileId: startup.createdByProfileId,
+    };
+  }
+  if (target.kind === "task_checkpoint") {
+    const checkpoint = await ctx.db.get("taskCheckpoints", target.id);
+    const page =
+      checkpoint === null ? null : await ctx.db.get("pages", checkpoint.taskPageId);
+    if (
+      checkpoint === null ||
+      checkpoint.archivedAt !== null ||
+      page === null ||
+      page.archivedAt !== null ||
+      page.kind !== "task"
+    ) {
+      throw new Error("Checkpoint nije pronađen.");
+    }
+    return {
+      kind: target.kind,
+      startupId: checkpoint.startupId,
+      targetId: checkpoint._id,
+      ownerProfileId: page.createdByProfileId,
     };
   }
   const recovered = await ctx.db.get("recoveredContent", target.id);
@@ -284,6 +316,21 @@ async function deletionTargetInfo(
       ownerProfileId: relation.authorProfileId,
     };
   }
+  if (target.kind === "task_checkpoint") {
+    const checkpoint = await ctx.db.get("taskCheckpoints", target.id);
+    if (checkpoint === null || checkpoint.archivedAt !== null) {
+      throw new Error("Checkpoint nije pronađen.");
+    }
+    const page = await ctx.db.get("pages", checkpoint.taskPageId);
+    if (page === null || page.archivedAt !== null || page.kind !== "task") {
+      throw new Error("Zadatak checkpointa nije pronađen.");
+    }
+    return {
+      startupId: checkpoint.startupId,
+      title: checkpoint.text,
+      ownerProfileId: page.createdByProfileId,
+    };
+  }
   if (target.kind === "contribution") {
     const contribution = await ctx.db.get("contentContributions", target.id);
     if (contribution === null || contribution.archivedAt !== null) {
@@ -378,6 +425,28 @@ export async function applyApprovedDeletion(
         archivedAt: now,
         updatedAt: now,
       });
+    }
+    return;
+  }
+  if (request.targetKind === "task_checkpoint") {
+    const id = ctx.db.normalizeId("taskCheckpoints", request.targetId);
+    const checkpoint =
+      id === null ? null : await ctx.db.get("taskCheckpoints", id);
+    if (checkpoint !== null && checkpoint.archivedAt === null) {
+      const page = await ctx.db.get("pages", checkpoint.taskPageId);
+      const now = Date.now();
+      await ctx.db.patch("taskCheckpoints", checkpoint._id, {
+        archivedAt: now,
+        updatedAt: now,
+      });
+      if (page !== null && page.kind === "task") {
+        await syncTaskCheckpointProjection(
+          ctx,
+          page._id,
+          request.requesterProfileId,
+          now,
+        );
+      }
     }
     return;
   }

@@ -2,7 +2,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 export function contributionTargetKey(
-  kind: "idea" | "page" | "area" | "recovered",
+  kind: "idea" | "page" | "area" | "task_checkpoint" | "recovered",
   id: string,
 ) {
   return `${kind}:${id}`;
@@ -12,7 +12,12 @@ export async function insertContribution(
   ctx: MutationCtx,
   value: {
     startupId: Id<"startups">;
-    targetKind: "idea" | "page" | "area" | "recovered";
+    targetKind:
+      | "idea"
+      | "page"
+      | "area"
+      | "task_checkpoint"
+      | "recovered";
     targetId: string;
     authorProfileId?: Id<"profiles">;
     attribution?: "author" | "legacy_neutral";

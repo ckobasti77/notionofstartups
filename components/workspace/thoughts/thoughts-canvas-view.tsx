@@ -53,6 +53,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
 import {
   THOUGHT_SIDEBAR_DRAG_RELEASE_EVENT,
   type ThoughtSidebarDragPointer,
@@ -1327,31 +1328,12 @@ function ThoughtsCanvasBody({
               />
 
               <Panel position="top-left" className="!m-3 sm:!m-4">
-                <div className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded-2xl border border-border/75 bg-card/92 p-2 shadow-[var(--shadow-desk)] backdrop-blur-xl">
-                  <div className="flex min-w-0 items-center gap-2 px-1.5 pr-2">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-                      <Sparkles className="size-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-bold tracking-[-0.02em]">Moje misli</span>
-                      <span className="block truncate text-[0.6875rem] text-muted-foreground">Samo ti · {firstName}</span>
-                    </span>
-                  </div>
-                  <span className="hidden h-7 w-px bg-border sm:block" aria-hidden="true" />
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-0"
-                    aria-label="Nova misao"
-                    onClick={() => openNewThought()}
-                  >
-                    <Plus /> <span className="hidden sm:inline">Nova misao</span>
-                  </Button>
+                <div className="flex items-center gap-1 rounded-2xl border border-border/75 bg-card/92 p-1 shadow-[var(--shadow-desk)] backdrop-blur-xl">
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="size-11 sm:size-8"
+                    className="size-11 rounded-xl sm:size-10"
                     aria-label="Poništi poslednju promenu"
                     disabled={historyState.undoCount === 0 || historyState.busy}
                     onClick={() => void runHistory("undo")}
@@ -1362,7 +1344,7 @@ function ThoughtsCanvasBody({
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="size-11 sm:size-8"
+                    className="size-11 rounded-xl sm:size-10"
                     aria-label="Ponovi promenu"
                     disabled={historyState.redoCount === 0 || historyState.busy}
                     onClick={() => void runHistory("redo")}
@@ -1375,8 +1357,35 @@ function ThoughtsCanvasBody({
                 </div>
               </Panel>
 
+              <Panel position="top-right" className="!m-3 sm:!m-4">
+                <CanvasActionRail
+                  ariaLabel={`Akcije privatnog kanvasa za ${firstName}`}
+                  identity={{
+                    label: "Moje misli",
+                    icon: Sparkles,
+                    count: nodes.length,
+                    className: "bg-primary/10 text-primary",
+                  }}
+                  sections={[
+                    {
+                      id: "Kreiranje",
+                      items: [
+                        {
+                          id: "new-thought",
+                          label: "Nova misao",
+                          icon: Plus,
+                          onSelect: () => openNewThought(),
+                          className:
+                            "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+                        },
+                      ],
+                    },
+                  ]}
+                />
+              </Panel>
+
               {(selectedCount > 0 || canLoadNodes || canLoadEdges) ? (
-                <Panel position="top-right" className="!m-3 sm:!m-4">
+                <Panel position="top-center" className="!m-3 sm:!m-4">
                   <div className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center justify-end gap-1 rounded-xl border border-border/75 bg-card/92 p-1.5 shadow-[var(--shadow-desk)] backdrop-blur-xl">
                     {selectedCount > 0 ? (
                       <>

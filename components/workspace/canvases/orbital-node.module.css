@@ -90,6 +90,56 @@
     transform 140ms ease;
 }
 
+.checkpointPeeks {
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  right: 0;
+  width: 3.4rem;
+  height: 4.6rem;
+  transform: translate(54%, -50%);
+  pointer-events: none;
+}
+
+.checkpointPeek {
+  position: absolute;
+  display: block;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 1px solid color-mix(in oklab, currentColor 62%, var(--border));
+  border-radius: 48% 52% 43% 57% / 55% 45% 55% 45%;
+  background: color-mix(in oklab, currentColor 14%, var(--card));
+  box-shadow: 0 8px 20px color-mix(in oklab, currentColor 18%, transparent);
+  transition: transform 160ms ease;
+}
+
+.checkpointPeek:nth-child(1) {
+  top: 0;
+  left: 0;
+}
+
+.checkpointPeek:nth-child(2) {
+  top: 1.25rem;
+  left: 0.7rem;
+}
+
+.checkpointPeek:nth-child(3) {
+  top: 2.45rem;
+  left: 0.15rem;
+}
+
+.checkpointPeekOpen {
+  color: oklch(0.68 0.17 55);
+}
+
+.checkpointPeekDone {
+  color: oklch(0.63 0.14 155);
+}
+
+.checkpointPeeksExpanded .checkpointPeek {
+  transform: translateX(0.35rem);
+}
+
 .shell:hover .surface,
 .selected .surface {
   border-color: color-mix(in oklab, var(--node-accent) 74%, var(--border));
@@ -192,6 +242,29 @@
   gap: 0.35rem;
   border-radius: 999px;
   padding: 0.38rem 0.65rem;
+}
+
+.checkpointOrbit {
+  top: 50%;
+  right: 0;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  transform: translate(42%, -50%);
+  justify-content: center;
+  gap: 0.3rem;
+  border-color: color-mix(
+    in oklab,
+    oklch(0.68 0.17 55) 48%,
+    var(--border)
+  );
+  padding: 0.35rem 0.55rem;
+  color: color-mix(
+    in oklab,
+    oklch(0.68 0.17 55) 74%,
+    var(--foreground)
+  );
+  font-size: 0.625rem;
+  font-weight: 850;
 }
 
 .actionOrbit {
@@ -304,7 +377,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .surface {
+  .surface,
+  .checkpointPeek {
     transition: none;
   }
 }

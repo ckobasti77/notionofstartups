@@ -274,10 +274,12 @@ describe("task metadata ugovori", () => {
       dueDate: null,
     });
     expect(stored?.instructions).toBeUndefined();
-    expect(stored?.checkpoints).toBeUndefined();
+    expect(stored?.checkpoints).toEqual([]);
     expect(stored).toMatchObject({
       revision: 2,
       canvasPreview: "Autorski task",
+      checkpointTotal: 0,
+      checkpointCompleted: 0,
     });
 
     await asOwner.mutation(api.tasks.updateMetadata, {

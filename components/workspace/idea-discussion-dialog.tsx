@@ -45,13 +45,17 @@ function visibleText(content: string) {
     .trim();
 }
 
-export function IdeaInlineThread({
-  ideaId,
+type InlineContributionTarget =
+  | { kind: "idea"; id: Id<"ideaNodes"> }
+  | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> };
+
+export function ContributionInlineThread({
+  target,
   canAdd,
   compact = false,
   className,
 }: {
-  ideaId: Id<"ideaNodes">;
+  target: InlineContributionTarget;
   canAdd: boolean;
   compact?: boolean;
   className?: string;
@@ -62,7 +66,7 @@ export function IdeaInlineThread({
     loadMore,
   } = usePaginatedQuery(
     api.collaboration.listContributionsPaginated,
-    { target: { kind: "idea", id: ideaId } },
+    { target },
     { initialNumItems: compact ? 8 : 20 },
   );
   const addText = useMutation(api.collaboration.addContribution);
@@ -89,7 +93,7 @@ export function IdeaInlineThread({
     setPending(true);
     try {
       await addText({
-        target: { kind: "idea", id: ideaId },
+        target,
         content: draft,
       });
       setDraft("");
@@ -231,7 +235,7 @@ export function IdeaInlineThread({
             </div>
 
             <div className="mt-1.5 flex flex-wrap justify-end gap-1">
-              {item.canModerate ? (
+              {target.kind === "idea" && item.canModerate ? (
                 <>
                   <Button
                     type="button"
@@ -375,5 +379,26 @@ export function IdeaInlineThread({
         )
       ) : null}
     </section>
+  );
+}
+
+export function IdeaInlineThread({
+  ideaId,
+  canAdd,
+  compact = false,
+  className,
+}: {
+  ideaId: Id<"ideaNodes">;
+  canAdd: boolean;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <ContributionInlineThread
+      target={{ kind: "idea", id: ideaId }}
+      canAdd={canAdd}
+      compact={compact}
+      className={className}
+    />
   );
 }

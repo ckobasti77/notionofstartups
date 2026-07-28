@@ -214,7 +214,11 @@ export default defineSchema({
     assigneeProfileId: v.union(v.id("profiles"), v.null()),
     dueDate: v.union(v.number(), v.null()),
     instructions: v.optional(v.string()),
+    // Deprecated rollback projection. taskCheckpoints is the canonical source.
     checkpoints: v.optional(v.array(checkpointItemValidator)),
+    checkpointTotal: v.optional(v.number()),
+    checkpointCompleted: v.optional(v.number()),
+    checkpointRevision: v.optional(v.number()),
     taskSortAt: v.number(),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
@@ -331,6 +335,47 @@ export default defineSchema({
       filterFields: ["startupId", "kind", "archivedAt"],
     }),
 
+  taskCheckpoints: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    taskPageId: v.id("pages"),
+    legacyId: v.string(),
+    text: v.string(),
+    completed: v.boolean(),
+    position: v.number(),
+    createdByProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_taskPageId_and_archivedAt_and_position", [
+      "taskPageId",
+      "archivedAt",
+      "position",
+    ])
+    .index("by_taskPageId_and_legacyId", ["taskPageId", "legacyId"]),
+
+  taskCheckpointCanvasPlacements: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    canvasRootPageId: v.union(v.id("pages"), v.null()),
+    checkpointId: v.id("taskCheckpoints"),
+    x: v.number(),
+    y: v.number(),
+    updatedByProfileId: v.id("profiles"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_checkpointId_and_canvasRootPageId", [
+      "checkpointId",
+      "canvasRootPageId",
+    ])
+    .index("by_startupId_and_areaId_and_canvasRootPageId", [
+      "startupId",
+      "areaId",
+      "canvasRootPageId",
+    ]),
+
   ideaCanvases: defineTable({
     startupId: v.id("startups"),
     ownerProfileId: v.id("profiles"),
@@ -427,6 +472,7 @@ export default defineSchema({
       v.literal("idea"),
       v.literal("page"),
       v.literal("area"),
+      v.literal("task_checkpoint"),
       v.literal("recovered"),
     ),
     targetKey: v.string(),
@@ -488,6 +534,7 @@ export default defineSchema({
       v.literal("page"),
       v.literal("page_edge"),
       v.literal("page_relation"),
+      v.literal("task_checkpoint"),
       v.literal("contribution"),
       v.literal("recovered"),
     ),

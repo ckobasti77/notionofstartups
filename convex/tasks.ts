@@ -12,6 +12,7 @@ import {
 } from "./lib/auth";
 import { workspaceCanvasPreview } from "./lib/page_creation";
 import { pageTaskSortAt, requireVisiblePage, summarizePage } from "./lib/pages";
+import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
   boundedLimit,
   checkpointItemValidator,
@@ -231,7 +232,7 @@ export const updateMetadata = mutation({
     const checkpoints =
       args.checkpoints === undefined
         ? page.checkpoints
-        : normalizedCheckpoints;
+        : (normalizedCheckpoints ?? []);
     const body = await ctx.db
       .query("pageBodies")
       .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
@@ -266,6 +267,14 @@ export const updateMetadata = mutation({
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
+    if (args.checkpoints !== undefined) {
+      await reconcileLegacyTaskCheckpoints(ctx, {
+        page,
+        checkpoints,
+        actorProfileId: profile._id,
+        now,
+      });
+    }
     await recordActivity(ctx, {
       startupId: page.startupId,
       actorProfileId: profile._id,
