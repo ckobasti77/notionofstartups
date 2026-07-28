@@ -19,7 +19,9 @@ import {
   Check,
   Circle,
   LoaderCircle,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   Pencil,
   RotateCcw,
   Trash2,
@@ -34,6 +36,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
+import type { TaskCheckpointSizePreset } from "./task-checkpoint-layout";
 import styles from "./task-checkpoint-node.module.css";
 
 export type TaskCheckpointFlowNodeData = {
@@ -61,12 +64,17 @@ const TaskCheckpointNodeActionsContext = createContext<{
     checkpointId: Id<"taskCheckpoints">,
     layout: ResizeParams,
   ) => void;
+  setSizePreset: (
+    checkpointId: Id<"taskCheckpoints">,
+    preset: TaskCheckpointSizePreset,
+  ) => void;
   resetSize: (checkpointId: Id<"taskCheckpoints">) => void;
 } | null>(null);
 
 export function TaskCheckpointNodeActionsProvider({
   startResize,
   resize,
+  setSizePreset,
   resetSize,
   children,
 }: {
@@ -75,12 +83,16 @@ export function TaskCheckpointNodeActionsProvider({
     checkpointId: Id<"taskCheckpoints">,
     layout: ResizeParams,
   ) => void;
+  setSizePreset: (
+    checkpointId: Id<"taskCheckpoints">,
+    preset: TaskCheckpointSizePreset,
+  ) => void;
   resetSize: (checkpointId: Id<"taskCheckpoints">) => void;
   children: ReactNode;
 }) {
   return (
     <TaskCheckpointNodeActionsContext.Provider
-      value={{ startResize, resize, resetSize }}
+      value={{ startResize, resize, setSizePreset, resetSize }}
     >
       {children}
     </TaskCheckpointNodeActionsContext.Provider>
@@ -266,6 +278,42 @@ export const TaskCheckpointFlowNodeCard = memo(
                     <Pencil className="size-4" />
                   )}
                 </Button>
+              ) : null}
+              {data.canResize ? (
+                <>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className={styles.action}
+                    aria-label={`Smanji checkpoint broj ${data.ordinal}`}
+                    title="Manja veličina"
+                    onClick={() =>
+                      nodeActions?.setSizePreset(
+                        data.checkpointId,
+                        "compact",
+                      )
+                    }
+                  >
+                    <Minimize2 className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className={styles.action}
+                    aria-label={`Proširi checkpoint broj ${data.ordinal}`}
+                    title="Proširena veličina"
+                    onClick={() =>
+                      nodeActions?.setSizePreset(
+                        data.checkpointId,
+                        "expanded",
+                      )
+                    }
+                  >
+                    <Maximize2 className="size-4" />
+                  </Button>
+                </>
               ) : null}
               {data.canResize && data.manuallySized ? (
                 <Button

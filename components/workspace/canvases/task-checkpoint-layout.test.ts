@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  taskCheckpointOrdinal,
   taskCheckpointNodeId,
   taskCheckpointNodeMetrics,
   taskCheckpointOrbitPosition,
@@ -9,6 +10,13 @@ import {
 describe("task checkpoint Canvas layout", () => {
   test("React Flow ID je stabilan i odvojen od page čvorova", () => {
     expect(taskCheckpointNodeId("abc123")).toBe("checkpoint:abc123");
+  });
+
+  test("redni broj koristi backend vrednost i bezbedan fallback za stariji odgovor", () => {
+    expect(taskCheckpointOrdinal(7, 0)).toBe(7);
+    expect(taskCheckpointOrdinal(undefined, 0)).toBe(1);
+    expect(taskCheckpointOrdinal(null, 4)).toBe(5);
+    expect(taskCheckpointOrdinal(0, 2)).toBe(3);
   });
 
   test("isti input daje isti orbitalni raspored bez centra taska", () => {

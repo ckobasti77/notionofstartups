@@ -47,7 +47,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 12;
+  z-index: 26;
   display: grid;
   min-width: 2.25rem;
   height: 2rem;
@@ -72,6 +72,7 @@
   font-size: 0.6875rem;
   font-weight: 800;
   line-height: 1;
+  pointer-events: none;
 }
 
 .shell:hover .surface,
@@ -89,7 +90,9 @@
 .body {
   position: absolute;
   z-index: 5;
-  inset: 1.35rem 1rem 1.15rem;
+  inset:
+    clamp(1.3rem, 6%, 2.5rem)
+    clamp(1.2rem, 8%, 3.25rem);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -98,12 +101,17 @@
 
 .text {
   display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 100%;
   overflow: hidden;
   color: color-mix(in oklab, var(--foreground) 90%, transparent);
   font-size: 0.75rem;
   font-weight: 750;
   line-height: 1.45;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .completed .text {

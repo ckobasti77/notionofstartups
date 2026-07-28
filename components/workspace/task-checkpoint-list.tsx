@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { taskCheckpointOrdinal } from "@/components/workspace/canvases/task-checkpoint-layout";
 import { ContributionInlineThread } from "@/components/workspace/idea-discussion-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -370,10 +371,10 @@ export function TaskCheckpointList({
         </p>
       ) : (
         <div className={cn("space-y-2", compact && "space-y-1.5")}>
-          {checkpoints.map((checkpoint) => (
+          {checkpoints.map((checkpoint, index) => (
             <article
               key={checkpoint._id}
-              aria-label={`Checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}`}
+              aria-label={`Checkpoint broj ${taskCheckpointOrdinal(checkpoint.ordinal, index)}: ${checkpoint.text}`}
               className={cn(
                 "rounded-xl border px-2.5 py-2 transition-colors",
                 checkpoint.completed
@@ -383,7 +384,7 @@ export function TaskCheckpointList({
             >
               <div className="flex items-center gap-2">
                 <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-full border border-border/70 bg-background/80 px-1.5 text-[0.6875rem] font-extrabold text-muted-foreground">
-                  #{checkpoint.ordinal}
+                  #{taskCheckpointOrdinal(checkpoint.ordinal, index)}
                 </span>
                 <button
                   type="button"
@@ -391,8 +392,8 @@ export function TaskCheckpointList({
                   disabled={!checkpoint.canToggle || pendingId === checkpoint._id}
                   aria-label={
                     checkpoint.completed
-                      ? `Ponovo otvori checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}`
-                      : `Završi checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}`
+                      ? `Ponovo otvori checkpoint broj ${taskCheckpointOrdinal(checkpoint.ordinal, index)}: ${checkpoint.text}`
+                      : `Završi checkpoint broj ${taskCheckpointOrdinal(checkpoint.ordinal, index)}: ${checkpoint.text}`
                   }
                   title={
                     checkpoint.completed

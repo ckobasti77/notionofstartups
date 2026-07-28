@@ -52,9 +52,12 @@ import {
   type AreaFlowNode,
 } from "@/components/workspace/canvases/area-flow-node";
 import {
+  TASK_CHECKPOINT_SIZE_PRESETS,
+  taskCheckpointOrdinal,
   taskCheckpointNodeId,
   taskCheckpointNodeMetrics,
   taskCheckpointOrbitPosition,
+  type TaskCheckpointSizePreset,
 } from "@/components/workspace/canvases/task-checkpoint-layout";
 import {
   TaskCheckpointFlowNodeCard,
@@ -111,6 +114,14 @@ type DeletedEdgeRecord = {
 };
 
 type CanvasFlowNode = AreaFlowNode | TaskCheckpointFlowNode;
+
+type CheckpointResizeSnapshot = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  manuallySized: boolean;
+};
 
 const NODE_TYPES = {
   areaPage: AreaFlowNodeCard,
@@ -270,16 +281,7 @@ function AreaCanvasReady({
     new Map<string, { x: number; y: number }>(),
   );
   const checkpointResizeStartRef = useRef(
-    new Map<
-      Id<"taskCheckpoints">,
-      {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        manuallySized: boolean;
-      }
-    >(),
+    new Map<Id<"taskCheckpoints">, CheckpointResizeSnapshot>(),
   );
   const pointerDragActiveRef = useRef(false);
   const nestingTargetIdRef = useRef<string | null>(null);
@@ -414,6 +416,10 @@ function AreaCanvasReady({
           ? []
           : taskCheckpoints.map((checkpoint, index) => {
             const metrics = taskCheckpointNodeMetrics(checkpoint.text);
+            const ordinal = taskCheckpointOrdinal(
+              checkpoint.ordinal,
+              index,
+            );
             const width = checkpoint.placement?.width ?? metrics.width;
             const height = checkpoint.placement?.height ?? metrics.height;
             const manuallySized =
@@ -459,7 +465,7 @@ function AreaCanvasReady({
               style: { width, height },
               data: {
                 checkpointId: checkpoint._id,
-                ordinal: checkpoint.ordinal,
+                ordinal,
                 text: checkpoint.text,
                 completed: checkpoint.completed,
                 canEdit: checkpoint.canEdit,
@@ -473,7 +479,7 @@ function AreaCanvasReady({
               draggable: checkpoint.canMove,
               connectable: false,
               deletable: false,
-              ariaLabel: `Checkpoint broj ${checkpoint.ordinal}: ${checkpoint.text}. ${
+              ariaLabel: `Checkpoint broj ${ordinal}: ${checkpoint.text}. ${
                 checkpoint.completed ? "Završen" : "Otvoren"
               }.`,
             };
@@ -1319,20 +1325,13 @@ function AreaCanvasReady({
     [],
   );
 
-  const resizeCheckpoint = useCallback(
+  const persistCheckpointResize = useCallback(
     (
       checkpointId: Id<"taskCheckpoints">,
-      layoutUpdate: ResizeParams,
+      before: CheckpointResizeSnapshot,
+      after: Omit<CheckpointResizeSnapshot, "manuallySized">,
+      historyLabel: string,
     ) => {
-      const before = checkpointResizeStartRef.current.get(checkpointId);
-      checkpointResizeStartRef.current.delete(checkpointId);
-      if (!before) return;
-      const after = {
-        x: Math.round(layoutUpdate.x),
-        y: Math.round(layoutUpdate.y),
-        width: Math.round(layoutUpdate.width),
-        height: Math.round(layoutUpdate.height),
-      };
       void saveCheckpointPlacement({
         checkpointId,
         canvasRootPageId: rootPageId,
@@ -1340,7 +1339,7 @@ function AreaCanvasReady({
       })
         .then(() => {
           pushHistory({
-            label: "promena veličine checkpointa",
+            label: historyLabel,
             undo: async () => {
               if (before.manuallySized) {
                 await saveCheckpointPlacement({
@@ -1404,6 +1403,70 @@ function AreaCanvasReady({
       rootPageId,
       saveCheckpointPlacement,
     ],
+  );
+
+  const resizeCheckpoint = useCallback(
+    (
+      checkpointId: Id<"taskCheckpoints">,
+      layoutUpdate: ResizeParams,
+    ) => {
+      const before = checkpointResizeStartRef.current.get(checkpointId);
+      checkpointResizeStartRef.current.delete(checkpointId);
+      if (!before) return;
+      persistCheckpointResize(
+        checkpointId,
+        before,
+        {
+          x: Math.round(layoutUpdate.x),
+          y: Math.round(layoutUpdate.y),
+          width: Math.round(layoutUpdate.width),
+          height: Math.round(layoutUpdate.height),
+        },
+        "promena veličine checkpointa",
+      );
+    },
+    [persistCheckpointResize],
+  );
+
+  const setCheckpointSizePreset = useCallback(
+    (
+      checkpointId: Id<"taskCheckpoints">,
+      preset: TaskCheckpointSizePreset,
+    ) => {
+      const node = nodesRef.current.find(
+        (candidate): candidate is TaskCheckpointFlowNode =>
+          isTaskCheckpointNode(candidate) &&
+          candidate.data.checkpointId === checkpointId,
+      );
+      if (!node || !node.data.canResize) return;
+      const before: CheckpointResizeSnapshot = {
+        x: node.position.x,
+        y: node.position.y,
+        width: node.width ?? (Number(node.style?.width) || 164),
+        height: node.height ?? (Number(node.style?.height) || 92),
+        manuallySized: node.data.manuallySized,
+      };
+      const dimensions = TASK_CHECKPOINT_SIZE_PRESETS[preset];
+      if (
+        Math.round(before.width) === dimensions.width &&
+        Math.round(before.height) === dimensions.height
+      ) {
+        return;
+      }
+      persistCheckpointResize(
+        checkpointId,
+        before,
+        {
+          x: Math.round(before.x),
+          y: Math.round(before.y),
+          ...dimensions,
+        },
+        preset === "expanded"
+          ? "proširivanje checkpointa"
+          : "smanjivanje checkpointa",
+      );
+    },
+    [persistCheckpointResize],
   );
 
   const resetCheckpointSize = useCallback(
@@ -1478,6 +1541,7 @@ function AreaCanvasReady({
     <TaskCheckpointNodeActionsProvider
       startResize={beginCheckpointResize}
       resize={resizeCheckpoint}
+      setSizePreset={setCheckpointSizePreset}
       resetSize={resetCheckpointSize}
     >
       <AreaNodeActionsProvider

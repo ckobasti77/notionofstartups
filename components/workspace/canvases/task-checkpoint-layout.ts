@@ -3,6 +3,25 @@ export type CheckpointNodeMetrics = {
   height: number;
 };
 
+export const TASK_CHECKPOINT_SIZE_PRESETS = {
+  compact: { width: 164, height: 110 },
+  expanded: { width: 360, height: 240 },
+} as const;
+
+export type TaskCheckpointSizePreset =
+  keyof typeof TASK_CHECKPOINT_SIZE_PRESETS;
+
+export function taskCheckpointOrdinal(
+  ordinal: number | null | undefined,
+  index: number,
+) {
+  return typeof ordinal === "number" &&
+    Number.isInteger(ordinal) &&
+    ordinal > 0
+    ? ordinal
+    : index + 1;
+}
+
 export function taskCheckpointNodeId(checkpointId: string) {
   return `checkpoint:${checkpointId}`;
 }
