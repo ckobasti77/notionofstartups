@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { recordActivity } from "./activity";
 import { requireProfileInStartup } from "./auth";
 import { insertContribution } from "./collaboration";
+import { createNotification, notificationCopy } from "./notifications";
 import { pageSearchText, pageTaskSortAt, requireVisiblePage } from "./pages";
 import { reconcileLegacyTaskCheckpoints } from "./task_checkpoints";
 import {
@@ -229,6 +230,10 @@ export async function insertWorkspacePage(
         }
       : {}),
     taskSortAt: args.page.taskSortAt,
+    completedAt:
+      args.target.kind === "task" && args.target.taskStatus === "done"
+        ? args.now
+        : null,
     createdByProfileId: args.actorProfileId,
     updatedByProfileId: args.actorProfileId,
     archivedAt: null,
@@ -281,5 +286,24 @@ export async function insertWorkspacePage(
     targetId: pageId,
     title: `${args.target.kind === "task" ? "Task" : "Stranica"} „${args.page.title}” je kreiran/a`,
   });
+  // Zadatak koji odmah dobije vlasnika ga i obavesti — inače bi dodela postojala
+  // samo u bazi dok je slučajno ne primeti.
+  if (args.target.kind === "task" && args.target.assigneeProfileId !== null) {
+    const actor = await ctx.db.get("profiles", args.actorProfileId);
+    const copy = notificationCopy.taskAssigned(
+      args.page.title,
+      actor?.displayName ?? "Član tima",
+    );
+    await createNotification(ctx, {
+      recipientProfileId: args.target.assigneeProfileId,
+      startupId: args.target.startupId,
+      type: "task_assigned",
+      title: copy.title,
+      body: copy.body,
+      targetType: "page",
+      targetId: pageId,
+      actorProfileId: args.actorProfileId,
+    });
+  }
   return pageId;
 }

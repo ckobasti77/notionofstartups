@@ -27,6 +27,27 @@ export const taskPriorityValidator = v.union(
   v.literal("urgent"),
 );
 
+export const notificationTypeValidator = v.union(
+  v.literal("task_assigned"),
+  v.literal("task_status_changed"),
+  v.literal("task_due_soon"),
+  v.literal("task_due_today"),
+  v.literal("task_overdue"),
+  v.literal("idea_voted"),
+  v.literal("idea_converted"),
+  v.literal("vote_requested"),
+  v.literal("request_resolved"),
+  v.literal("puls_ready"),
+);
+
+/** Kuda vodi klik na obaveštenje. */
+export const notificationTargetTypeValidator = v.union(
+  v.literal("page"),
+  v.literal("ideas"),
+  v.literal("approvals"),
+  v.literal("puls"),
+);
+
 export const checkpointItemValidator = v.object({
   id: v.string(),
   text: v.string(),
@@ -149,6 +170,7 @@ export const pageSummaryValidator = v.object({
   checkpointCompleted: v.optional(v.number()),
   checkpointRevision: v.optional(v.number()),
   taskSortAt: v.number(),
+  completedAt: v.optional(v.union(v.number(), v.null())),
   createdByProfileId: v.id("profiles"),
   updatedByProfileId: v.id("profiles"),
   archivedAt: v.union(v.number(), v.null()),

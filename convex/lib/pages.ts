@@ -85,6 +85,7 @@ export function summarizePage(page: Doc<"pages">) {
     checkpointCompleted: page.checkpointCompleted,
     checkpointRevision: page.checkpointRevision,
     taskSortAt: page.taskSortAt,
+    completedAt: page.completedAt,
     createdByProfileId: page.createdByProfileId,
     updatedByProfileId: page.updatedByProfileId,
     archivedAt: page.archivedAt,
@@ -99,4 +100,27 @@ export function pageSearchText(title: string, content: string) {
 
 export function pageTaskSortAt(dueDate: number | null, updatedAt: number) {
   return dueDate ?? 8_000_000_000_000_000 - updatedAt;
+}
+
+/**
+ * Kada je zadatak završen. Za zapise od pre uvođenja `completedAt` pada na
+ * `updatedAt`, pa Puls daje ispravne brojeve i pre nego što backfill prođe.
+ */
+export function taskCompletedAt(page: Doc<"pages">) {
+  if (page.taskStatus !== "done") return null;
+  return page.completedAt ?? page.updatedAt;
+}
+
+/**
+ * Nova vrednost `completedAt` pri promeni statusa: ulazak u „Gotovo” je pečat
+ * vremena, izlazak ga briše, a izmena već završenog zadatka ga ne pomera.
+ */
+export function nextCompletedAt(
+  page: Doc<"pages">,
+  nextTaskStatus: Doc<"pages">["taskStatus"],
+  now: number,
+) {
+  if (nextTaskStatus !== "done") return null;
+  if (page.taskStatus === "done") return page.completedAt ?? page.updatedAt;
+  return now;
 }

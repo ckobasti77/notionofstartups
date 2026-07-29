@@ -7,6 +7,7 @@ import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
+  Bell,
   Building2,
   ExternalLink,
   FileText,
@@ -29,6 +30,12 @@ import { IdeasView } from "@/components/workspace/ideas-view";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { CommandCenterView } from "@/components/workspace/command-center-view";
+import {
+  NotificationsSheet,
+  useNotificationToasts,
+  type NotificationItem,
+} from "@/components/workspace/notifications-panel";
+import { PulsView } from "@/components/workspace/puls-view";
 import { TasksView } from "@/components/workspace/tasks-view";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
 import {
@@ -163,6 +170,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const markNotificationRead = useMutation(api.notifications.markRead);
   const movePage = useMutation(api.areasV2.movePage);
   const resizePage = useMutation(api.areasV2.resizePage);
   const resetPageSize = useMutation(api.areasV2.resetPageSize);
@@ -186,6 +195,10 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   );
   const pageNestingInbox = useQuery(
     api.areasV2.listNestingInbox,
+    startup ? { startupId: startup._id } : "skip",
+  );
+  const unreadNotifications = useQuery(
+    api.notifications.unreadCount,
     startup ? { startupId: startup._id } : "skip",
   );
   const detailPage = useQuery(
@@ -570,6 +583,65 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     setDetailSaveState("saved");
   }
 
+  /**
+   * Klik na obaveštenje vodi na njegov povod. Cilj može biti arhiviran ili
+   * obrisan u međuvremenu, pa se degradira na oblast, a u najgorem slučaju
+   * objašnjava zašto ne može da se otvori — obaveštenje se svakako čita.
+   */
+  async function openNotificationTarget(item: NotificationItem) {
+    {
+      setNotificationsOpen(false);
+      void markNotificationRead({ notificationId: item._id }).catch(() => {
+        // Neuspelo označavanje ne sme da blokira navigaciju.
+      });
+
+      if (item.targetType === "approvals") {
+        navigateRoute({ kind: "approvals" });
+        return;
+      }
+      if (item.targetType === "ideas") {
+        navigateRoute({ kind: "ideas" });
+        return;
+      }
+      if (item.targetType === "puls") {
+        const weekRef = Number(item.targetId);
+        navigateRoute(
+          Number.isFinite(weekRef) && weekRef > 0
+            ? { kind: "puls", weekStart: weekRef }
+            : { kind: "puls" },
+        );
+        return;
+      }
+      if (item.targetId === null) {
+        navigateRoute({ kind: "today" });
+        return;
+      }
+
+      if (startupId === undefined) return;
+      try {
+        const value = await convex.query(api.areasV2.resolveRoute, {
+          startupId,
+          pageId: item.targetId as Id<"pages">,
+        });
+        const resolved = resolvedAreasRoute(value);
+        if (resolved === null) {
+          toast.error("Sadržaj obaveštenja više ne postoji.");
+          return;
+        }
+        if (resolved.kind === "page") {
+          openPageDetails(resolved.pageId);
+          return;
+        }
+        navigateRoute(resolved);
+        toast.info("Sadržaj više nije dostupan; otvorena je njegova oblast.");
+      } catch {
+        toast.error("Sadržaj obaveštenja više ne postoji.");
+      }
+    }
+  }
+
+  useNotificationToasts({ startupId, onOpen: openNotificationTarget });
+
   function resizeDetailCard(preset: ItemSizePreset) {
     if (
       !detailPageId ||
@@ -738,6 +810,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     pendingApprovals:
       (approvalsOverview?.pendingCount ?? 0) +
       (pageNestingInbox?.incoming.length ?? 0),
+    unreadNotifications: unreadNotifications?.count ?? 0,
+    onOpenNotifications: () => setNotificationsOpen(true),
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
     onDragPageOver: handleDragPageOver,
@@ -748,7 +822,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
       <WorkspaceSidebar {...sidebarProps} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><ThemeToggle /></header>
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><Button variant="ghost" size="icon" className="relative" aria-label={`Obaveštenja${(unreadNotifications?.count ?? 0) > 0 ? `, ${unreadNotifications?.count} nepročitano` : ""}`} onClick={() => setNotificationsOpen(true)}><Bell />{(unreadNotifications?.count ?? 0) > 0 ? <span aria-hidden="true" className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[0.625rem] font-bold leading-4 tabular-nums text-primary-foreground">{unreadNotifications?.capped ? "99+" : unreadNotifications?.count}</span> : null}</Button><ThemeToggle /></header>
         <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas"}>
           {route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
@@ -760,6 +834,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             <CommandCenterView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
           ) : route.kind === "my-tasks" ? (
             <TasksView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+          ) : route.kind === "puls" ? (
+            <PulsView
+              startup={startup}
+              initialWeekStart={route.weekStart ?? null}
+              onOpenPage={openPageDetails}
+              onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
+            />
           ) : route.kind === "activity" ? (
             <ActivityView startup={startup} />
           ) : route.kind === "approvals" ? (
@@ -808,6 +889,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         </WorkspaceStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
+      <NotificationsSheet
+        open={notificationsOpen}
+        onOpenChange={setNotificationsOpen}
+        startupId={startup._id}
+        onOpenNotification={openNotificationTarget}
+      />
       <Dialog
         open={detailPageId !== null}
         onOpenChange={(open) => {

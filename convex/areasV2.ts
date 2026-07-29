@@ -18,6 +18,11 @@ import {
   insertContribution,
 } from "./lib/collaboration";
 import {
+  createNotification,
+  notificationCopy,
+  notifyTaskStakeholders,
+} from "./lib/notifications";
+import {
   cleanPageContent,
   cleanPagePosition,
   insertWorkspacePage,
@@ -26,6 +31,7 @@ import {
 } from "./lib/page_creation";
 import {
   getActivePageDescendants,
+  nextCompletedAt,
   pageSearchText,
   pageTaskSortAt,
 } from "./lib/pages";
@@ -937,7 +943,51 @@ async function createPendingNestingRequest(
     targetId: requestId,
     title: `Zatraženo je ugnježđavanje stranice „${args.child.title}”`,
   });
+  const requester = await ctx.db.get("profiles", args.requesterProfileId);
+  const nestingCopy = notificationCopy.nestingVoteRequested(
+    args.child.title,
+    args.targetParent.title,
+    requester?.displayName ?? "Član tima",
+  );
+  await createNotification(ctx, {
+    recipientProfileId: args.targetParent.createdByProfileId,
+    startupId: args.child.startupId,
+    type: "vote_requested",
+    title: nestingCopy.title,
+    body: nestingCopy.body,
+    targetType: "approvals",
+    targetId: requestId,
+    actorProfileId: args.requesterProfileId,
+  });
   return requestId;
+}
+
+/** Podnosilac zahteva za ugnježđavanje saznaje ishod, bez obzira na smer. */
+async function notifyNestingResolution(
+  ctx: MutationCtx,
+  args: {
+    request: Doc<"pageNestingRequests">;
+    childTitle: string;
+    approved: boolean;
+    actorProfileId: Id<"profiles">;
+    actorName: string;
+  },
+) {
+  const copy = notificationCopy.requestResolved(
+    args.childTitle,
+    args.approved,
+    args.actorName,
+  );
+  await createNotification(ctx, {
+    recipientProfileId: args.request.requesterProfileId,
+    startupId: args.request.startupId,
+    type: "request_resolved",
+    title: copy.title,
+    body: copy.body,
+    targetType: "approvals",
+    targetId: args.request._id,
+    actorProfileId: args.actorProfileId,
+  });
 }
 
 async function cancelPendingRequestsForChild(
@@ -2089,6 +2139,7 @@ export const updatePage = mutation({
       instructions,
       checkpoints,
       taskSortAt: pageTaskSortAt(dueDate, now),
+      completedAt: nextCompletedAt(page, taskStatus, now),
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
@@ -2134,6 +2185,12 @@ export const updatePage = mutation({
       targetType: "page",
       targetId: page._id,
       title: `„${title}” je izmenjen/a`,
+    });
+    await notifyTaskStakeholders(ctx, {
+      page,
+      nextAssigneeProfileId: assigneeProfileId,
+      nextTaskStatus: taskStatus,
+      actorProfileId: profile._id,
     });
     return { revision };
   },
@@ -2944,6 +3001,13 @@ export const approveNesting = mutation({
       targetId: request._id,
       title: `Odobreno je ugnježđavanje stranice „${child.title}”`,
     });
+    await notifyNestingResolution(ctx, {
+      request,
+      childTitle: child.title,
+      approved: true,
+      actorProfileId: profile._id,
+      actorName: profile.displayName,
+    });
     return { status: "approved" as const };
   },
 });
@@ -2969,6 +3033,14 @@ export const rejectNesting = mutation({
       status: "rejected",
       resolvedAt: now,
       updatedAt: now,
+    });
+    const rejectedChild = await ctx.db.get("pages", request.childPageId);
+    await notifyNestingResolution(ctx, {
+      request,
+      childTitle: rejectedChild?.title ?? "stranica",
+      approved: false,
+      actorProfileId: profile._id,
+      actorName: profile.displayName,
     });
     return { status: "rejected" as const };
   },

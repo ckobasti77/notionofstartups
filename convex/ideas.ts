@@ -9,6 +9,7 @@ import {
   detachIdeaChildren,
   insertContribution,
 } from "./lib/collaboration";
+import { createNotification, notificationCopy } from "./lib/notifications";
 import {
   prepareWorkspacePage,
   validateWorkspacePageTarget,
@@ -396,12 +397,32 @@ export const vote = mutation({
       )
       .unique();
 
+    // Skidanje glasa nikoga ne obaveštava — samo dat ili promenjen glas.
+    async function notifyAuthor() {
+      const ideaLabel = idea!.title ?? idea!.text.slice(0, 60);
+      const copy = notificationCopy.ideaVoted(
+        ideaLabel,
+        profile.displayName,
+        args.voteType,
+      );
+      await createNotification(ctx, {
+        recipientProfileId: idea!.authorProfileId,
+        startupId: args.startupId,
+        type: "idea_voted",
+        title: copy.title,
+        targetType: "ideas",
+        targetId: args.ideaId,
+        actorProfileId: profile._id,
+      });
+    }
+
     if (existingVote) {
       if (existingVote.voteType === args.voteType) {
         await ctx.db.delete(existingVote._id);
         return { action: "removed" };
       } else {
         await ctx.db.patch(existingVote._id, { voteType: args.voteType });
+        await notifyAuthor();
         return { action: "updated" };
       }
     } else {
@@ -412,6 +433,7 @@ export const vote = mutation({
         voteType: args.voteType,
         createdAt: Date.now(),
       });
+      await notifyAuthor();
       return { action: "created" };
     }
   },
@@ -893,6 +915,8 @@ export const convertToPage = mutation({
         ? {}
         : { checkpoints: target.checkpoints }),
       taskSortAt: page.taskSortAt,
+      completedAt:
+        target.kind === "task" && target.taskStatus === "done" ? now : null,
       createdByProfileId: profile._id,
       updatedByProfileId: profile._id,
       archivedAt: null,
@@ -951,6 +975,24 @@ export const convertToPage = mutation({
       convertedPageId: pageId,
       convertedAt: now,
       updatedAt: now,
+    });
+
+    // Autor ideje treba da zna gde mu je ideja završila; link vodi na rezultat.
+    const ideaLabel = idea.title ?? idea.text.slice(0, 60);
+    const convertedCopy = notificationCopy.ideaConverted(
+      ideaLabel,
+      args.kind,
+      profile.displayName,
+    );
+    await createNotification(ctx, {
+      recipientProfileId: idea.authorProfileId,
+      startupId: args.startupId,
+      type: "idea_converted",
+      title: convertedCopy.title,
+      body: convertedCopy.body,
+      targetType: "page",
+      targetId: pageId,
+      actorProfileId: profile._id,
     });
 
     return pageId;

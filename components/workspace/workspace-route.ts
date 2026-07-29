@@ -40,6 +40,14 @@ export function readWorkspaceRouteCandidate(
   if (view === "my-tasks") return { kind: "my-tasks" };
   if (view === "activity") return { kind: "activity" };
   if (view === "approvals") return { kind: "approvals" };
+  if (view === "puls") {
+    // `week` nosi bilo koji trenutak iz željene nedelje; prikaz ga normalizuje
+    // na svoj lokalni ponedeljak.
+    const week = Number(params.get("week"));
+    return Number.isFinite(week) && week > 0
+      ? { kind: "puls", weekStart: week }
+      : { kind: "puls" };
+  }
   if (view === "area") {
     const areaId = params.get("areaId")?.trim();
     return areaId ? { kind: "area", areaId } : null;
@@ -95,6 +103,7 @@ export function workspaceRouteHref(
   url.searchParams.delete("view");
   url.searchParams.delete("areaId");
   url.searchParams.delete("pageId");
+  url.searchParams.delete("week");
   url.searchParams.delete("startupId");
   url.searchParams.set("view", route.kind);
 
@@ -102,6 +111,8 @@ export function workspaceRouteHref(
     url.searchParams.set("areaId", route.areaId);
   } else if (route.kind === "page") {
     url.searchParams.set("pageId", route.pageId);
+  } else if (route.kind === "puls" && route.weekStart !== undefined) {
+    url.searchParams.set("week", String(route.weekStart));
   }
   if (startupId) url.searchParams.set("startupId", startupId);
 

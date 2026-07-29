@@ -1,0 +1,489 @@
+import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation, query } from "./_generated/server";
+import { requireStartupMember } from "./lib/auth";
+import {
+  belgradeDayKey,
+  createNotification,
+  notificationCopy,
+} from "./lib/notifications";
+import { taskCompletedAt } from "./lib/pages";
+import {
+  taskPriorityValidator,
+  taskStatusValidator,
+} from "./lib/validators";
+
+/** „U toku” bez izmene ovoliko radnih dana smatramo zapelim. */
+export const STUCK_IN_PROGRESS_WORK_DAYS = 4;
+/** „Čeka” duže od ovoliko kalendarskih dana je zapelo. */
+export const STUCK_BLOCKED_DAYS = 2;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const MAX_WEEK_MS = 8 * DAY_MS;
+
+const MAX_PULS_TASKS = 1_000;
+const MAX_PULS_ACTIVITIES = 4_000;
+const MAX_PULS_IDEAS = 500;
+const MAX_PULS_VOTES = 2_000;
+const MAX_PULS_AREAS = 50;
+const MAX_PULS_MEMBERS = 50;
+const MAX_STUCK_ROWS = 30;
+
+const MAX_CRON_STARTUPS = 200;
+
+/**
+ * Radni dani između dva trenutka, bez vikenda. Dan se određuje po UTC+1, što je
+ * dovoljno tačno za prag „zapelog” i ne zavisi od zone servera.
+ */
+export function workDaysBetween(startMs: number, endMs: number) {
+  if (endMs <= startMs) return 0;
+  let workDays = 0;
+  let cursor = startMs;
+  for (let guard = 0; guard < 60 && cursor < endMs; guard += 1) {
+    const weekday = new Date(cursor + HOUR_MS).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) workDays += 1;
+    cursor += DAY_MS;
+  }
+  return workDays;
+}
+
+const trendValidator = v.object({
+  current: v.number(),
+  previous: v.number(),
+});
+
+const memberSummaryValidator = v.object({
+  profileId: v.id("profiles"),
+  displayName: v.string(),
+  avatarUrl: v.union(v.string(), v.null()),
+  isArchived: v.boolean(),
+  completedThisWeek: v.number(),
+  activityCount: v.number(),
+  openCount: v.number(),
+  overdueCount: v.number(),
+});
+
+export const getWeekly = query({
+  args: {
+    startupId: v.id("startups"),
+    prevWeekStart: v.number(),
+    weekStart: v.number(),
+    weekEnd: v.number(),
+    now: v.number(),
+  },
+  returns: v.object({
+    range: v.object({ weekStart: v.number(), weekEnd: v.number() }),
+    startupCreatedAt: v.number(),
+    summary: v.object({
+      completed: trendValidator,
+      created: trendValidator,
+      overdueOpen: trendValidator,
+      stuck: v.object({ current: v.number(), previous: v.null() }),
+    }),
+    stuckTasks: v.array(
+      v.object({
+        pageId: v.id("pages"),
+        title: v.string(),
+        taskStatus: taskStatusValidator,
+        taskPriority: v.union(taskPriorityValidator, v.null()),
+        areaId: v.id("startupAreas"),
+        areaLabel: v.string(),
+        assignee: v.union(
+          v.object({
+            profileId: v.id("profiles"),
+            displayName: v.string(),
+            avatarUrl: v.union(v.string(), v.null()),
+          }),
+          v.null(),
+        ),
+        dueDate: v.union(v.number(), v.null()),
+        lastTouchedAt: v.number(),
+      }),
+    ),
+    areas: v.array(
+      v.object({
+        areaId: v.id("startupAreas"),
+        key: v.string(),
+        label: v.string(),
+        openCount: v.number(),
+        doneCount: v.number(),
+        completedThisWeek: v.number(),
+      }),
+    ),
+    members: v.array(memberSummaryValidator),
+    unassigned: v.object({
+      completedThisWeek: v.number(),
+      openCount: v.number(),
+      overdueCount: v.number(),
+    }),
+    ideas: v.object({
+      created: trendValidator,
+      votes: trendValidator,
+      converted: trendValidator,
+    }),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const { startup } = await requireStartupMember(ctx, args.startupId);
+
+    // Granice nedelje računa klijent po svojoj zoni; server ih samo proverava,
+    // jer query ne sme da čita sat.
+    if (
+      !(args.prevWeekStart < args.weekStart && args.weekStart < args.weekEnd)
+    ) {
+      throw new Error("Granice nedelje nisu ispravne.");
+    }
+    if (
+      args.weekEnd - args.weekStart > MAX_WEEK_MS ||
+      args.weekStart - args.prevWeekStart > MAX_WEEK_MS
+    ) {
+      throw new Error("Raspon nedelje je preveliki.");
+    }
+    if (args.weekStart > args.now + DAY_MS) {
+      throw new Error("Puls za buduće nedelje još ne postoji.");
+    }
+
+    const tasks = await ctx.db
+      .query("pages")
+      .withIndex("by_startupId_and_kind_and_archivedAt", (q) =>
+        q
+          .eq("startupId", args.startupId)
+          .eq("kind", "task")
+          .eq("archivedAt", null),
+      )
+      .take(MAX_PULS_TASKS);
+
+    const areas = await ctx.db
+      .query("startupAreas")
+      .withIndex("by_startupId_and_position", (q) =>
+        q.eq("startupId", args.startupId),
+      )
+      .take(MAX_PULS_AREAS);
+
+    const memberships = await ctx.db
+      .query("startupMembers")
+      .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
+        q.eq("startupId", args.startupId).eq("archivedAt", null),
+      )
+      .take(MAX_PULS_MEMBERS);
+
+    // Jedan raspon pokriva obe nedelje, pa trend ne traži drugo čitanje.
+    const activities = await ctx.db
+      .query("activities")
+      .withIndex("by_startupId_and_createdAt", (q) =>
+        q
+          .eq("startupId", args.startupId)
+          .gte("createdAt", args.prevWeekStart)
+          .lt("createdAt", args.weekEnd),
+      )
+      .take(MAX_PULS_ACTIVITIES);
+
+    // `createdAt <= updatedAt` i `convertedAt <= updatedAt`, pa sve što je
+    // nastalo ili pretvoreno od prošle nedelje ulazi u ovaj raspon.
+    const ideas = await ctx.db
+      .query("ideaNodes")
+      .withIndex("by_startupId_and_archivedAt_and_updatedAt", (q) =>
+        q
+          .eq("startupId", args.startupId)
+          .eq("archivedAt", null)
+          .gte("updatedAt", args.prevWeekStart),
+      )
+      .take(MAX_PULS_IDEAS);
+
+    const votes = await ctx.db
+      .query("ideaVotes")
+      .withIndex("by_startupId", (q) => q.eq("startupId", args.startupId))
+      .take(MAX_PULS_VOTES);
+
+    const inCurrent = (timestamp: number) =>
+      timestamp >= args.weekStart && timestamp < args.weekEnd;
+    const inPrevious = (timestamp: number) =>
+      timestamp >= args.prevWeekStart && timestamp < args.weekStart;
+
+    /**
+     * Stanje „otvoreno i prekoračeno” u trenutku T. Za tekuću nedelju je tačno;
+     * za prošlu je procena, jer izmene roka i arhiviranje nisu rekonstruisani.
+     */
+    const overdueAt = (task: Doc<"pages">, at: number) => {
+      if (task.createdAt >= at) return false;
+      if (task.dueDate === null || task.dueDate >= at) return false;
+      const completedAt = taskCompletedAt(task);
+      return completedAt === null || completedAt > at;
+    };
+    const currentBoundary = Math.min(args.now, args.weekEnd);
+
+    let completedCurrent = 0;
+    let completedPrevious = 0;
+    let createdCurrent = 0;
+    let createdPrevious = 0;
+    let overdueCurrent = 0;
+    let overduePrevious = 0;
+
+    const areaStats = new Map(
+      areas.map((area) => [
+        area._id as Id<"startupAreas">,
+        { openCount: 0, doneCount: 0, completedThisWeek: 0 },
+      ]),
+    );
+    type MemberStats = {
+      completedThisWeek: number;
+      activityCount: number;
+      openCount: number;
+      overdueCount: number;
+    };
+    const emptyStats = (): MemberStats => ({
+      completedThisWeek: 0,
+      activityCount: 0,
+      openCount: 0,
+      overdueCount: 0,
+    });
+    const memberStats = new Map<Id<"profiles">, MemberStats>(
+      memberships.map((membership) => [membership.profileId, emptyStats()]),
+    );
+    const unassigned = {
+      completedThisWeek: 0,
+      openCount: 0,
+      overdueCount: 0,
+    };
+    const stuckCandidates: Array<Doc<"pages">> = [];
+
+    for (const task of tasks) {
+      const completedAt = taskCompletedAt(task);
+      const isDone = task.taskStatus === "done";
+      const stats =
+        task.assigneeProfileId === null
+          ? unassigned
+          : memberStats.get(task.assigneeProfileId) ??
+            (() => {
+              // Zadatak zadužen članu koji je u međuvremenu arhiviran.
+              const created = emptyStats();
+              memberStats.set(task.assigneeProfileId!, created);
+              return created;
+            })();
+
+      if (completedAt !== null && inCurrent(completedAt)) {
+        completedCurrent += 1;
+        stats.completedThisWeek += 1;
+      }
+      if (completedAt !== null && inPrevious(completedAt)) {
+        completedPrevious += 1;
+      }
+      if (inCurrent(task.createdAt)) createdCurrent += 1;
+      if (inPrevious(task.createdAt)) createdPrevious += 1;
+
+      if (overdueAt(task, currentBoundary)) {
+        overdueCurrent += 1;
+        stats.overdueCount += 1;
+      }
+      if (overdueAt(task, args.weekStart)) overduePrevious += 1;
+
+      if (!isDone) stats.openCount += 1;
+
+      const areaStat = areaStats.get(task.areaId);
+      if (areaStat !== undefined) {
+        if (isDone) areaStat.doneCount += 1;
+        else areaStat.openCount += 1;
+        if (completedAt !== null && inCurrent(completedAt)) {
+          areaStat.completedThisWeek += 1;
+        }
+      }
+
+      const stalledInProgress =
+        task.taskStatus === "in_progress" &&
+        workDaysBetween(task.updatedAt, args.now) >=
+          STUCK_IN_PROGRESS_WORK_DAYS;
+      const stalledBlocked =
+        task.taskStatus === "blocked" &&
+        args.now - task.updatedAt >= STUCK_BLOCKED_DAYS * DAY_MS;
+      if (stalledInProgress || stalledBlocked) stuckCandidates.push(task);
+    }
+
+    for (const activity of activities) {
+      if (!inCurrent(activity.createdAt)) continue;
+      const stats = memberStats.get(activity.actorProfileId);
+      if (stats !== undefined) stats.activityCount += 1;
+    }
+
+    const profileCache = new Map<
+      Id<"profiles">,
+      { displayName: string; avatarUrl: string | null } | null
+    >();
+    const loadProfile = async (profileId: Id<"profiles">) => {
+      const cached = profileCache.get(profileId);
+      if (cached !== undefined) return cached;
+      const profile = await ctx.db.get("profiles", profileId);
+      const value =
+        profile === null
+          ? null
+          : {
+              displayName: profile.displayName,
+              avatarUrl:
+                profile.avatarStorageId === undefined
+                  ? null
+                  : await ctx.storage.getUrl(profile.avatarStorageId),
+            };
+      profileCache.set(profileId, value);
+      return value;
+    };
+
+    const activeMemberIds = new Set(
+      memberships.map((membership) => membership.profileId as string),
+    );
+    const members = [];
+    for (const [profileId, stats] of memberStats) {
+      const profile = await loadProfile(profileId);
+      if (profile === null) continue;
+      members.push({
+        profileId,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        isArchived: !activeMemberIds.has(profileId),
+        ...stats,
+      });
+    }
+    members.sort(
+      (a, b) =>
+        b.completedThisWeek - a.completedThisWeek ||
+        b.activityCount - a.activityCount ||
+        a.displayName.localeCompare(b.displayName, "sr-Latn-RS"),
+    );
+
+    const areaLabels = new Map(areas.map((area) => [area._id, area.label]));
+    stuckCandidates.sort((a, b) => a.updatedAt - b.updatedAt);
+    const stuckTasks = [];
+    for (const task of stuckCandidates.slice(0, MAX_STUCK_ROWS)) {
+      const assigneeProfile =
+        task.assigneeProfileId === null
+          ? null
+          : await loadProfile(task.assigneeProfileId);
+      stuckTasks.push({
+        pageId: task._id,
+        title: task.title,
+        taskStatus: (task.taskStatus ?? "in_progress") as "in_progress" | "blocked",
+        taskPriority: task.taskPriority,
+        areaId: task.areaId,
+        areaLabel: areaLabels.get(task.areaId) ?? "Bez oblasti",
+        assignee:
+          task.assigneeProfileId === null || assigneeProfile === null
+            ? null
+            : {
+                profileId: task.assigneeProfileId,
+                displayName: assigneeProfile.displayName,
+                avatarUrl: assigneeProfile.avatarUrl,
+              },
+        dueDate: task.dueDate,
+        lastTouchedAt: task.updatedAt,
+      });
+    }
+
+    let ideasCreatedCurrent = 0;
+    let ideasCreatedPrevious = 0;
+    let ideasConvertedCurrent = 0;
+    let ideasConvertedPrevious = 0;
+    for (const idea of ideas) {
+      if (inCurrent(idea.createdAt)) ideasCreatedCurrent += 1;
+      if (inPrevious(idea.createdAt)) ideasCreatedPrevious += 1;
+      if (idea.convertedAt !== null) {
+        if (inCurrent(idea.convertedAt)) ideasConvertedCurrent += 1;
+        if (inPrevious(idea.convertedAt)) ideasConvertedPrevious += 1;
+      }
+    }
+
+    let votesCurrent = 0;
+    let votesPrevious = 0;
+    for (const vote of votes) {
+      if (inCurrent(vote.createdAt)) votesCurrent += 1;
+      if (inPrevious(vote.createdAt)) votesPrevious += 1;
+    }
+
+    return {
+      range: { weekStart: args.weekStart, weekEnd: args.weekEnd },
+      startupCreatedAt: startup.createdAt,
+      summary: {
+        completed: { current: completedCurrent, previous: completedPrevious },
+        created: { current: createdCurrent, previous: createdPrevious },
+        overdueOpen: { current: overdueCurrent, previous: overduePrevious },
+        stuck: { current: stuckCandidates.length, previous: null },
+      },
+      stuckTasks,
+      areas: areas.map((area) => ({
+        areaId: area._id,
+        key: area.key,
+        label: area.label,
+        ...(areaStats.get(area._id) ?? {
+          openCount: 0,
+          doneCount: 0,
+          completedThisWeek: 0,
+        }),
+      })),
+      members,
+      unassigned,
+      ideas: {
+        created: {
+          current: ideasCreatedCurrent,
+          previous: ideasCreatedPrevious,
+        },
+        votes: { current: votesCurrent, previous: votesPrevious },
+        converted: {
+          current: ideasConvertedCurrent,
+          previous: ideasConvertedPrevious,
+        },
+      },
+      truncated:
+        tasks.length === MAX_PULS_TASKS ||
+        activities.length === MAX_PULS_ACTIVITIES ||
+        ideas.length === MAX_PULS_IDEAS ||
+        votes.length === MAX_PULS_VOTES,
+    };
+  },
+});
+
+/**
+ * Ponedeljak ujutru: javlja svakom aktivnom članu da je Puls prošle nedelje
+ * spreman. `weekRef` je četiri dana unazad — u svakoj zoni to pada u prošlu
+ * nedelju, a klijent ga normalizuje na svoj lokalni ponedeljak.
+ */
+export const sendWeeklyPulsNotifications = internalMutation({
+  args: {},
+  returns: v.object({ notified: v.number(), startups: v.number() }),
+  handler: async (ctx) => {
+    const weekRef = Date.now() - 4 * DAY_MS;
+    const weekKey = belgradeDayKey(weekRef);
+
+    const startups = await ctx.db
+      .query("startups")
+      .withIndex("by_archivedAt_and_updatedAt", (q) => q.eq("archivedAt", null))
+      .take(MAX_CRON_STARTUPS);
+
+    let notified = 0;
+    for (const startup of startups) {
+      const memberships = await ctx.db
+        .query("startupMembers")
+        .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
+          q.eq("startupId", startup._id).eq("archivedAt", null),
+        )
+        .take(MAX_PULS_MEMBERS);
+
+      const copy = notificationCopy.pulsReady(startup.name);
+      for (const membership of memberships) {
+        const notificationId = await createNotification(ctx, {
+          recipientProfileId: membership.profileId,
+          startupId: startup._id,
+          type: "puls_ready",
+          title: copy.title,
+          body: copy.body,
+          targetType: "puls",
+          targetId: String(weekRef),
+          actorProfileId: null,
+          // Primalac je u ključu jer Puls ide svima, pa bi zajednički ključ
+          // pustio samo prvog člana.
+          dedupeKey: `puls_ready:${startup._id}:${weekKey}:${membership.profileId}`,
+        });
+        if (notificationId !== null) notified += 1;
+      }
+    }
+
+    return { notified, startups: startups.length };
+  },
+});

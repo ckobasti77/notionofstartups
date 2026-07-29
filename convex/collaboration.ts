@@ -17,6 +17,7 @@ import {
   contributionTargetKey,
   insertContribution,
 } from "./lib/collaboration";
+import { createNotification, notificationCopy } from "./lib/notifications";
 import { cleanPageContent } from "./lib/page_creation";
 import { syncTaskCheckpointProjection } from "./lib/task_checkpoints";
 import { archiveCheckpointCanvasEdgesForCheckpoint } from "./lib/task_checkpoint_canvas_edges";
@@ -872,6 +873,25 @@ export const requestDeletion = mutation({
       targetId: requestId,
       title: `Pokrenuto je glasanje za brisanje: ${info.title}`,
     });
+    // Jednočlani startup se odobrava sam, pa nema koga pitati za glas.
+    if (members.length > 1) {
+      const voteCopy = notificationCopy.deletionVoteRequested(
+        info.title,
+        profile.displayName,
+      );
+      for (const membership of members) {
+        await createNotification(ctx, {
+          recipientProfileId: membership.profileId,
+          startupId: info.startupId,
+          type: "vote_requested",
+          title: voteCopy.title,
+          body: voteCopy.body,
+          targetType: "approvals",
+          targetId: requestId,
+          actorProfileId: profile._id,
+        });
+      }
+    }
     if (members.length === 1) {
       const request = await ctx.db.get("deletionRequests", requestId);
       if (request !== null) {
@@ -917,6 +937,26 @@ export const voteOnDeletion = mutation({
       request.approveCount + (args.vote === "approve" ? 1 : 0);
     const rejectCount =
       request.rejectCount + (args.vote === "reject" ? 1 : 0);
+
+    // Podnosilac saznaje ishod svog zahteva, i to samo kad je odlučen.
+    async function notifyRequester(approved: boolean) {
+      const copy = notificationCopy.requestResolved(
+        request!.targetTitle,
+        approved,
+        profile.displayName,
+      );
+      await createNotification(ctx, {
+        recipientProfileId: request!.requesterProfileId,
+        startupId: request!.startupId,
+        type: "request_resolved",
+        title: copy.title,
+        body: copy.body,
+        targetType: "approvals",
+        targetId: request!._id,
+        actorProfileId: profile._id,
+      });
+    }
+
     if (args.vote === "reject") {
       await ctx.db.patch("deletionRequests", request._id, {
         status: "rejected",
@@ -925,6 +965,7 @@ export const voteOnDeletion = mutation({
         resolvedAt: now,
         updatedAt: now,
       });
+      await notifyRequester(false);
     } else if (approveCount === request.eligibleCount) {
       await applyApprovedDeletion(ctx, request);
       await ctx.db.patch("deletionRequests", request._id, {
@@ -934,6 +975,7 @@ export const voteOnDeletion = mutation({
         resolvedAt: now,
         updatedAt: now,
       });
+      await notifyRequester(true);
     } else {
       await ctx.db.patch("deletionRequests", request._id, {
         approveCount,
@@ -1171,6 +1213,21 @@ export const requestNesting = mutation({
       targetId: requestId,
       title: "Poslat je zahtev za ugnježđavanje ideje",
     });
+    const nestingCopy = notificationCopy.nestingVoteRequested(
+      child.title ?? child.text.slice(0, 40),
+      parent.title ?? parent.text.slice(0, 40),
+      profile.displayName,
+    );
+    await createNotification(ctx, {
+      recipientProfileId: parent.authorProfileId,
+      startupId: args.startupId,
+      type: "vote_requested",
+      title: nestingCopy.title,
+      body: nestingCopy.body,
+      targetType: "approvals",
+      targetId: requestId,
+      actorProfileId: profile._id,
+    });
     return { status: "pending" as const, requestId };
   },
 });
@@ -1231,6 +1288,21 @@ export const resolveNesting = mutation({
       title: args.approve
         ? "Ugnježđavanje je odobreno"
         : "Ugnježđavanje je odbijeno",
+    });
+    const resolvedCopy = notificationCopy.requestResolved(
+      child.title ?? child.text.slice(0, 40),
+      args.approve,
+      profile.displayName,
+    );
+    await createNotification(ctx, {
+      recipientProfileId: request.requesterProfileId,
+      startupId: request.startupId,
+      type: "request_resolved",
+      title: resolvedCopy.title,
+      body: resolvedCopy.body,
+      targetType: "approvals",
+      targetId: request._id,
+      actorProfileId: profile._id,
     });
     return request._id;
   },

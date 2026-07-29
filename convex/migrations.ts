@@ -150,6 +150,21 @@ export const backfillLegacyPageBodies = migrations.define({
   },
 });
 
+/**
+ * Zapisi od pre uvođenja `completedAt` dobijaju procenu iz `updatedAt` — to je
+ * najbolji dostupni signal za istorijske zadatke. Čitanje ionako ide kroz
+ * `taskCompletedAt`, pa Puls daje iste brojeve i pre i posle ove migracije.
+ */
+export const backfillTaskCompletedAt = migrations.define({
+  table: "pages",
+  migrateOne: async (ctx, page) => {
+    if (page.kind !== "task" || page.completedAt !== undefined) return;
+    await ctx.db.patch("pages", page._id, {
+      completedAt: page.taskStatus === "done" ? page.updatedAt : null,
+    });
+  },
+});
+
 export const run = migrations.runner();
 
 export const verifyContributionBackfill = internalQuery({

@@ -6,12 +6,14 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
   Activity,
+  Bell,
   Brain,
   CalendarDays,
   CheckSquare2,
   ChevronDown,
   ChevronsUpDown,
   GripVertical,
+  HeartPulse,
   Home,
   Lightbulb,
   LogOut,
@@ -103,6 +105,8 @@ type WorkspaceSidebarProps = {
   activeDropPageId: Id<"pages"> | null;
   activeDropAreaId: Id<"startupAreas"> | null;
   pendingApprovals: number;
+  unreadNotifications: number;
+  onOpenNotifications: () => void;
   onDragPageStart: (pageId: Id<"pages">) => void;
   onDragPageEnd: () => void;
   onDragPageOver: (
@@ -129,6 +133,7 @@ const primaryNav = [
   { kind: "today" as const, label: "Danas", icon: CalendarDays },
   { kind: "my-tasks" as const, label: "Moji zadaci", icon: CheckSquare2 },
   { kind: "activity" as const, label: "Aktivnost", icon: Activity },
+  { kind: "puls" as const, label: "Puls", icon: HeartPulse, hint: "Nedeljno" },
 ];
 
 const DEFAULT_PRIMARY_PANE_HEIGHT = 412;
@@ -499,6 +504,14 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                 active={false}
                 collapsed={compact}
                 onClick={props.onSearch}
+              />
+              <SidebarButton
+                label="Obaveštenja"
+                icon={Bell}
+                badge={props.unreadNotifications}
+                active={false}
+                collapsed={compact}
+                onClick={props.onOpenNotifications}
               />
               {primaryNav.map((item) => (
                 <SidebarButton
@@ -942,6 +955,10 @@ export function MobileWorkspaceMenu(props: WorkspaceSidebarProps) {
     },
     onSearch: () => {
       props.onSearch();
+      setOpen(false);
+    },
+    onOpenNotifications: () => {
+      props.onOpenNotifications();
       setOpen(false);
     },
     onAdmin: () => {

@@ -5,13 +5,19 @@ import {
 } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
+import { notifyTaskStakeholders } from "./lib/notifications";
 import {
   requireProfile,
   requireProfileInStartup,
   requireStartupMember,
 } from "./lib/auth";
 import { workspaceCanvasPreview } from "./lib/page_creation";
-import { pageTaskSortAt, requireVisiblePage, summarizePage } from "./lib/pages";
+import {
+  nextCompletedAt,
+  pageTaskSortAt,
+  requireVisiblePage,
+  summarizePage,
+} from "./lib/pages";
 import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
   boundedLimit,
@@ -343,6 +349,7 @@ export const updateMetadata = mutation({
       revision: page.revision + 1,
       canvasPreview,
       taskSortAt: pageTaskSortAt(dueDate, now),
+      completedAt: nextCompletedAt(page, taskStatus, now),
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
@@ -364,6 +371,12 @@ export const updateMetadata = mutation({
       ...(claimsForSelf
         ? { detail: `Preuzeo/la: ${profile.displayName}` }
         : {}),
+    });
+    await notifyTaskStakeholders(ctx, {
+      page,
+      nextAssigneeProfileId: assigneeProfileId,
+      nextTaskStatus: taskStatus,
+      actorProfileId: profile._id,
     });
     return page._id;
   },

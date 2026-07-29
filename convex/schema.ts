@@ -3,6 +3,8 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   checkpointItemValidator,
+  notificationTargetTypeValidator,
+  notificationTypeValidator,
   pageKindValidator,
   taskCheckpointCanvasEndpointValidator,
   taskPriorityValidator,
@@ -221,6 +223,9 @@ export default defineSchema({
     checkpointCompleted: v.optional(v.number()),
     checkpointRevision: v.optional(v.number()),
     taskSortAt: v.number(),
+    // Trenutak prelaska u „Gotovo”. `updatedAt` nije upotrebljiv kao izvor jer
+    // svaka kasnija izmena završenog zadatka pomera nedelju u kojoj je završen.
+    completedAt: v.optional(v.union(v.number(), v.null())),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
     archivedAt: v.union(v.number(), v.null()),
@@ -895,6 +900,48 @@ export default defineSchema({
       "sourceId",
       "status",
     ]),
+
+  notifications: defineTable({
+    recipientProfileId: v.id("profiles"),
+    startupId: v.id("startups"),
+    type: notificationTypeValidator,
+    title: v.string(),
+    body: v.optional(v.string()),
+    targetType: notificationTargetTypeValidator,
+    targetId: v.union(v.string(), v.null()),
+    // `null` kad je pošiljalac sistem (cron podsetnici).
+    actorProfileId: v.union(v.id("profiles"), v.null()),
+    // Sprečava da isti podsetnik uđe dva puta; `null` za događaje.
+    dedupeKey: v.union(v.string(), v.null()),
+    readAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+  })
+    .index("by_recipient_and_startup_and_readAt", [
+      "recipientProfileId",
+      "startupId",
+      "readAt",
+    ])
+    .index("by_recipient_and_startup_and_createdAt", [
+      "recipientProfileId",
+      "startupId",
+      "createdAt",
+    ])
+    .index("by_dedupeKey", ["dedupeKey"]),
+
+  pushSubscriptions: defineTable({
+    profileId: v.id("profiles"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    userAgent: v.optional(v.string()),
+    // Broj neuspelih dostava; posle praga se pretplata gasi.
+    failureCount: v.number(),
+    lastSuccessAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_endpoint", ["endpoint"])
+    .index("by_profileId", ["profileId"]),
 
   activities: defineTable({
     startupId: v.id("startups"),
