@@ -9,7 +9,8 @@ import {
   type SyntheticEvent,
 } from "react";
 import {
-  NodeResizer,
+  Handle,
+  Position,
   type Node,
   type NodeProps,
   type ResizeParams,
@@ -38,6 +39,7 @@ import { cn } from "@/lib/utils";
 
 import type { TaskCheckpointSizePreset } from "./task-checkpoint-layout";
 import { CircularTextFlow } from "./circular-text-flow";
+import { PerimeterResizeControl } from "./perimeter-resize-control";
 import styles from "./task-checkpoint-node.module.css";
 
 export type TaskCheckpointFlowNodeData = {
@@ -106,8 +108,11 @@ function stopCanvasEvent(event: SyntheticEvent) {
 
 export const TaskCheckpointFlowNodeCard = memo(
   function TaskCheckpointFlowNodeCard({
+    id,
     data,
     selected,
+    width,
+    height,
   }: NodeProps<TaskCheckpointFlowNode>) {
     const nodeActions = useContext(TaskCheckpointNodeActionsContext);
     const setCompleted = useMutation(api.taskCheckpoints.setCompleted);
@@ -157,20 +162,24 @@ export const TaskCheckpointFlowNodeCard = memo(
           }.`}
           title="Izaberi checkpoint za izmenu, doprinos ili brisanje"
         >
-          <NodeResizer
-            isVisible={selected && data.canResize}
+          <PerimeterResizeControl<TaskCheckpointFlowNode>
+            nodeId={id}
+            width={width ?? 140}
+            height={height ?? 92}
+            selected={selected}
+            disabled={!data.canResize}
+            shape="checkpoint"
             minWidth={140}
             minHeight={92}
             maxWidth={520}
             maxHeight={600}
-            handleClassName={styles.resizeHandle}
-            lineClassName={styles.resizeLine}
+            ariaLabel={`Promeni veličinu checkpointa broj ${data.ordinal} povlačenjem oboda`}
             onResizeStart={() => {
               if (data.canResize) {
                 nodeActions?.startResize(data.checkpointId);
               }
             }}
-            onResizeEnd={(_event, layout) => {
+            onResizeEnd={(layout) => {
               if (data.canResize) {
                 nodeActions?.resize(data.checkpointId, layout);
               }
@@ -414,6 +423,21 @@ export const TaskCheckpointFlowNodeCard = memo(
               ) : null}
             </div>
           ) : null}
+
+          <Handle
+            id="left"
+            type="source"
+            position={Position.Left}
+            className={styles.handle}
+            aria-label="Leva tačka za povezivanje checkpointa"
+          />
+          <Handle
+            id="right"
+            type="source"
+            position={Position.Right}
+            className={styles.handle}
+            aria-label="Desna tačka za povezivanje checkpointa"
+          />
         </article>
 
         <CheckpointContributionDialog

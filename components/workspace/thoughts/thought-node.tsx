@@ -3,7 +3,6 @@
 import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
 import {
   Handle,
-  NodeResizer,
   NodeToolbar,
   Position,
   type NodeProps,
@@ -22,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { CircularTextFlow } from "@/components/workspace/canvases/circular-text-flow";
 import orbital from "@/components/workspace/canvases/orbital-node.module.css";
+import { PerimeterResizeControl } from "@/components/workspace/canvases/perimeter-resize-control";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -56,7 +56,13 @@ export function ThoughtNodeActionsProvider({
   );
 }
 
-export function ThoughtNode({ id, data, selected }: NodeProps<ThoughtFlowNode>) {
+export function ThoughtNode({
+  id,
+  data,
+  selected,
+  width,
+  height,
+}: NodeProps<ThoughtFlowNode>) {
   const actions = useContext(ThoughtNodeActionsContext);
   const connected = actions?.connectedNodeIds.has(id) ?? false;
   const nodeId = id as Id<"thoughtNodes">;
@@ -84,14 +90,18 @@ export function ThoughtNode({ id, data, selected }: NodeProps<ThoughtFlowNode>) 
     >
       <div className={orbital.surface} aria-hidden="true" />
 
-      <NodeResizer
-        isVisible={selected}
+      <PerimeterResizeControl<ThoughtFlowNode>
+        nodeId={id}
+        width={width ?? 240}
+        height={height ?? 160}
+        selected={selected}
+        shape="organic"
         minWidth={240}
         minHeight={160}
         maxWidth={720}
         maxHeight={1_000}
-        handleClassName={orbital.resizeControl}
-        onResizeEnd={(_event, layout) => actions?.resize(nodeId, layout)}
+        ariaLabel={`Promeni veličinu misli ${data.title ?? "Bez naslova"} povlačenjem oboda`}
+        onResizeEnd={(layout) => actions?.resize(nodeId, layout)}
       />
 
       <NodeToolbar isVisible={selected} position={Position.Top} offset={24}>

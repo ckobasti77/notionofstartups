@@ -12,6 +12,7 @@ import {
   normalizeCheckpointText,
   syncTaskCheckpointProjection,
 } from "./lib/task_checkpoints";
+import { archiveCheckpointCanvasEdgesForCheckpoint } from "./lib/task_checkpoint_canvas_edges";
 import { MAX_TASK_CHECKPOINTS } from "./lib/validators";
 
 const canvasRootPageIdValidator = v.union(v.id("pages"), v.null());
@@ -261,6 +262,11 @@ export const archiveOwn = mutation({
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je već obrisan.");
     assertOwner(page, profile._id);
     const now = Date.now();
+    await archiveCheckpointCanvasEdgesForCheckpoint(
+      ctx,
+      checkpoint._id,
+      now,
+    );
     await ctx.db.patch("taskCheckpoints", checkpoint._id, {
       archivedAt: now,
       updatedAt: now,

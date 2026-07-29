@@ -65,6 +65,7 @@ import {
 } from "@/components/workspace/canvases/idea-flow-node";
 import styles from "@/components/workspace/canvases/connected-canvas.module.css";
 import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
+import { useCanvasNavigation } from "@/components/workspace/canvases/use-canvas-navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -338,6 +339,7 @@ function IdeasCanvasBody({
     position: { x: 0, y: 0 },
   });
   const colorMode = useCanvasColorMode();
+  const canvasNavigation = useCanvasNavigation();
 
   const createIdeaMutation = useMutation(api.ideas.create);
   const voteMutation = useMutation(api.ideas.vote);
@@ -649,7 +651,8 @@ function IdeasCanvasBody({
     layout: { x: number; y: number; width: number; height: number },
   ) => {
     const previous = docsById.get(ideaId);
-    if (!previous) return;
+    const previousNode = nodes.find((node) => node.id === ideaId);
+    if (!previous || !previousNode) return;
     const before = {
       x: previous.x,
       y: previous.y,
@@ -657,10 +660,10 @@ function IdeasCanvasBody({
       height: previous.height,
     };
     const after = {
-      x: Math.round(layout.x),
-      y: Math.round(layout.y),
-      width: Math.round(layout.width),
-      height: Math.round(layout.height),
+      x: layout.x,
+      y: layout.y,
+      width: layout.width,
+      height: layout.height,
     };
     void updateLayoutMutation({
       startupId,
@@ -685,6 +688,19 @@ function IdeasCanvasBody({
         });
       })
       .catch((error) => {
+        setNodes((current) =>
+          current.map((node) =>
+            node.id === ideaId
+              ? {
+                  ...node,
+                  position: { ...previousNode.position },
+                  width: previousNode.width,
+                  height: previousNode.height,
+                  style: { ...previousNode.style },
+                }
+              : node,
+          ),
+        );
         toast.error(
           error instanceof Error
             ? error.message
@@ -693,6 +709,7 @@ function IdeasCanvasBody({
       });
   }, [
     docsById,
+    nodes,
     pushHistory,
     resetLayoutSizeMutation,
     startupId,
@@ -880,6 +897,8 @@ function IdeasCanvasBody({
           <ContextMenu.Trigger asChild>
         <div
           className={cn(styles.canvas, styles.ideasCanvas)}
+          data-canvas-space-pan={canvasNavigation.spacePressed}
+          data-canvas-zoom-modifier={canvasNavigation.zoomModifierPressed}
           role="application"
           tabIndex={0}
           onKeyDownCapture={handleKeyDown}
@@ -1064,8 +1083,13 @@ function IdeasCanvasBody({
           maxZoom={2.2}
           connectionMode={ConnectionMode.Loose}
           zoomOnDoubleClick={false}
-          panOnScroll
+          zoomOnScroll={false}
+          panOnScroll={false}
           panOnDrag={[1, 2]}
+          panActivationKeyCode="Space"
+          zoomActivationKeyCode={["Control", "Meta"]}
+          noPanClassName={canvasNavigation.noPanClassName}
+          noWheelClassName={canvasNavigation.noWheelClassName}
           selectionOnDrag
           selectionMode={SelectionMode.Partial}
           selectionKeyCode="Shift"

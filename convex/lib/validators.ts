@@ -33,6 +33,17 @@ export const checkpointItemValidator = v.object({
   completed: v.boolean(),
 });
 
+export const taskCheckpointCanvasEndpointValidator = v.union(
+  v.object({
+    kind: v.literal("page"),
+    id: v.id("pages"),
+  }),
+  v.object({
+    kind: v.literal("task_checkpoint"),
+    id: v.id("taskCheckpoints"),
+  }),
+);
+
 export const MAX_TASK_INSTRUCTIONS_LENGTH = 20_000;
 export const MAX_TASK_CHECKPOINTS = 100;
 export const MAX_TASK_CHECKPOINT_ID_LENGTH = 128;

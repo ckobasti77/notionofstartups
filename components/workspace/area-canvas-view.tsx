@@ -68,6 +68,7 @@ import {
 import styles from "@/components/workspace/canvases/connected-canvas.module.css";
 import { selectNestingDropTarget } from "@/components/workspace/canvases/nesting-drop";
 import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
+import { useCanvasNavigation } from "@/components/workspace/canvases/use-canvas-navigation";
 import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
 import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 import {
@@ -80,6 +81,9 @@ import { cn } from "@/lib/utils";
 import type { AreaKey } from "@/lib/workspace";
 
 type AreaCanvasFilter = "all" | "note" | "task";
+type CheckpointCanvasEndpoint =
+  | { kind: "page"; id: Id<"pages"> }
+  | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> };
 
 export type AreaCanvasViewProps = {
   startupId: Id<"startups">;
@@ -95,16 +99,29 @@ export type AreaCanvasViewProps = {
   layout?: "standard" | "task-focus";
 };
 
-type AreaFlowEdgeData = {
+type AreaPageFlowEdgeData = {
   backendId: Id<"pageCanvasEdgesV2"> | Id<"pageRelations"> | null;
   kind: "canvas" | "relation";
   canDelete: boolean;
   canRequestDeletion: boolean;
 };
 
+type AreaCheckpointFlowEdgeData = {
+  backendId: Id<"taskCheckpointCanvasEdges"> | null;
+  kind: "checkpoint";
+  sourceEndpoint: CheckpointCanvasEndpoint;
+  targetEndpoint: CheckpointCanvasEndpoint;
+  canDelete: boolean;
+  canRequestDeletion: boolean;
+};
+
+type AreaFlowEdgeData =
+  | AreaPageFlowEdgeData
+  | AreaCheckpointFlowEdgeData;
+
 type AreaFlowEdge = Edge<AreaFlowEdgeData, "default">;
 
-type DeletedEdgeRecord = {
+type DeletedPageEdgeRecord = {
   edge: AreaFlowEdge;
   source: Id<"pages">;
   target: Id<"pages">;
@@ -112,6 +129,18 @@ type DeletedEdgeRecord = {
   kind: "canvas" | "relation";
   currentId: Id<"pageCanvasEdgesV2"> | Id<"pageRelations">;
 };
+
+type DeletedCheckpointEdgeRecord = {
+  edge: AreaFlowEdge;
+  sourceEndpoint: CheckpointCanvasEndpoint;
+  targetEndpoint: CheckpointCanvasEndpoint;
+  kind: "checkpoint";
+  currentId: Id<"taskCheckpointCanvasEdges">;
+};
+
+type DeletedEdgeRecord =
+  | DeletedPageEdgeRecord
+  | DeletedCheckpointEdgeRecord;
 
 type CanvasFlowNode = AreaFlowNode | TaskCheckpointFlowNode;
 
@@ -138,10 +167,33 @@ function isTaskCheckpointNode(
 }
 
 function edgeUiId(
-  kind: "canvas" | "relation",
-  backendId: Id<"pageCanvasEdgesV2"> | Id<"pageRelations">,
+  kind: "canvas" | "relation" | "checkpoint",
+  backendId:
+    | Id<"pageCanvasEdgesV2">
+    | Id<"pageRelations">
+    | Id<"taskCheckpointCanvasEdges">,
 ) {
   return `${kind}:${backendId}`;
+}
+
+function checkpointEndpointNodeId(endpoint: CheckpointCanvasEndpoint) {
+  return endpoint.kind === "page"
+    ? endpoint.id
+    : taskCheckpointNodeId(endpoint.id);
+}
+
+function checkpointEndpointFromNode(
+  node: CanvasFlowNode,
+): CheckpointCanvasEndpoint {
+  return isTaskCheckpointNode(node)
+    ? {
+        kind: "task_checkpoint",
+        id: node.data.checkpointId,
+      }
+    : {
+        kind: "page",
+        id: node.id as Id<"pages">,
+      };
 }
 
 function adaptEdgeHandles(
@@ -299,6 +351,12 @@ function AreaCanvasReady({
   const requestNesting = useMutation(api.areasV2.requestNesting);
   const createRelation = useMutation(api.areasV2.createRelation);
   const deleteRelation = useMutation(api.areasV2.deleteRelation);
+  const connectCheckpointEdge = useMutation(
+    api.taskCheckpointCanvasEdges.connect,
+  );
+  const disconnectCheckpointEdge = useMutation(
+    api.taskCheckpointCanvasEdges.disconnect,
+  );
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const saveCheckpointPlacement = useMutation(
     api.taskCheckpoints.saveCanvasPlacement,
@@ -477,7 +535,7 @@ function AreaCanvasReady({
                 canRequestDeletion: checkpoint.canRequestDeletion,
               },
               draggable: checkpoint.canMove,
-              connectable: false,
+              connectable: true,
               deletable: false,
               ariaLabel: `Checkpoint broj ${ordinal}: ${checkpoint.text}. ${
                 checkpoint.completed ? "Završen" : "Otvoren"
@@ -498,14 +556,14 @@ function AreaCanvasReady({
   ]);
 
   const incomingEdges = useMemo<AreaFlowEdge[]>(() => {
-    const visiblePageIds = new Set(incomingNodes.map((node) => node.id));
-    return [...canvasData.edges, ...canvasData.relations]
+    const visibleNodeIds = new Set(incomingNodes.map((node) => node.id));
+    const pageEdges = [...canvasData.edges, ...canvasData.relations]
       .filter(
         (edge) =>
-          visiblePageIds.has(edge.source) &&
-          visiblePageIds.has(edge.target),
+          visibleNodeIds.has(edge.source) &&
+          visibleNodeIds.has(edge.target),
       )
-      .map((edge) => ({
+      .map<AreaFlowEdge>((edge) => ({
         id: edgeUiId(edge.kind, edge._id),
         source: edge.source,
         target: edge.target,
@@ -529,7 +587,49 @@ function AreaCanvasReady({
             ? "Relacija između beleške i zadatka"
             : "Veza između dve kartice iste vrste",
       }));
-  }, [canvasData.edges, canvasData.relations, incomingNodes]);
+    const checkpointEdges = (canvasData.checkpointEdges ?? [])
+      .map((edge) => ({
+        edge,
+        sourceNodeId: checkpointEndpointNodeId(edge.source),
+        targetNodeId: checkpointEndpointNodeId(edge.target),
+      }))
+      .filter(
+        ({ sourceNodeId, targetNodeId }) =>
+          visibleNodeIds.has(sourceNodeId) &&
+          visibleNodeIds.has(targetNodeId),
+      )
+      .map<AreaFlowEdge>(({ edge, sourceNodeId, targetNodeId }) => {
+        const connectsPage = edge.source.kind !== edge.target.kind;
+        return {
+          id: edgeUiId("checkpoint", edge._id),
+          source: sourceNodeId,
+          target: targetNodeId,
+          type: "default",
+          interactionWidth: 22,
+          deletable: edge.canDelete || edge.canRequestDeletion,
+          data: {
+            backendId: edge._id,
+            kind: "checkpoint",
+            sourceEndpoint: edge.source,
+            targetEndpoint: edge.target,
+            canDelete: edge.canDelete,
+            canRequestDeletion: edge.canRequestDeletion,
+          },
+          style: connectsPage
+            ? { strokeDasharray: "7 6" }
+            : undefined,
+          ariaLabel: connectsPage
+            ? "Veza između checkpointa i kartice"
+            : "Veza između dva checkpointa",
+        };
+      });
+    return [...pageEdges, ...checkpointEdges];
+  }, [
+    canvasData.checkpointEdges,
+    canvasData.edges,
+    canvasData.relations,
+    incomingNodes,
+  ]);
 
   const [nodes, setNodes] = useState(incomingNodes);
   const nodesRef = useRef(nodes);
@@ -540,6 +640,7 @@ function AreaCanvasReady({
     zoom: canvasData.viewport.zoom,
   });
   const colorMode = useCanvasColorMode();
+  const canvasNavigation = useCanvasNavigation();
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -913,11 +1014,119 @@ function AreaCanvasReady({
       if (
         !sourceNode ||
         !targetNode ||
-        isTaskCheckpointNode(sourceNode) ||
-        isTaskCheckpointNode(targetNode) ||
-        sourceNode.data.pendingNesting ||
-        targetNode.data.pendingNesting
+        (!isTaskCheckpointNode(sourceNode) &&
+          sourceNode.data.pendingNesting) ||
+        (!isTaskCheckpointNode(targetNode) &&
+          targetNode.data.pendingNesting)
       ) {
+        return;
+      }
+
+      if (
+        isTaskCheckpointNode(sourceNode) ||
+        isTaskCheckpointNode(targetNode)
+      ) {
+        const sourceEndpoint = checkpointEndpointFromNode(sourceNode);
+        const targetEndpoint = checkpointEndpointFromNode(targetNode);
+        const alreadyConnected = edges.some(
+          (edge) =>
+            edge.data?.kind === "checkpoint" &&
+            ((edge.source === connection.source &&
+              edge.target === connection.target) ||
+              (edge.source === connection.target &&
+                edge.target === connection.source)),
+        );
+        if (alreadyConnected) {
+          toast.info("Ove stavke su već povezane.");
+          return;
+        }
+        const temporaryId =
+          `pending:checkpoint:${connection.source}:${connection.target}:${Date.now()}`;
+        const connectsPage = sourceEndpoint.kind !== targetEndpoint.kind;
+        setEdges((current) =>
+          addEdge(
+            {
+              ...connection,
+              id: temporaryId,
+              type: "default",
+              deletable: false,
+              data: {
+                backendId: null,
+                kind: "checkpoint",
+                sourceEndpoint,
+                targetEndpoint,
+                canDelete: false,
+                canRequestDeletion: false,
+              },
+              style: connectsPage
+                ? { strokeDasharray: "7 6" }
+                : undefined,
+            },
+            current,
+          ),
+        );
+
+        try {
+          let currentEdgeId = await connectCheckpointEdge({
+            startupId,
+            areaId,
+            rootPageId,
+            source: sourceEndpoint,
+            target: targetEndpoint,
+          });
+          setEdges((current) =>
+            current.map((edge) =>
+              edge.id === temporaryId
+                ? {
+                    ...edge,
+                    id: edgeUiId("checkpoint", currentEdgeId),
+                    deletable: false,
+                    data: {
+                      backendId: currentEdgeId,
+                      kind: "checkpoint",
+                      sourceEndpoint,
+                      targetEndpoint,
+                      canDelete: false,
+                      canRequestDeletion: false,
+                    },
+                  }
+                : edge,
+            ),
+          );
+          pushHistory({
+            label: "povezivanje checkpointa",
+            undo: () =>
+              disconnectCheckpointEdge({
+                startupId,
+                areaId,
+                rootPageId,
+                edgeId: currentEdgeId,
+              }),
+            redo: async () => {
+              currentEdgeId = await connectCheckpointEdge({
+                startupId,
+                areaId,
+                rootPageId,
+                source: sourceEndpoint,
+                target: targetEndpoint,
+              });
+            },
+          });
+          toast.success(
+            connectsPage
+              ? "Checkpoint i kartica su povezani."
+              : "Checkpointi su povezani.",
+          );
+        } catch (error) {
+          setEdges((current) =>
+            current.filter((edge) => edge.id !== temporaryId),
+          );
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Checkpoint veza nije sačuvana.",
+          );
+        }
         return;
       }
 
@@ -1070,9 +1279,11 @@ function AreaCanvasReady({
     },
     [
       areaId,
+      connectCheckpointEdge,
       connectPages,
       createRelation,
       deleteRelation,
+      disconnectCheckpointEdge,
       disconnectPages,
       edges,
       nodes,
@@ -1104,6 +1315,17 @@ function AreaCanvasReady({
         ) {
           return [];
         }
+        if (edge.data.kind === "checkpoint") {
+          return [
+            {
+              edge,
+              sourceEndpoint: edge.data.sourceEndpoint,
+              targetEndpoint: edge.data.targetEndpoint,
+              kind: "checkpoint",
+              currentId: backendId as Id<"taskCheckpointCanvasEdges">,
+            },
+          ];
+        }
         return [
           {
             edge,
@@ -1112,7 +1334,9 @@ function AreaCanvasReady({
             label:
               typeof edge.label === "string" ? edge.label : undefined,
             kind: edge.data.kind,
-            currentId: backendId,
+            currentId: backendId as
+              | Id<"pageCanvasEdgesV2">
+              | Id<"pageRelations">,
           },
         ];
       });
@@ -1142,6 +1366,14 @@ function AreaCanvasReady({
               const backendId = edge.data?.backendId;
               if (!backendId) {
                 return Promise.reject(new Error("Veza nije pronađena."));
+              }
+              if (edge.data?.kind === "checkpoint") {
+                return requestDeletion({
+                  target: {
+                    kind: "task_checkpoint_edge" as const,
+                    id: backendId as Id<"taskCheckpointCanvasEdges">,
+                  },
+                });
               }
               return requestDeletion({
                 target:
@@ -1189,7 +1421,14 @@ function AreaCanvasReady({
 
         for (const record of records) {
           try {
-            if (record.kind === "canvas") {
+            if (record.kind === "checkpoint") {
+              await disconnectCheckpointEdge({
+                startupId,
+                areaId,
+                rootPageId,
+                edgeId: record.currentId,
+              });
+            } else if (record.kind === "canvas") {
               await disconnectPages({
                 startupId,
                 areaId,
@@ -1231,7 +1470,15 @@ function AreaCanvasReady({
               : "uklanjanje veza kartica",
           undo: async () => {
             for (const record of removed) {
-              if (record.kind === "canvas") {
+              if (record.kind === "checkpoint") {
+                record.currentId = await connectCheckpointEdge({
+                  startupId,
+                  areaId,
+                  rootPageId,
+                  source: record.sourceEndpoint,
+                  target: record.targetEndpoint,
+                });
+              } else if (record.kind === "canvas") {
                 record.currentId = await connectPages({
                   startupId,
                   areaId,
@@ -1252,7 +1499,14 @@ function AreaCanvasReady({
           },
           redo: async () => {
             for (const record of removed) {
-              if (record.kind === "canvas") {
+              if (record.kind === "checkpoint") {
+                await disconnectCheckpointEdge({
+                  startupId,
+                  areaId,
+                  rootPageId,
+                  edgeId: record.currentId,
+                });
+              } else if (record.kind === "canvas") {
                 await disconnectPages({
                   startupId,
                   areaId,
@@ -1274,9 +1528,11 @@ function AreaCanvasReady({
     },
     [
       areaId,
+      connectCheckpointEdge,
       connectPages,
       createRelation,
       deleteRelation,
+      disconnectCheckpointEdge,
       disconnectPages,
       pushHistory,
       requestDeletion,
@@ -1417,10 +1673,10 @@ function AreaCanvasReady({
         checkpointId,
         before,
         {
-          x: Math.round(layoutUpdate.x),
-          y: Math.round(layoutUpdate.y),
-          width: Math.round(layoutUpdate.width),
-          height: Math.round(layoutUpdate.height),
+          x: layoutUpdate.x,
+          y: layoutUpdate.y,
+          width: layoutUpdate.width,
+          height: layoutUpdate.height,
         },
         "promena veličine checkpointa",
       );
@@ -1568,8 +1824,10 @@ function AreaCanvasReady({
         );
         if (!previous || !previous.canResize) return;
         const after = {
-          width: Math.round(layout.width),
-          height: Math.round(layout.height),
+          x: layout.x,
+          y: layout.y,
+          width: layout.width,
+          height: layout.height,
         };
         void resizePage({
           startupId,
@@ -1587,6 +1845,8 @@ function AreaCanvasReady({
                   areaId,
                   rootPageId,
                   pageId,
+                  x: previous.x,
+                  y: previous.y,
                   width: previous.width,
                   height: previous.height,
                 }),
@@ -1606,6 +1866,10 @@ function AreaCanvasReady({
                 node.id === pageId
                   ? {
                       ...node,
+                      position: {
+                        x: previous.x,
+                        y: previous.y,
+                      },
                       width: previous.width,
                       height: previous.height,
                       style: {
@@ -1677,6 +1941,8 @@ function AreaCanvasReady({
           layout === "task-focus" ? "min-h-[28rem]" : "min-h-[32rem]",
           "rounded-3xl border border-border/70 shadow-inner",
         )}
+        data-canvas-space-pan={canvasNavigation.spacePressed}
+        data-canvas-zoom-modifier={canvasNavigation.zoomModifierPressed}
         // AreaView does not provide a fixed-height parent. Keep a definite
         // containing-block height so React Flow's 100% height cannot collapse.
         style={{
@@ -1903,8 +2169,13 @@ function AreaCanvasReady({
           maxZoom={2.2}
           connectionMode={ConnectionMode.Loose}
           zoomOnDoubleClick={false}
-          panOnScroll
+          zoomOnScroll={false}
+          panOnScroll={false}
           panOnDrag={[1, 2]}
+          panActivationKeyCode="Space"
+          zoomActivationKeyCode={["Control", "Meta"]}
+          noPanClassName={canvasNavigation.noPanClassName}
+          noWheelClassName={canvasNavigation.noWheelClassName}
           selectionOnDrag
           selectionMode={SelectionMode.Partial}
           selectionKeyCode="Shift"
@@ -2007,34 +2278,27 @@ function AreaCanvasReady({
                 {
                   id: "Kreiranje",
                   items: [
-                    ...(filter !== "note"
-                      ? [
-                          {
-                            id: "new-task",
-                            label: "Novi zadatak",
-                            icon: CheckSquare2,
-                            onSelect: () => onCreatePage("task"),
-                            className:
-                              "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-                          },
-                        ]
-                      : []),
-                    ...(filter !== "task"
-                      ? [
-                          {
-                            id: "new-note",
+                    {
+                      id: "new-task",
+                      label: "Novi zadatak",
+                      icon: CheckSquare2,
+                      onSelect: () => onCreatePage("task"),
+                      className:
+                        "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+                    },
+                    {
+                      id: "new-note",
                             label: "Nova beleška",
-                            icon: FileText,
-                            onSelect: () => onCreatePage("note"),
-                            className:
-                              "text-sky-700 dark:text-sky-300",
-                          },
-                        ]
-                      : []),
+                      icon: FileText,
+                      onSelect: () => onCreatePage("note"),
+                      className: "text-sky-700 dark:text-sky-300",
+                    },
                   ],
                 },
                 {
                   id: "Filter kanvasa",
+                  ariaLabel: "Prikaz stavki na kanvasu",
+                  variant: "switch",
                   items: [
                     {
                       id: "filter-all",
@@ -2042,6 +2306,7 @@ function AreaCanvasReady({
                       icon: LayoutGrid,
                       active: filter === "all",
                       onSelect: () => onFilterChange("all"),
+                      tone: "neutral",
                     },
                     {
                       id: "filter-notes",
@@ -2049,6 +2314,7 @@ function AreaCanvasReady({
                       icon: FileText,
                       active: filter === "note",
                       onSelect: () => onFilterChange("note"),
+                      tone: "note",
                       className:
                         filter === "note"
                           ? "text-sky-700 ring-sky-500/30 dark:text-sky-300"
@@ -2060,6 +2326,7 @@ function AreaCanvasReady({
                       icon: CheckSquare2,
                       active: filter === "task",
                       onSelect: () => onFilterChange("task"),
+                      tone: "task",
                       className:
                         filter === "task"
                           ? "text-emerald-700 ring-emerald-500/30 dark:text-emerald-300"

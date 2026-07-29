@@ -338,11 +338,13 @@
 }
 
 .handle {
-  z-index: 42 !important;
+  z-index: 46 !important;
 }
 
-.resizeControl {
-  z-index: 44 !important;
+.shell:hover .handle,
+.selected .handle,
+.shell:focus-within .handle {
+  opacity: 1;
 }
 
 .toolbar {

@@ -2086,4 +2086,64 @@ describe("Areas V2 backend", () => {
     expect(result.issueCount).toBe(2);
     expect(result.issueSamples).toHaveLength(2);
   });
+
+  test("centered resize atomically stores position and dimensions", async () => {
+    const { t, startupA, areaA1, asActor } =
+      await seedAreasV2Workspace();
+    const page = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Radial resize",
+    });
+
+    await asActor.mutation(api.areasV2.resizePage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      pageId: page.pageId,
+      x: -147,
+      y: 83,
+      width: 480,
+      height: 336,
+    });
+    const placement = await t.run((ctx) =>
+      ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", page.pageId))
+        .unique(),
+    );
+    expect(placement).toMatchObject({
+      x: -147,
+      y: 83,
+      width: 480,
+      height: 336,
+    });
+    expect(
+      (
+        await asActor.query(api.areasV2.getCanvas, {
+          startupId: startupA,
+          areaId: areaA1,
+          rootPageId: null,
+        })
+      ).pages.find((candidate) => candidate._id === page.pageId),
+    ).toMatchObject({
+      x: -147,
+      y: 83,
+      width: 480,
+      height: 336,
+    });
+    await expect(
+      asActor.mutation(api.areasV2.resizePage, {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        pageId: page.pageId,
+        x: 0,
+        width: 360,
+        height: 252,
+      }),
+    ).rejects.toThrow("i x i y");
+  });
 });

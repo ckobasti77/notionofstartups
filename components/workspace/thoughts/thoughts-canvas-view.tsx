@@ -54,6 +54,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
+import { useCanvasNavigation } from "@/components/workspace/canvases/use-canvas-navigation";
 import {
   THOUGHT_SIDEBAR_DRAG_RELEASE_EVENT,
   type ThoughtSidebarDragPointer,
@@ -324,6 +325,7 @@ function ThoughtsCanvasBody({
   const sidebarDragSessionIdRef = useRef<string | null>(null);
   const sidebarDragInputRef = useRef<ThoughtSidebarDragReleaseDetail | null>(null);
   const dark = useDarkTheme();
+  const canvasNavigation = useCanvasNavigation();
   const reducedMotion = useReducedMotion();
   const convex = useConvex();
   const canvas = useQuery(api.thoughts.getCanvas, { startupId: startup._id });
@@ -1072,10 +1074,10 @@ function ThoughtsCanvasBody({
       }
       return updateNodeLayout({
         nodeId,
-        x: Math.round(layout.x),
-        y: Math.round(layout.y),
-        width: Math.round(layout.width),
-        height: Math.round(layout.height),
+        x: layout.x,
+        y: layout.y,
+        width: layout.width,
+        height: layout.height,
       });
     },
     [resetNodeLayoutSize, updateNodeLayout],
@@ -1086,7 +1088,8 @@ function ThoughtsCanvasBody({
     layout: { x: number; y: number; width: number; height: number },
   ) => {
     const previous = nodeDocsById.get(nodeId);
-    if (!previous) return;
+    const previousNode = nodes.find((node) => node.id === nodeId);
+    if (!previous || !previousNode) return;
     const before = {
       x: previous.x,
       y: previous.y,
@@ -1094,10 +1097,10 @@ function ThoughtsCanvasBody({
       height: previous.height,
     };
     const after = {
-      x: Math.round(layout.x),
-      y: Math.round(layout.y),
-      width: Math.round(layout.width),
-      height: Math.round(layout.height),
+      x: layout.x,
+      y: layout.y,
+      width: layout.width,
+      height: layout.height,
     };
     try {
       await persistThoughtSize(nodeId, after);
@@ -1107,9 +1110,22 @@ function ThoughtsCanvasBody({
         redo: () => persistThoughtSize(nodeId, after),
       });
     } catch (error) {
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                position: { ...previousNode.position },
+                width: previousNode.width,
+                height: previousNode.height,
+                style: { ...previousNode.style },
+              }
+            : node,
+        ),
+      );
       toast.error(error instanceof Error ? error.message : "Veličina nije sačuvana.");
     }
-  }, [nodeDocsById, persistThoughtSize, pushHistory]);
+  }, [nodeDocsById, nodes, persistThoughtSize, pushHistory]);
 
   const resetThoughtSize = useCallback(async (nodeId: Id<"thoughtNodes">) => {
     const previous = nodeDocsById.get(nodeId);
@@ -1174,6 +1190,8 @@ function ThoughtsCanvasBody({
           <div
             ref={wrapperRef}
             className={styles.canvas}
+            data-canvas-space-pan={canvasNavigation.spacePressed}
+            data-canvas-zoom-modifier={canvasNavigation.zoomModifierPressed}
             tabIndex={0}
             role="application"
             aria-label={`Moje misli za ${startup.name}`}
@@ -1248,8 +1266,13 @@ function ThoughtsCanvasBody({
               colorMode={dark ? "dark" : "light"}
               minZoom={0.18}
               maxZoom={2.2}
-              panOnScroll
+              zoomOnScroll={false}
+              panOnScroll={false}
               panOnDrag={[1, 2]}
+              panActivationKeyCode="Space"
+              zoomActivationKeyCode={["Control", "Meta"]}
+              noPanClassName={canvasNavigation.noPanClassName}
+              noWheelClassName={canvasNavigation.noWheelClassName}
               selectionOnDrag
               selectionMode={SelectionMode.Partial}
               selectionKeyCode="Shift"

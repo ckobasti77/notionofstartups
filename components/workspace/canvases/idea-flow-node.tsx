@@ -3,7 +3,6 @@
 import { createContext, memo, useContext, type ReactNode } from "react";
 import {
   Handle,
-  NodeResizer,
   NodeToolbar,
   Position,
   type Node,
@@ -34,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { CircularTextFlow } from "./circular-text-flow";
 import styles from "./connected-canvas.module.css";
 import orbital from "./orbital-node.module.css";
+import { PerimeterResizeControl } from "./perimeter-resize-control";
 
 export type IdeaCanvasColor =
   | "neutral"
@@ -100,6 +100,8 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
   data,
   parentId,
   selected,
+  width,
+  height,
 }: NodeProps<IdeaFlowNode>) {
   const actions = useContext(IdeaNodeActionsContext);
   const ideaId = id as Id<"ideaNodes">;
@@ -129,15 +131,19 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
     >
       <div className={orbital.surface} aria-hidden="true" />
 
-      <NodeResizer
-        isVisible={selected && data.canResize}
+      <PerimeterResizeControl<IdeaFlowNode>
+        nodeId={id}
+        width={width ?? 264}
+        height={height ?? 196}
+        selected={selected}
+        disabled={!data.canResize}
+        shape="organic"
         minWidth={264}
         minHeight={196}
         maxWidth={720}
         maxHeight={1000}
-        handleClassName={cn(styles.resizeHandle, orbital.resizeControl)}
-        lineClassName={styles.resizeLine}
-        onResizeEnd={(_event, layout) => actions?.resize(ideaId, layout)}
+        ariaLabel={`Promeni veličinu ideje ${data.title ?? "Bez naslova"} povlačenjem oboda`}
+        onResizeEnd={(layout) => actions?.resize(ideaId, layout)}
       />
 
       <NodeToolbar isVisible={selected} position={Position.Top} offset={24}>

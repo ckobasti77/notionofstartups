@@ -31,12 +31,17 @@ import {
 } from "./lib/pages";
 import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
+  archiveCheckpointCanvasEdgesForArchivedPage,
+  archiveCheckpointCanvasEdgesForMovedPage,
+} from "./lib/task_checkpoint_canvas_edges";
+import {
   checkpointItemValidator,
   cleanOptionalText,
   cleanRequiredText,
   normalizeTaskCheckpoints,
   normalizeTaskInstructions,
   pageKindValidator,
+  taskCheckpointCanvasEndpointValidator,
   taskPriorityValidator,
   taskStatusValidator,
   validateTaskDueDate,
@@ -107,6 +112,13 @@ const visibleEdgeValidator = v.object({
   target: v.id("pages"),
   label: v.union(v.string(), v.null()),
   kind: v.union(v.literal("canvas"), v.literal("relation")),
+  canDelete: v.boolean(),
+  canRequestDeletion: v.boolean(),
+});
+const visibleCheckpointEdgeValidator = v.object({
+  _id: v.id("taskCheckpointCanvasEdges"),
+  source: taskCheckpointCanvasEndpointValidator,
+  target: taskCheckpointCanvasEndpointValidator,
   canDelete: v.boolean(),
   canRequestDeletion: v.boolean(),
 });
@@ -693,6 +705,12 @@ async function archiveEdgesForMovedPage(
   sourceRootPageId: CanvasRoot,
   now: number,
 ) {
+  await archiveCheckpointCanvasEdgesForMovedPage(
+    ctx,
+    page._id,
+    sourceRootPageId,
+    now,
+  );
   const batches = await Promise.all([
     ctx.db
       .query("pageCanvasEdgesV2")
@@ -1151,6 +1169,7 @@ export async function archivePageWithV2Sidecars(
   actorProfileId: Id<"profiles">,
   now = Date.now(),
 ) {
+  await archiveCheckpointCanvasEdgesForArchivedPage(ctx, page, now);
   const children = await ctx.db
     .query("pages")
     .withIndex("by_parentPageId_and_archivedAt", (q) =>
@@ -1401,6 +1420,7 @@ export const getCanvas = query({
     pages: v.array(canvasPageValidator),
     edges: v.array(visibleEdgeValidator),
     relations: v.array(visibleEdgeValidator),
+    checkpointEdges: v.array(visibleCheckpointEdgeValidator),
     ghosts: v.array(ghostValidator),
     viewport: viewportValidator,
     truncated: v.boolean(),
@@ -1430,8 +1450,15 @@ export const getCanvas = query({
     const pages = rawPages.slice(0, MAX_CANVAS_PAGES);
     const visibleIds = new Set(pages.map((page) => page._id));
     const visiblePagesById = new Map(pages.map((page) => [page._id, page]));
-    const [placements, rawEdges, rawRelations, viewport, areaBody, rootBody] =
-      await Promise.all([
+    const [
+      placements,
+      rawEdges,
+      rawRelations,
+      rawCheckpointEdges,
+      viewport,
+      areaBody,
+      rootBody,
+    ] = await Promise.all([
         ctx.db
           .query("pageCanvasPlacements")
           .withIndex(
@@ -1464,6 +1491,16 @@ export const getCanvas = query({
               .eq("archivedAt", null),
           )
           .take(MAX_RELATIONS_PER_AREA + 1),
+        ctx.db
+          .query("taskCheckpointCanvasEdges")
+          .withIndex("by_scope_active_pair", (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("rootPageId", args.rootPageId)
+              .eq("archivedAt", null),
+          )
+          .take(MAX_CANVAS_EDGES + 1),
         ctx.db
           .query("pageCanvasViewports")
           .withIndex(
@@ -1577,6 +1614,67 @@ export const getCanvas = query({
         canDelete: relation.authorProfileId === profile._id,
         canRequestDeletion: relation.authorProfileId !== profile._id,
       }));
+    const checkpointIds = new Set<Id<"taskCheckpoints">>();
+    for (const edge of rawCheckpointEdges.slice(0, MAX_CANVAS_EDGES)) {
+      if (edge.endpointA.kind === "task_checkpoint") {
+        checkpointIds.add(edge.endpointA.id);
+      }
+      if (edge.endpointB.kind === "task_checkpoint") {
+        checkpointIds.add(edge.endpointB.id);
+      }
+    }
+    const checkpointRows = await Promise.all(
+      [...checkpointIds].map((checkpointId) =>
+        ctx.db.get("taskCheckpoints", checkpointId),
+      ),
+    );
+    const activeCheckpointsById = new Map(
+      checkpointRows
+        .filter(
+          (checkpoint): checkpoint is Doc<"taskCheckpoints"> =>
+            checkpoint !== null &&
+            checkpoint.archivedAt === null &&
+            checkpoint.startupId === args.startupId &&
+            checkpoint.areaId === args.areaId,
+        )
+        .map((checkpoint) => [checkpoint._id, checkpoint]),
+    );
+    const checkpointEndpointIsPresent = (
+      endpoint:
+        | { kind: "page"; id: Id<"pages"> }
+        | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> },
+      endpointPageId: Id<"pages">,
+    ) => {
+      if (endpoint.kind === "page") {
+        return endpoint.id === endpointPageId && visibleIds.has(endpoint.id);
+      }
+      const checkpoint = activeCheckpointsById.get(endpoint.id);
+      return (
+        checkpoint?.taskPageId === endpointPageId &&
+        (endpointPageId === args.rootPageId ||
+          visibleIds.has(endpointPageId))
+      );
+    };
+    const checkpointEdges = rawCheckpointEdges
+      .slice(0, MAX_CANVAS_EDGES)
+      .filter(
+        (edge) =>
+          checkpointEndpointIsPresent(
+            edge.endpointA,
+            edge.endpointAPageId,
+          ) &&
+          checkpointEndpointIsPresent(
+            edge.endpointB,
+            edge.endpointBPageId,
+          ),
+      )
+      .map((edge) => ({
+        _id: edge._id,
+        source: edge.endpointA,
+        target: edge.endpointB,
+        canDelete: edge.authorProfileId === profile._id,
+        canRequestDeletion: edge.authorProfileId !== profile._id,
+      }));
     const rawGhosts =
       root === null
         ? []
@@ -1625,6 +1723,7 @@ export const getCanvas = query({
       pages: canvasPages,
       edges: canvasEdges,
       relations: visibleRelations,
+      checkpointEdges,
       ghosts,
       viewport:
         viewport === null
@@ -1639,6 +1738,7 @@ export const getCanvas = query({
         rawPages.length > MAX_CANVAS_PAGES ||
         rawEdges.length > MAX_CANVAS_EDGES ||
         rawRelations.length > MAX_RELATIONS_PER_AREA ||
+        rawCheckpointEdges.length > MAX_CANVAS_EDGES ||
         rawGhosts.length > MAX_CANVAS_PAGES,
       scope: {
         kind: root === null ? ("area" as const) : ("page" as const),
@@ -2128,6 +2228,8 @@ export const resizePage = mutation({
     pageId: v.id("pages"),
     width: v.number(),
     height: v.number(),
+    x: v.optional(v.number()),
+    y: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -2144,14 +2246,23 @@ export const resizePage = mutation({
     });
     assertDirectCanvasPage(page, args.rootPageId);
     assertOwnedPage(page, profile._id, "Možete menjati veličinu samo svoje kartice.");
+    if ((args.x === undefined) !== (args.y === undefined)) {
+      throw new Error("Pozicija kartice mora imati i x i y koordinatu.");
+    }
     const placement = await getPlacement(ctx, page._id);
     const now = Date.now();
     await upsertPlacement(ctx, {
       page,
       rootPageId: args.rootPageId,
       actorProfileId: profile._id,
-      x: placement?.x ?? 0,
-      y: placement?.y ?? 0,
+      x:
+        args.x === undefined
+          ? (placement?.x ?? 0)
+          : clamp(args.x, -100_000, 100_000),
+      y:
+        args.y === undefined
+          ? (placement?.y ?? 0)
+          : clamp(args.y, -100_000, 100_000),
       width: clamp(args.width, MIN_WIDTH, MAX_WIDTH),
       height: clamp(args.height, MIN_HEIGHT, MAX_HEIGHT),
       now,
@@ -3275,6 +3386,13 @@ export async function movePageAcrossAreasWithSidecars(
     args.page.areaId,
   );
 
+  for (const moved of movedPages) {
+    await archiveCheckpointCanvasEdgesForArchivedPage(
+      ctx,
+      moved,
+      args.now,
+    );
+  }
   await archiveEdgesForMovedPage(
     ctx,
     args.page,

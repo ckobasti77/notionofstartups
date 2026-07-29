@@ -19,6 +19,7 @@ import {
 } from "./lib/collaboration";
 import { cleanPageContent } from "./lib/page_creation";
 import { syncTaskCheckpointProjection } from "./lib/task_checkpoints";
+import { archiveCheckpointCanvasEdgesForCheckpoint } from "./lib/task_checkpoint_canvas_edges";
 
 const targetValidator = v.union(
   v.object({ kind: v.literal("idea"), id: v.id("ideaNodes") }),
@@ -35,6 +36,10 @@ const targetValidator = v.union(
   v.object({
     kind: v.literal("page_relation"),
     id: v.id("pageRelations"),
+  }),
+  v.object({
+    kind: v.literal("task_checkpoint_edge"),
+    id: v.id("taskCheckpointCanvasEdges"),
   }),
   v.object({
     kind: v.literal("contribution"),
@@ -113,6 +118,10 @@ type DeletionTarget =
   | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> }
   | { kind: "page_edge"; id: Id<"pageCanvasEdgesV2"> }
   | { kind: "page_relation"; id: Id<"pageRelations"> }
+  | {
+      kind: "task_checkpoint_edge";
+      id: Id<"taskCheckpointCanvasEdges">;
+    }
   | { kind: "contribution"; id: Id<"contentContributions"> }
   | { kind: "recovered"; id: Id<"recoveredContent"> };
 
@@ -316,6 +325,17 @@ async function deletionTargetInfo(
       ownerProfileId: relation.authorProfileId,
     };
   }
+  if (target.kind === "task_checkpoint_edge") {
+    const edge = await ctx.db.get("taskCheckpointCanvasEdges", target.id);
+    if (edge === null || edge.archivedAt !== null) {
+      throw new Error("Checkpoint veza nije pronađena.");
+    }
+    return {
+      startupId: edge.startupId,
+      title: "Veza checkpointa na Canvas-u",
+      ownerProfileId: edge.authorProfileId,
+    };
+  }
   if (target.kind === "task_checkpoint") {
     const checkpoint = await ctx.db.get("taskCheckpoints", target.id);
     if (checkpoint === null || checkpoint.archivedAt !== null) {
@@ -428,13 +448,38 @@ export async function applyApprovedDeletion(
     }
     return;
   }
+  if (request.targetKind === "task_checkpoint_edge") {
+    const id = ctx.db.normalizeId(
+      "taskCheckpointCanvasEdges",
+      request.targetId,
+    );
+    const edge =
+      id === null
+        ? null
+        : await ctx.db.get("taskCheckpointCanvasEdges", id);
+    if (
+      edge !== null &&
+      edge.archivedAt === null &&
+      edge.startupId === request.startupId
+    ) {
+      await ctx.db.patch("taskCheckpointCanvasEdges", edge._id, {
+        archivedAt: now,
+        updatedAt: now,
+      });
+    }
+    return;
+  }
   if (request.targetKind === "task_checkpoint") {
     const id = ctx.db.normalizeId("taskCheckpoints", request.targetId);
     const checkpoint =
       id === null ? null : await ctx.db.get("taskCheckpoints", id);
     if (checkpoint !== null && checkpoint.archivedAt === null) {
       const page = await ctx.db.get("pages", checkpoint.taskPageId);
-      const now = Date.now();
+      await archiveCheckpointCanvasEdgesForCheckpoint(
+        ctx,
+        checkpoint._id,
+        now,
+      );
       await ctx.db.patch("taskCheckpoints", checkpoint._id, {
         archivedAt: now,
         updatedAt: now,

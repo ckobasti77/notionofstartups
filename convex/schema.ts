@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import {
   checkpointItemValidator,
   pageKindValidator,
+  taskCheckpointCanvasEndpointValidator,
   taskPriorityValidator,
   taskStatusValidator,
 } from "./lib/validators";
@@ -378,6 +379,46 @@ export default defineSchema({
       "canvasRootPageId",
     ]),
 
+  taskCheckpointCanvasEdges: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    rootPageId: v.union(v.id("pages"), v.null()),
+    endpointA: taskCheckpointCanvasEndpointValidator,
+    endpointB: taskCheckpointCanvasEndpointValidator,
+    endpointAKey: v.string(),
+    endpointBKey: v.string(),
+    endpointAPageId: v.id("pages"),
+    endpointBPageId: v.id("pages"),
+    pairKey: v.string(),
+    authorProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_scope_active_pair", [
+      "startupId",
+      "areaId",
+      "rootPageId",
+      "archivedAt",
+      "pairKey",
+    ])
+    .index("by_endpointAKey_and_archivedAt", [
+      "endpointAKey",
+      "archivedAt",
+    ])
+    .index("by_endpointBKey_and_archivedAt", [
+      "endpointBKey",
+      "archivedAt",
+    ])
+    .index("by_endpointAPageId_and_archivedAt", [
+      "endpointAPageId",
+      "archivedAt",
+    ])
+    .index("by_endpointBPageId_and_archivedAt", [
+      "endpointBPageId",
+      "archivedAt",
+    ]),
+
   ideaCanvases: defineTable({
     startupId: v.id("startups"),
     ownerProfileId: v.id("profiles"),
@@ -536,6 +577,7 @@ export default defineSchema({
       v.literal("page"),
       v.literal("page_edge"),
       v.literal("page_relation"),
+      v.literal("task_checkpoint_edge"),
       v.literal("task_checkpoint"),
       v.literal("contribution"),
       v.literal("recovered"),

@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   Handle,
-  NodeResizer,
   NodeToolbar,
   Position,
   type Node,
@@ -48,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { CircularTextFlow } from "./circular-text-flow";
 import styles from "./connected-canvas.module.css";
 import orbital from "./orbital-node.module.css";
+import { PerimeterResizeControl } from "./perimeter-resize-control";
 
 export type AreaCanvasNodeData = {
   title: string;
@@ -127,6 +127,8 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
   id,
   data,
   selected,
+  width,
+  height,
 }: NodeProps<AreaFlowNode>) {
   const actions = useContext(AreaNodeActionsContext);
   const pageId = id as Id<"pages">;
@@ -212,15 +214,19 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         </div>
       ) : null}
 
-      <NodeResizer
-        isVisible={selected && canResize}
+      <PerimeterResizeControl<AreaFlowNode>
+        nodeId={id}
+        width={width ?? 240}
+        height={height ?? 168}
+        selected={selected}
+        disabled={!canResize}
+        shape={isTask ? "rounded" : "organic"}
         minWidth={240}
         minHeight={168}
         maxWidth={720}
         maxHeight={1_000}
-        handleClassName={cn(styles.resizeHandle, orbital.resizeControl)}
-        lineClassName={styles.resizeLine}
-        onResizeEnd={(_event, layout) => {
+        ariaLabel={`Promeni veličinu ${isTask ? "zadatka" : "beleške"} ${title} povlačenjem oboda`}
+        onResizeEnd={(layout) => {
           if (canResize) actions?.resize(pageId, layout);
         }}
       />

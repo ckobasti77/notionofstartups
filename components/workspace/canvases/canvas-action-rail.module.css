@@ -24,9 +24,19 @@
     box-shadow 140ms ease;
 }
 
+.identity {
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, currentColor 18%, var(--border));
+}
+
 .button {
   border: 0;
   cursor: pointer;
+}
+
+.actionItem {
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--border) 72%, transparent);
 }
 
 .button:hover {
@@ -105,44 +115,121 @@
   display: none;
 }
 
+.switchSection {
+  display: contents;
+}
+
+.switchGroup {
+  position: relative;
+  display: flex;
+  width: 2.5rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  border-radius: 0.95rem;
+  padding: 0.1875rem;
+  background: color-mix(in oklab, var(--card) 92%, var(--muted));
+  box-shadow: var(--shadow-desk);
+}
+
+.switchItem {
+  position: relative;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0.7rem;
+  outline: none;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.switchItem:hover {
+  color: var(--foreground);
+}
+
+.switchItem[aria-checked="true"] {
+  color: var(--primary);
+}
+
+.switchItem:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--ring);
+}
+
+.switchIndicator {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border: 1px solid color-mix(in oklab, var(--primary) 38%, transparent);
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--primary) 16%, var(--card));
+  box-shadow: 0 5px 14px
+    color-mix(in oklab, var(--primary) 16%, transparent);
+}
+
+.switchIndicatorNote {
+  border-color: color-mix(in oklab, oklch(0.64 0.13 232) 48%, transparent);
+  background: color-mix(in oklab, oklch(0.64 0.13 232) 18%, var(--card));
+  box-shadow: 0 5px 14px
+    color-mix(in oklab, oklch(0.64 0.13 232) 18%, transparent);
+}
+
+.switchIndicatorTask {
+  border-color: color-mix(in oklab, oklch(0.63 0.14 155) 48%, transparent);
+  background: color-mix(in oklab, oklch(0.63 0.14 155) 18%, var(--card));
+  box-shadow: 0 5px 14px
+    color-mix(in oklab, oklch(0.63 0.14 155) 18%, transparent);
+}
+
+.switchIcon {
+  position: relative;
+  z-index: 1;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .rail:hover .item,
-  .rail:focus-within .item {
-    width: var(--canvas-rail-expanded-width, 11.25rem);
+  .rail:hover .expandable,
+  .rail:focus-within .expandable {
+    width: var(--canvas-rail-expanded-width, 12rem);
   }
 
-  .rail:hover .label,
-  .rail:focus-within .label {
-    max-width: 8.75rem;
+  .rail:hover .expandable .label,
+  .rail:focus-within .expandable .label {
+    max-width: 9.5rem;
     padding-left: 0.75rem;
     opacity: 1;
   }
 
-  .rail:hover .button,
-  .rail:focus-within .button {
+  .rail:hover .actionItem,
+  .rail:focus-within .actionItem {
     background: color-mix(in oklab, var(--card) 88%, var(--muted));
     box-shadow: inset 0 0 0 1px
       color-mix(in oklab, var(--border) 72%, transparent);
   }
 
-  .rail:hover .button:hover,
-  .rail:focus-within .button:focus-visible {
+  .rail:hover .actionItem:hover,
+  .rail:focus-within .actionItem:focus-visible {
     background: color-mix(in oklab, var(--primary) 22%, var(--card));
     color: var(--foreground);
     box-shadow: inset 0 0 0 1px
       color-mix(in oklab, var(--primary) 34%, transparent);
   }
 
-  .rail:hover .button[aria-pressed="true"],
-  .rail:focus-within .button[aria-pressed="true"] {
+  .rail:hover .actionItem[aria-pressed="true"],
+  .rail:focus-within .actionItem[aria-pressed="true"] {
     background: color-mix(in oklab, var(--primary) 14%, var(--card));
     color: var(--primary);
     box-shadow: inset 0 0 0 1px
       color-mix(in oklab, var(--primary) 26%, transparent);
   }
 
-  .rail:hover .button[aria-pressed="true"]:hover,
-  .rail:focus-within .button[aria-pressed="true"]:focus-visible {
+  .rail:hover .actionItem[aria-pressed="true"]:hover,
+  .rail:focus-within .actionItem[aria-pressed="true"]:focus-visible {
     background: color-mix(in oklab, var(--primary) 24%, var(--card));
     color: var(--foreground);
   }
@@ -160,6 +247,16 @@
     min-width: 2.75rem;
     height: 2.75rem;
     flex-basis: 2.75rem;
+  }
+
+  .switchGroup {
+    width: 2.75rem;
+  }
+
+  .switchItem {
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-basis: 2.25rem;
   }
 }
 
