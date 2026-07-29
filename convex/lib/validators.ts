@@ -44,6 +44,20 @@ export const taskCheckpointCanvasEndpointValidator = v.union(
   }),
 );
 
+/** Statusi koje komandni centar smatra otvorenim poslom. */
+export const OPEN_TASK_STATUSES = [
+  "backlog",
+  "next",
+  "in_progress",
+  "blocked",
+] as const;
+
+/**
+ * Gornja granica čitanja po statusu u komandnom centru. Trijaža mora da prikaže
+ * tačne brojeve, pa se čita bez paginacije — granica je zaštita, ne očekivanje.
+ */
+export const COMMAND_CENTER_STATUS_CAP = 150;
+
 export const MAX_TASK_INSTRUCTIONS_LENGTH = 20_000;
 export const MAX_TASK_CHECKPOINTS = 100;
 export const MAX_TASK_CHECKPOINT_ID_LENGTH = 128;

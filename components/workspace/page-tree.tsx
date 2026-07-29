@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -267,6 +268,16 @@ function PageTreeNode({
         >
           <Icon className="size-3.5 shrink-0 opacity-75" />
           <span className="truncate">{page.title}</span>
+          {page.kind === "task" ? (
+            <DeadlineBadge
+              dueDate={page.dueDate}
+              taskStatus={page.taskStatus}
+              size="sm"
+              showIcon={false}
+              calmHidden
+              className="shrink-0"
+            />
+          ) : null}
         </button>
         <Button
           type="button"

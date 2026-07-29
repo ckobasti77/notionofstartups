@@ -189,7 +189,7 @@ describe("task metadata ugovori", () => {
     ]);
   });
 
-  test("samo autor menja task metadata, a null vrednosti ih čiste", async () => {
+  test("kreator menja task metadata, a null vrednosti ih čiste", async () => {
     const {
       t,
       startup,
@@ -219,7 +219,7 @@ describe("task metadata ugovori", () => {
         pageId: taskId,
         status: "done",
       }),
-    ).rejects.toThrow("samo njegov kreator");
+    ).rejects.toThrow("Status menja kreator zadatka ili osoba kojoj je dodeljen.");
     await expect(
       asOwner.mutation(api.tasks.updateMetadata, {
         pageId: noteId,
@@ -525,5 +525,215 @@ describe("task metadata ugovori", () => {
         instructions: "",
       }),
     ).rejects.toThrow("samo task stranici");
+  });
+});
+
+describe("komandni centar", () => {
+  test("vraća sav otvoren posao startupa, bez završenog i arhiviranog", async () => {
+    const { t, startup, foreignStartup, area, foreignArea, owner, asOwner, asOutsider } =
+      await seedTaskWorkspace();
+
+    const openStatuses = ["backlog", "next", "in_progress", "blocked"] as const;
+    const openIds: Array<Id<"pages">> = [];
+    for (const status of openStatuses) {
+      const pageId = await asOwner.mutation(api.pages.create, {
+        startupId: startup,
+        areaId: area,
+        parentPageId: null,
+        kind: "task",
+        title: `Otvoren ${status}`,
+      });
+      if (status !== "backlog") {
+        await asOwner.mutation(api.tasks.updateMetadata, { pageId, status });
+      }
+      openIds.push(pageId);
+    }
+
+    const doneId = await asOwner.mutation(api.pages.create, {
+      startupId: startup,
+      areaId: area,
+      parentPageId: null,
+      kind: "task",
+      title: "Završen",
+    });
+    await asOwner.mutation(api.tasks.updateMetadata, {
+      pageId: doneId,
+      status: "done",
+    });
+
+    const archivedId = await asOwner.mutation(api.pages.create, {
+      startupId: startup,
+      areaId: area,
+      parentPageId: null,
+      kind: "task",
+      title: "Arhiviran",
+    });
+    await asOwner.mutation(api.areasV2.archivePage, {
+      startupId: startup,
+      pageId: archivedId,
+    });
+
+    await asOwner.mutation(api.pages.create, {
+      startupId: startup,
+      areaId: area,
+      parentPageId: null,
+      kind: "note",
+      title: "Beleška nije zadatak",
+    });
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("pages", {
+        startupId: foreignStartup,
+        areaId: foreignArea,
+        parentPageId: null,
+        kind: "task",
+        title: "Tuđi zadatak",
+        searchText: "",
+        revision: 1,
+        position: 0,
+        taskStatus: "next",
+        taskPriority: "medium",
+        assigneeProfileId: null,
+        dueDate: null,
+        taskSortAt: now,
+        createdByProfileId: owner.profileId,
+        updatedByProfileId: owner.profileId,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const overview = await asOwner.query(api.tasks.commandCenter, {
+      startupId: startup,
+    });
+
+    expect(overview.hasMore).toBe(false);
+    expect(new Set(overview.tasks.map((task) => task._id))).toEqual(
+      new Set(openIds),
+    );
+    for (const task of overview.tasks) {
+      expect(task.kind).toBe("task");
+      expect(task.searchText).toBe("");
+    }
+
+    await expect(
+      asOutsider.query(api.tasks.commandCenter, { startupId: startup }),
+    ).rejects.toThrow("Nemate pristup ovom startupu.");
+  });
+});
+
+describe("dozvole za brze akcije", () => {
+  async function seedAssignedTask() {
+    const context = await seedTaskWorkspace();
+    const pageId = await context.asOwner.mutation(api.pages.create, {
+      startupId: context.startup,
+      areaId: context.area,
+      parentPageId: null,
+      kind: "task",
+      title: "Zadatak sa dodelom",
+      assigneeProfileId: context.member.profileId,
+    });
+    return { ...context, pageId };
+  }
+
+  test("dodeljena osoba menja status, ali ne i ostale podatke", async () => {
+    const { pageId, asMember } = await seedAssignedTask();
+
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        status: "in_progress",
+      }),
+    ).resolves.toBe(pageId);
+
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        priority: "urgent",
+      }),
+    ).rejects.toThrow("Prioritet menja samo kreator zadatka.");
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        dueDate: Date.UTC(2032, 0, 5, 12),
+      }),
+    ).rejects.toThrow("Rok menja samo kreator zadatka.");
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        instructions: "Menjam instrukcije",
+      }),
+    ).rejects.toThrow("Instrukcije menja samo kreator zadatka.");
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        checkpoints: [{ id: "cp", text: "Korak", completed: false }],
+      }),
+    ).rejects.toThrow("Checkpointe menja samo kreator zadatka.");
+  });
+
+  test("dodeljen zadatak ne može preuzeti drugi član", async () => {
+    const { pageId, owner, asOwner, asMember } = await seedAssignedTask();
+
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        assigneeProfileId: owner.profileId,
+      }),
+    ).rejects.toThrow("dodelu menja njegov kreator");
+
+    // Kreator i dalje sme sve.
+    await expect(
+      asOwner.mutation(api.tasks.updateMetadata, {
+        pageId,
+        assigneeProfileId: owner.profileId,
+      }),
+    ).resolves.toBe(pageId);
+  });
+
+  test("nedodeljen zadatak član preuzima na sebe i to ostaje u istoriji", async () => {
+    const { t, startup, area, member, owner, asOwner, asMember } =
+      await seedTaskWorkspace();
+    const pageId = await asOwner.mutation(api.pages.create, {
+      startupId: startup,
+      areaId: area,
+      parentPageId: null,
+      kind: "task",
+      title: "Nedodeljen zadatak",
+    });
+
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        assigneeProfileId: owner.profileId,
+      }),
+    ).rejects.toThrow("Zadatak možeš dodeliti samo sebi.");
+
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        assigneeProfileId: member.profileId,
+      }),
+    ).resolves.toBe(pageId);
+
+    const { assignee, detail } = await t.run(async (ctx) => {
+      const page = await ctx.db.get("pages", pageId);
+      const activities = await ctx.db
+        .query("activities")
+        .withIndex("by_startupId_and_createdAt", (q) =>
+          q.eq("startupId", startup),
+        )
+        .order("desc")
+        .take(1);
+      return {
+        assignee: page?.assigneeProfileId ?? null,
+        detail: activities[0]?.detail ?? null,
+      };
+    });
+
+    expect(assignee).toBe(member.profileId);
+    expect(detail).toBe("Preuzeo/la: Member");
   });
 });

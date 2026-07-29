@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
 import type { ProfileWithAvatar, StartupMember, StartupWithAreas } from "@/components/workspace/types";
 import {
@@ -33,7 +34,6 @@ import {
 } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { cn } from "@/lib/utils";
 import {
   TASK_PRIORITY_META,
   TASK_STATUS_META,
@@ -534,12 +534,16 @@ function TaskTableRow({
               value={toDateInputValue(task.dueDate)}
               onChange={(e) => updateDueDate(e.target.value)}
               disabled={updating || !canEdit}
-              className={cn(
-                "h-8 text-xs border-border/50 bg-background/60 px-2 py-0",
-                task.dueDate && task.dueDate < now && task.taskStatus !== "done" && "border-destructive/60 text-destructive font-semibold"
-              )}
+              className="h-8 border-border/50 bg-background/60 px-2 py-0 text-xs"
             />
           </div>
+          <DeadlineBadge
+            dueDate={task.dueDate}
+            taskStatus={task.taskStatus as TaskStatus | null}
+            now={now}
+            size="sm"
+            className="mt-1"
+          />
         </div>
 
         {/* Instructions Free-Form Field */}

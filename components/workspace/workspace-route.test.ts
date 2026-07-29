@@ -12,8 +12,8 @@ import {
 import type { WorkspaceRoute } from "./types";
 
 describe("workspace URL route contract", () => {
-  it("reads Home, Ideas and Thoughts as distinct routes while keeping legacy bare URLs on Home", () => {
-    expect(readWorkspaceRouteCandidate("")).toEqual({ kind: "home" });
+  it("reads Home, Ideas and Thoughts as distinct routes while bare URLs open the command center", () => {
+    expect(readWorkspaceRouteCandidate("")).toEqual({ kind: "today" });
     expect(readWorkspaceRouteCandidate("?view=home")).toEqual({
       kind: "home",
     });
@@ -57,7 +57,7 @@ describe("workspace URL route contract", () => {
       hasExplicitView: true,
     });
     expect(readWorkspaceLocation("?invite=abc")).toEqual({
-      route: { kind: "home" },
+      route: { kind: "today" },
       startupId: null,
       hasExplicitView: false,
     });
@@ -127,11 +127,12 @@ describe("workspace URL route contract", () => {
     ]);
   });
 
-  it("preserves only Home, Ideas and Thoughts across startup switches", () => {
+  it("preserves per-startup screens across startup switches and falls back to the command center", () => {
     for (const route of [
       { kind: "home" },
       { kind: "ideas" },
       { kind: "thoughts" },
+      { kind: "today" },
     ] satisfies WorkspaceRoute[]) {
       const switchedRoute = workspaceRouteAfterStartupSwitch(route);
       const switchedHref = workspaceRouteHref(
@@ -150,14 +151,14 @@ describe("workspace URL route contract", () => {
     }
 
     expect(workspaceRouteAfterStartupSwitch({ kind: "approvals" })).toEqual({
-      kind: "home",
+      kind: "today",
     });
     expect(
       workspaceRouteAfterStartupSwitch({
         kind: "page",
         pageId: "page-1" as never,
       }),
-    ).toEqual({ kind: "home" });
+    ).toEqual({ kind: "today" });
   });
 
   it("falls back from an archived page to its parent canvas or Area root", () => {

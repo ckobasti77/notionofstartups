@@ -16,9 +16,11 @@ import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
   boundedLimit,
   checkpointItemValidator,
+  COMMAND_CENTER_STATUS_CAP,
   MAX_TASK_PAGE_SIZE,
   normalizeTaskCheckpoints,
   normalizeTaskInstructions,
+  OPEN_TASK_STATUSES,
   pageSummaryValidator,
   startupAreaDocumentValidator,
   startupDocumentValidator,
@@ -184,6 +186,43 @@ export const listMine = query({
   },
 });
 
+/**
+ * Sve otvoreno u jednom startupu, u jednoj reaktivnoj subskripciji — trijažne
+ * zone, brojači i opterećenje tima moraju da se osvežavaju kao jedna slika.
+ * Zone se namerno ne računaju ovde: query ne sme da čita sat, a ista logika
+ * treba i tabeli, stablu i kanvasu (`lib/deadline.ts`).
+ */
+export const commandCenter = query({
+  args: { startupId: v.id("startups") },
+  returns: v.object({
+    tasks: v.array(pageSummaryValidator),
+    hasMore: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+
+    const tasks = [];
+    let hasMore = false;
+    for (const status of OPEN_TASK_STATUSES) {
+      const rows = await ctx.db
+        .query("pages")
+        .withIndex("by_startup_status_active_sort", (q) =>
+          q
+            .eq("startupId", args.startupId)
+            .eq("kind", "task")
+            .eq("taskStatus", status)
+            .eq("archivedAt", null),
+        )
+        .order("asc")
+        .take(COMMAND_CENTER_STATUS_CAP);
+      if (rows.length === COMMAND_CENTER_STATUS_CAP) hasMore = true;
+      for (const row of rows) tasks.push(summarizePage(row));
+    }
+
+    return { tasks, hasMore };
+  },
+});
+
 export const updateMetadata = mutation({
   args: {
     pageId: v.id("pages"),
@@ -199,9 +238,6 @@ export const updateMetadata = mutation({
     const page = await requireVisiblePage(ctx, args.pageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije task.");
     const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Osnovne podatke zadatka menja samo njegov kreator.");
-    }
     if (args.assigneeProfileId !== undefined && args.assigneeProfileId !== null) {
       await requireProfileInStartup(ctx, page.startupId, args.assigneeProfileId);
     }
@@ -242,16 +278,59 @@ export const updateMetadata = mutation({
       body?.content ?? "",
       instructions,
     );
+    const changesStatus = taskStatus !== page.taskStatus;
+    const changesPriority = taskPriority !== page.taskPriority;
+    const changesAssignee = assigneeProfileId !== page.assigneeProfileId;
+    const changesDueDate = dueDate !== page.dueDate;
+    const changesInstructions = instructions !== page.instructions;
+    const changesCheckpoints =
+      JSON.stringify(checkpoints ?? null) !==
+      JSON.stringify(page.checkpoints ?? null);
+
     const unchanged =
-      taskStatus === page.taskStatus &&
-      taskPriority === page.taskPriority &&
-      assigneeProfileId === page.assigneeProfileId &&
-      dueDate === page.dueDate &&
-      instructions === page.instructions &&
-      JSON.stringify(checkpoints ?? null) ===
-        JSON.stringify(page.checkpoints ?? null) &&
+      !changesStatus &&
+      !changesPriority &&
+      !changesAssignee &&
+      !changesDueDate &&
+      !changesInstructions &&
+      !changesCheckpoints &&
       canvasPreview === page.canvasPreview;
     if (unchanged) return page._id;
+
+    // Dozvole se sude po stvarnoj razlici, ne po prisustvu argumenta: kreator
+    // vodi zadatak, dodeljena osoba pomera njegov status, a nedodeljen zadatak
+    // svaki član može da preuzme na sebe.
+    const isCreator = page.createdByProfileId === profile._id;
+    const isAssignee = page.assigneeProfileId === profile._id;
+    const claimsForSelf =
+      page.assigneeProfileId === null && assigneeProfileId === profile._id;
+
+    if (!isCreator) {
+      if (changesAssignee && !claimsForSelf) {
+        throw new Error(
+          page.assigneeProfileId === null
+            ? "Zadatak možeš dodeliti samo sebi."
+            : "Zadatak je već dodeljen — dodelu menja njegov kreator.",
+        );
+      }
+      if (changesStatus && !isAssignee && !claimsForSelf) {
+        throw new Error(
+          "Status menja kreator zadatka ili osoba kojoj je dodeljen.",
+        );
+      }
+      if (changesPriority) {
+        throw new Error("Prioritet menja samo kreator zadatka.");
+      }
+      if (changesDueDate) {
+        throw new Error("Rok menja samo kreator zadatka.");
+      }
+      if (changesInstructions) {
+        throw new Error("Instrukcije menja samo kreator zadatka.");
+      }
+      if (changesCheckpoints) {
+        throw new Error("Checkpointe menja samo kreator zadatka.");
+      }
+    }
 
     const now = Date.now();
     await ctx.db.patch("pages", page._id, {
@@ -282,6 +361,9 @@ export const updateMetadata = mutation({
       targetType: "page",
       targetId: page._id,
       title: `Task „${page.title}” je ažuriran`,
+      ...(claimsForSelf
+        ? { detail: `Preuzeo/la: ${profile.displayName}` }
+        : {}),
     });
     return page._id;
   },

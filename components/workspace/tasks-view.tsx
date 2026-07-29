@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  CalendarClock,
   CheckCircle2,
   CheckSquare2,
   CircleDashed,
@@ -20,28 +19,22 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import type { ProfileWithAvatar, StartupMember, StartupWithAreas } from "@/components/workspace/types";
 import {
   EmptyState,
   ProfileAvatar,
   TaskPriorityBadge,
   TaskStatusBadge,
-  isToday,
   memberById,
 } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { cn } from "@/lib/utils";
-import {
-  TASK_STATUS_META,
-  formatShortDate,
-  type TaskStatus,
-} from "@/lib/workspace";
+import { TASK_STATUS_META, type TaskStatus } from "@/lib/workspace";
 
 type TasksViewProps = {
   startup: StartupWithAreas;
   profile: ProfileWithAvatar;
-  mode: "today" | "mine";
   onOpenPage: (pageId: Id<"pages">) => void;
   onCreateTask: () => void;
 };
@@ -57,35 +50,17 @@ const boardStatuses: Array<TaskStatus> = [
 export function TasksView({
   startup,
   profile,
-  mode,
   onOpenPage,
   onCreateTask,
 }: TasksViewProps) {
-  const [todayRange] = useState(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    return { dueStart: start.getTime(), dueEnd: end.getTime() };
-  });
-  const { results: tasks, status: tasksStatus, loadMore } = usePaginatedQuery(
+  const { results: visibleTasks, status: tasksStatus, loadMore } = usePaginatedQuery(
     api.tasks.listForStartup,
-    {
-      startupId: startup._id,
-      ...(mode === "mine" ? { assigneeProfileId: profile._id } : todayRange),
-    },
+    { startupId: startup._id, assigneeProfileId: profile._id },
     { initialNumItems: 50 },
   );
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
-  const visibleTasks = useMemo(
-    () => tasks.filter((task) => (mode === "today" ? isToday(task.dueDate) : true)),
-    [mode, tasks],
-  );
-  const title = mode === "today" ? "Današnji fokus" : "Moji zadaci";
-  const description =
-    mode === "today"
-      ? `Sve što tim treba da završi danas u startupu ${startup.name}.`
-      : `Tvoji zadaci u startupu ${startup.name}, od ideje do završenog.`;
+  const title = "Moji zadaci";
+  const description = `Tvoji zadaci u startupu ${startup.name}, od ideje do završenog.`;
 
   return (
     <div className="mx-auto w-full max-w-[96rem] px-4 pb-20 pt-5 sm:px-7 lg:px-10 lg:pt-8">
@@ -104,7 +79,7 @@ export function TasksView({
 
       {tasksStatus === "LoadingFirstPage" || members === undefined ? (
         <TasksSkeleton />
-      ) : mode === "mine" ? (
+      ) : (
         <Tabs defaultValue="list" data-workspace-enter>
           <div className="mb-4 flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
@@ -133,17 +108,6 @@ export function TasksView({
             />
           </TabsContent>
         </Tabs>
-      ) : (
-        <div data-workspace-enter>
-          <TaskList
-            tasks={visibleTasks}
-            members={members}
-            onOpenPage={onOpenPage}
-            onCreateTask={onCreateTask}
-            emptyTitle="Nema zadataka za danas"
-            emptyDescription="Današnji raspored je čist. Dodajte rok zadatku kada želite da se pojavi ovde."
-          />
-        </div>
       )}
       {tasksStatus === "CanLoadMore" || tasksStatus === "LoadingMore" ? (
         <div className="mt-5 flex justify-center" data-workspace-enter>
@@ -229,8 +193,12 @@ function TaskList({
               </span>
               <span><TaskStatusBadge status={(task.taskStatus ?? "backlog") as TaskStatus} /></span>
               <TaskPriorityBadge priority={(task.taskPriority ?? "medium") as "low" | "medium" | "high" | "urgent"} />
-              <span className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", task.dueDate && task.dueDate < now && task.taskStatus !== "done" && "font-semibold text-destructive")}>
-                <CalendarClock className="size-3.5" /> {formatShortDate(task.dueDate)}
+              <span className="flex items-center">
+                <DeadlineBadge
+                  dueDate={task.dueDate}
+                  taskStatus={task.taskStatus as TaskStatus | null}
+                  now={now}
+                />
               </span>
             </motion.button>
           );
@@ -339,7 +307,14 @@ function KanbanCard({
       <button type="button" className="w-full text-left" onClick={() => onOpenPage(task._id)}>
         <h3 className="line-clamp-2 text-sm font-semibold leading-5">{task.title}</h3>
         <div className="mt-3 flex items-center justify-between gap-2">
-          <TaskPriorityBadge priority={(task.taskPriority ?? "medium") as "low" | "medium" | "high" | "urgent"} />
+          <span className="flex min-w-0 items-center gap-2">
+            <TaskPriorityBadge priority={(task.taskPriority ?? "medium") as "low" | "medium" | "high" | "urgent"} />
+            <DeadlineBadge
+              dueDate={task.dueDate}
+              taskStatus={task.taskStatus as TaskStatus | null}
+              size="sm"
+            />
+          </span>
           {assignee ? <ProfileAvatar profile={assignee} className="size-6" /> : <UserRound className="size-4 text-muted-foreground" />}
         </div>
       </button>

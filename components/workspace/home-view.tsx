@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import type { ProfileWithAvatar, StartupWithAreas } from "@/components/workspace/types";
 import {
   AREA_ICONS,
@@ -25,7 +26,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-import { formatShortDate, type AreaKey, type TaskStatus } from "@/lib/workspace";
+import type { AreaKey, TaskStatus } from "@/lib/workspace";
 
 export function HomeView({
   startup,
@@ -118,7 +119,7 @@ export function HomeView({
               {openTasks.slice(0, 6).map((task) => (
                 <button key={task._id} type="button" className="flex min-h-16 w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left last:border-b-0 hover:bg-accent/35" onClick={() => onOpenPage(task._id)}>
                   <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/8 text-primary"><CheckSquare2 className="size-4" /></span>
-                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{task.title}</span><span className="mt-0.5 block text-xs text-muted-foreground">Rok: {formatShortDate(task.dueDate)}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{task.title}</span><span className="mt-1 flex items-center"><DeadlineBadge dueDate={task.dueDate} taskStatus={task.taskStatus as TaskStatus | null} size="sm" /></span></span>
                   <TaskStatusBadge status={(task.taskStatus ?? "backlog") as TaskStatus} />
                 </button>
               ))}

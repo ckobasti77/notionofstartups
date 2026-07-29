@@ -30,7 +30,10 @@ export function readWorkspaceRouteCandidate(
 ): WorkspaceRouteCandidate | null {
   const params = new URLSearchParams(search);
   const view = params.get("view");
-  if (view === null || view === "home") return { kind: "home" };
+  // Bez izričitog prikaza otvara se komandni centar: prvi ekran odgovara na
+  // „šta me čeka”, a ne na pozdrav.
+  if (view === null) return { kind: "today" };
+  if (view === "home") return { kind: "home" };
   if (view === "thoughts") return { kind: "thoughts" };
   if (view === "ideas") return { kind: "ideas" };
   if (view === "today") return { kind: "today" };
@@ -110,9 +113,10 @@ export function workspaceRouteAfterStartupSwitch(
 ): WorkspaceRoute {
   return currentRoute.kind === "home" ||
     currentRoute.kind === "ideas" ||
-    currentRoute.kind === "thoughts"
+    currentRoute.kind === "thoughts" ||
+    currentRoute.kind === "today"
     ? currentRoute
-    : { kind: "home" };
+    : { kind: "today" };
 }
 
 export function pageArchiveFallbackRoute(page: {

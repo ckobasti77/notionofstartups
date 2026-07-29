@@ -26,6 +26,18 @@ export const TASK_PRIORITY_META = {
 
 export type TaskPriority = keyof typeof TASK_PRIORITY_META;
 
+/** „1 zadatak”, „3 zadatka”, „7 zadataka” — srpska pluralizacija. */
+export function tasksWord(count: number) {
+  const absolute = Math.abs(count);
+  const lastDigit = absolute % 10;
+  const lastTwo = absolute % 100;
+  if (lastDigit === 1 && lastTwo !== 11) return "zadatak";
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) {
+    return "zadatka";
+  }
+  return "zadataka";
+}
+
 export function formatShortDate(timestamp?: number | null) {
   if (!timestamp) return "Bez roka";
   return new Intl.DateTimeFormat("sr-Latn-RS", {

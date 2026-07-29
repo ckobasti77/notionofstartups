@@ -13,7 +13,10 @@ const badgeVariants = cva(
         outline: "border-border bg-card text-foreground",
         destructive: "border-transparent bg-destructive/12 text-destructive dark:bg-destructive/18",
         success: "border-transparent bg-success/12 text-success dark:bg-success/18",
-        warning: "border-transparent bg-warning/18 text-warning-foreground dark:bg-warning/22",
+        // U tamnoj temi tekst mora da pređe na svetli `--warning`: tamni
+        // `--warning-foreground` na tamnoj kartici daje kontrast 1.45:1.
+        warning: "border-transparent bg-warning/18 text-warning-foreground dark:bg-warning/22 dark:text-warning",
+        info: "border-transparent bg-info/12 text-info dark:bg-info/18",
       },
     },
     defaultVariants: { variant: "secondary" },

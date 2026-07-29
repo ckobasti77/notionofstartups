@@ -4,6 +4,7 @@ import {
   createContext,
   memo,
   useContext,
+  useState,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
@@ -21,6 +22,7 @@ import {
   CheckSquare2,
   Clock3,
   FileText,
+  Flame,
   FolderInput,
   Info,
   ListChecks,
@@ -42,6 +44,11 @@ import {
 } from "@/components/workspace/nesting-target-menu";
 import { DetachPageButton } from "@/components/workspace/detach-page-button";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  classifyDeadline,
+  deadlineAriaLabel,
+  deadlineLabel,
+} from "@/lib/deadline";
 import { cn } from "@/lib/utils";
 
 import { CircularTextFlow } from "./circular-text-flow";
@@ -131,18 +138,26 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
   height,
 }: NodeProps<AreaFlowNode>) {
   const actions = useContext(AreaNodeActionsContext);
+  const [now] = useState(() => Date.now());
   const pageId = id as Id<"pages">;
   const isTask = data.kind === "task";
   const title = data.title || "Bez naslova";
   const canResize = data.canResize && !data.pendingNesting;
   const hasCheckpoints = isTask && data.checkpointTotal > 0;
-  const dueDateLabel =
-    data.dueDate === null
-      ? "Bez roka"
-      : new Intl.DateTimeFormat("sr-Latn-RS", {
-          day: "2-digit",
-          month: "short",
-        }).format(data.dueDate);
+  // Kanvas govori isti jezik hitnosti kao liste i tabele, ali zadržava svoju
+  // orbitalnu geometriju: boja i ikona se menjaju samo kad rok gori.
+  const deadline = classifyDeadline({
+    dueDate: data.dueDate,
+    taskStatus: data.taskStatus,
+    now,
+  });
+  const dueDateLabel = deadlineLabel(deadline, data.dueDate);
+  const dueDateAriaLabel = deadlineAriaLabel(deadline, data.dueDate);
+  const dueIsOverdue = deadline.urgency === "overdue";
+  const DueIcon = dueIsOverdue ? Flame : CalendarDays;
+  const dueDateStyle = dueIsOverdue
+    ? { color: "color-mix(in oklab, var(--destructive) 85%, var(--foreground))" }
+    : undefined;
   const updatedAtLabel = new Intl.DateTimeFormat("sr-Latn-RS", {
     day: "2-digit",
     month: "short",
@@ -163,7 +178,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
       )}
       aria-label={`${isTask ? "Zadatak" : "Beleška"}: ${title}. ${data.text}${
         isTask
-          ? `. Dodeljeno: ${assigneeLabel}. Rok: ${dueDateLabel}`
+          ? `. Dodeljeno: ${assigneeLabel}. ${dueDateAriaLabel}`
           : ""
       }${data.pendingNesting ? ". Čeka odobrenje" : ""}`}
       title="Dupli klik otvara kanvas; izaberi karticu za dodatne akcije"
@@ -439,7 +454,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
           <span
             data-circular-text-obstacle
             className={cn(orbital.orbit, orbital.dateOrbit)}
-            aria-label="Rok nije postavljen"
+            aria-label={dueDateAriaLabel}
           >
             <CalendarDays className="size-3.5" aria-hidden="true" />
             {dueDateLabel}
@@ -448,10 +463,11 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
           <time
             data-circular-text-obstacle
             className={cn(orbital.orbit, orbital.dateOrbit)}
+            style={dueDateStyle}
             dateTime={new Date(data.dueDate).toISOString()}
-            aria-label={`Rok: ${dueDateLabel}`}
+            aria-label={dueDateAriaLabel}
           >
-            <CalendarDays className="size-3.5" aria-hidden="true" />
+            <DueIcon className="size-3.5" aria-hidden="true" />
             {dueDateLabel}
           </time>
         )

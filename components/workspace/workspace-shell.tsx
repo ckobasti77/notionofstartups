@@ -28,6 +28,7 @@ import { HomeView } from "@/components/workspace/home-view";
 import { IdeasView } from "@/components/workspace/ideas-view";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
+import { CommandCenterView } from "@/components/workspace/command-center-view";
 import { TasksView } from "@/components/workspace/tasks-view";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
 import {
@@ -756,9 +757,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           ) : route.kind === "ideas" ? (
             <IdeasView startup={startup} onOpenPage={openPageDetails} />
           ) : route.kind === "today" ? (
-            <TasksView startup={startup} profile={profile} mode="today" onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <CommandCenterView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
           ) : route.kind === "my-tasks" ? (
-            <TasksView startup={startup} profile={profile} mode="mine" onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <TasksView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
           ) : route.kind === "activity" ? (
             <ActivityView startup={startup} />
           ) : route.kind === "approvals" ? (
