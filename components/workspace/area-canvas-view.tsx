@@ -1725,65 +1725,6 @@ function AreaCanvasReady({
     [persistCheckpointResize],
   );
 
-  const resetCheckpointSize = useCallback(
-    (checkpointId: Id<"taskCheckpoints">) => {
-      const node = nodesRef.current.find(
-        (candidate): candidate is TaskCheckpointFlowNode =>
-          isTaskCheckpointNode(candidate) &&
-          candidate.data.checkpointId === checkpointId,
-      );
-      if (
-        !node ||
-        !node.data.canResize ||
-        !node.data.manuallySized ||
-        node.width === undefined ||
-        node.height === undefined
-      ) {
-        return;
-      }
-      const before = {
-        x: Math.round(node.position.x),
-        y: Math.round(node.position.y),
-        width: Math.round(node.width),
-        height: Math.round(node.height),
-      };
-      void resetCheckpointCanvasSize({
-        checkpointId,
-        canvasRootPageId: rootPageId,
-      })
-        .then(() => {
-          pushHistory({
-            label: "vraćanje automatske veličine checkpointa",
-            undo: () =>
-              saveCheckpointPlacement({
-                checkpointId,
-                canvasRootPageId: rootPageId,
-                ...before,
-              }),
-            redo: () =>
-              resetCheckpointCanvasSize({
-                checkpointId,
-                canvasRootPageId: rootPageId,
-              }),
-          });
-          toast.success("Vraćena je automatska veličina checkpointa.");
-        })
-        .catch((error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Automatska veličina checkpointa nije vraćena.",
-          );
-        });
-    },
-    [
-      pushHistory,
-      resetCheckpointCanvasSize,
-      rootPageId,
-      saveCheckpointPlacement,
-    ],
-  );
-
   const isTaskFilter = filter === "task";
   const isNoteFilter = filter === "note";
   const pendingCount = nodes.filter(
@@ -1798,7 +1739,6 @@ function AreaCanvasReady({
       startResize={beginCheckpointResize}
       resize={resizeCheckpoint}
       setSizePreset={setCheckpointSizePreset}
-      resetSize={resetCheckpointSize}
     >
       <AreaNodeActionsProvider
       startupId={startupId}

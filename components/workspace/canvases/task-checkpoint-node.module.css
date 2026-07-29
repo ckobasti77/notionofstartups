@@ -161,6 +161,7 @@
 }
 
 .toggle {
+  z-index: 50;
   top: 0;
   right: 0;
   transform: translate(30%, -30%);
@@ -175,7 +176,7 @@
 
 .actions {
   position: absolute;
-  z-index: 14;
+  z-index: 50;
   right: 50%;
   bottom: 0;
   display: flex;
@@ -202,16 +203,24 @@
   border: 2px solid var(--popover) !important;
   border-radius: 999px !important;
   background: var(--checkpoint-accent) !important;
-  opacity: 0;
+  opacity: 0.72 !important;
   transition:
     opacity 140ms ease,
     transform 140ms ease;
 }
 
+.handle[data-handlepos="left"] {
+  left: -0.7rem !important;
+}
+
+.handle[data-handlepos="right"] {
+  right: -0.7rem !important;
+}
+
 .shell:hover .handle,
 .selected .handle,
 .shell:focus-within .handle {
-  opacity: 1;
+  opacity: 1 !important;
 }
 
 .handle:hover {

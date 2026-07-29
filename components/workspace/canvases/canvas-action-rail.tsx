@@ -65,9 +65,15 @@ export function CanvasActionRail({
   return (
     <TooltipProvider delayDuration={350}>
       <div
-        className={cn(styles.rail, className)}
+        className={cn(
+          styles.rail,
+          "nodrag nopan nowheel",
+          className,
+        )}
         role="toolbar"
         aria-label={ariaLabel}
+        onPointerDown={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
       >
         <Tooltip>
           <TooltipTrigger asChild>

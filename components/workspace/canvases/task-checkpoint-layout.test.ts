@@ -5,6 +5,7 @@ import {
   taskCheckpointNodeId,
   taskCheckpointNodeMetrics,
   taskCheckpointOrbitPosition,
+  taskCheckpointUsesExpandedSize,
 } from "./task-checkpoint-layout";
 
 describe("task checkpoint Canvas layout", () => {
@@ -59,5 +60,29 @@ describe("task checkpoint Canvas layout", () => {
     expect(medium.width).toBeLessThan(long.width);
     expect(long.width).toBe(228);
     expect(long.height).toBeLessThanOrEqual(190);
+  });
+
+  test("jedno dugme naizmenično bira raširi i skupi stanje", () => {
+    expect(
+      taskCheckpointUsesExpandedSize({
+        manuallySized: false,
+        width: 360,
+        height: 240,
+      }),
+    ).toBe(false);
+    expect(
+      taskCheckpointUsesExpandedSize({
+        manuallySized: true,
+        width: 164,
+        height: 110,
+      }),
+    ).toBe(false);
+    expect(
+      taskCheckpointUsesExpandedSize({
+        manuallySized: true,
+        width: 360,
+        height: 240,
+      }),
+    ).toBe(true);
   });
 });

@@ -339,12 +339,21 @@
 
 .handle {
   z-index: 46 !important;
+  opacity: 0.72 !important;
+}
+
+.handle[data-handlepos="left"] {
+  left: -0.7rem !important;
+}
+
+.handle[data-handlepos="right"] {
+  right: -0.7rem !important;
 }
 
 .shell:hover .handle,
 .selected .handle,
 .shell:focus-within .handle {
-  opacity: 1;
+  opacity: 1 !important;
 }
 
 .toolbar {

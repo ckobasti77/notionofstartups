@@ -24,7 +24,6 @@ import {
   MessageSquareText,
   Minimize2,
   Pencil,
-  RotateCcw,
   Trash2,
   X,
 } from "lucide-react";
@@ -37,7 +36,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
-import type { TaskCheckpointSizePreset } from "./task-checkpoint-layout";
+import {
+  taskCheckpointUsesExpandedSize,
+  type TaskCheckpointSizePreset,
+} from "./task-checkpoint-layout";
 import { CircularTextFlow } from "./circular-text-flow";
 import { PerimeterResizeControl } from "./perimeter-resize-control";
 import styles from "./task-checkpoint-node.module.css";
@@ -71,14 +73,12 @@ const TaskCheckpointNodeActionsContext = createContext<{
     checkpointId: Id<"taskCheckpoints">,
     preset: TaskCheckpointSizePreset,
   ) => void;
-  resetSize: (checkpointId: Id<"taskCheckpoints">) => void;
 } | null>(null);
 
 export function TaskCheckpointNodeActionsProvider({
   startResize,
   resize,
   setSizePreset,
-  resetSize,
   children,
 }: {
   startResize: (checkpointId: Id<"taskCheckpoints">) => void;
@@ -90,12 +90,11 @@ export function TaskCheckpointNodeActionsProvider({
     checkpointId: Id<"taskCheckpoints">,
     preset: TaskCheckpointSizePreset,
   ) => void;
-  resetSize: (checkpointId: Id<"taskCheckpoints">) => void;
   children: ReactNode;
 }) {
   return (
     <TaskCheckpointNodeActionsContext.Provider
-      value={{ startResize, resize, setSizePreset, resetSize }}
+      value={{ startResize, resize, setSizePreset }}
     >
       {children}
     </TaskCheckpointNodeActionsContext.Provider>
@@ -124,6 +123,11 @@ export const TaskCheckpointFlowNodeCard = memo(
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(data.text);
     const [threadOpen, setThreadOpen] = useState(false);
+    const usesExpandedSize = taskCheckpointUsesExpandedSize({
+      manuallySized: data.manuallySized,
+      width,
+      height,
+    });
 
     async function saveText() {
       const text = draft.trim();
@@ -297,54 +301,29 @@ export const TaskCheckpointFlowNodeCard = memo(
                 </Button>
               ) : null}
               {data.canResize ? (
-                <>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className={styles.action}
-                    aria-label={`Smanji checkpoint broj ${data.ordinal}`}
-                    title="Manja veličina"
-                    onClick={() =>
-                      nodeActions?.setSizePreset(
-                        data.checkpointId,
-                        "compact",
-                      )
-                    }
-                  >
-                    <Minimize2 className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className={styles.action}
-                    aria-label={`Proširi checkpoint broj ${data.ordinal}`}
-                    title="Proširena veličina"
-                    onClick={() =>
-                      nodeActions?.setSizePreset(
-                        data.checkpointId,
-                        "expanded",
-                      )
-                    }
-                  >
-                    <Maximize2 className="size-4" />
-                  </Button>
-                </>
-              ) : null}
-              {data.canResize && data.manuallySized ? (
                 <Button
                   type="button"
                   size="icon"
                   variant="outline"
                   className={styles.action}
-                  aria-label={`Vrati automatsku veličinu checkpointa broj ${data.ordinal}`}
-                  title="Vrati automatsku veličinu"
+                  aria-label={`${usesExpandedSize ? "Skupi" : "Raširi"} checkpoint broj ${data.ordinal}`}
+                  title={
+                    usesExpandedSize
+                      ? "Skupi checkpoint"
+                      : "Raširi checkpoint"
+                  }
                   onClick={() =>
-                    nodeActions?.resetSize(data.checkpointId)
+                    nodeActions?.setSizePreset(
+                      data.checkpointId,
+                      usesExpandedSize ? "compact" : "expanded",
+                    )
                   }
                 >
-                  <RotateCcw className="size-4" />
+                  {usesExpandedSize ? (
+                    <Minimize2 className="size-4" />
+                  ) : (
+                    <Maximize2 className="size-4" />
+                  )}
                 </Button>
               ) : null}
               <Button

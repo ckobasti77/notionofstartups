@@ -11,6 +11,33 @@ export const TASK_CHECKPOINT_SIZE_PRESETS = {
 export type TaskCheckpointSizePreset =
   keyof typeof TASK_CHECKPOINT_SIZE_PRESETS;
 
+const CHECKPOINT_EXPANDED_WIDTH_THRESHOLD =
+  (TASK_CHECKPOINT_SIZE_PRESETS.compact.width +
+    TASK_CHECKPOINT_SIZE_PRESETS.expanded.width) /
+  2;
+const CHECKPOINT_EXPANDED_HEIGHT_THRESHOLD =
+  (TASK_CHECKPOINT_SIZE_PRESETS.compact.height +
+    TASK_CHECKPOINT_SIZE_PRESETS.expanded.height) /
+  2;
+
+export function taskCheckpointUsesExpandedSize({
+  manuallySized,
+  width,
+  height,
+}: {
+  manuallySized: boolean;
+  width: number | undefined;
+  height: number | undefined;
+}) {
+  return (
+    manuallySized &&
+    (width ?? TASK_CHECKPOINT_SIZE_PRESETS.compact.width) >=
+      CHECKPOINT_EXPANDED_WIDTH_THRESHOLD &&
+    (height ?? TASK_CHECKPOINT_SIZE_PRESETS.compact.height) >=
+      CHECKPOINT_EXPANDED_HEIGHT_THRESHOLD
+  );
+}
+
 export function taskCheckpointOrdinal(
   ordinal: number | null | undefined,
   index: number,
