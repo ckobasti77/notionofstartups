@@ -33,6 +33,36 @@ export async function listActiveTaskCheckpoints(
   );
 }
 
+export type TaskCheckpointChainRow = {
+  completed: boolean;
+  chainedToPrevious?: boolean;
+};
+
+export type TaskCheckpointLockState = {
+  locked: boolean;
+  /** Redni broj koraka koji drži katanac; `null` kad korak nije zaključan. */
+  blockedByOrdinal: number | null;
+};
+
+/**
+ * Redosled je kanonski — onaj koji vraća `listActiveTaskCheckpoints`. Korak je
+ * zaključan kada je vezan za prethodni, a prethodni nije završen. Lanac
+ * kaskadira sam od sebe: ako #2 ostane nezavršen jer je zaključan, onda je i #3
+ * vezan za njega zaključan, bez posebnog pravila.
+ */
+export function taskCheckpointLockStates(
+  rows: TaskCheckpointChainRow[],
+): TaskCheckpointLockState[] {
+  return rows.map((row, index) => {
+    if (index === 0 || row.chainedToPrevious !== true) {
+      return { locked: false, blockedByOrdinal: null };
+    }
+    return rows[index - 1].completed
+      ? { locked: false, blockedByOrdinal: null }
+      : { locked: true, blockedByOrdinal: index };
+  });
+}
+
 export function normalizeCheckpointText(value: string) {
   return normalizeTaskCheckpoints([
     { id: "checkpoint", text: value, completed: false },

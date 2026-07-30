@@ -256,6 +256,8 @@
 .rose { --node-accent: oklch(0.61 0.19 18); }
 .note { --node-accent: oklch(0.64 0.13 232); }
 .task { --node-accent: oklch(0.63 0.14 155); }
+.file { --node-accent: oklch(0.68 0.16 78); }
+.table { --node-accent: oklch(0.62 0.16 305); }
 
 @media (max-width: 639px), (pointer: coarse) {
   .canvas :global(.react-flow__controls-button) {

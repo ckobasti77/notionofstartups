@@ -674,15 +674,38 @@ describe("dozvole za brze akcije", () => {
     ).rejects.toThrow("Checkpointe menja samo kreator zadatka.");
   });
 
-  test("dodeljen zadatak ne može preuzeti drugi član", async () => {
-    const { pageId, owner, asOwner, asMember } = await seedAssignedTask();
+  test("dodeljen zadatak: član ne menja tuđe učešće, ali se sam priključuje", async () => {
+    const { pageId, owner, member, asOwner, asMember } =
+      await seedAssignedTask();
 
+    // Skidanje tuđeg izvršioca i dalje ide samo kroz kreatora.
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {
         pageId,
-        assigneeProfileId: owner.profileId,
+        assigneeProfileIds: [owner.profileId],
       }),
-    ).rejects.toThrow("dodelu menja njegov kreator");
+    ).rejects.toThrow("Tuđe učešće na zadatku menja njegov kreator");
+
+    // Sebe može da doda i kad zadatak već ima izvršioca.
+    const current = await asMember.query(api.taskAssignees.listForTask, {
+      taskPageId: pageId,
+    });
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        assigneeProfileIds: [
+          ...current.map((row) => row.profileId),
+          member.profileId,
+        ],
+      }),
+    ).resolves.toBe(pageId);
+    expect(
+      (
+        await asMember.query(api.taskAssignees.listForTask, {
+          taskPageId: pageId,
+        })
+      ).map((row) => row.profileId),
+    ).toContain(member.profileId);
 
     // Kreator i dalje sme sve.
     await expect(
@@ -709,7 +732,7 @@ describe("dozvole za brze akcije", () => {
         pageId,
         assigneeProfileId: owner.profileId,
       }),
-    ).rejects.toThrow("Zadatak možeš dodeliti samo sebi.");
+    ).rejects.toThrow("Tuđe učešće na zadatku menja njegov kreator");
 
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {

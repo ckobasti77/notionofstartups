@@ -90,6 +90,40 @@
     transform 140ms ease;
 }
 
+/*
+ * Slika priloga se vidi samo kao nagoveštaj iza sadržaja kartice: isečena je
+ * oblikom oblačića, prigušena i prekrivena gradijentom da tekst i orbite ostanu
+ * čitljivi. Ceo prikaz je u modalu, ne ovde.
+ */
+.filePreview {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--orbital-shape, 42% 58% 52% 48% / 46% 44% 56% 54%);
+  object-fit: cover;
+  opacity: 0.3;
+  mask-image: radial-gradient(
+    120% 100% at 50% 50%,
+    transparent 34%,
+    black 78%
+  );
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.shell:hover .filePreview,
+.selected .filePreview {
+  opacity: 0.44;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filePreview {
+    transition: none;
+  }
+}
+
 .checkpointPeeks {
   position: absolute;
   z-index: -1;

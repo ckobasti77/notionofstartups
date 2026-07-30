@@ -16,6 +16,7 @@ import {
   workspaceCanvasPreview,
 } from "./lib/page_creation";
 import { pageSearchText } from "./lib/pages";
+import { reconcileTaskAssignees } from "./lib/task_assignees";
 import {
   cleanRequiredText,
   pageKindValidator,
@@ -923,6 +924,22 @@ export const convertToPage = mutation({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Ovaj insert zaobilazi `insertWorkspacePage`, pa spisak izvršilaca mora da
+    // se upiše ovde — inače bi konvertovan zadatak imao projekciju bez kanona.
+    if (target.kind === "task" && target.assigneeProfileIds.length > 0) {
+      const insertedPage = await ctx.db.get("pages", pageId);
+      if (insertedPage === null) {
+        throw new Error("Kreirani zadatak nije moguće učitati.");
+      }
+      await reconcileTaskAssignees(ctx, {
+        page: insertedPage,
+        profileIds: target.assigneeProfileIds,
+        actorProfileId: profile._id,
+        now,
+        membershipChecked: true,
+      });
+    }
 
     await ctx.db.insert("pageBodies", {
       pageId,

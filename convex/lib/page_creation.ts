@@ -4,7 +4,17 @@ import { recordActivity } from "./activity";
 import { requireProfileInStartup } from "./auth";
 import { insertContribution } from "./collaboration";
 import { createNotification, notificationCopy } from "./notifications";
+import { supportsTaskData, type WorkspacePageKind } from "./page_kinds";
+import {
+  newTableKey,
+  requireTableColumns,
+  syncTableSummary,
+} from "./page_tables";
 import { pageSearchText, pageTaskSortAt, requireVisiblePage } from "./pages";
+import {
+  normalizeAssigneeProfileIds,
+  reconcileTaskAssignees,
+} from "./task_assignees";
 import { reconcileLegacyTaskCheckpoints } from "./task_checkpoints";
 import {
   cleanRequiredText,
@@ -15,7 +25,7 @@ import {
 
 type ReadCtx = QueryCtx | MutationCtx;
 
-export type WorkspacePageKind = "note" | "task";
+export type { WorkspacePageKind } from "./page_kinds";
 export type WorkspaceTaskStatus =
   | "backlog"
   | "next"
@@ -31,7 +41,9 @@ export type WorkspacePageTarget = {
   kind: WorkspacePageKind;
   taskStatus: WorkspaceTaskStatus | null;
   taskPriority: WorkspaceTaskPriority | null;
+  /** Projekcija prvog iz `assigneeProfileIds`; kanon je `taskAssignees`. */
   assigneeProfileId: Id<"profiles"> | null;
+  assigneeProfileIds: Array<Id<"profiles">>;
   dueDate: number | null;
   instructions: string | null;
   checkpoints: Array<{ id: string; text: string; completed: boolean }> | null;
@@ -117,6 +129,7 @@ export async function validateWorkspacePageTarget(
     taskStatus?: WorkspaceTaskStatus;
     taskPriority?: WorkspaceTaskPriority;
     assigneeProfileId?: Id<"profiles"> | null;
+    assigneeProfileIds?: Array<Id<"profiles">> | null;
     dueDate?: number | null;
     instructions?: string;
     checkpoints?: Array<{ id: string; text: string; completed: boolean }>;
@@ -130,40 +143,46 @@ export async function validateWorkspacePageTarget(
     args.parentPageId,
   );
 
+  // Skalarni `assigneeProfileId` je i dalje prihvaćen ulaz i znači spisak od
+  // jednog člana; `assigneeProfileIds` ima prednost kad su oba prosleđena.
+  const requestedAssignees =
+    normalizeAssigneeProfileIds(args.assigneeProfileIds) ??
+    (args.assigneeProfileId === undefined || args.assigneeProfileId === null
+      ? undefined
+      : [args.assigneeProfileId]);
+
   const hasTaskData =
     args.taskStatus !== undefined ||
     args.taskPriority !== undefined ||
-    (args.assigneeProfileId !== undefined && args.assigneeProfileId !== null) ||
+    (requestedAssignees !== undefined && requestedAssignees.length > 0) ||
     (args.dueDate !== undefined && args.dueDate !== null) ||
     args.instructions !== undefined ||
     args.checkpoints !== undefined;
-  if (args.kind === "note" && hasTaskData) {
+  if (!supportsTaskData(args.kind) && hasTaskData) {
     throw new Error("Task podaci se mogu dodati samo task stranici.");
   }
 
-  if (args.assigneeProfileId !== undefined && args.assigneeProfileId !== null) {
-    await requireProfileInStartup(
-      ctx,
-      args.startupId,
-      args.assigneeProfileId,
-    );
+  for (const profileId of requestedAssignees ?? []) {
+    await requireProfileInStartup(ctx, args.startupId, profileId);
   }
   const dueDate = validateTaskDueDate(args.dueDate);
   const instructions = normalizeTaskInstructions(args.instructions);
   const checkpoints = normalizeTaskCheckpoints(args.checkpoints);
 
+  const isTaskKind = supportsTaskData(args.kind);
+  const assigneeProfileIds = isTaskKind ? requestedAssignees ?? [] : [];
   return {
     startupId: args.startupId,
     areaId: args.areaId,
     parentPageId: args.parentPageId,
     kind: args.kind,
-    taskStatus: args.kind === "task" ? args.taskStatus ?? "backlog" : null,
-    taskPriority: args.kind === "task" ? args.taskPriority ?? "medium" : null,
-    assigneeProfileId:
-      args.kind === "task" ? args.assigneeProfileId ?? null : null,
-    dueDate: args.kind === "task" ? dueDate ?? null : null,
-    instructions: args.kind === "task" ? instructions ?? null : null,
-    checkpoints: args.kind === "task" ? checkpoints ?? null : null,
+    taskStatus: isTaskKind ? args.taskStatus ?? "backlog" : null,
+    taskPriority: isTaskKind ? args.taskPriority ?? "medium" : null,
+    assigneeProfileId: assigneeProfileIds[0] ?? null,
+    assigneeProfileIds,
+    dueDate: isTaskKind ? dueDate ?? null : null,
+    instructions: isTaskKind ? instructions ?? null : null,
+    checkpoints: isTaskKind ? checkpoints ?? null : null,
   };
 }
 
@@ -221,7 +240,7 @@ export async function insertWorkspacePage(
     ...(args.target.checkpoints === null
       ? {}
       : { checkpoints: args.target.checkpoints }),
-    ...(args.target.kind === "task"
+    ...(supportsTaskData(args.target.kind)
       ? {
           checkpointTotal: args.target.checkpoints?.length ?? 0,
           checkpointCompleted:
@@ -231,7 +250,7 @@ export async function insertWorkspacePage(
       : {}),
     taskSortAt: args.page.taskSortAt,
     completedAt:
-      args.target.kind === "task" && args.target.taskStatus === "done"
+      supportsTaskData(args.target.kind) && args.target.taskStatus === "done"
         ? args.now
         : null,
     createdByProfileId: args.actorProfileId,
@@ -256,11 +275,43 @@ export async function insertWorkspacePage(
     createdAt: args.now,
     updatedAt: args.now,
   });
-  if (args.target.kind === "task") {
+  if (args.target.kind === "table") {
+    // Prazna tabela nije upotrebljiva — startuje sa jednom kolonom i jednim
+    // redom, pa korisnik odmah ima gde da kuca.
+    const insertedPage = await ctx.db.get("pages", pageId);
+    if (insertedPage === null) {
+      throw new Error("Kreirana tabela nije moguće učitati.");
+    }
+    await requireTableColumns(ctx, insertedPage, args.actorProfileId, args.now);
+    await ctx.db.insert("pageTableRows", {
+      startupId: args.target.startupId,
+      areaId: args.target.areaId,
+      pageId,
+      rowKey: newTableKey("row", 0, args.now),
+      position: 0,
+      cells: {},
+      updatedByProfileId: args.actorProfileId,
+      archivedAt: null,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    await syncTableSummary(ctx, insertedPage, args.actorProfileId, args.now);
+  }
+  if (args.target.kind === "file") {
+    await ctx.db.patch("pages", pageId, { fileCount: 0 });
+  }
+  if (supportsTaskData(args.target.kind)) {
     const insertedPage = await ctx.db.get("pages", pageId);
     if (insertedPage === null) {
       throw new Error("Kreirani zadatak nije moguće učitati.");
     }
+    await reconcileTaskAssignees(ctx, {
+      page: insertedPage,
+      profileIds: args.target.assigneeProfileIds,
+      actorProfileId: args.actorProfileId,
+      now: args.now,
+      membershipChecked: true,
+    });
     await reconcileLegacyTaskCheckpoints(ctx, {
       page: insertedPage,
       checkpoints: args.target.checkpoints,
@@ -284,26 +335,28 @@ export async function insertWorkspacePage(
     action: "page_created",
     targetType: "page",
     targetId: pageId,
-    title: `${args.target.kind === "task" ? "Task" : "Stranica"} „${args.page.title}” je kreiran/a`,
+    title: `${supportsTaskData(args.target.kind) ? "Task" : "Stranica"} „${args.page.title}” je kreiran/a`,
   });
-  // Zadatak koji odmah dobije vlasnika ga i obavesti — inače bi dodela postojala
-  // samo u bazi dok je slučajno ne primeti.
-  if (args.target.kind === "task" && args.target.assigneeProfileId !== null) {
+  // Zadatak koji odmah dobije izvršioce ih i obavesti — inače bi dodela
+  // postojala samo u bazi dok je slučajno ne primete.
+  if (supportsTaskData(args.target.kind)) {
     const actor = await ctx.db.get("profiles", args.actorProfileId);
     const copy = notificationCopy.taskAssigned(
       args.page.title,
       actor?.displayName ?? "Član tima",
     );
-    await createNotification(ctx, {
-      recipientProfileId: args.target.assigneeProfileId,
-      startupId: args.target.startupId,
-      type: "task_assigned",
-      title: copy.title,
-      body: copy.body,
-      targetType: "page",
-      targetId: pageId,
-      actorProfileId: args.actorProfileId,
-    });
+    for (const recipientProfileId of args.target.assigneeProfileIds) {
+      await createNotification(ctx, {
+        recipientProfileId,
+        startupId: args.target.startupId,
+        type: "task_assigned",
+        title: copy.title,
+        body: copy.body,
+        targetType: "page",
+        targetId: pageId,
+        actorProfileId: args.actorProfileId,
+      });
+    }
   }
   return pageId;
 }

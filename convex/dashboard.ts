@@ -29,18 +29,23 @@ export const getOverview = query({
       startups.push({ ...startup, areas });
     }
 
-    const candidateTasks = await ctx.db
-      .query("pages")
-      .withIndex("by_assigneeProfileId_and_kind_and_archivedAt", (q) =>
-        q
-          .eq("assigneeProfileId", profile._id)
-          .eq("kind", "task")
-          .eq("archivedAt", null),
+    // Zadatak može imati više izvršilaca, pa se polazi od spiska učešća.
+    const assignments = await ctx.db
+      .query("taskAssignees")
+      .withIndex("by_profile_active_sort", (q) =>
+        q.eq("profileId", profile._id).eq("archivedAt", null),
       )
+      .order("asc")
       .take(100);
     const myTasks = [];
-    for (const task of candidateTasks) {
-      if (!startupIds.has(task.startupId)) {
+    for (const assignment of assignments) {
+      const task = await ctx.db.get("pages", assignment.taskPageId);
+      if (
+        task === null ||
+        task.archivedAt !== null ||
+        task.kind !== "task" ||
+        !startupIds.has(task.startupId)
+      ) {
         continue;
       }
       const startup = startups.find((item) => item._id === task.startupId) ?? null;

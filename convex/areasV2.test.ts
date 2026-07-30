@@ -1032,6 +1032,8 @@ describe("Areas V2 backend", () => {
       kind: "task",
       title: "Task za relation guard",
     });
+    // Vezuje se sve sa svim: beleška i zadatak na istom kanvasu smeju
+    // direktnu vezu, ne samo relaciju.
     await expect(
       asActor.mutation(api.areasV2.connectPages, {
         startupId: startupA,
@@ -1040,7 +1042,7 @@ describe("Areas V2 backend", () => {
         sourcePageId: note.pageId,
         targetPageId: oppositeTask.pageId,
       }),
-    ).rejects.toThrow("Note↔Task");
+    ).resolves.toEqual(expect.any(String));
 
     const nested = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
@@ -1865,12 +1867,16 @@ describe("Areas V2 backend", () => {
         updatedAt: now,
       });
 
+      // Relacija sa `pairKey`-em koji ne odgovara svojim endpointima —
+      // invarijanta koja važi i posle generalizacije na sve vrste.
       await ctx.db.insert("pageRelations", {
         startupId: startupA,
         areaId: areaA1,
         notePageId: root.pageId,
         taskPageId: nested.pageId,
-        pairKey: edgePair,
+        pageAId: root.pageId,
+        pageBId: nested.pageId,
+        pairKey: `${edgePair}:pokvaren`,
         label: null,
         authorProfileId: actor.profileId,
         archivedAt: null,

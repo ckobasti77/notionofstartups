@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
-  CheckSquare2,
   FilePlus2,
-  FileText,
   LayoutGrid,
   List,
   Plus,
@@ -26,6 +24,8 @@ import type {
   WorkspaceRoute,
 } from "@/components/workspace/types";
 import {
+  GhostKindIcon,
+  PageKindBadge,
   ProfileAvatar,
   TaskPriorityBadge,
   TaskStatusBadge,
@@ -34,9 +34,15 @@ import { NestingTargetMenu } from "@/components/workspace/nesting-target-menu";
 import { DetachPageButton } from "@/components/workspace/detach-page-button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  PAGE_KIND_KEYS,
+  PAGE_KIND_META,
+  supportsTaskData,
+  type PageKind,
+} from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 
-type CanvasFilter = "all" | "note" | "task";
+type CanvasFilter = "all" | PageKind;
 
 const FILTERS: Array<{
   value: CanvasFilter;
@@ -44,8 +50,11 @@ const FILTERS: Array<{
   icon: typeof LayoutGrid;
 }> = [
   { value: "all", label: "Sve", icon: LayoutGrid },
-  { value: "note", label: "Beleške", icon: FileText },
-  { value: "task", label: "Zadaci", icon: CheckSquare2 },
+  ...PAGE_KIND_KEYS.map((kind) => ({
+    value: kind,
+    label: PAGE_KIND_META[kind].label,
+    icon: PAGE_KIND_META[kind].icon,
+  })),
 ];
 
 export function PageWorkspaceView({
@@ -110,7 +119,7 @@ export function PageWorkspaceView({
   }, [page]);
 
   return (
-    <div className={page?.kind === "task" ? "pb-8" : "pb-24"}>
+    <div className={page && supportsTaskData(page.kind) ? "pb-8" : "pb-24"}>
       <PageEditorView
         startup={startup}
         pageId={pageId}
@@ -123,7 +132,9 @@ export function PageWorkspaceView({
           }
         }}
         onSaveStateChange={onSaveStateChange}
-        presentation={page?.kind === "task" ? "task-canvas" : "page"}
+        presentation={
+          page && supportsTaskData(page.kind) ? "task-canvas" : "page"
+        }
         taskViewMode={viewMode}
         onTaskViewModeChange={setViewMode}
       />
@@ -135,7 +146,7 @@ export function PageWorkspaceView({
             page.kind === "task" && "mt-2",
           )}
           aria-labelledby={
-            page.kind === "task" ? undefined : "page-canvas-heading"
+            supportsTaskData(page.kind) ? undefined : "page-canvas-heading"
           }
           aria-label={
             page.kind === "task"
@@ -143,7 +154,7 @@ export function PageWorkspaceView({
               : undefined
           }
         >
-          {page.kind !== "task" || viewMode === "list" ? (
+          {!supportsTaskData(page.kind) || viewMode === "list" ? (
           <div className="mb-4 flex flex-col gap-4 border-t border-border/70 pt-7 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <p className="text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-primary">
@@ -165,7 +176,7 @@ export function PageWorkspaceView({
               {viewMode === "list" ? (
                 <>
                   <div
-                    className="grid grid-cols-3 rounded-xl border border-border/65 bg-muted/35 p-1"
+                    className="flex flex-wrap rounded-xl border border-border/65 bg-muted/35 p-1"
                     aria-label="Filtriraj sadržaj kanvasa"
                   >
                     {FILTERS.map(({ value, label, icon: Icon }) => (
@@ -280,7 +291,7 @@ export function PageWorkspaceView({
                   initialKind: kind,
                 })
               }
-              layout={page.kind === "task" ? "task-focus" : "standard"}
+              layout={supportsTaskData(page.kind) ? "task-focus" : "standard"}
             />
           ) : canvasData === undefined ? (
             <div className="space-y-3">
@@ -299,20 +310,7 @@ export function PageWorkspaceView({
                   key={child._id}
                   className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-card px-4 py-4 shadow-sm sm:flex-row sm:items-center"
                 >
-                  <span
-                    className={cn(
-                      "grid size-10 shrink-0 place-items-center",
-                      child.kind === "task"
-                        ? "rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : "rounded-[42%_58%_52%_48%/46%_44%_56%_54%] bg-sky-500/10 text-sky-700 dark:text-sky-300",
-                    )}
-                  >
-                    {child.kind === "task" ? (
-                      <CheckSquare2 className="size-4" aria-hidden="true" />
-                    ) : (
-                      <FileText className="size-4" aria-hidden="true" />
-                    )}
-                  </span>
+                  <PageKindBadge kind={child.kind} />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-sm font-bold">
                       {child.title || "Bez naslova"}
@@ -387,11 +385,7 @@ export function PageWorkspaceView({
                   className="flex flex-col gap-4 rounded-2xl border border-dashed border-amber-500/45 bg-amber-500/6 px-4 py-4 sm:flex-row sm:items-center"
                 >
                   <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-500/12 text-amber-800 dark:text-amber-200">
-                    {ghost.kind === "task" ? (
-                      <CheckSquare2 className="size-4" aria-hidden="true" />
-                    ) : (
-                      <FileText className="size-4" aria-hidden="true" />
-                    )}
+                    <GhostKindIcon kind={ghost.kind} />
                   </span>
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-sm font-bold">

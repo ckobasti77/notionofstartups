@@ -27,6 +27,11 @@ import {
   summarizePage,
 } from "./lib/pages";
 import {
+  getProfileSummary,
+  profileSummaryValidator as profileSummaryDisplayValidator,
+} from "./lib/profile_summary";
+import { resolveTaskAssignees } from "./lib/task_assignees";
+import {
   checkpointItemValidator,
   cleanRequiredText,
   pageKindValidator,
@@ -63,7 +68,9 @@ const pageDetailsValidator = pageDocumentValidator.extend({
     v.null(),
   ),
   updater: v.union(profileDocumentValidator, v.null()),
+  /** Prvi izvršilac; ceo spisak je u `assignees`. */
   assignee: v.union(profileDocumentValidator, v.null()),
+  assignees: v.array(profileSummaryDisplayValidator),
   permissions: v.object({
     canEdit: v.boolean(),
     canEditBody: v.boolean(),
@@ -169,6 +176,12 @@ export const get = query({
         ? Promise.resolve(null)
         : ctx.db.get("pages", page.parentPageId),
     ]);
+    const assigneeEntries = await resolveTaskAssignees(ctx, page);
+    const assignees = (
+      await Promise.all(
+        assigneeEntries.map((entry) => getProfileSummary(ctx, entry.profileId)),
+      )
+    ).filter((summary) => summary !== null);
     const pageBodyContributions = await getPageBodyContributions(
       ctx,
       page._id,
@@ -187,6 +200,7 @@ export const get = query({
       creator: creatorWithAvatar,
       updater,
       assignee,
+      assignees,
       permissions: {
         canEdit: page.createdByProfileId === profile._id,
         canEditBody:
@@ -254,6 +268,7 @@ export const create = mutation({
     taskStatus: v.optional(taskStatusValidator),
     taskPriority: v.optional(taskPriorityValidator),
     assigneeProfileId: v.optional(v.id("profiles")),
+    assigneeProfileIds: v.optional(v.array(v.id("profiles"))),
     dueDate: v.optional(v.number()),
     instructions: v.optional(v.string()),
     checkpoints: v.optional(v.array(checkpointItemValidator)),
@@ -270,6 +285,7 @@ export const create = mutation({
       taskStatus: args.taskStatus,
       taskPriority: args.taskPriority,
       assigneeProfileId: args.assigneeProfileId,
+      assigneeProfileIds: args.assigneeProfileIds,
       dueDate: args.dueDate,
       instructions: args.instructions,
       checkpoints: args.checkpoints,

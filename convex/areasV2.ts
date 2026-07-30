@@ -35,6 +35,22 @@ import {
   pageSearchText,
   pageTaskSortAt,
 } from "./lib/pages";
+import {
+  getProfileSummary,
+  profileSummaryValidator as profileSummaryObjectValidator,
+} from "./lib/profile_summary";
+import {
+  relationEndpoints,
+  relationOtherEndpoint,
+  relationTouchesPage,
+} from "./lib/page_relations";
+import {
+  listActiveTaskAssigneeIds,
+  normalizeAssigneeProfileIds,
+  reconcileTaskAssignees,
+  resolveTaskAssignees,
+  syncTaskAssigneeMirrors,
+} from "./lib/task_assignees";
 import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
   archiveCheckpointCanvasEdgesForArchivedPage,
@@ -43,6 +59,7 @@ import {
 import {
   checkpointItemValidator,
   cleanOptionalText,
+  pageFileCategoryValidator,
   cleanRequiredText,
   normalizeTaskCheckpoints,
   normalizeTaskInstructions,
@@ -101,7 +118,14 @@ const canvasPageValidator = v.object({
   dueDate: v.union(v.number(), v.null()),
   checkpointTotal: v.number(),
   checkpointCompleted: v.number(),
+  /** Prvi izvršilac — zadržan radi kompatibilnosti prikaza jednog avatara. */
   assignee: profileSummaryValidator,
+  assignees: v.array(profileSummaryObjectValidator),
+  fileCount: v.number(),
+  fileCategory: v.union(pageFileCategoryValidator, v.null()),
+  filePreviewUrl: v.union(v.string(), v.null()),
+  tableRowCount: v.number(),
+  tableColumnCount: v.number(),
   updatedAt: v.number(),
   x: v.number(),
   y: v.number(),
@@ -304,23 +328,6 @@ async function requireScope(
           areaId,
         });
   return { area, root };
-}
-
-async function getProfileSummary(
-  ctx: ReadCtx,
-  profileId: Id<"profiles">,
-) {
-  const profile = await ctx.db.get("profiles", profileId);
-  if (profile === null) return null;
-  const avatarUrl =
-    profile.avatarStorageId === undefined
-      ? null
-      : await ctx.storage.getUrl(profile.avatarStorageId);
-  return {
-    _id: profile._id,
-    displayName: profile.displayName,
-    avatarUrl,
-  };
 }
 
 async function getPageBody(ctx: ReadCtx, pageId: Id<"pages">) {
@@ -1011,7 +1018,7 @@ async function archiveRelationsForPage(
   pageId: Id<"pages">,
   now: number,
 ) {
-  const [asNote, asTask] = await Promise.all([
+  const [asNote, asTask, asA, asB] = await Promise.all([
     ctx.db
       .query("pageRelations")
       .withIndex("by_notePageId_and_archivedAt", (q) =>
@@ -1024,9 +1031,24 @@ async function archiveRelationsForPage(
         q.eq("taskPageId", pageId).eq("archivedAt", null),
       )
       .take(MAX_RELATIONS_PER_AREA + 1),
+    ctx.db
+      .query("pageRelations")
+      .withIndex("by_pageAId_and_archivedAt", (q) =>
+        q.eq("pageAId", pageId).eq("archivedAt", null),
+      )
+      .take(MAX_RELATIONS_PER_AREA + 1),
+    ctx.db
+      .query("pageRelations")
+      .withIndex("by_pageBId_and_archivedAt", (q) =>
+        q.eq("pageBId", pageId).eq("archivedAt", null),
+      )
+      .take(MAX_RELATIONS_PER_AREA + 1),
   ]);
   const rows = new Map(
-    [...asNote, ...asTask].map((relation) => [relation._id, relation]),
+    [...asNote, ...asTask, ...asA, ...asB].map((relation) => [
+      relation._id,
+      relation,
+    ]),
   );
   if (rows.size > MAX_RELATIONS_PER_AREA) {
     throw new Error("Stranica ima previše relacija za jednu atomsku radnju.");
@@ -1499,7 +1521,6 @@ export const getCanvas = query({
       .take(MAX_CANVAS_PAGES + 1);
     const pages = rawPages.slice(0, MAX_CANVAS_PAGES);
     const visibleIds = new Set(pages.map((page) => page._id));
-    const visiblePagesById = new Map(pages.map((page) => [page._id, page]));
     const [
       placements,
       rawEdges,
@@ -1575,23 +1596,38 @@ export const getCanvas = query({
       placements.map((placement) => [placement.pageId, placement]),
     );
     const columnCount = Math.max(1, Math.ceil(Math.sqrt(pages.length)));
-    const canvasPages = await Promise.all(
-      pages.map(async (page, index) => {
+    // Tim je mali, a ista lica se ponavljaju na desetinama kartica — bez keša
+    // bi jedan kanvas povukao stotine istih profila i potpisa avatara.
+    const profileSummaries = new Map<
+      Id<"profiles">,
+      Awaited<ReturnType<typeof getProfileSummary>>
+    >();
+    const loadProfileSummary = async (profileId: Id<"profiles">) => {
+      const cached = profileSummaries.get(profileId);
+      if (cached !== undefined) return cached;
+      const summary = await getProfileSummary(ctx, profileId);
+      profileSummaries.set(profileId, summary);
+      return summary;
+    };
+    const canvasPages = [];
+    for (const [index, page] of pages.entries()) {
+      {
         const placement = placementsByPageId.get(page._id);
-        const assigneeProfileId =
-          page.kind === "task" ? page.assigneeProfileId : null;
-        const [body, creator, assignee] = await Promise.all([
+        const assigneeEntries = await resolveTaskAssignees(ctx, page);
+        const [body, creator] = await Promise.all([
           page.canvasPreview === undefined
             ? getPageBody(ctx, page._id)
             : Promise.resolve(null),
-          getProfileSummary(ctx, page.createdByProfileId),
-          assigneeProfileId !== undefined && assigneeProfileId !== null
-            ? getProfileSummary(ctx, assigneeProfileId)
-            : Promise.resolve(null),
+          loadProfileSummary(page.createdByProfileId),
         ]);
+        const assignees = [];
+        for (const entry of assigneeEntries) {
+          const summary = await loadProfileSummary(entry.profileId);
+          if (summary !== null) assignees.push(summary);
+        }
         const column = index % columnCount;
         const row = Math.floor(index / columnCount);
-        return {
+        canvasPages.push({
           _id: page._id,
           title: page.title,
           text:
@@ -1613,7 +1649,18 @@ export const getCanvas = query({
                   .length ??
                 0)
               : 0,
-          assignee,
+          assignee: assignees[0] ?? null,
+          assignees,
+          fileCount: page.kind === "file" ? page.fileCount ?? 0 : 0,
+          fileCategory:
+            page.kind === "file" ? page.filePrimaryCategory ?? null : null,
+          filePreviewUrl:
+            page.kind === "file" && page.filePreviewStorageId !== undefined
+              ? await ctx.storage.getUrl(page.filePreviewStorageId)
+              : null,
+          tableRowCount: page.kind === "table" ? page.tableRowCount ?? 0 : 0,
+          tableColumnCount:
+            page.kind === "table" ? page.tableColumnCount ?? 0 : 0,
           updatedAt: page.updatedAt,
           x: placement?.x ?? (column - (columnCount - 1) / 2) * 310,
           y: placement?.y ?? Math.max(0, row) * 220,
@@ -1626,17 +1673,14 @@ export const getCanvas = query({
             (page.createdByProfileId === profile._id ||
               root.createdByProfileId === profile._id),
           creator,
-        };
-      }),
-    );
+        });
+      }
+    }
     const canvasEdges = rawEdges
       .slice(0, MAX_CANVAS_EDGES)
       .filter(
         (edge) =>
-          visibleIds.has(edge.nodeAId) &&
-          visibleIds.has(edge.nodeBId) &&
-          visiblePagesById.get(edge.nodeAId)?.kind ===
-            visiblePagesById.get(edge.nodeBId)?.kind,
+          visibleIds.has(edge.nodeAId) && visibleIds.has(edge.nodeBId),
       )
       .map((edge) => ({
         _id: edge._id,
@@ -1649,16 +1693,17 @@ export const getCanvas = query({
       }));
     const visibleRelations = rawRelations
       .slice(0, MAX_RELATIONS_PER_AREA)
+      .map((relation) => ({ relation, ...relationEndpoints(relation) }))
       .filter(
-        (relation) =>
+        ({ relation, pageAId, pageBId }) =>
           relation.startupId === args.startupId &&
-          visibleIds.has(relation.notePageId) &&
-          visibleIds.has(relation.taskPageId),
+          visibleIds.has(pageAId) &&
+          visibleIds.has(pageBId),
       )
-      .map((relation) => ({
+      .map(({ relation, pageAId, pageBId }) => ({
         _id: relation._id,
-        source: relation.notePageId,
-        target: relation.taskPageId,
+        source: pageAId,
+        target: pageBId,
         label: relation.label,
         kind: "relation" as const,
         canDelete: relation.authorProfileId === profile._id,
@@ -1893,6 +1938,7 @@ export const createPage = mutation({
     taskStatus: v.optional(taskStatusValidator),
     taskPriority: v.optional(taskPriorityValidator),
     assigneeProfileId: v.optional(v.union(v.id("profiles"), v.null())),
+    assigneeProfileIds: v.optional(v.array(v.id("profiles"))),
     dueDate: v.optional(v.union(v.number(), v.null())),
     instructions: v.optional(v.union(v.string(), v.null())),
     checkpoints: v.optional(
@@ -1931,6 +1977,7 @@ export const createPage = mutation({
       taskStatus: args.taskStatus,
       taskPriority: args.taskPriority,
       assigneeProfileId: args.assigneeProfileId,
+      assigneeProfileIds: args.assigneeProfileIds,
       dueDate: args.dueDate,
       instructions: args.instructions ?? undefined,
       checkpoints: args.checkpoints ?? undefined,
@@ -2012,7 +2059,9 @@ export const updatePage = mutation({
     content: v.optional(v.string()),
     taskStatus: v.optional(taskStatusValidator),
     taskPriority: v.optional(taskPriorityValidator),
+    /** Deprecated ulaz — znači „spisak izvršilaca = [x]” (ili prazan za null). */
     assigneeProfileId: v.optional(v.union(v.id("profiles"), v.null())),
+    assigneeProfileIds: v.optional(v.array(v.id("profiles"))),
     dueDate: v.optional(v.union(v.number(), v.null())),
     instructions: v.optional(v.union(v.string(), v.null())),
     checkpoints: v.optional(
@@ -2042,18 +2091,26 @@ export const updatePage = mutation({
       args.taskStatus !== undefined ||
       args.taskPriority !== undefined ||
       args.assigneeProfileId !== undefined ||
+      args.assigneeProfileIds !== undefined ||
       args.dueDate !== undefined ||
       args.instructions !== undefined ||
       args.checkpoints !== undefined;
-    if (page.kind === "note" && hasTaskPatch) {
+    if (page.kind !== "task" && hasTaskPatch) {
       throw new Error("Task podaci se mogu menjati samo na task stranici.");
     }
-    if (args.assigneeProfileId) {
-      await requireProfileInStartup(
-        ctx,
-        args.startupId,
-        args.assigneeProfileId,
-      );
+    const currentAssigneeIds =
+      page.kind === "task"
+        ? await listActiveTaskAssigneeIds(ctx, page._id)
+        : [];
+    const requestedAssigneeIds =
+      normalizeAssigneeProfileIds(args.assigneeProfileIds) ??
+      (args.assigneeProfileId === undefined
+        ? undefined
+        : args.assigneeProfileId === null
+          ? []
+          : [args.assigneeProfileId]);
+    for (const profileId of requestedAssigneeIds ?? []) {
+      await requireProfileInStartup(ctx, args.startupId, profileId);
     }
     const body = await getPageBody(ctx, page._id);
     const title =
@@ -2073,10 +2130,20 @@ export const updatePage = mutation({
       page.kind === "task"
         ? args.taskPriority ?? page.taskPriority ?? "medium"
         : null;
+    const assigneeProfileIds =
+      page.kind === "task"
+        ? requestedAssigneeIds ?? currentAssigneeIds
+        : [];
+    const addedAssignees = assigneeProfileIds.filter(
+      (profileId) => !currentAssigneeIds.includes(profileId),
+    );
+    const changesAssignee =
+      addedAssignees.length > 0 ||
+      currentAssigneeIds.some(
+        (profileId) => !assigneeProfileIds.includes(profileId),
+      );
     const assigneeProfileId =
-      page.kind === "task" && args.assigneeProfileId !== undefined
-        ? args.assigneeProfileId
-        : page.assigneeProfileId;
+      page.kind === "task" ? assigneeProfileIds[0] ?? null : null;
     const dueDate =
       page.kind === "task" && args.dueDate !== undefined
         ? validateTaskDueDate(args.dueDate) ?? null
@@ -2118,7 +2185,7 @@ export const updatePage = mutation({
       content === currentContent &&
       taskStatus === page.taskStatus &&
       taskPriority === page.taskPriority &&
-      assigneeProfileId === page.assigneeProfileId &&
+      !changesAssignee &&
       dueDate === page.dueDate &&
       instructions === page.instructions &&
       JSON.stringify(checkpoints ?? null) ===
@@ -2143,6 +2210,28 @@ export const updatePage = mutation({
       updatedByProfileId: profile._id,
       updatedAt: now,
     });
+    if (page.kind === "task" && changesAssignee) {
+      const patched = await ctx.db.get("pages", page._id);
+      if (patched === null) throw new Error("Stranica nije pronađena.");
+      await reconcileTaskAssignees(ctx, {
+        page: patched,
+        profileIds: assigneeProfileIds,
+        actorProfileId: profile._id,
+        now,
+        membershipChecked: true,
+      });
+    }
+    if (
+      page.kind === "task" &&
+      (taskStatus !== page.taskStatus || dueDate !== page.dueDate)
+    ) {
+      await syncTaskAssigneeMirrors(ctx, {
+        taskPageId: page._id,
+        taskStatus,
+        taskSortAt: pageTaskSortAt(dueDate, now),
+        now,
+      });
+    }
     if (page.kind === "task" && args.checkpoints !== undefined) {
       await reconcileLegacyTaskCheckpoints(ctx, {
         page,
@@ -2188,7 +2277,8 @@ export const updatePage = mutation({
     });
     await notifyTaskStakeholders(ctx, {
       page,
-      nextAssigneeProfileId: assigneeProfileId,
+      addedAssigneeProfileIds: addedAssignees,
+      assigneeProfileIdsAfterChange: assigneeProfileIds,
       nextTaskStatus: taskStatus,
       actorProfileId: profile._id,
     });
@@ -2501,11 +2591,6 @@ export const connectPages = mutation({
     ]);
     assertDirectCanvasPage(source, args.rootPageId);
     assertDirectCanvasPage(target, args.rootPageId);
-    if (source.kind !== target.kind) {
-      throw new Error(
-        "Solid veza povezuje kartice istog tipa; Note↔Task koristite kroz relaciju.",
-      );
-    }
     if (
       source.createdByProfileId !== profile._id &&
       target.createdByProfileId !== profile._id
@@ -2654,34 +2739,44 @@ export const listRelations = query({
       startupId: args.startupId,
     });
     const { profile } = await requireStartupMember(ctx, args.startupId);
-    const rawRelations =
-      page.kind === "note"
-        ? await ctx.db
-            .query("pageRelations")
-            .withIndex("by_notePageId_and_archivedAt", (q) =>
-              q.eq("notePageId", page._id).eq("archivedAt", null),
-            )
-            .take(MAX_RELATIONS_PER_AREA + 1)
-        : await ctx.db
-            .query("pageRelations")
-            .withIndex("by_taskPageId_and_archivedAt", (q) =>
-              q.eq("taskPageId", page._id).eq("archivedAt", null),
-            )
-            .take(MAX_RELATIONS_PER_AREA + 1);
+    // Stranica može biti na bilo kojoj strani relacije, pa se čitaju oba para
+    // indeksa — stari (note/task) i novi (A/B) — i rezultat se dedupira.
+    const relationBatches = await Promise.all(
+      (
+        [
+          ["by_notePageId_and_archivedAt", "notePageId"],
+          ["by_taskPageId_and_archivedAt", "taskPageId"],
+          ["by_pageAId_and_archivedAt", "pageAId"],
+          ["by_pageBId_and_archivedAt", "pageBId"],
+        ] as const
+      ).map(([indexName, field]) =>
+        ctx.db
+          .query("pageRelations")
+          .withIndex(indexName, (q) =>
+            q.eq(field, page._id).eq("archivedAt", null),
+          )
+          .take(MAX_RELATIONS_PER_AREA + 1),
+      ),
+    );
+    const rawRelations = Array.from(
+      new Map(
+        relationBatches.flat().map((relation) => [relation._id, relation]),
+      ).values(),
+    );
     const scopedRelations = rawRelations
       .slice(0, MAX_RELATIONS_PER_AREA)
       .filter(
         (relation) =>
           relation.startupId === args.startupId &&
-          relation.areaId === page.areaId,
+          relation.areaId === page.areaId &&
+          relationTouchesPage(relation, page._id),
       );
     const linkedPageIds = Array.from(
       new Set(
-        scopedRelations.map((relation) =>
-          page.kind === "note"
-            ? relation.taskPageId
-            : relation.notePageId,
-        ),
+        scopedRelations.flatMap((relation) => {
+          const other = relationOtherEndpoint(relation, page._id);
+          return other === null ? [] : [other];
+        }),
       ),
     );
     const linkedPages = new Map(
@@ -2695,16 +2790,15 @@ export const listRelations = query({
     const relations = [];
     const linkedIds = new Set<string>();
     for (const relation of scopedRelations) {
-      const linkedPageId =
-        page.kind === "note" ? relation.taskPageId : relation.notePageId;
-      const linked = linkedPages.get(linkedPageId);
+      const linkedPageId = relationOtherEndpoint(relation, page._id);
+      const linked =
+        linkedPageId === null ? undefined : linkedPages.get(linkedPageId);
       if (
         linked === null ||
         linked === undefined ||
         linked.archivedAt !== null ||
         linked.startupId !== args.startupId ||
-        linked.areaId !== page.areaId ||
-        linked.kind === page.kind
+        linked.areaId !== page.areaId
       ) {
         continue;
       }
@@ -2722,24 +2816,20 @@ export const listRelations = query({
         canRequestDeletion: relation.authorProfileId !== profile._id,
       });
     }
-    const oppositeKind = page.kind === "note" ? "task" : "note";
+    // Veže se sve sa svim, pa su kandidati sve aktivne stranice oblasti bez
+    // obzira na vrstu — sem same stranice i onih koje su već povezane.
     const rawCandidates = await ctx.db
       .query("pages")
-      .withIndex(
-        "by_startup_area_kind_active_updated",
-        (q) =>
-          q
-            .eq("startupId", args.startupId)
-            .eq("areaId", page.areaId)
-            .eq("kind", oppositeKind)
-            .eq("archivedAt", null),
+      .withIndex("by_startup_area_parent_active_position", (q) =>
+        q.eq("startupId", args.startupId).eq("areaId", page.areaId),
       )
       .order("desc")
-      .take(MAX_RELATION_CANDIDATES * 2 + 1);
+      .take(MAX_RELATION_CANDIDATES * 3 + 1);
     const validCandidates = [];
     for (const candidate of rawCandidates) {
       if (
         candidate.startupId !== args.startupId ||
+        candidate.archivedAt !== null ||
         candidate._id === page._id ||
         linkedIds.has(candidate._id) ||
         (page.createdByProfileId !== profile._id &&
@@ -2759,7 +2849,7 @@ export const listRelations = query({
       candidates: validCandidates.slice(0, MAX_RELATION_CANDIDATES),
       candidatesTruncated:
         validCandidates.length > MAX_RELATION_CANDIDATES ||
-        rawCandidates.length > MAX_RELATION_CANDIDATES * 2,
+        rawCandidates.length > MAX_RELATION_CANDIDATES * 3,
     };
   },
 });
@@ -2788,18 +2878,17 @@ export const createRelation = mutation({
     if (pageA.areaId !== pageB.areaId) {
       throw new Error("Relacija može povezati stranice samo u istoj oblasti.");
     }
-    if (pageA.kind === pageB.kind) {
-      throw new Error("Relacija mora povezati jednu belešku i jedan zadatak.");
-    }
     if (
       pageA.createdByProfileId !== profile._id &&
       pageB.createdByProfileId !== profile._id
     ) {
       throw new Error("Relaciju možete praviti samo sa svojom stranicom.");
     }
-    const notePage = pageA.kind === "note" ? pageA : pageB;
-    const taskPage = pageA.kind === "task" ? pageA : pageB;
-    const key = pairKey(notePage._id, taskPage._id);
+    // Poredak endpointa je kanonski (isti `pairKey` bez obzira ko je izvor),
+    // pa duplikat u suprotnom smeru ne može da nastane.
+    const [firstPage, secondPage] =
+      pageA._id < pageB._id ? [pageA, pageB] : [pageB, pageA];
+    const key = pairKey(firstPage._id, secondPage._id);
     const existing = await ctx.db
       .query("pageRelations")
       .withIndex("by_scope_pair_active", (q) =>
@@ -2834,8 +2923,11 @@ export const createRelation = mutation({
     return await ctx.db.insert("pageRelations", {
       startupId: args.startupId,
       areaId: pageA.areaId,
-      notePageId: notePage._id,
-      taskPageId: taskPage._id,
+      // Stari par se i dalje popunjava dok migracija ne prođe kroz sve redove.
+      notePageId: firstPage._id,
+      taskPageId: secondPage._id,
+      pageAId: firstPage._id,
+      pageBId: secondPage._id,
       pairKey: key,
       label: cleanCanvasLabel(args.label),
       authorProfileId: profile._id,
@@ -3429,8 +3521,9 @@ export async function movePageAcrossAreasWithSidecars(
   >();
   let addedTargetRelations = 0;
   for (const relation of oldRelations) {
-    const noteMoves = movedIds.has(relation.notePageId);
-    const taskMoves = movedIds.has(relation.taskPageId);
+    const { pageAId, pageBId } = relationEndpoints(relation);
+    const noteMoves = movedIds.has(pageAId);
+    const taskMoves = movedIds.has(pageBId);
     if (!noteMoves && !taskMoves) continue;
     if (
       !noteMoves ||

@@ -3,8 +3,6 @@
 import { useId, useMemo, useState } from "react";
 import {
   ArrowRight,
-  CheckSquare2,
-  FileText,
   GitPullRequestArrow,
   Link2,
   LoaderCircle,
@@ -19,11 +17,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PAGE_KIND_META, type PageKind } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 
 const MAX_RELATION_CANDIDATES = 100;
 
-export type PageRelationKind = "note" | "task";
+export type PageRelationKind = PageKind;
 
 export type PageRelationItem<
   PageId extends string = string,
@@ -68,23 +67,35 @@ type PendingAction<RelationId extends string> =
   | null;
 
 function kindLabel(kind: PageRelationKind) {
-  return kind === "note" ? "Beleška" : "Zadatak";
+  return PAGE_KIND_META[kind].label;
 }
 
-function kindCopy(kind: PageRelationKind) {
-  return kind === "note"
-    ? {
-        accusative: "belešku",
-        instrumental: "beleškom",
-        noneAvailable: "U ovoj oblasti trenutno nema dostupnih beleški.",
-        allLinked: "Sve dostupne beleške su već povezane.",
-      }
-    : {
-        accusative: "zadatak",
-        instrumental: "zadatkom",
-        noneAvailable: "U ovoj oblasti trenutno nema dostupnih zadataka.",
-        allLinked: "Svi dostupni zadaci su već povezani.",
-      };
+/**
+ * Relacija sada spaja bilo koje dve vrste, pa se druga strana više ne imenuje
+ * jednom vrstom. Copy govori o „stavci”, a spisak kandidata sam pokazuje koje
+ * su vrste dostupne.
+ */
+const RELATION_COPY = {
+  accusative: "stavku",
+  instrumental: "stavkom",
+  noneAvailable: "U ovoj oblasti trenutno nema dostupnih stavki.",
+  allLinked: "Sve dostupne stavke su već povezane.",
+} as const;
+
+function RelationKindIcon({ kind }: { kind: PageRelationKind }) {
+  const meta = PAGE_KIND_META[kind];
+  const Icon = meta.icon;
+  return (
+    <span
+      className={cn(
+        "grid size-8 shrink-0 place-items-center rounded-lg bg-muted/70",
+        meta.textClass,
+      )}
+      aria-hidden="true"
+    >
+      <Icon className="size-3.5" />
+    </span>
+  );
 }
 
 function pageTitle(title: string) {
@@ -134,15 +145,11 @@ export function PageRelationsPanel<
     () => new Set(relations.map((relation) => relation.pageId)),
     [relations],
   );
-  const oppositeKind = currentKind === "note" ? "task" : "note";
+  // Vezuje se sve sa svim: jedini uslov je da kandidat već nije povezan.
   const allAvailableCandidates = useMemo(
     () =>
-      candidates.filter(
-        (candidate) =>
-          candidate.kind === oppositeKind &&
-          !relatedPageIds.has(candidate.pageId),
-      ),
-    [candidates, oppositeKind, relatedPageIds],
+      candidates.filter((candidate) => !relatedPageIds.has(candidate.pageId)),
+    [candidates, relatedPageIds],
   );
   const visibleCandidates = allAvailableCandidates.slice(
     0,
@@ -153,7 +160,7 @@ export function PageRelationsPanel<
   );
   const isBusy = busy || pendingAction !== null;
   const currentLabel = kindLabel(currentKind);
-  const oppositeCopy = kindCopy(oppositeKind);
+  const oppositeCopy = RELATION_COPY;
 
   async function createRelation() {
     if (!selectedCandidateIsAvailable || isBusy) return;
@@ -219,36 +226,12 @@ export function PageRelationsPanel<
             className="mt-0.5 inline-flex shrink-0 items-center"
             aria-hidden="true"
           >
-            <span
-              className={cn(
-                "grid size-8 place-items-center rounded-lg",
-                currentKind === "note"
-                  ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
-                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-              )}
-            >
-              {currentKind === "note" ? (
-                <FileText className="size-3.5" />
-              ) : (
-                <CheckSquare2 className="size-3.5" />
-              )}
-            </span>
+            <RelationKindIcon kind={currentKind} />
             <span className="relative h-px w-5 bg-border">
               <span className="absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-card" />
             </span>
-            <span
-              className={cn(
-                "grid size-8 place-items-center rounded-lg",
-                oppositeKind === "note"
-                  ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
-                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-              )}
-            >
-              {oppositeKind === "note" ? (
-                <FileText className="size-3.5" />
-              ) : (
-                <CheckSquare2 className="size-3.5" />
-              )}
+            <span className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground">
+              <Link2 className="size-3.5" />
             </span>
           </span>
           <div className="min-w-0">
@@ -318,21 +301,7 @@ export function PageRelationsPanel<
                     onClick={() => onOpenPage(relation.pageId)}
                     aria-label={`Otvori ${kindLabel(relation.kind).toLocaleLowerCase("sr-Latn-RS")}: ${label}`}
                   >
-                    <span
-                      className={cn(
-                        "grid size-8 shrink-0 place-items-center rounded-lg",
-                        relation.kind === "note"
-                          ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
-                          : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-                      )}
-                      aria-hidden="true"
-                    >
-                      {relation.kind === "note" ? (
-                        <FileText className="size-3.5" />
-                      ) : (
-                        <CheckSquare2 className="size-3.5" />
-                      )}
-                    </span>
+                    <RelationKindIcon kind={relation.kind} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-foreground">
                         {label}

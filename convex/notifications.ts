@@ -17,6 +17,7 @@ import {
   createNotification,
   notificationCopy,
 } from "./lib/notifications";
+import { resolveTaskAssignees } from "./lib/task_assignees";
 import {
   boundedLimit,
   notificationTargetTypeValidator,
@@ -296,22 +297,29 @@ export const remindDueTasks = internalMutation({
               ? notificationCopy.taskDueToday(task.title, task.dueDate)
               : notificationCopy.taskOverdue(task.title, task.dueDate);
 
-        // Nedodeljen zadatak podseća onoga koji ga je otvorio.
-        const recipientProfileId =
-          task.assigneeProfileId ?? task.createdByProfileId;
+        // Podsetnik ide svakom izvršiocu; nedodeljen zadatak podseća onoga koji
+        // ga je otvorio. Primalac mora biti u dedupe ključu, inače bi samo prvi
+        // izvršilac ikada dobio podsetnik za taj dan.
+        const assigneeIds = (await resolveTaskAssignees(ctx, task)).map(
+          (entry) => entry.profileId,
+        );
+        const recipients =
+          assigneeIds.length > 0 ? assigneeIds : [task.createdByProfileId];
 
-        const notificationId = await createNotification(ctx, {
-          recipientProfileId,
-          startupId: task.startupId,
-          type,
-          title: copy.title,
-          body: copy.body,
-          targetType: "page",
-          targetId: task._id,
-          actorProfileId: null,
-          dedupeKey: `${task._id}:${type}:${dueKey}`,
-        });
-        if (notificationId !== null) created += 1;
+        for (const recipientProfileId of recipients) {
+          const notificationId = await createNotification(ctx, {
+            recipientProfileId,
+            startupId: task.startupId,
+            type,
+            title: copy.title,
+            body: copy.body,
+            targetType: "page",
+            targetId: task._id,
+            actorProfileId: null,
+            dedupeKey: `${task._id}:${recipientProfileId}:${type}:${dueKey}`,
+          });
+          if (notificationId !== null) created += 1;
+        }
       }
     }
 

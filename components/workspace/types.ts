@@ -1,4 +1,5 @@
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { PageKind } from "@/lib/page-kinds";
 
 export type ProfileWithAvatar = Doc<"profiles"> & { avatarUrl: string | null };
 export type StartupWithAreas = Doc<"startups"> & {
@@ -34,5 +35,5 @@ export type WorkspaceRoute =
 export type CreatePageTarget = {
   areaId?: Id<"startupAreas">;
   parentPageId?: Id<"pages"> | null;
-  initialKind?: "note" | "task";
+  initialKind?: PageKind;
 };

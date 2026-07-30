@@ -10,6 +10,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { pageKindMeta, type PageKind } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 import {
   AREA_META,
@@ -69,6 +70,42 @@ export function ProfileAvatar({
       <AvatarFallback>{getInitials(profile.displayName)}</AvatarFallback>
     </Avatar>
   );
+}
+
+/**
+ * Kvadratna značka vrste stranice. Beleška zadržava organski oblak; ostale
+ * vrste su zaobljeni kvadrat, isto kao na kanvasu.
+ */
+export function PageKindBadge({
+  kind,
+  className,
+}: {
+  kind: PageKind;
+  className?: string;
+}) {
+  const meta = pageKindMeta(kind);
+  const Icon = meta.icon;
+  return (
+    <span
+      className={cn(
+        "grid size-9 shrink-0 place-items-center bg-muted/70",
+        meta.shape === "organic"
+          ? "rounded-[42%_58%_52%_48%/46%_44%_56%_54%]"
+          : "rounded-xl",
+        meta.textClass,
+        className,
+      )}
+      aria-hidden="true"
+    >
+      <Icon className="size-4" />
+    </span>
+  );
+}
+
+/** Ikona vrste za kartice koje čekaju odobrenje; boju nosi okvir oko nje. */
+export function GhostKindIcon({ kind }: { kind: PageKind }) {
+  const Icon = pageKindMeta(kind).icon;
+  return <Icon className="size-4" aria-hidden="true" />;
 }
 
 export function StartupLogo({

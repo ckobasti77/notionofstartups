@@ -4,9 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  CheckSquare2,
   ChevronRight,
-  FileText,
   LoaderCircle,
   Plus,
 } from "lucide-react";
@@ -15,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { pageKindMeta, supportsTaskData } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 import type { CreatePageTarget } from "@/components/workspace/types";
 
@@ -181,7 +180,7 @@ function PageTreeNode({
     };
   }, []);
 
-  const Icon = page.kind === "task" ? CheckSquare2 : FileText;
+  const Icon = pageKindMeta(page.kind).icon;
   const selected = selectedPageId === page._id;
   const activeDropTarget = activeDropPageId === page._id;
   const canMove = page.createdByProfileId === currentProfileId;
@@ -268,7 +267,7 @@ function PageTreeNode({
         >
           <Icon className="size-3.5 shrink-0 opacity-75" />
           <span className="truncate">{page.title}</span>
-          {page.kind === "task" ? (
+          {supportsTaskData(page.kind) ? (
             <DeadlineBadge
               dueDate={page.dueDate}
               taskStatus={page.taskStatus}

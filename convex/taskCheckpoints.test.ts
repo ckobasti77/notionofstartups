@@ -611,3 +611,222 @@ describe("task checkpoint entiteti", () => {
     ).toEqual(expect.objectContaining({ archivedAt: expect.any(Number) }));
   });
 });
+
+describe("lanac checkpointa", () => {
+  async function seedChainedTask(checkpointCount = 3) {
+    const context = await seedCheckpointWorkspace();
+    const taskId = await context.asOwner.mutation(api.pages.create, {
+      startupId: context.startupId,
+      areaId: context.areaId,
+      parentPageId: null,
+      kind: "task",
+      title: "Sekvencijalni zadatak",
+      assigneeProfileId: context.assignee.profileId,
+      checkpoints: Array.from({ length: checkpointCount }, (_, index) => ({
+        id: `cp-${index + 1}`,
+        text: `Korak ${index + 1}`,
+        completed: false,
+      })),
+    });
+    const list = () =>
+      context.asOwner.query(api.taskCheckpoints.listForTask, {
+        taskPageId: taskId,
+      });
+    return { ...context, taskId, list };
+  }
+
+  test("nevezani koraci se štikliraju bilo kojim redom", async () => {
+    const { asAssignee, list } = await seedChainedTask();
+    const rows = await list();
+
+    expect(rows.every((row) => !row.chainedToPrevious && !row.locked)).toBe(
+      true,
+    );
+    await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+      checkpointId: rows[2]._id,
+      completed: true,
+    });
+    expect((await list())[2].completed).toBe(true);
+  });
+
+  test("vezan korak je zaključan dok prethodni nije završen", async () => {
+    const { taskId, asOwner, asAssignee, list } = await seedChainedTask();
+    expect(
+      await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+        taskPageId: taskId,
+        chained: true,
+      }),
+    ).toBe(2);
+
+    let rows = await list();
+    expect(rows.map((row) => row.chainedToPrevious)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(rows.map((row) => row.locked)).toEqual([false, true, true]);
+    expect(rows[1].blockedByOrdinal).toBe(1);
+
+    await expect(
+      asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+        checkpointId: rows[1]._id,
+        completed: true,
+      }),
+    ).rejects.toThrow("Korak #2 je zaključan dok se ne završi korak #1.");
+
+    await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+      checkpointId: rows[0]._id,
+      completed: true,
+    });
+    rows = await list();
+    expect(rows.map((row) => row.locked)).toEqual([false, false, true]);
+
+    await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+      checkpointId: rows[1]._id,
+      completed: true,
+    });
+    expect((await list()).map((row) => row.locked)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("završen prefiks se ne može razbiti otvaranjem ranijeg koraka", async () => {
+    const { taskId, asOwner, asAssignee, list } = await seedChainedTask();
+    await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+      taskPageId: taskId,
+      chained: true,
+    });
+    const rows = await list();
+    for (const row of rows.slice(0, 2)) {
+      await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+        checkpointId: row._id,
+        completed: true,
+      });
+    }
+
+    await expect(
+      asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+        checkpointId: rows[0]._id,
+        completed: false,
+      }),
+    ).rejects.toThrow(
+      "Korak #1 se ne može ponovo otvoriti dok je vezani korak #2 završen.",
+    );
+
+    await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+      checkpointId: rows[1]._id,
+      completed: false,
+    });
+    await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
+      checkpointId: rows[0]._id,
+      completed: false,
+    });
+    expect((await list()).every((row) => !row.completed)).toBe(true);
+  });
+
+  test("razvezivanje jednog koraka otključava samo njega", async () => {
+    const { taskId, asOwner, list } = await seedChainedTask();
+    await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+      taskPageId: taskId,
+      chained: true,
+    });
+    const rows = await list();
+
+    await asOwner.mutation(api.taskCheckpoints.setChainedToPrevious, {
+      checkpointId: rows[1]._id,
+      chained: false,
+    });
+    expect((await list()).map((row) => row.locked)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  test("prvi korak ne može biti vezan i lanac menja samo autor", async () => {
+    const { taskId, asOwner, asAssignee, list } = await seedChainedTask();
+    const rows = await list();
+
+    await expect(
+      asOwner.mutation(api.taskCheckpoints.setChainedToPrevious, {
+        checkpointId: rows[0]._id,
+        chained: true,
+      }),
+    ).rejects.toThrow("Prvi korak nema prethodni korak");
+    await expect(
+      asAssignee.mutation(api.taskCheckpoints.setChainedToPrevious, {
+        checkpointId: rows[1]._id,
+        chained: true,
+      }),
+    ).rejects.toThrow("samo autor");
+    await expect(
+      asAssignee.mutation(api.taskCheckpoints.setAllChained, {
+        taskPageId: taskId,
+        chained: true,
+      }),
+    ).rejects.toThrow("samo autor");
+
+    await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+      taskPageId: taskId,
+      chained: true,
+    });
+    expect((await list())[0].chainedToPrevious).toBe(false);
+  });
+
+  test("novi korak nasleđuje lanac poslednjeg", async () => {
+    const { taskId, asOwner, list } = await seedChainedTask(2);
+    await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+      taskPageId: taskId,
+      chained: true,
+    });
+    await asOwner.mutation(api.taskCheckpoints.create, {
+      taskPageId: taskId,
+      text: "Korak 3",
+    });
+    expect((await list()).map((row) => row.chainedToPrevious)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+
+    await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+      taskPageId: taskId,
+      chained: false,
+    });
+    await asOwner.mutation(api.taskCheckpoints.create, {
+      taskPageId: taskId,
+      text: "Korak 4",
+    });
+    expect((await list()).map((row) => row.chainedToPrevious)).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("brisanje koraka prelinkuje lanac na preostale korake", async () => {
+    const { taskId, asOwner, list } = await seedChainedTask();
+    await asOwner.mutation(api.taskCheckpoints.setAllChained, {
+      taskPageId: taskId,
+      chained: true,
+    });
+    const rows = await list();
+
+    // Prvi korak odlazi; drugi postaje prvi i time gubi katanac, iako mu je
+    // zastavica i dalje uključena.
+    await asOwner.mutation(api.taskCheckpoints.archiveOwn, {
+      checkpointId: rows[0]._id,
+    });
+    const remaining = await list();
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((row) => row.ordinal)).toEqual([1, 2]);
+    expect(remaining.map((row) => row.chainedToPrevious)).toEqual([
+      false,
+      true,
+    ]);
+    expect(remaining.map((row) => row.locked)).toEqual([false, true]);
+  });
+});

@@ -6,8 +6,11 @@ import {
   Check,
   ChevronRight,
   Circle,
+  Link2,
+  Link2Off,
   ListChecks,
   LoaderCircle,
+  Lock,
   MessageSquareText,
   Pencil,
   Plus,
@@ -255,6 +258,8 @@ export function TaskCheckpointList({
   const createCheckpoint = useMutation(api.taskCheckpoints.create);
   const updateText = useMutation(api.taskCheckpoints.updateText);
   const setCompleted = useMutation(api.taskCheckpoints.setCompleted);
+  const setChained = useMutation(api.taskCheckpoints.setChainedToPrevious);
+  const setAllChained = useMutation(api.taskCheckpoints.setAllChained);
   const archiveOwn = useMutation(api.taskCheckpoints.archiveOwn);
   const restoreOwn = useMutation(api.taskCheckpoints.restoreOwn);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
@@ -282,6 +287,10 @@ export function TaskCheckpointList({
 
   const completedCount = checkpoints.filter((item) => item.completed).length;
   const orderedCheckpoints = orderTaskCheckpointsForEditor(checkpoints);
+  const chainedCount = checkpoints.filter(
+    (item) => item.chainedToPrevious,
+  ).length;
+  const allChained = checkpoints.length > 1 && chainedCount === checkpoints.length - 1;
 
   async function add() {
     const text = draft.trim();
@@ -331,25 +340,66 @@ export function TaskCheckpointList({
             {completedCount}/{checkpoints.length}
           </span>
         </div>
-        {checkpoints.length > 0 ? (
-          <div
-            className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-label="Napredak checkpointa"
-            aria-valuemin={0}
-            aria-valuemax={checkpoints.length}
-            aria-valuenow={completedCount}
-          >
-            <div
-              className="h-full rounded-full bg-emerald-500 transition-[width]"
-              style={{
-                width: `${Math.round(
-                  (completedCount / checkpoints.length) * 100,
-                )}%`,
+        <div className="flex items-center gap-2">
+          {canCreate && checkpoints.length > 1 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-compact="true"
+              className="h-8 gap-1.5 rounded-lg px-2 text-[0.6875rem] font-bold"
+              aria-pressed={allChained}
+              title={
+                allChained
+                  ? "Razveži sve korake — svaki se može završiti nezavisno"
+                  : "Poveži sve korake — svaki čeka da se prethodni završi"
+              }
+              onClick={() => {
+                void setAllChained({ taskPageId, chained: !allChained })
+                  .then(() =>
+                    toast.success(
+                      allChained
+                        ? "Koraci su razvezani."
+                        : "Koraci su povezani u redosled.",
+                    ),
+                  )
+                  .catch((error) =>
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : "Redosled nije promenjen.",
+                    ),
+                  );
               }}
-            />
-          </div>
-        ) : null}
+            >
+              {allChained ? (
+                <Link2Off className="size-3.5" aria-hidden="true" />
+              ) : (
+                <Link2 className="size-3.5" aria-hidden="true" />
+              )}
+              {allChained ? "Razveži sve" : "Poveži sve"}
+            </Button>
+          ) : null}
+          {checkpoints.length > 0 ? (
+            <div
+              className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="Napredak checkpointa"
+              aria-valuemin={0}
+              aria-valuemax={checkpoints.length}
+              aria-valuenow={completedCount}
+            >
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-[width]"
+                style={{
+                  width: `${Math.round(
+                    (completedCount / checkpoints.length) * 100,
+                  )}%`,
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div
@@ -400,15 +450,31 @@ export function TaskCheckpointList({
           </p>
         ) : (
           <div className={cn("space-y-2", compact && "space-y-1.5")}>
-            {orderedCheckpoints.map(({ checkpoint, ordinal }) => (
+            {orderedCheckpoints.map(({ checkpoint, ordinal }, displayIndex) => (
+              <div key={checkpoint._id} className="space-y-1.5">
+              {checkpoint.chainedToPrevious && displayIndex > 0 ? (
+                <p
+                  className="flex items-center gap-1.5 pl-4 text-[0.625rem] font-bold text-muted-foreground"
+                  aria-hidden="true"
+                >
+                  <span className="h-3 w-px bg-border" />
+                  <Link2 className="size-3" />
+                  vezano za #{ordinal - 1}
+                </p>
+              ) : null}
               <article
-                key={checkpoint._id}
-                aria-label={`Checkpoint broj ${ordinal}: ${checkpoint.text}`}
+                aria-label={`Checkpoint broj ${ordinal}: ${checkpoint.text}${
+                  checkpoint.locked
+                    ? `. Zaključan dok se ne završi korak broj ${checkpoint.blockedByOrdinal}`
+                    : ""
+                }`}
                 className={cn(
                   "rounded-xl border px-2.5 py-2 transition-colors",
                   checkpoint.completed
                     ? "border-emerald-500/30 bg-emerald-500/6"
-                    : "border-orange-500/30 bg-orange-500/6",
+                    : checkpoint.locked
+                      ? "border-border/70 bg-muted/40"
+                      : "border-orange-500/30 bg-orange-500/6",
                 )}
               >
               <div className="flex items-center gap-2">
@@ -418,16 +484,24 @@ export function TaskCheckpointList({
                 <button
                   type="button"
                   className="grid size-11 shrink-0 place-items-center rounded-full hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!checkpoint.canToggle || pendingId === checkpoint._id}
+                  disabled={
+                    !checkpoint.canToggle ||
+                    checkpoint.locked ||
+                    pendingId === checkpoint._id
+                  }
                   aria-label={
-                    checkpoint.completed
-                      ? `Ponovo otvori checkpoint broj ${ordinal}: ${checkpoint.text}`
-                      : `Završi checkpoint broj ${ordinal}: ${checkpoint.text}`
+                    checkpoint.locked
+                      ? `Checkpoint broj ${ordinal} je zaključan dok se ne završi korak broj ${checkpoint.blockedByOrdinal}`
+                      : checkpoint.completed
+                        ? `Ponovo otvori checkpoint broj ${ordinal}: ${checkpoint.text}`
+                        : `Završi checkpoint broj ${ordinal}: ${checkpoint.text}`
                   }
                   title={
-                    checkpoint.completed
-                      ? "Ponovo otvori"
-                      : "Označi kao završeno"
+                    checkpoint.locked
+                      ? `Zaključano dok se ne završi korak #${checkpoint.blockedByOrdinal}`
+                      : checkpoint.completed
+                        ? "Ponovo otvori"
+                        : "Označi kao završeno"
                   }
                   onClick={() => {
                     setPendingId(checkpoint._id);
@@ -449,6 +523,8 @@ export function TaskCheckpointList({
                     <LoaderCircle className="size-4 animate-spin" />
                   ) : checkpoint.completed ? (
                     <Check className="size-4 text-emerald-600" />
+                  ) : checkpoint.locked ? (
+                    <Lock className="size-4 text-muted-foreground" />
                   ) : (
                     <Circle className="size-4 text-orange-600" />
                   )}
@@ -506,6 +582,46 @@ export function TaskCheckpointList({
                 >
                   <MessageSquareText className="size-3.5" />
                 </Button>
+                {checkpoint.canEdit && ordinal > 1 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-11",
+                      checkpoint.chainedToPrevious && "text-primary",
+                    )}
+                    aria-pressed={checkpoint.chainedToPrevious}
+                    aria-label={
+                      checkpoint.chainedToPrevious
+                        ? `Razveži checkpoint broj ${ordinal} od prethodnog`
+                        : `Veži checkpoint broj ${ordinal} za prethodni`
+                    }
+                    title={
+                      checkpoint.chainedToPrevious
+                        ? `Razveži od koraka #${ordinal - 1}`
+                        : `Veži za korak #${ordinal - 1} — čeka da se on završi`
+                    }
+                    onClick={() => {
+                      void setChained({
+                        checkpointId: checkpoint._id,
+                        chained: !checkpoint.chainedToPrevious,
+                      }).catch((error) =>
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Veza nije promenjena.",
+                        ),
+                      );
+                    }}
+                  >
+                    {checkpoint.chainedToPrevious ? (
+                      <Link2 className="size-3.5" />
+                    ) : (
+                      <Link2Off className="size-3.5" />
+                    )}
+                  </Button>
+                ) : null}
                 {checkpoint.canEdit ? (
                   <Button
                     type="button"
@@ -594,6 +710,7 @@ export function TaskCheckpointList({
                 ) : null}
               </div>
               </article>
+              </div>
             ))}
           </div>
         )}

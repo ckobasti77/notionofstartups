@@ -3,7 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { recordActivity } from "./lib/activity";
-import { pageTaskSortAt } from "./lib/pages";
+import { archiveAssignmentsForProfile } from "./lib/task_assignees";
 import {
   requireActiveProfile,
   requireAdmin,
@@ -313,29 +313,15 @@ export const removeMember = mutation({
     if (membership === null || membership.archivedAt !== null) {
       throw new Error("Član nije pronađen.");
     }
-    const assignedTasks = await ctx.db
-      .query("pages")
-      .withIndex("by_startupId_and_assigneeProfileId_and_archivedAt", (q) =>
-        q
-          .eq("startupId", startup._id)
-          .eq("assigneeProfileId", profile._id)
-          .eq("archivedAt", null),
-      )
-      .take(251);
-    if (assignedTasks.length > 250) {
-      throw new Error("Član ima više od 250 dodeljenih zadataka. Prvo ih preraspodelite.");
-    }
     const now = Date.now();
-    await Promise.all(
-      assignedTasks.map((task) =>
-        ctx.db.patch("pages", task._id, {
-          assigneeProfileId: null,
-          taskSortAt: pageTaskSortAt(task.dueDate, now),
-          updatedByProfileId: admin._id,
-          updatedAt: now,
-        }),
-      ),
-    );
+    // Uklonjen član se skida sa svojih zadataka u ovom startupu; ostali
+    // izvršioci ostaju, a projekcija na stranici se preračunava iz spiska.
+    await archiveAssignmentsForProfile(ctx, {
+      profileId: profile._id,
+      startupId: startup._id,
+      now,
+      limit: 250,
+    });
     const pendingBallots = await ctx.db
       .query("deletionBallots")
       .withIndex("by_profileId_and_vote_and_createdAt", (q) =>

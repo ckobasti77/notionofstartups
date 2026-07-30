@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import {
-  CheckSquare2,
-  FileText,
   FolderInput,
   LoaderCircle,
 } from "lucide-react";
@@ -20,12 +18,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { pageKindMeta, type PageKind } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 
 export type NestingTargetOption = {
   pageId: Id<"pages">;
   title: string;
-  kind: "note" | "task";
+  kind: PageKind;
 };
 
 export function NestingTargetMenu({
@@ -100,7 +99,7 @@ export function NestingTargetMenu({
         <DropdownMenuLabel>Izaberi roditeljsku karticu</DropdownMenuLabel>
         {candidates.map((candidate) => {
           const Icon =
-            candidate.kind === "task" ? CheckSquare2 : FileText;
+            pageKindMeta(candidate.kind).icon;
           return (
             <DropdownMenuItem
               key={candidate.pageId}
@@ -112,7 +111,7 @@ export function NestingTargetMenu({
                 {candidate.title || "Bez naslova"}
               </span>
               <span className="text-[0.6875rem] text-muted-foreground">
-                {candidate.kind === "task" ? "Zadatak" : "Beleška"}
+                {pageKindMeta(candidate.kind).label}
               </span>
             </DropdownMenuItem>
           );

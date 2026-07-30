@@ -5,6 +5,7 @@ import {
   checkpointItemValidator,
   notificationTargetTypeValidator,
   notificationTypeValidator,
+  pageFileCategoryValidator,
   pageKindValidator,
   taskCheckpointCanvasEndpointValidator,
   taskPriorityValidator,
@@ -214,6 +215,9 @@ export default defineSchema({
     position: v.number(),
     taskStatus: v.union(taskStatusValidator, v.null()),
     taskPriority: v.union(taskPriorityValidator, v.null()),
+    // Deprecated projekcija prvog izvršioca. `taskAssignees` je kanonski izvor;
+    // ovo polje postoji da bi indeksi po izvršiocu i `pageSummaryValidator`
+    // ostali upotrebljivi.
     assigneeProfileId: v.union(v.id("profiles"), v.null()),
     dueDate: v.union(v.number(), v.null()),
     instructions: v.optional(v.string()),
@@ -222,6 +226,13 @@ export default defineSchema({
     checkpointTotal: v.optional(v.number()),
     checkpointCompleted: v.optional(v.number()),
     checkpointRevision: v.optional(v.number()),
+    // Sažeci za `file` i `table` kartice, da kanvas ne mora da čita priloge i
+    // redove svake kartice posebno.
+    fileCount: v.optional(v.number()),
+    filePreviewStorageId: v.optional(v.id("_storage")),
+    filePrimaryCategory: v.optional(pageFileCategoryValidator),
+    tableRowCount: v.optional(v.number()),
+    tableColumnCount: v.optional(v.number()),
     taskSortAt: v.number(),
     // Trenutak prelaska u „Gotovo”. `updatedAt` nije upotrebljiv kao izvor jer
     // svaka kasnija izmena završenog zadatka pomera nedelju u kojoj je završen.
@@ -349,6 +360,9 @@ export default defineSchema({
     text: v.string(),
     completed: v.boolean(),
     position: v.number(),
+    // Vezan korak se ne može završiti dok prethodni nije gotov. `undefined` je
+    // isto što i `false` — zapisi od pre uvođenja lanca ostaju slobodni.
+    chainedToPrevious: v.optional(v.boolean()),
     createdByProfileId: v.id("profiles"),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
@@ -360,6 +374,129 @@ export default defineSchema({
       "position",
     ])
     .index("by_taskPageId_and_legacyId", ["taskPageId", "legacyId"]),
+
+  // Kanonski spisak izvršilaca zadatka. `pages.assigneeProfileId` je samo
+  // projekcija prvog reda odavde — postoji da bi postojeći indeksi i wire
+  // ugovori nastavili da rade, isto kao `pages.checkpoints` uz `taskCheckpoints`.
+  // Kolone su ograničene (64) pa staju u jedan dokument; redovi su
+  // neograničeni pa idu u zasebnu tabelu, po pravilu iz Convex guidelines.
+  pageTableColumns: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    pageId: v.id("pages"),
+    columns: v.array(
+      v.object({
+        id: v.string(),
+        label: v.string(),
+        width: v.optional(v.number()),
+      }),
+    ),
+    revision: v.number(),
+    updatedByProfileId: v.id("profiles"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_pageId", ["pageId"]),
+
+  pageTableRows: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    pageId: v.id("pages"),
+    rowKey: v.string(),
+    position: v.number(),
+    // `columnId -> tekst`. Ceo red je jedan dokument, pa izmena jedne ćelije
+    // prepisuje samo taj red.
+    cells: v.record(v.string(), v.string()),
+    updatedByProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_pageId_and_archivedAt_and_position", [
+      "pageId",
+      "archivedAt",
+      "position",
+    ])
+    .index("by_pageId_and_rowKey", ["pageId", "rowKey"]),
+
+  // Prilozi „fajl” oblačića. Jedan oblačić drži više fajlova; kategorija se
+  // izvodi iz `contentType` na serveru, klijent je ne bira.
+  pageFiles: defineTable({
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    pageId: v.id("pages"),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    category: pageFileCategoryValidator,
+    position: v.number(),
+    uploadedByProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_pageId_and_archivedAt_and_position", [
+      "pageId",
+      "archivedAt",
+      "position",
+    ])
+    .index("by_storageId", ["storageId"]),
+
+  pageFileUploads: defineTable({
+    pageId: v.id("pages"),
+    profileId: v.id("profiles"),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_profileId_and_createdAt", ["profileId", "createdAt"]),
+
+  taskAssignees: defineTable({
+    startupId: v.id("startups"),
+    taskPageId: v.id("pages"),
+    profileId: v.id("profiles"),
+    // Ogledala sa `pages`, da lista „Moji zadaci” može da se sortira i filtrira
+    // bez čitanja svake stranice. Osvežavaju se u istoj mutaciji kao i zadatak.
+    taskStatus: v.union(taskStatusValidator, v.null()),
+    taskSortAt: v.number(),
+    addedByProfileId: v.id("profiles"),
+    // Samo skidanje sa zadatka. Arhiviranje same stranice se namerno ne ogleda
+    // ovde — grana može imati 250 stranica, pa bi to probilo transakciju.
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task_active_created", [
+      "taskPageId",
+      "archivedAt",
+      "createdAt",
+    ])
+    .index("by_task_and_profile", ["taskPageId", "profileId"])
+    .index("by_profile_active_sort", [
+      "profileId",
+      "archivedAt",
+      "taskSortAt",
+    ])
+    .index("by_profile_status_active_sort", [
+      "profileId",
+      "taskStatus",
+      "archivedAt",
+      "taskSortAt",
+    ])
+    .index("by_startup_profile_active_sort", [
+      "startupId",
+      "profileId",
+      "archivedAt",
+      "taskSortAt",
+    ])
+    .index("by_startup_profile_status_active_sort", [
+      "startupId",
+      "profileId",
+      "taskStatus",
+      "archivedAt",
+      "taskSortAt",
+    ]),
 
   taskCheckpointCanvasPlacements: defineTable({
     startupId: v.id("startups"),
@@ -847,8 +984,13 @@ export default defineSchema({
   pageRelations: defineTable({
     startupId: v.id("startups"),
     areaId: v.id("startupAreas"),
+    // Deprecated par: relacija je nekad spajala isključivo belešku i zadatak.
+    // Kanon su `pageAId`/`pageBId`; stara polja se i dalje upisuju da bi
+    // rollback aplikacije radio bez vraćanja baze.
     notePageId: v.id("pages"),
     taskPageId: v.id("pages"),
+    pageAId: v.optional(v.id("pages")),
+    pageBId: v.optional(v.id("pages")),
     pairKey: v.string(),
     label: v.union(v.string(), v.null()),
     authorProfileId: v.id("profiles"),
@@ -879,7 +1021,9 @@ export default defineSchema({
       "archivedAt",
     ])
     .index("by_notePageId_and_archivedAt", ["notePageId", "archivedAt"])
-    .index("by_taskPageId_and_archivedAt", ["taskPageId", "archivedAt"]),
+    .index("by_taskPageId_and_archivedAt", ["taskPageId", "archivedAt"])
+    .index("by_pageAId_and_archivedAt", ["pageAId", "archivedAt"])
+    .index("by_pageBId_and_archivedAt", ["pageBId", "archivedAt"]),
 
   areasMigrationIssues: defineTable({
     migrationKey: v.string(),

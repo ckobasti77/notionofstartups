@@ -19,20 +19,21 @@ import {
 import {
   ArrowUpRight,
   CalendarDays,
-  CheckSquare2,
   Clock3,
-  FileText,
   Flame,
   FolderInput,
   Info,
   ListChecks,
   Maximize2,
   Minimize2,
+  Paperclip,
   RotateCcw,
+  Table2,
   UserRound,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { assigneeStackLabel } from "@/components/workspace/assignee-stack";
 import {
   ProfileAvatar,
   TaskPriorityBadge,
@@ -49,6 +50,13 @@ import {
   deadlineAriaLabel,
   deadlineLabel,
 } from "@/lib/deadline";
+import {
+  fileKindLabel,
+  pageKindMeta,
+  supportsTaskData,
+  type PageFileCategory,
+  type PageKind,
+} from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 
 import { CircularTextFlow } from "./circular-text-flow";
@@ -59,18 +67,22 @@ import { PerimeterResizeControl } from "./perimeter-resize-control";
 export type AreaCanvasNodeData = {
   title: string;
   text: string;
-  kind: "task" | "note";
+  kind: PageKind;
   taskStatus: "backlog" | "next" | "in_progress" | "blocked" | "done" | null;
   taskPriority: "low" | "medium" | "high" | "urgent" | null;
   dueDate: number | null;
-  assigneeName: string | null;
-  assigneeAvatarUrl: string | null;
+  assignees: Array<{ displayName: string; avatarUrl: string | null }>;
   creatorName: string;
   creatorAvatarUrl: string | null;
   updatedAt: number;
   checkpointTotal: number;
   checkpointCompleted: number;
   checkpointsExpanded: boolean;
+  fileCount: number;
+  fileCategory: PageFileCategory | null;
+  filePreviewUrl: string | null;
+  tableRowCount: number;
+  tableColumnCount: number;
   canMove: boolean;
   canResize: boolean;
   canDetach: boolean;
@@ -140,7 +152,11 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
   const actions = useContext(AreaNodeActionsContext);
   const [now] = useState(() => Date.now());
   const pageId = id as Id<"pages">;
-  const isTask = data.kind === "task";
+  const isTask = supportsTaskData(data.kind);
+  const meta = pageKindMeta(data.kind);
+  const kindLabel =
+    data.kind === "file" ? fileKindLabel(data.fileCategory) : meta.label;
+  const KindIcon = meta.icon;
   const title = data.title || "Bez naslova";
   const canResize = data.canResize && !data.pendingNesting;
   const hasCheckpoints = isTask && data.checkpointTotal > 0;
@@ -162,23 +178,29 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
     day: "2-digit",
     month: "short",
   }).format(data.updatedAt);
-  const assigneeLabel = data.assigneeName ?? "Nedodeljeno";
+  const assigneeLabel = assigneeStackLabel(data.assignees);
 
   return (
     <article
       data-circular-text-shell
       className={cn(
         orbital.shell,
-        isTask && orbital.taskShell,
-        isTask ? styles.task : styles.note,
+        meta.shape === "rounded" && orbital.taskShell,
+        styles[meta.accentToken],
         data.pendingNesting && styles.amber,
         data.nestingTarget && orbital.nestingTarget,
         (!data.canMove || data.pendingNesting) && "nodrag !cursor-default",
         selected && orbital.selected,
       )}
-      aria-label={`${isTask ? "Zadatak" : "Beleška"}: ${title}. ${data.text}${
+      aria-label={`${kindLabel}: ${title}. ${data.text}${
         isTask
           ? `. Dodeljeno: ${assigneeLabel}. ${dueDateAriaLabel}`
+          : ""
+      }${
+        data.kind === "file" ? `. ${data.fileCount} priloga` : ""
+      }${
+        data.kind === "table"
+          ? `. ${data.tableRowCount} redova, ${data.tableColumnCount} kolona`
           : ""
       }${data.pendingNesting ? ". Čeka odobrenje" : ""}`}
       title="Dupli klik otvara kanvas; izaberi karticu za dodatne akcije"
@@ -195,6 +217,17 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         )}
         aria-hidden="true"
       />
+      {data.kind === "file" && data.filePreviewUrl !== null ? (
+        // Slika se namerno ne vidi cela — ona je nagoveštaj sadržaja, a ceo
+        // prikaz otvara modal iz toolbar-a ili duplim klikom.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={data.filePreviewUrl}
+          alt=""
+          aria-hidden="true"
+          className={orbital.filePreview}
+        />
+      ) : null}
       {hasCheckpoints ? (
         <div
           className={cn(
@@ -235,12 +268,12 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         height={height ?? 168}
         selected={selected}
         disabled={!canResize}
-        shape={isTask ? "rounded" : "organic"}
+        shape={meta.shape}
         minWidth={240}
         minHeight={168}
         maxWidth={720}
         maxHeight={1_000}
-        ariaLabel={`Promeni veličinu ${isTask ? "zadatka" : "beleške"} ${title} povlačenjem oboda`}
+        ariaLabel={`Promeni veličinu — ${kindLabel} ${title} — povlačenjem oboda`}
         onResizeEnd={(layout) => {
           if (canResize) actions?.resize(pageId, layout);
         }}
@@ -358,10 +391,8 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
             : "text-sky-700 dark:text-sky-300",
         )}
       >
-        {isTask ? <CheckSquare2 className="size-3.5" /> : <FileText className="size-3.5" />}
-        <span className="text-[0.625rem] font-extrabold">
-          {isTask ? "Zadatak" : "Beleška"}
-        </span>
+        <KindIcon className="size-3.5" />
+        <span className="text-[0.625rem] font-extrabold">{kindLabel}</span>
       </div>
 
       {hasCheckpoints ? (
@@ -428,20 +459,44 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
               className={orbital.assigneeCompact}
               title={`Dodeljeno: ${assigneeLabel}`}
             >
-              {data.assigneeName ? (
-                <ProfileAvatar
-                  profile={{
-                    displayName: data.assigneeName,
-                    avatarUrl: data.assigneeAvatarUrl,
-                  }}
-                  className="size-5 shrink-0 ring-1 ring-background"
-                />
+              {data.assignees.length === 0 ? (
+                <>
+                  <UserRound className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span>{assigneeLabel}</span>
+                </>
               ) : (
-                <UserRound className="size-3.5 shrink-0" aria-hidden="true" />
+                <>
+                  <span className="flex shrink-0 items-center -space-x-1">
+                    {data.assignees.slice(0, 3).map((assignee, index) => (
+                      <ProfileAvatar
+                        key={`${assignee.displayName}-${index}`}
+                        profile={assignee}
+                        className="size-5 shrink-0 ring-1 ring-background"
+                      />
+                    ))}
+                  </span>
+                  <span>
+                    {data.assignees[0].displayName}
+                    {data.assignees.length > 1
+                      ? ` +${data.assignees.length - 1}`
+                      : ""}
+                  </span>
+                </>
               )}
-              <span>{assigneeLabel}</span>
             </span>
           </div>
+        ) : data.kind === "file" ? (
+          <span className="flex items-center gap-1.5 px-2 text-[0.625rem] font-bold text-muted-foreground">
+            <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
+            {data.fileCount === 0
+              ? "Bez priloga"
+              : `${data.fileCount} ${data.fileCount === 1 ? "fajl" : "fajlova"}`}
+          </span>
+        ) : data.kind === "table" ? (
+          <span className="flex items-center gap-1.5 px-2 text-[0.625rem] font-bold tabular-nums text-muted-foreground">
+            <Table2 className="size-3.5 shrink-0" aria-hidden="true" />
+            {data.tableRowCount} × {data.tableColumnCount}
+          </span>
         ) : (
           <span className="px-2 text-[0.625rem] font-bold text-muted-foreground">
             Sačuvan sadržaj
@@ -485,7 +540,7 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
 
       <CircularTextFlow
         text={data.text}
-        ariaLabel={`${isTask ? "Tekst zadatka" : "Tekst beleške"} ${title}`}
+        ariaLabel={`Tekst — ${kindLabel} ${title}`}
       />
 
       <Handle

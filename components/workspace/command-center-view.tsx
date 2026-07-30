@@ -13,7 +13,6 @@ import {
   HandHelping,
   Plus,
   Settings2,
-  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -35,6 +34,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AssigneePickerCompact,
+} from "@/components/workspace/assignee-picker";
+import { AssigneeStack } from "@/components/workspace/assignee-stack";
 import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { PulseBar, type PulseSegment } from "@/components/workspace/pulse-bar";
 import {
@@ -49,7 +52,6 @@ import type {
 } from "@/components/workspace/types";
 import {
   EmptyState,
-  ProfileAvatar,
   TaskPriorityBadge,
   TaskStatusBadge,
 } from "@/components/workspace/workspace-ui";
@@ -72,6 +74,12 @@ import {
 } from "@/lib/workspace";
 
 const UNASSIGNED_KEY = "unassigned";
+
+type TaskAssigneeSummary = {
+  profileId: Id<"profiles">;
+  displayName: string;
+  avatarUrl: string | null;
+};
 
 const STATUS_OPTIONS: Array<TaskStatus> = [
   "backlog",
@@ -186,6 +194,19 @@ export function CommandCenterView({
     [overview],
   );
 
+  // Jedna subskripcija za spiskove izvršilaca svih otvorenih zadataka.
+  const assigneeRows = useQuery(api.taskAssignees.listForTasks, {
+    startupId: startup._id,
+    taskPageIds: tasks.map((task) => task._id),
+  });
+  const assigneesByTaskId = useMemo(
+    () =>
+      new Map(
+        (assigneeRows ?? []).map((row) => [row.taskPageId, row.assignees]),
+      ),
+    [assigneeRows],
+  );
+
   const areaLabels = useMemo(() => {
     const map = new Map<string, string>();
     for (const area of startup.areas) map.set(area._id, area.label);
@@ -212,34 +233,45 @@ export function CommandCenterView({
     const byKey = new Map(entries.map((entry) => [entry.key, entry]));
 
     for (const task of tasks) {
-      const entry =
-        task.assigneeProfileId === null
-          ? unassigned
-          : byKey.get(task.assigneeProfileId);
-      if (entry === undefined) continue;
-      entry.open += 1;
-      if (
+      // Svi izvršioci su ravnopravni, pa zadatak ulazi u opterećenje svakog od
+      // njih; zbir po članovima je zato veći od broja zadataka.
+      const taskAssignees = assigneesByTaskId.get(task._id) ?? [];
+      const taskEntries =
+        taskAssignees.length === 0
+          ? [unassigned]
+          : taskAssignees.flatMap((assignee) => {
+              const entry = byKey.get(assignee.profileId);
+              return entry === undefined ? [] : [entry];
+            });
+      const overdue =
         classifyDeadline({
           dueDate: task.dueDate,
           taskStatus: task.taskStatus,
           now,
-        }).urgency === "overdue"
-      ) {
-        entry.overdue += 1;
+        }).urgency === "overdue";
+      for (const entry of taskEntries) {
+        entry.open += 1;
+        if (overdue) entry.overdue += 1;
+        if (task.taskPriority === "urgent") entry.urgent += 1;
       }
-      if (task.taskPriority === "urgent") entry.urgent += 1;
     }
 
     return unassigned.open > 0 ? [...entries, unassigned] : entries;
-  }, [members, now, tasks]);
+  }, [assigneesByTaskId, members, now, tasks]);
 
   const visibleTasks = useMemo(() => {
     if (memberFilter === null) return tasks;
     if (memberFilter === UNASSIGNED_KEY) {
-      return tasks.filter((task) => task.assigneeProfileId === null);
+      return tasks.filter(
+        (task) => (assigneesByTaskId.get(task._id) ?? []).length === 0,
+      );
     }
-    return tasks.filter((task) => task.assigneeProfileId === memberFilter);
-  }, [memberFilter, tasks]);
+    return tasks.filter((task) =>
+      (assigneesByTaskId.get(task._id) ?? []).some(
+        (assignee) => assignee.profileId === memberFilter,
+      ),
+    );
+  }, [assigneesByTaskId, memberFilter, tasks]);
 
   const buckets = useMemo(
     () => bucketTasksByZone(visibleTasks, now),
@@ -335,6 +367,7 @@ export function CommandCenterView({
                     zone={zone}
                     tasks={buckets[zone]}
                     members={members}
+                    assigneesByTaskId={assigneesByTaskId}
                     profile={profile}
                     areaLabels={areaLabels}
                     now={now}
@@ -390,10 +423,12 @@ function TriageZoneSection({
   collapsed,
   onToggleCollapsed,
   onOpenPage,
+  assigneesByTaskId,
 }: {
   zone: TriageZone;
   tasks: Array<CommandCenterTask>;
   members: Array<StartupMember>;
+  assigneesByTaskId: Map<Id<"pages">, Array<TaskAssigneeSummary>>;
   profile: ProfileWithAvatar;
   areaLabels: Map<string, string>;
   now: number;
@@ -462,6 +497,7 @@ function TriageZoneSection({
                 key={task._id}
                 task={task}
                 members={members}
+                assignees={assigneesByTaskId.get(task._id) ?? []}
                 profile={profile}
                 areaLabel={areaLabels.get(task.areaId) ?? "Bez oblasti"}
                 now={now}
@@ -478,6 +514,7 @@ function TriageZoneSection({
 function CommandCenterRow({
   task,
   members,
+  assignees,
   profile,
   areaLabel,
   now,
@@ -485,6 +522,7 @@ function CommandCenterRow({
 }: {
   task: CommandCenterTask;
   members: Array<StartupMember>;
+  assignees: Array<TaskAssigneeSummary>;
   profile: ProfileWithAvatar;
   areaLabel: string;
   now: number;
@@ -496,18 +534,17 @@ function CommandCenterRow({
   const [busy, setBusy] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
 
-  const assignee =
-    members.find((member) => member.profile._id === task.assigneeProfileId)
-      ?.profile ?? null;
+  const assigneeProfileIds = assignees.map((assignee) => assignee.profileId);
   const isCreator = task.createdByProfileId === profile._id;
-  const isAssignee = task.assigneeProfileId === profile._id;
+  const isAssignee = assigneeProfileIds.includes(profile._id);
   const canChangeStatus = isCreator || isAssignee;
-  const canClaim = task.assigneeProfileId === null && !isCreator;
+  // Svaki član može sam sebe da doda, i kad zadatak već ima izvršioce.
+  const canJoin = !isCreator && !isAssignee;
 
   async function run(
     patch: {
       status?: TaskStatus;
-      assigneeProfileId?: Id<"profiles"> | null;
+      assigneeProfileIds?: Array<Id<"profiles">>;
       dueDate?: number | null;
     },
     fallbackMessage: string,
@@ -559,16 +596,7 @@ function CommandCenterRow({
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span className="truncate">{areaLabel}</span>
             <span aria-hidden="true">·</span>
-            {assignee === null ? (
-              <span className="inline-flex items-center gap-1">
-                <UserRound className="size-3" aria-hidden="true" /> Nedodeljeno
-              </span>
-            ) : (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <ProfileAvatar profile={assignee} className="size-4" />
-                <span className="truncate">{assignee.displayName}</span>
-              </span>
-            )}
+            <AssigneeStack assignees={assignees} showLabel max={3} />
           </span>
         </span>
       </button>
@@ -590,7 +618,8 @@ function CommandCenterRow({
             busy={busy}
             canChangeStatus={canChangeStatus}
             canEditAll={isCreator}
-            canClaim={canClaim}
+            canJoin={canJoin}
+            assigneeProfileIds={assigneeProfileIds}
             onRun={run}
           />
         </div>
@@ -622,7 +651,8 @@ function CommandCenterRow({
               busy={busy}
               canChangeStatus={canChangeStatus}
               canEditAll={isCreator}
-              canClaim={canClaim}
+              canJoin={canJoin}
+              assigneeProfileIds={assigneeProfileIds}
               stacked
               onRun={run}
             />
@@ -640,7 +670,8 @@ function QuickActions({
   busy,
   canChangeStatus,
   canEditAll,
-  canClaim,
+  canJoin,
+  assigneeProfileIds,
   stacked = false,
   onRun,
 }: {
@@ -650,12 +681,13 @@ function QuickActions({
   busy: boolean;
   canChangeStatus: boolean;
   canEditAll: boolean;
-  canClaim: boolean;
+  canJoin: boolean;
+  assigneeProfileIds: Array<Id<"profiles">>;
   stacked?: boolean;
   onRun: (
     patch: {
       status?: TaskStatus;
-      assigneeProfileId?: Id<"profiles"> | null;
+      assigneeProfileIds?: Array<Id<"profiles">>;
       dueDate?: number | null;
     },
     fallbackMessage: string,
@@ -721,38 +753,26 @@ function QuickActions({
       </Field>
 
       {canEditAll ? (
-        <Field stacked={stacked} htmlFor={assigneeId} label="Dodeljeno">
-          <Select
-            value={task.assigneeProfileId ?? "none"}
-            disabled={busy}
-            onValueChange={(value) =>
-              onRun(
-                {
-                  assigneeProfileId:
-                    value === "none" ? null : (value as Id<"profiles">),
-                },
-                "Dodela nije sačuvana.",
-              )
-            }
+        <Field stacked={stacked} htmlFor={assigneeId} label="Izvršioci">
+          <div
+            id={assigneeId}
+            className={cn(stacked ? "w-full" : "w-36")}
           >
-            <SelectTrigger
-              id={assigneeId}
-              className={cn("h-8 text-xs", stacked ? "w-full" : "w-36")}
-              aria-label={`Dodela zadatka ${task.title}`}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Nedodeljeno</SelectItem>
-              {members.map((member) => (
-                <SelectItem key={member.profile._id} value={member.profile._id}>
-                  {member.profile.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <AssigneePickerCompact
+              members={members}
+              value={assigneeProfileIds}
+              disabled={busy}
+              label={`Izvršioci zadatka ${task.title}`}
+              onChange={(next) =>
+                void onRun(
+                  { assigneeProfileIds: next },
+                  "Dodela nije sačuvana.",
+                )
+              }
+            />
+          </div>
         </Field>
-      ) : canClaim ? (
+      ) : canJoin ? (
         <Button
           variant="outline"
           size="sm"
@@ -760,13 +780,13 @@ function QuickActions({
           className={cn("h-8 text-xs", stacked && "w-full")}
           onClick={() =>
             onRun(
-              { assigneeProfileId: profileId },
-              "Preuzimanje nije sačuvano.",
-              "Preuzeto.",
+              { assigneeProfileIds: [...assigneeProfileIds, profileId] },
+              "Priključivanje nije sačuvano.",
+              "Priključio/la si se zadatku.",
             )
           }
         >
-          <HandHelping /> Preuzmi
+          <HandHelping /> Priključi se
         </Button>
       ) : null}
     </>

@@ -5,7 +5,7 @@ import type { Doc } from "./_generated/dataModel";
 import { accessError } from "./lib/access_errors";
 import { getCurrentProfile, requireAdmin, requireProfile, requireStartupMember } from "./lib/auth";
 import { authorizeSignup, completeSignup } from "./lib/onboarding";
-import { pageTaskSortAt } from "./lib/pages";
+import { archiveAssignmentsForProfile } from "./lib/task_assignees";
 import {
   boundedLimit,
   cleanRequiredText,
@@ -179,32 +179,17 @@ export const archive = mutation({
     if (profile === null) throw new Error("Profil nije pronađen.");
     if (profile.archivedAt === null) {
       const archivedAt = Date.now();
-      const assignedTasks = await ctx.db
-        .query("pages")
-        .withIndex("by_assigneeProfileId_and_kind_and_archivedAt", (q) =>
-          q
-            .eq("assigneeProfileId", profile._id)
-            .eq("kind", "task")
-            .eq("archivedAt", null),
-        )
-        .take(251);
-      if (assignedTasks.length > 250) {
-        throw new Error("Profil ima više od 250 dodeljenih zadataka. Prvo ih preraspodelite.");
-      }
       await ctx.db.patch("profiles", profile._id, {
         archivedAt,
         updatedAt: archivedAt,
       });
-      await Promise.all(
-        assignedTasks.map((task) =>
-          ctx.db.patch("pages", task._id, {
-            assigneeProfileId: null,
-            taskSortAt: pageTaskSortAt(task.dueDate, archivedAt),
-            updatedByProfileId: admin._id,
-            updatedAt: archivedAt,
-          }),
-        ),
-      );
+      // Arhiviran profil se skida sa svih zadataka; `pages.assigneeProfileId`
+      // se osvežava iz preostalog spiska, ne nulira se naslepo.
+      await archiveAssignmentsForProfile(ctx, {
+        profileId: profile._id,
+        now: archivedAt,
+        limit: 250,
+      });
       const memberships = await ctx.db
         .query("startupMembers")
         .withIndex("by_profileId_and_startupId", (q) => q.eq("profileId", profile._id))

@@ -10,6 +10,18 @@ export const areaKeyValidator = v.string();
 export const pageKindValidator = v.union(
   v.literal("note"),
   v.literal("task"),
+  v.literal("file"),
+  v.literal("table"),
+);
+
+/** Kategorija priloga; izvodi se iz `contentType` na serveru. */
+export const pageFileCategoryValidator = v.union(
+  v.literal("image"),
+  v.literal("video"),
+  v.literal("pdf"),
+  v.literal("audio"),
+  v.literal("sheet"),
+  v.literal("document"),
 );
 
 export const taskStatusValidator = v.union(
@@ -80,9 +92,17 @@ export const OPEN_TASK_STATUSES = [
 export const COMMAND_CENTER_STATUS_CAP = 150;
 
 export const MAX_TASK_INSTRUCTIONS_LENGTH = 20_000;
+export const MAX_TASK_ASSIGNEES = 10;
 export const MAX_TASK_CHECKPOINTS = 100;
 export const MAX_TASK_CHECKPOINT_ID_LENGTH = 128;
 export const MAX_TASK_PAGE_SIZE = 100;
+export const MAX_TABLE_COLUMNS = 64;
+export const MAX_TABLE_ROWS = 5_000;
+export const MAX_TABLE_CELL_LENGTH = 2_000;
+export const MAX_TABLE_LABEL_LENGTH = 120;
+/** Jedan uvoz šalje redove u serijama; mutacija ima transakcione limite. */
+export const MAX_TABLE_IMPORT_BATCH = 200;
+export const MAX_TABLE_PAGE_SIZE = 200;
 export const MAX_TASK_DUE_DATE = 253_402_300_799_999;
 
 export type TaskCheckpointInput = {

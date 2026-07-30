@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -31,6 +32,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AssigneePicker } from "@/components/workspace/assignee-picker";
+import { PageFilesPanel } from "@/components/workspace/files/page-files-panel";
+import { PageTablePanel } from "@/components/workspace/tables/page-table-panel";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
 import { PageRelationsPanel } from "@/components/workspace/page-relations";
 import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
@@ -114,6 +118,10 @@ export function PageEditorView({
   const page = useQuery(api.pages.get, { pageId });
   const breadcrumbs = useQuery(api.pages.getBreadcrumbs, { pageId });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
+  const assigneeProfileIds = useMemo(
+    () => (page?.assignees ?? []).map((assignee) => assignee._id),
+    [page?.assignees],
+  );
   const updatePage = useMutation(api.areasV2.updatePage);
   const archivePage = useMutation(api.areasV2.archivePage);
   const detachPage = useMutation(api.areasV2.detachPage);
@@ -373,7 +381,7 @@ export function PageEditorView({
   async function updateTaskMetadata(patch: {
     status?: TaskStatus;
     priority?: TaskPriority;
-    assigneeProfileId?: Id<"profiles"> | null;
+    assigneeProfileIds?: Array<Id<"profiles">>;
     dueDate?: number | null;
     instructions?: string | null;
     checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
@@ -393,9 +401,9 @@ export function PageEditorView({
         ...(patch.priority === undefined
           ? {}
           : { taskPriority: patch.priority }),
-        ...(patch.assigneeProfileId === undefined
+        ...(patch.assigneeProfileIds === undefined
           ? {}
-          : { assigneeProfileId: patch.assigneeProfileId }),
+          : { assigneeProfileIds: patch.assigneeProfileIds }),
         ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
         ...(patch.instructions === undefined
           ? {}
@@ -419,7 +427,7 @@ export function PageEditorView({
     return result;
   }
 
-  async function setTaskMetadata(patch: { status?: TaskStatus; priority?: TaskPriority; assigneeProfileId?: Id<"profiles"> | null; dueDate?: number | null }) {
+  async function setTaskMetadata(patch: { status?: TaskStatus; priority?: TaskPriority; assigneeProfileIds?: Array<Id<"profiles">>; dueDate?: number | null }) {
     if (!page?.permissions.canEdit) return;
     try { await updateTaskMetadata(patch); toast.success("Zadatak je ažuriran."); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Podaci zadatka nisu sačuvani."); }
@@ -789,32 +797,17 @@ export function PageEditorView({
               <section className="mb-5 grid gap-3 rounded-2xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-2">
                 <div>
                   <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
-                    Dodeljeno
+                    Izvršioci
                   </span>
-                  <Select
-                    value={page.assigneeProfileId ?? "none"}
+                  <AssigneePicker
+                    members={members}
+                    value={assigneeProfileIds}
                     disabled={!page.permissions.canEdit}
-                    onValueChange={(value) =>
-                      setTaskMetadata({
-                        assigneeProfileId:
-                          value === "none"
-                            ? null
-                            : (value as Id<"profiles">),
-                      })
+                    triggerClassName="h-10 bg-card"
+                    onChange={(next) =>
+                      void setTaskMetadata({ assigneeProfileIds: next })
                     }
-                  >
-                    <SelectTrigger className="h-10 bg-card" aria-label="Dodeljeno zadatku">
-                      <SelectValue placeholder="Nije dodeljen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Nije dodeljen</SelectItem>
-                      {members?.map(({ profile }) => (
-                        <SelectItem key={profile._id} value={profile._id}>
-                          {profile.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  />
                 </div>
                 <div>
                   <label
@@ -1079,35 +1072,17 @@ export function PageEditorView({
               </div>
               <div>
                 <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
-                  Dodeljeno
+                  Izvršioci
                 </span>
-                <Select
-                  value={page.assigneeProfileId ?? "none"}
+                <AssigneePicker
+                  members={members}
+                  value={assigneeProfileIds}
                   disabled={!page.permissions.canEdit}
-                  onValueChange={(value) =>
-                    setTaskMetadata({
-                      assigneeProfileId:
-                        value === "none"
-                          ? null
-                          : (value as Id<"profiles">),
-                    })
+                  triggerClassName="h-9 bg-card"
+                  onChange={(next) =>
+                    void setTaskMetadata({ assigneeProfileIds: next })
                   }
-                >
-                  <SelectTrigger
-                    className="h-9 bg-card"
-                    aria-label="Dodeljeno zadatku"
-                  >
-                    <SelectValue placeholder="Nije dodeljen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nije dodeljen</SelectItem>
-                    {members?.map(({ profile }) => (
-                      <SelectItem key={profile._id} value={profile._id}>
-                        {profile.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
               <div>
                 <label
@@ -1146,6 +1121,17 @@ export function PageEditorView({
                 markDraftChanged({ ...latestDraftRef.current, content: html });
               }}
             />
+          ) : page.kind === "file" ? (
+            <div className="py-6">
+              <PageFilesPanel
+                pageId={page._id}
+                canManage={page.permissions.canEdit}
+              />
+            </div>
+          ) : page.kind === "table" ? (
+            <div className="py-6">
+              <PageTablePanel pageId={page._id} />
+            </div>
           ) : (
             <div className="py-6">
               <TaskDetailWidgets
@@ -1259,7 +1245,7 @@ function TaskDetailWidgets({
   updateMetadata: (args: {
     status?: TaskStatus;
     priority?: TaskPriority;
-    assigneeProfileId?: Id<"profiles"> | null;
+    assigneeProfileIds?: Array<Id<"profiles">>;
     dueDate?: number | null;
     instructions?: string | null;
     checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;

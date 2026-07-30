@@ -36,8 +36,10 @@ import type {
 import {
   AREA_ICONS,
   EmptyState,
+  GhostKindIcon,
   getAreaDescription,
   getAreaTint,
+  PageKindBadge,
 } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -48,8 +50,14 @@ import {
   TASK_STATUS_META,
   type AreaKey,
 } from "@/lib/workspace";
+import {
+  PAGE_KIND_KEYS,
+  PAGE_KIND_META,
+  pageKindMeta,
+  type PageKind,
+} from "@/lib/page-kinds";
 
-type ContentFilter = "all" | "note" | "task";
+type ContentFilter = "all" | PageKind;
 type ViewMode = "canvas" | "list";
 
 const FILTER_OPTIONS: Array<{
@@ -58,8 +66,11 @@ const FILTER_OPTIONS: Array<{
   icon: typeof LayoutGrid;
 }> = [
   { value: "all", label: "Sve", icon: LayoutGrid },
-  { value: "note", label: "Beleške", icon: FileText },
-  { value: "task", label: "Zadaci", icon: CheckSquare2 },
+  ...PAGE_KIND_KEYS.map((kind) => ({
+    value: kind,
+    label: PAGE_KIND_META[kind].label,
+    icon: PAGE_KIND_META[kind].icon,
+  })),
 ];
 
 export function AreaView({
@@ -159,7 +170,7 @@ export function AreaView({
     }
   }
 
-  function createPage(kind: "note" | "task") {
+  function createPage(kind: PageKind) {
     onCreate({
       areaId: area._id,
       parentPageId: null,
@@ -468,30 +479,14 @@ export function AreaView({
                       className="flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-lg px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => onOpenCanvas(page._id)}
                     >
-                      <span
-                        className={cn(
-                          "grid size-9 shrink-0 place-items-center rounded-xl",
-                          page.kind === "note"
-                            ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
-                            : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-                        )}
-                      >
-                        {page.kind === "note" ? (
-                          <FileText className="size-4" aria-hidden="true" />
-                        ) : (
-                          <CheckSquare2
-                            className="size-4"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </span>
+                      <PageKindBadge kind={page.kind} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold">
                           {page.title || "Bez naslova"}
                         </span>
                         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                           <span>
-                            {page.kind === "note" ? "Beleška" : "Zadatak"}
+                            {pageKindMeta(page.kind).label}
                           </span>
                           {status ? <span>{status.label}</span> : null}
                           {priority ? <span>{priority.label}</span> : null}
@@ -565,11 +560,7 @@ export function AreaView({
                   className="flex flex-col gap-2 rounded-xl border border-dashed border-amber-500/45 bg-amber-500/6 px-3 py-3 sm:flex-row sm:items-center"
                 >
                   <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-500/12 text-amber-800 dark:text-amber-200">
-                    {ghost.kind === "task" ? (
-                      <CheckSquare2 className="size-4" aria-hidden="true" />
-                    ) : (
-                      <FileText className="size-4" aria-hidden="true" />
-                    )}
+                    <GhostKindIcon kind={ghost.kind} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold">

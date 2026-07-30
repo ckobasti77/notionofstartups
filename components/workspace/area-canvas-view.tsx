@@ -77,10 +77,16 @@ import {
 } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  PAGE_KIND_KEYS,
+  PAGE_KIND_META,
+  pageKindMeta,
+  type PageKind,
+} from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 import type { AreaKey } from "@/lib/workspace";
 
-type AreaCanvasFilter = "all" | "note" | "task";
+type AreaCanvasFilter = "all" | PageKind;
 type CheckpointCanvasEndpoint =
   | { kind: "page"; id: Id<"pages"> }
   | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> };
@@ -95,7 +101,7 @@ export type AreaCanvasViewProps = {
   onFilterChange: (filter: AreaCanvasFilter) => void;
   onOpenCanvas: (pageId: Id<"pages">) => void;
   onOpenDetails: (pageId: Id<"pages">) => void;
-  onCreatePage: (kind: "task" | "note") => void;
+  onCreatePage: (kind: PageKind) => void;
   layout?: "standard" | "task-focus";
 };
 
@@ -382,7 +388,7 @@ function AreaCanvasReady({
   );
 
   const incomingNodes = useMemo<CanvasFlowNode[]>(() => {
-    const acceptsKind = (kind: "note" | "task") =>
+    const acceptsKind = (kind: PageKind) =>
       filter === "all" || filter === kind;
     const directPageIds = new Set(canvasData.pages.map((page) => page._id));
 
@@ -402,13 +408,17 @@ function AreaCanvasReady({
           taskStatus: page.taskStatus,
           taskPriority: page.taskPriority,
           dueDate: page.dueDate,
-          assigneeName: page.assignee?.displayName ?? null,
-          assigneeAvatarUrl: page.assignee?.avatarUrl ?? null,
+          assignees: page.assignees,
           creatorName: page.creator?.displayName ?? "Član tima",
           creatorAvatarUrl: page.creator?.avatarUrl ?? null,
           updatedAt: page.updatedAt,
           checkpointTotal: page.checkpointTotal,
           checkpointCompleted: page.checkpointCompleted,
+          fileCount: page.fileCount,
+          fileCategory: page.fileCategory,
+          filePreviewUrl: page.filePreviewUrl,
+          tableRowCount: page.tableRowCount,
+          tableColumnCount: page.tableColumnCount,
           checkpointsExpanded:
             ownTaskPageId === null &&
             expandedTaskId === page._id &&
@@ -422,7 +432,7 @@ function AreaCanvasReady({
         draggable: page.canMove,
         connectable: true,
         deletable: false,
-        ariaLabel: `${page.kind === "task" ? "Zadatak" : "Beleška"}: ${page.title}`,
+        ariaLabel: `${pageKindMeta(page.kind).label}: ${page.title}`,
       }));
 
     const ghostNodes = canvasData.ghosts
@@ -444,13 +454,17 @@ function AreaCanvasReady({
           taskStatus: null,
           taskPriority: null,
           dueDate: null,
-          assigneeName: null,
-          assigneeAvatarUrl: null,
+          assignees: [],
           creatorName: ghost.requester?.displayName ?? "Član tima",
           creatorAvatarUrl: ghost.requester?.avatarUrl ?? null,
           updatedAt: pendingTimestamp,
           checkpointTotal: 0,
           checkpointCompleted: 0,
+          fileCount: 0,
+          fileCategory: null,
+          filePreviewUrl: null,
+          tableRowCount: 0,
+          tableColumnCount: 0,
           checkpointsExpanded: false,
           canMove: false,
           canResize: false,
@@ -461,7 +475,7 @@ function AreaCanvasReady({
         draggable: false,
         connectable: false,
         deletable: false,
-        ariaLabel: `${ghost.kind === "task" ? "Zadatak" : "Beleška"}: ${ghost.title}. Čeka odobrenje za ugnežđavanje.`,
+        ariaLabel: `${pageKindMeta(ghost.kind).label}: ${ghost.title}. Čeka odobrenje za ugnežđavanje.`,
       }));
 
     const visibleTaskNode = pageNodes.find(
@@ -526,6 +540,9 @@ function AreaCanvasReady({
                 ordinal,
                 text: checkpoint.text,
                 completed: checkpoint.completed,
+                chainedToPrevious: checkpoint.chainedToPrevious,
+                locked: checkpoint.locked,
+                blockedByOrdinal: checkpoint.blockedByOrdinal,
                 canEdit: checkpoint.canEdit,
                 canToggle: checkpoint.canToggle,
                 canMove: checkpoint.canMove,
@@ -538,7 +555,11 @@ function AreaCanvasReady({
               connectable: true,
               deletable: false,
               ariaLabel: `Checkpoint broj ${ordinal}: ${checkpoint.text}. ${
-                checkpoint.completed ? "Završen" : "Otvoren"
+                checkpoint.completed
+                  ? "Završen"
+                  : checkpoint.locked
+                    ? `Zaključan dok se ne završi korak broj ${checkpoint.blockedByOrdinal}`
+                    : "Otvoren"
               }.`,
             };
           });
@@ -1132,10 +1153,10 @@ function AreaCanvasReady({
 
       const sourcePageId = connection.source as Id<"pages">;
       const targetPageId = connection.target as Id<"pages">;
-      const edgeKind =
-        sourceNode.data.kind === targetNode.data.kind
-          ? "canvas"
-          : "relation";
+      // Obe kartice su na istom kanvasu, pa je puna linija (kanvas veza)
+      // podrazumevana. Relacija ostaje za povezivanje kroz celu oblast i pravi
+      // se iz detalja stranice.
+      const edgeKind = "canvas" as const;
       const alreadyConnected = edges.some(
         (edge) =>
           edge.data?.kind === edgeKind &&
@@ -1145,11 +1166,7 @@ function AreaCanvasReady({
               edge.target === sourcePageId)),
       );
       if (alreadyConnected) {
-        toast.info(
-          edgeKind === "relation"
-            ? "Beleška i zadatak su već povezani."
-            : "Ove kartice su već povezane.",
-        );
+        toast.info("Ove kartice su već povezane.");
         return;
       }
       const temporaryId = `pending:${edgeKind}:${sourcePageId}:${targetPageId}:${Date.now()}`;
@@ -1166,10 +1183,7 @@ function AreaCanvasReady({
               canDelete: false,
               canRequestDeletion: false,
             },
-            style:
-              edgeKind === "relation"
-                ? { strokeDasharray: "7 6" }
-                : undefined,
+            style: undefined,
           },
           current,
         ),
@@ -1261,11 +1275,7 @@ function AreaCanvasReady({
             },
           });
         }
-        toast.success(
-          edgeKind === "relation"
-            ? "Beleška i zadatak su povezani."
-            : "Kartice su povezane.",
-        );
+        toast.success("Kartice su povezane.");
       } catch (error) {
         setEdges((current) =>
           current.filter((edge) => edge.id !== temporaryId),
@@ -2159,9 +2169,8 @@ function AreaCanvasReady({
                   : "#f97316"
                 : (node.data as AreaCanvasNodeData).pendingNesting
                   ? "#f59e0b"
-                  : (node.data as AreaCanvasNodeData).kind === "task"
-                    ? "#10b981"
-                    : "#38bdf8"
+                  : pageKindMeta((node.data as AreaCanvasNodeData).kind)
+                      .miniMapColor
             }
             maskColor="color-mix(in oklab, var(--background) 58%, transparent)"
           />
@@ -2217,23 +2226,16 @@ function AreaCanvasReady({
               sections={[
                 {
                   id: "Kreiranje",
-                  items: [
-                    {
-                      id: "new-task",
-                      label: "Novi zadatak",
-                      icon: CheckSquare2,
-                      onSelect: () => onCreatePage("task"),
-                      className:
-                        "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-                    },
-                    {
-                      id: "new-note",
-                            label: "Nova beleška",
-                      icon: FileText,
-                      onSelect: () => onCreatePage("note"),
-                      className: "text-sky-700 dark:text-sky-300",
-                    },
-                  ],
+                  items: PAGE_KIND_KEYS.map((kind) => ({
+                    id: `new-${kind}`,
+                    label: `Novo: ${PAGE_KIND_META[kind].label}`,
+                    icon: PAGE_KIND_META[kind].icon,
+                    onSelect: () => onCreatePage(kind),
+                    className:
+                      kind === "task"
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+                        : PAGE_KIND_META[kind].textClass,
+                  })),
                 },
                 {
                   id: "Filter kanvasa",
@@ -2246,32 +2248,23 @@ function AreaCanvasReady({
                       icon: LayoutGrid,
                       active: filter === "all",
                       onSelect: () => onFilterChange("all"),
-                      tone: "neutral",
+                      tone: "neutral" as const,
                     },
-                    {
-                      id: "filter-notes",
-                      label: "Beleške",
-                      icon: FileText,
-                      active: filter === "note",
-                      onSelect: () => onFilterChange("note"),
-                      tone: "note",
+                    ...PAGE_KIND_KEYS.map((kind) => ({
+                      id: `filter-${kind}`,
+                      label: PAGE_KIND_META[kind].label,
+                      icon: PAGE_KIND_META[kind].icon,
+                      active: filter === kind,
+                      onSelect: () => onFilterChange(kind),
+                      tone:
+                        kind === "note" || kind === "task"
+                          ? kind
+                          : ("neutral" as const),
                       className:
-                        filter === "note"
-                          ? "text-sky-700 ring-sky-500/30 dark:text-sky-300"
+                        filter === kind
+                          ? PAGE_KIND_META[kind].textClass
                           : undefined,
-                    },
-                    {
-                      id: "filter-tasks",
-                      label: "Zadaci",
-                      icon: CheckSquare2,
-                      active: filter === "task",
-                      onSelect: () => onFilterChange("task"),
-                      tone: "task",
-                      className:
-                        filter === "task"
-                          ? "text-emerald-700 ring-emerald-500/30 dark:text-emerald-300"
-                          : undefined,
-                    },
+                    })),
                   ],
                 },
               ]}

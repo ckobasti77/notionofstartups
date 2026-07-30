@@ -6,11 +6,13 @@ import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import { requireVisiblePage } from "./lib/pages";
+import { isTaskAssignee } from "./lib/task_assignees";
 import {
   listActiveTaskCheckpoints,
   newCheckpointLegacyId,
   normalizeCheckpointText,
   syncTaskCheckpointProjection,
+  taskCheckpointLockStates,
 } from "./lib/task_checkpoints";
 import { archiveCheckpointCanvasEdgesForCheckpoint } from "./lib/task_checkpoint_canvas_edges";
 import { MAX_TASK_CHECKPOINTS } from "./lib/validators";
@@ -34,6 +36,9 @@ const checkpointValidator = v.object({
   completed: v.boolean(),
   position: v.number(),
   ordinal: v.number(),
+  chainedToPrevious: v.boolean(),
+  locked: v.boolean(),
+  blockedByOrdinal: v.union(v.number(), v.null()),
   createdAt: v.number(),
   updatedAt: v.number(),
   placement: placementValidator,
@@ -87,6 +92,38 @@ function assertOwner(page: Doc<"pages">, profileId: Id<"profiles">) {
   }
 }
 
+/**
+ * Lanac se poštuje u oba smera. Zaključan korak se ne može završiti, a završen
+ * korak se ne može ponovo otvoriti dok vezani sledeći stoji završen — time lista
+ * završenih koraka uvek ostaje neprekinut prefiks lanca.
+ */
+async function assertChainAllowsToggle(
+  ctx: MutationCtx,
+  checkpoint: Doc<"taskCheckpoints">,
+  nextCompleted: boolean,
+) {
+  const rows = await listActiveTaskCheckpoints(ctx, checkpoint.taskPageId);
+  const index = rows.findIndex((row) => row._id === checkpoint._id);
+  if (index === -1) return;
+
+  if (nextCompleted) {
+    const lock = taskCheckpointLockStates(rows)[index];
+    if (lock.locked) {
+      throw new Error(
+        `Korak #${index + 1} je zaključan dok se ne završi korak #${lock.blockedByOrdinal}.`,
+      );
+    }
+    return;
+  }
+
+  const next = rows[index + 1];
+  if (next !== undefined && next.chainedToPrevious === true && next.completed) {
+    throw new Error(
+      `Korak #${index + 1} se ne može ponovo otvoriti dok je vezani korak #${index + 2} završen.`,
+    );
+  }
+}
+
 export const listForTask = query({
   args: {
     taskPageId: v.id("pages"),
@@ -124,9 +161,11 @@ export const listForTask = query({
     );
     const canEdit = page.createdByProfileId === profile._id;
     const canToggle =
-      canEdit || page.assigneeProfileId === profile._id;
+      canEdit || (await isTaskAssignee(ctx, page, profile._id));
+    const lockStates = taskCheckpointLockStates(rows);
     return rows.map((row, index) => {
       const placement = placementsByCheckpoint.get(row._id);
+      const lock = lockStates[index];
       return {
         _id: row._id,
         _creationTime: row._creationTime,
@@ -136,6 +175,9 @@ export const listForTask = query({
         completed: row.completed,
         position: row.position,
         ordinal: index + 1,
+        chainedToPrevious: index > 0 && row.chainedToPrevious === true,
+        locked: lock.locked,
+        blockedByOrdinal: lock.blockedByOrdinal,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         placement: placement
@@ -171,6 +213,10 @@ export const create = mutation({
       );
     }
     const now = Date.now();
+    // Novi korak nastavlja obrazac poslednjeg: kad se jednom uključi lanac,
+    // nizanje koraka ne traži klik na katanac za svaki sledeći.
+    const inheritsChain =
+      rows.length > 0 && rows[rows.length - 1].chainedToPrevious === true;
     const checkpointId = await ctx.db.insert("taskCheckpoints", {
       startupId: page.startupId,
       areaId: page.areaId,
@@ -179,6 +225,7 @@ export const create = mutation({
       text: normalizeCheckpointText(args.text),
       completed: false,
       position: rows.length,
+      chainedToPrevious: inheritsChain,
       createdByProfileId: profile._id,
       archivedAt: null,
       createdAt: now,
@@ -233,11 +280,12 @@ export const setCompleted = mutation({
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
     if (
       page.createdByProfileId !== profile._id &&
-      page.assigneeProfileId !== profile._id
+      !(await isTaskAssignee(ctx, page, profile._id))
     ) {
       throw new Error("Checkpoint završava autor ili osoba kojoj je zadatak dodeljen.");
     }
     if (checkpoint.completed === args.completed) return checkpoint._id;
+    await assertChainAllowsToggle(ctx, checkpoint, args.completed);
     const now = Date.now();
     await ctx.db.patch("taskCheckpoints", checkpoint._id, {
       completed: args.completed,
@@ -245,6 +293,64 @@ export const setCompleted = mutation({
     });
     await syncTaskCheckpointProjection(ctx, page._id, profile._id, now);
     return checkpoint._id;
+  },
+});
+
+export const setChainedToPrevious = mutation({
+  args: {
+    checkpointId: v.id("taskCheckpoints"),
+    chained: v.boolean(),
+  },
+  returns: v.id("taskCheckpoints"),
+  handler: async (ctx, args) => {
+    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+      ctx,
+      args.checkpointId,
+    );
+    if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
+    assertOwner(page, profile._id);
+    const rows = await listActiveTaskCheckpoints(ctx, page._id);
+    if (rows[0]?._id === checkpoint._id && args.chained) {
+      throw new Error("Prvi korak nema prethodni korak za koji bi bio vezan.");
+    }
+    if ((checkpoint.chainedToPrevious === true) === args.chained) {
+      return checkpoint._id;
+    }
+    const now = Date.now();
+    await ctx.db.patch("taskCheckpoints", checkpoint._id, {
+      chainedToPrevious: args.chained,
+      updatedAt: now,
+    });
+    await syncTaskCheckpointProjection(ctx, page._id, profile._id, now);
+    return checkpoint._id;
+  },
+});
+
+export const setAllChained = mutation({
+  args: { taskPageId: v.id("pages"), chained: v.boolean() },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.taskPageId);
+    if (page.kind !== "task") throw new Error("Ova stranica nije zadatak.");
+    const { profile } = await requireStartupMember(ctx, page.startupId);
+    assertOwner(page, profile._id);
+    const rows = await listActiveTaskCheckpoints(ctx, page._id);
+    const now = Date.now();
+    let changed = 0;
+    for (const [index, row] of rows.entries()) {
+      // Prvi korak je uvek slobodan — nema prethodnog koji bi ga držao.
+      const next = index === 0 ? false : args.chained;
+      if ((row.chainedToPrevious === true) === next) continue;
+      await ctx.db.patch("taskCheckpoints", row._id, {
+        chainedToPrevious: next,
+        updatedAt: now,
+      });
+      changed += 1;
+    }
+    if (changed > 0) {
+      await syncTaskCheckpointProjection(ctx, page._id, profile._id, now);
+    }
+    return changed;
   },
 });
 

@@ -8,6 +8,7 @@ import {
   notificationCopy,
 } from "./lib/notifications";
 import { taskCompletedAt } from "./lib/pages";
+import { resolveTaskAssignees } from "./lib/task_assignees";
 import {
   taskPriorityValidator,
   taskStatusValidator,
@@ -96,6 +97,13 @@ export const getWeekly = query({
             avatarUrl: v.union(v.string(), v.null()),
           }),
           v.null(),
+        ),
+        assignees: v.array(
+          v.object({
+            profileId: v.id("profiles"),
+            displayName: v.string(),
+            avatarUrl: v.union(v.string(), v.null()),
+          }),
         ),
         dueDate: v.union(v.number(), v.null()),
         lastTouchedAt: v.number(),
@@ -251,20 +259,32 @@ export const getWeekly = query({
     for (const task of tasks) {
       const completedAt = taskCompletedAt(task);
       const isDone = task.taskStatus === "done";
-      const stats =
-        task.assigneeProfileId === null
-          ? unassigned
-          : memberStats.get(task.assigneeProfileId) ??
-            (() => {
-              // Zadatak zadužen članu koji je u međuvremenu arhiviran.
-              const created = emptyStats();
-              memberStats.set(task.assigneeProfileId!, created);
-              return created;
-            })();
+      // Svi izvršioci su ravnopravni, pa zadatak ulazi u učinak svakog od njih.
+      // Zbir po članovima zato može biti veći od broja zadataka — to su učešća,
+      // ne zadaci.
+      const assigneeIds = (await resolveTaskAssignees(ctx, task)).map(
+        (entry) => entry.profileId,
+      );
+      const buckets: Array<Pick<
+        MemberStats,
+        "completedThisWeek" | "openCount" | "overdueCount"
+      >> =
+        assigneeIds.length === 0
+          ? [unassigned]
+          : assigneeIds.map(
+              (profileId) =>
+                memberStats.get(profileId) ??
+                (() => {
+                  // Zadatak zadužen članu koji je u međuvremenu arhiviran.
+                  const created = emptyStats();
+                  memberStats.set(profileId, created);
+                  return created;
+                })(),
+            );
 
       if (completedAt !== null && inCurrent(completedAt)) {
         completedCurrent += 1;
-        stats.completedThisWeek += 1;
+        for (const stats of buckets) stats.completedThisWeek += 1;
       }
       if (completedAt !== null && inPrevious(completedAt)) {
         completedPrevious += 1;
@@ -274,11 +294,13 @@ export const getWeekly = query({
 
       if (overdueAt(task, currentBoundary)) {
         overdueCurrent += 1;
-        stats.overdueCount += 1;
+        for (const stats of buckets) stats.overdueCount += 1;
       }
       if (overdueAt(task, args.weekStart)) overduePrevious += 1;
 
-      if (!isDone) stats.openCount += 1;
+      if (!isDone) {
+        for (const stats of buckets) stats.openCount += 1;
+      }
 
       const areaStat = areaStats.get(task.areaId);
       if (areaStat !== undefined) {
@@ -353,10 +375,19 @@ export const getWeekly = query({
     stuckCandidates.sort((a, b) => a.updatedAt - b.updatedAt);
     const stuckTasks = [];
     for (const task of stuckCandidates.slice(0, MAX_STUCK_ROWS)) {
-      const assigneeProfile =
-        task.assigneeProfileId === null
-          ? null
-          : await loadProfile(task.assigneeProfileId);
+      const assigneeIds = (await resolveTaskAssignees(ctx, task)).map(
+        (entry) => entry.profileId,
+      );
+      const assignees = [];
+      for (const profileId of assigneeIds) {
+        const assigneeProfile = await loadProfile(profileId);
+        if (assigneeProfile === null) continue;
+        assignees.push({
+          profileId,
+          displayName: assigneeProfile.displayName,
+          avatarUrl: assigneeProfile.avatarUrl,
+        });
+      }
       stuckTasks.push({
         pageId: task._id,
         title: task.title,
@@ -364,14 +395,8 @@ export const getWeekly = query({
         taskPriority: task.taskPriority,
         areaId: task.areaId,
         areaLabel: areaLabels.get(task.areaId) ?? "Bez oblasti",
-        assignee:
-          task.assigneeProfileId === null || assigneeProfile === null
-            ? null
-            : {
-                profileId: task.assigneeProfileId,
-                displayName: assigneeProfile.displayName,
-                avatarUrl: assigneeProfile.avatarUrl,
-              },
+        assignee: assignees[0] ?? null,
+        assignees,
         dueDate: task.dueDate,
         lastTouchedAt: task.updatedAt,
       });

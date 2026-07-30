@@ -3,9 +3,7 @@
 import { useState } from "react";
 import { usePaginatedQuery } from "convex/react";
 import {
-  CheckSquare2,
   ChevronRight,
-  FileText,
   FolderInput,
   LoaderCircle,
   Plus,
@@ -24,6 +22,7 @@ import type { StartupWithAreas } from "@/components/workspace/types";
 import { AREA_ICONS, getAreaTint } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { pageKindMeta } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 import type { AreaKey } from "@/lib/workspace";
 
@@ -196,7 +195,7 @@ function DestinationPageNode({
   onSelect,
 }: DestinationPageNodeProps) {
   const [expanded, setExpanded] = useState(false);
-  const Icon = page.kind === "task" ? CheckSquare2 : FileText;
+  const Icon = pageKindMeta(page.kind).icon;
 
   return (
     <div>

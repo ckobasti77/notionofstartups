@@ -11,7 +11,6 @@ import {
   ListChecks,
   Plus,
   Search,
-  UserRound,
   ExternalLink,
   MessageSquareText,
 } from "lucide-react";
@@ -22,12 +21,12 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AssigneePickerCompact } from "@/components/workspace/assignee-picker";
 import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
 import type { ProfileWithAvatar, StartupMember, StartupWithAreas } from "@/components/workspace/types";
 import {
   EmptyState,
-  ProfileAvatar,
   TaskPriorityBadge,
   TaskStatusBadge,
   isToday,
@@ -66,6 +65,18 @@ export function TaskTableView({
   );
 
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
+  // Jedna subskripcija za ceo prikaz umesto jedne po redu.
+  const assigneeRows = useQuery(api.taskAssignees.listForTasks, {
+    startupId: startup._id,
+    taskPageIds: tasks.map((task) => task._id),
+  });
+  const assigneesByTaskId = useMemo(
+    () =>
+      new Map(
+        (assigneeRows ?? []).map((row) => [row.taskPageId, row.assignees]),
+      ),
+    [assigneeRows],
+  );
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,11 +105,14 @@ export function TaskTableView({
       if (priorityFilter !== "all" && task.taskPriority !== priorityFilter) {
         return false;
       }
-      // Assignee filter
+      // Assignee filter — zadatak može imati više izvršilaca, pa se gleda „sadrži”.
       if (assigneeFilter !== "all") {
+        const assignees = assigneesByTaskId.get(task._id) ?? [];
         if (assigneeFilter === "unassigned") {
-          if (task.assigneeProfileId !== null && task.assigneeProfileId !== undefined) return false;
-        } else if (task.assigneeProfileId !== assigneeFilter) {
+          if (assignees.length > 0) return false;
+        } else if (
+          !assignees.some((assignee) => assignee.profileId === assigneeFilter)
+        ) {
           return false;
         }
       }
@@ -114,7 +128,7 @@ export function TaskTableView({
       }
       return true;
     });
-  }, [taskPages, searchQuery, statusFilter, priorityFilter, assigneeFilter, dueFilter, now]);
+  }, [taskPages, searchQuery, statusFilter, priorityFilter, assigneeFilter, assigneesByTaskId, dueFilter, now]);
 
   if (tasksStatus === "LoadingFirstPage" || members === undefined) {
     return (
@@ -238,6 +252,9 @@ export function TaskTableView({
                 key={task._id}
                 task={task}
                 members={members}
+                assigneeProfileIds={(assigneesByTaskId.get(task._id) ?? []).map(
+                  (assignee) => assignee.profileId,
+                )}
                 canEdit={task.createdByProfileId === profile._id}
                 isExpanded={expandedTaskId === task._id}
                 onToggleExpand={() =>
@@ -268,6 +285,7 @@ export function TaskTableView({
 function TaskTableRow({
   task,
   members,
+  assigneeProfileIds,
   canEdit,
   isExpanded,
   onToggleExpand,
@@ -275,6 +293,7 @@ function TaskTableRow({
 }: {
   task: Doc<"pages">;
   members: Array<StartupMember>;
+  assigneeProfileIds: Array<Id<"profiles">>;
   canEdit: boolean;
   isExpanded: boolean;
   onToggleExpand: () => void;
@@ -316,7 +335,7 @@ function TaskTableRow({
   async function updateMetadata(patch: {
     status?: TaskStatus;
     priority?: TaskPriority;
-    assigneeProfileId?: Id<"profiles"> | null;
+    assigneeProfileIds?: Array<Id<"profiles">>;
     dueDate?: number | null;
     instructions?: string | null;
   }) {
@@ -331,9 +350,9 @@ function TaskTableRow({
           ...(patch.priority === undefined
             ? {}
             : { taskPriority: patch.priority }),
-          ...(patch.assigneeProfileId === undefined
+          ...(patch.assigneeProfileIds === undefined
             ? {}
-            : { assigneeProfileId: patch.assigneeProfileId }),
+            : { assigneeProfileIds: patch.assigneeProfileIds }),
           ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
           ...(patch.instructions === undefined
             ? {}
@@ -370,15 +389,13 @@ function TaskTableRow({
     }
   }
 
-  async function updateAssignee(newAssigneeId: string) {
+  async function updateAssignees(next: Array<Id<"profiles">>) {
     if (!canEdit) return;
     setUpdating(true);
     try {
-      await updateMetadata({
-        assigneeProfileId: newAssigneeId === "none" ? null : (newAssigneeId as Id<"profiles">),
-      });
+      await updateMetadata({ assigneeProfileIds: next });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Dodeljeni član nije sačuvan.");
+      toast.error(err instanceof Error ? err.message : "Izvršioci nisu sačuvani.");
     } finally {
       setUpdating(false);
     }
@@ -498,31 +515,15 @@ function TaskTableRow({
           </Select>
         </div>
 
-        {/* Assignee Dropdown */}
+        {/* Assignee Picker */}
         <div>
-          <Select
-            value={task.assigneeProfileId ?? "none"}
-            onValueChange={updateAssignee}
+          <AssigneePickerCompact
+            members={members}
+            value={assigneeProfileIds}
+            onChange={(next) => void updateAssignees(next)}
             disabled={updating || !canEdit}
-          >
-            <SelectTrigger className="h-8 w-full border-border/50 bg-background/60 text-xs">
-              <SelectValue placeholder="Nije dodeljen" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <UserRound className="size-3.5" /> Nije dodeljen
-                </span>
-              </SelectItem>
-              {members.map(({ profile: m }) => (
-                <SelectItem key={m._id} value={m._id}>
-                  <span className="flex items-center gap-2 text-xs">
-                    <ProfileAvatar profile={m} className="size-4" /> {m.displayName}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            label={`Izvršioci zadatka ${task.title}`}
+          />
         </div>
 
         {/* Due Date Input */}

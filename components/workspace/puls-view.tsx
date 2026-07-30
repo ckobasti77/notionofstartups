@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AssigneeStack } from "@/components/workspace/assignee-stack";
 import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { PulseBar, type PulseSegment } from "@/components/workspace/pulse-bar";
 import type { StartupWithAreas } from "@/components/workspace/types";
@@ -369,6 +370,7 @@ type StuckTask = {
   taskPriority: string | null;
   areaLabel: string;
   assignee: { displayName: string; avatarUrl: string | null } | null;
+  assignees: Array<{ displayName: string; avatarUrl: string | null }>;
   dueDate: number | null;
   lastTouchedAt: number;
 };
@@ -412,16 +414,11 @@ function StuckSection({
                 <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="truncate">{task.areaLabel}</span>
                   <span aria-hidden="true">·</span>
-                  {task.assignee === null ? (
-                    <span className="inline-flex items-center gap-1">
-                      <UserRound className="size-3" aria-hidden="true" /> Bez zaduženog
-                    </span>
-                  ) : (
-                    <span className="inline-flex min-w-0 items-center gap-1">
-                      <ProfileAvatar profile={task.assignee} className="size-4" />
-                      <span className="truncate">{task.assignee.displayName}</span>
-                    </span>
-                  )}
+                  <AssigneeStack
+                    assignees={task.assignees}
+                    showLabel
+                    max={3}
+                  />
                 </span>
               </span>
               <TaskStatusBadge status={task.taskStatus} />

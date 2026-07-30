@@ -20,6 +20,7 @@ import {
   Check,
   Circle,
   LoaderCircle,
+  Lock,
   Maximize2,
   MessageSquareText,
   Minimize2,
@@ -49,6 +50,9 @@ export type TaskCheckpointFlowNodeData = {
   ordinal: number;
   text: string;
   completed: boolean;
+  chainedToPrevious: boolean;
+  locked: boolean;
+  blockedByOrdinal: number | null;
   canEdit: boolean;
   canToggle: boolean;
   canMove: boolean;
@@ -162,9 +166,17 @@ export const TaskCheckpointFlowNodeCard = memo(
             !data.canMove && "nodrag !cursor-default",
           )}
           aria-label={`Checkpoint broj ${data.ordinal}: ${data.text}. ${
-            data.completed ? "Završen" : "Otvoren"
+            data.completed
+              ? "Završen"
+              : data.locked
+                ? `Zaključan dok se ne završi korak broj ${data.blockedByOrdinal}`
+                : "Otvoren"
           }.`}
-          title="Izaberi checkpoint za izmenu, doprinos ili brisanje"
+          title={
+            data.locked
+              ? `Zaključano dok se ne završi korak #${data.blockedByOrdinal}`
+              : "Izaberi checkpoint za izmenu, doprinos ili brisanje"
+          }
         >
           <PerimeterResizeControl<TaskCheckpointFlowNode>
             nodeId={id}
@@ -202,13 +214,21 @@ export const TaskCheckpointFlowNodeCard = memo(
             data-circular-text-obstacle
             type="button"
             className={cn(styles.toggle, "nodrag nopan")}
-            disabled={!data.canToggle || pending}
+            disabled={!data.canToggle || data.locked || pending}
             aria-label={
-              data.completed
-                ? `Ponovo otvori checkpoint: ${data.text}`
-                : `Završi checkpoint: ${data.text}`
+              data.locked
+                ? `Checkpoint je zaključan dok se ne završi korak broj ${data.blockedByOrdinal}`
+                : data.completed
+                  ? `Ponovo otvori checkpoint: ${data.text}`
+                  : `Završi checkpoint: ${data.text}`
             }
-            title={data.completed ? "Ponovo otvori" : "Označi kao završeno"}
+            title={
+              data.locked
+                ? `Zaključano dok se ne završi korak #${data.blockedByOrdinal}`
+                : data.completed
+                  ? "Ponovo otvori"
+                  : "Označi kao završeno"
+            }
             onPointerDown={stopCanvasEvent}
             onClick={(event) => {
               stopCanvasEvent(event);
@@ -231,6 +251,8 @@ export const TaskCheckpointFlowNodeCard = memo(
               <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
             ) : data.completed ? (
               <Check className="size-4" />
+            ) : data.locked ? (
+              <Lock className="size-4" />
             ) : (
               <Circle className="size-4" />
             )}

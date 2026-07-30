@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { CheckSquare2, FileText, LoaderCircle, Plus, ListChecks } from "lucide-react";
+import {
+  LoaderCircle, Plus, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -11,6 +12,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AssigneePicker } from "@/components/workspace/assignee-picker";
+import {
+  PAGE_KIND_KEYS,
+  PAGE_KIND_META,
+  type PageKind,
+} from "@/lib/page-kinds";
 import { workspaceItemDialogContentClass } from "@/components/workspace/workspace-item-dialog";
 import {
   TaskCheckpointDraftList,
@@ -20,6 +27,13 @@ import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
+
+const TITLE_PLACEHOLDER: Record<PageKind, string> = {
+  note: "Naslov beleške…",
+  task: "Šta treba uraditi?",
+  file: "Naziv fajl oblačića…",
+  table: "Naziv tabele…",
+};
 
 export function CreatePageDialog({ open, onOpenChange, startup, target, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; startup: StartupWithAreas; target?: CreatePageTarget; onCreated: (pageId: Id<"pages">) => void }) {
   const createPage = useMutation(api.areasV2.createPage);
@@ -33,17 +47,18 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
   const fallbackAreaId = startup.areas[0]?._id;
   const [title, setTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
-  const [kind, setKind] = useState<"note" | "task">(target?.initialKind ?? "note");
+  const [kind, setKind] = useState<PageKind>(target?.initialKind ?? "note");
   const [areaId, setAreaId] = useState<Id<"startupAreas"> | undefined>(target?.areaId ?? fallbackAreaId);
   const [status, setStatus] = useState<TaskStatus>("backlog");
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [assigneeId, setAssigneeId] = useState<string>("none");
+  const [assigneeIds, setAssigneeIds] = useState<Array<Id<"profiles">>>([]);
   const [dueDate, setDueDate] = useState("");
   const [instructions, setInstructions] = useState("");
   const [checkpoints, setCheckpoints] = useState<TaskCheckpointDraft[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const selectedArea = useMemo(() => startup.areas.find((area) => area._id === areaId), [areaId, startup.areas]);
+  const CreateKindIcon = PAGE_KIND_META[kind].icon;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -60,7 +75,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
         ...(kind === "task" ? {
           taskStatus: status,
           taskPriority: priority,
-          ...(assigneeId === "none" ? {} : { assigneeProfileId: assigneeId as Id<"profiles"> }),
+          ...(assigneeIds.length === 0 ? {} : { assigneeProfileIds: assigneeIds }),
           ...(dueDate ? { dueDate: fromDateInputValue(dueDate) } : {}),
           ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
           ...(checkpoints.length > 0 ? { checkpoints } : {}),
@@ -68,10 +83,8 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
       });
       toast.success(
         result.nestingStatus === "pending"
-          ? `${kind === "task" ? "Zadatak" : "Beleška"} je kreiran/a u oblasti i čeka odobrenje autora ciljne stranice.`
-          : kind === "task"
-            ? "Zadatak je kreiran."
-            : "Beleška je kreirana.",
+          ? `${PAGE_KIND_META[kind].label} je kreiran/a u oblasti i čeka odobrenje autora ciljne stranice.`
+          : `${PAGE_KIND_META[kind].label} je kreiran/a.`,
       );
       onOpenChange(false);
       onCreated(result.pageId);
@@ -102,10 +115,10 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
             </DialogDescription>
           </DialogHeader>
           <div className="scrollbar-thin min-h-0 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
-            <fieldset className="grid grid-cols-2 gap-2 rounded-xl bg-muted/55 p-1">
+            <fieldset className="grid grid-cols-2 gap-2 rounded-xl bg-muted/55 p-1 sm:grid-cols-4">
               <legend className="sr-only">Vrsta stranice</legend>
-              {(["note", "task"] as const).map((value) => {
-                const Icon = value === "note" ? FileText : CheckSquare2;
+              {PAGE_KIND_KEYS.map((value) => {
+                const Icon = PAGE_KIND_META[value].icon;
                 return (
                   <label
                     key={value}
@@ -120,15 +133,21 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                       className="sr-only"
                     />
                     <Icon className="size-4" />
-                    {value === "note" ? "Beleška" : "Zadatak"}
+                    {PAGE_KIND_META[value].label}
                   </label>
                 );
               })}
             </fieldset>
-            <div className="space-y-2"><Label htmlFor="new-page-title">Naslov</Label><Input id="new-page-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "task" ? "Šta treba uraditi?" : "Naslov beleške…"} maxLength={200} autoFocus /></div>
+            <div className="space-y-2"><Label htmlFor="new-page-title">Naslov</Label><Input id="new-page-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={TITLE_PLACEHOLDER[kind]} maxLength={200} autoFocus /></div>
             <div className="space-y-2"><Label htmlFor="new-page-area">Oblast</Label><Select value={areaId} onValueChange={(value) => setAreaId(value as Id<"startupAreas">)} disabled={Boolean(target?.areaId)}><SelectTrigger id="new-page-area"><SelectValue /></SelectTrigger><SelectContent>{startup.areas.map((area) => <SelectItem key={area._id} value={area._id}>{area.label}</SelectItem>)}</SelectContent></Select></div>
 
-            {kind === "note" ? (
+            {kind === "file" || kind === "table" ? (
+              <p className="rounded-xl border border-dashed border-border/70 bg-muted/25 px-4 py-5 text-sm text-muted-foreground">
+                {kind === "file"
+                  ? "Oblačić se pravi prazan — fajlove dodaješ odmah posle kreiranja, iz njegovih detalja."
+                  : "Tabela se pravi sa jednom kolonom i jednim redom. Kolone, redove i uvoz iz Excel-a dodaješ u njenom prikazu."}
+              </p>
+            ) : kind === "note" ? (
               <div className="space-y-2">
                 <Label>Sadržaj beleške (Rich Text Editor)</Label>
                 <div className="min-h-[16rem] rounded-xl border border-border/70 bg-card p-3">
@@ -145,7 +164,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="new-task-status">Status</Label><Select value={status} onValueChange={(value) => setStatus(value as TaskStatus)}><SelectTrigger id="new-task-status"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div>
                   <div className="space-y-2"><Label htmlFor="new-task-priority">Prioritet</Label><Select value={priority} onValueChange={(value) => setPriority(value as TaskPriority)}><SelectTrigger id="new-task-priority"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><Label htmlFor="new-task-assignee">Dodeli</Label><Select value={assigneeId} onValueChange={setAssigneeId}><SelectTrigger id="new-task-assignee"><SelectValue placeholder="Nije dodeljen" /></SelectTrigger><SelectContent><SelectItem value="none">Nije dodeljen</SelectItem>{members?.map(({ profile }) => <SelectItem key={profile._id} value={profile._id}>{profile.displayName}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label htmlFor="new-task-assignee">Izvršioci</Label><AssigneePicker id="new-task-assignee" members={members} value={assigneeIds} onChange={setAssigneeIds} /></div>
                   <div className="space-y-2"><Label htmlFor="new-task-due">Rok</Label><Input id="new-task-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div>
                 </div>
 
@@ -172,7 +191,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
               </>
             )}
           </div>
-          <DialogFooter className="relative z-20 shrink-0 border-t border-border/70 bg-background/95 px-5 py-4 shadow-[0_-12px_28px_-22px_rgba(0,0,0,0.55)] backdrop-blur sm:px-6"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Otkaži</Button><Button type="submit" disabled={submitting || !areaId || title.trim().length === 0}>{submitting ? <LoaderCircle className="animate-spin" /> : kind === "task" ? <CheckSquare2 /> : <FileText />} Kreiraj</Button></DialogFooter>
+          <DialogFooter className="relative z-20 shrink-0 border-t border-border/70 bg-background/95 px-5 py-4 shadow-[0_-12px_28px_-22px_rgba(0,0,0,0.55)] backdrop-blur sm:px-6"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Otkaži</Button><Button type="submit" disabled={submitting || !areaId || title.trim().length === 0}>{submitting ? <LoaderCircle className="animate-spin" /> : <CreateKindIcon className="size-4" />} Kreiraj</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

@@ -4,6 +4,7 @@ import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { insertContribution } from "./lib/collaboration";
+import { MAX_TASK_ASSIGNEES } from "./lib/validators";
 
 const migrations = new Migrations<DataModel>(components.migrations, {
   internalMutation,
@@ -165,6 +166,75 @@ export const backfillTaskCompletedAt = migrations.define({
   },
 });
 
+/**
+ * Skalarni `pages.assigneeProfileId` postaje projekcija; kanon je `taskAssignees`.
+ * Isti widen-migrate-narrow oblik kao `backfillTaskCheckpoints` — stara kolona
+ * ostaje netaknuta da bi rollback bio moguć bez vraćanja baze.
+ */
+export const backfillTaskAssignees = migrations.define({
+  table: "pages",
+  batchSize: 25,
+  migrateOne: async (ctx, page) => {
+    if (page.kind !== "task" || page.assigneeProfileId === null) return;
+    const existing = await ctx.db
+      .query("taskAssignees")
+      .withIndex("by_task_and_profile", (q) =>
+        q
+          .eq("taskPageId", page._id)
+          .eq("profileId", page.assigneeProfileId!),
+      )
+      .unique();
+    if (existing !== null) {
+      if (
+        existing.archivedAt === null &&
+        existing.taskStatus === page.taskStatus &&
+        existing.taskSortAt === page.taskSortAt
+      ) {
+        return;
+      }
+      await ctx.db.patch("taskAssignees", existing._id, {
+        archivedAt: null,
+        taskStatus: page.taskStatus,
+        taskSortAt: page.taskSortAt,
+        updatedAt: page.updatedAt,
+      });
+      return;
+    }
+    await ctx.db.insert("taskAssignees", {
+      startupId: page.startupId,
+      taskPageId: page._id,
+      profileId: page.assigneeProfileId,
+      taskStatus: page.taskStatus,
+      taskSortAt: page.taskSortAt,
+      addedByProfileId: page.createdByProfileId,
+      archivedAt: null,
+      createdAt: page.createdAt,
+      updatedAt: page.updatedAt,
+    });
+  },
+});
+
+/**
+ * Relacija je nekad bila strukturno Beleška↔Zadatak. Novi kanonski par
+ * `pageAId`/`pageBId` se popunjava iz starih kolona; stare ostaju upisane da bi
+ * rollback aplikacije radio bez vraćanja baze.
+ */
+export const backfillPageRelationEndpoints = migrations.define({
+  table: "pageRelations",
+  migrateOne: async (ctx, relation) => {
+    if (
+      relation.pageAId !== undefined &&
+      relation.pageBId !== undefined
+    ) {
+      return;
+    }
+    await ctx.db.patch("pageRelations", relation._id, {
+      pageAId: relation.pageAId ?? relation.notePageId,
+      pageBId: relation.pageBId ?? relation.taskPageId,
+    });
+  },
+});
+
 export const run = migrations.runner();
 
 export const verifyContributionBackfill = internalQuery({
@@ -258,6 +328,70 @@ export const verifyContributionBackfill = internalQuery({
         truncated
           ? "Provera je ograničena na prvih 500 zapisa po tabeli i ne može potvrditi završetak."
           : null,
+    };
+  },
+});
+
+export const verifyPageRelationEndpointBackfill = internalQuery({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    missingEndpoints: v.number(),
+    complete: v.boolean(),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const relations = await ctx.db.query("pageRelations").take(501);
+    const missingEndpoints = relations.filter(
+      (relation) =>
+        relation.pageAId === undefined || relation.pageBId === undefined,
+    ).length;
+    const truncated = relations.length > 500;
+    return {
+      scanned: Math.min(relations.length, 500),
+      missingEndpoints,
+      complete: !truncated && missingEndpoints === 0,
+      truncated,
+    };
+  },
+});
+
+export const verifyTaskAssigneeBackfill = internalQuery({
+  args: {},
+  returns: v.object({
+    scannedTasks: v.number(),
+    missingRows: v.number(),
+    driftedProjections: v.number(),
+    complete: v.boolean(),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const pages = await ctx.db.query("pages").take(501);
+    const tasks = pages.filter((page) => page.kind === "task");
+    let missingRows = 0;
+    let driftedProjections = 0;
+    for (const task of tasks) {
+      const rows = await ctx.db
+        .query("taskAssignees")
+        .withIndex("by_task_active_created", (q) =>
+          q.eq("taskPageId", task._id).eq("archivedAt", null),
+        )
+        .take(MAX_TASK_ASSIGNEES + 1);
+      if (task.assigneeProfileId !== null && rows.length === 0) {
+        missingRows += 1;
+        continue;
+      }
+      if ((rows[0]?.profileId ?? null) !== task.assigneeProfileId) {
+        driftedProjections += 1;
+      }
+    }
+    const truncated = pages.length > 500;
+    return {
+      scannedTasks: tasks.length,
+      missingRows,
+      driftedProjections,
+      complete: !truncated && missingRows === 0 && driftedProjections === 0,
+      truncated,
     };
   },
 });

@@ -1,6 +1,15 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import type { WorkspacePageKind } from "./page_kinds";
+
+/** Akuzativ vrste stranice — „pretvorena u belešku”. */
+const PAGE_KIND_ACCUSATIVE: Record<WorkspacePageKind, string> = {
+  note: "belešku",
+  task: "zadatak",
+  file: "fajl",
+  table: "tabelu",
+};
 
 export type NotificationType =
   | "task_assigned"
@@ -51,6 +60,10 @@ export const notificationCopy = {
     title: `Dodeljen ti je zadatak: „${taskTitle}”`,
     body: `Dodelio/la: ${actorName}`,
   }),
+  taskJoined: (taskTitle: string, memberName: string) => ({
+    title: `${memberName} se priključio/la zadatku „${taskTitle}”`,
+    body: "Sada radite zajedno na ovom zadatku.",
+  }),
   taskStatusChanged: (
     taskTitle: string,
     status: TaskStatusKey,
@@ -83,12 +96,10 @@ export const notificationCopy = {
       : { title: `${actorName} je glasao/la protiv ideje „${ideaTitle}”` },
   ideaConverted: (
     ideaTitle: string,
-    kind: "task" | "note",
+    kind: WorkspacePageKind,
     actorName: string,
   ) => ({
-    title: `Tvoja ideja „${ideaTitle}” je pretvorena u ${
-      kind === "task" ? "zadatak" : "belešku"
-    }`,
+    title: `Tvoja ideja „${ideaTitle}” je pretvorena u ${PAGE_KIND_ACCUSATIVE[kind]}`,
     body: `Pretvorio/la: ${actorName}`,
   }),
   deletionVoteRequested: (targetTitle: string, actorName: string) => ({
@@ -201,7 +212,10 @@ export async function notifyTaskStakeholders(
   ctx: MutationCtx,
   args: {
     page: Doc<"pages">;
-    nextAssigneeProfileId: Id<"profiles"> | null;
+    /** Ko je upravo dodat na zadatak; prazno kad se spisak nije menjao. */
+    addedAssigneeProfileIds?: Array<Id<"profiles">>;
+    /** Ceo spisak posle izmene — primaoci obaveštenja o statusu. */
+    assigneeProfileIdsAfterChange: Array<Id<"profiles">>;
     nextTaskStatus: TaskStatusKey | null;
     actorProfileId: Id<"profiles">;
   },
@@ -210,14 +224,12 @@ export async function notifyTaskStakeholders(
   if (page.kind !== "task") return;
 
   const name = await actorName(ctx, actorProfileId);
-  const assigneeChanged =
-    args.nextAssigneeProfileId !== page.assigneeProfileId;
   const statusChanged = args.nextTaskStatus !== page.taskStatus;
 
-  if (assigneeChanged && args.nextAssigneeProfileId !== null) {
+  for (const recipientProfileId of args.addedAssigneeProfileIds ?? []) {
     const copy = notificationCopy.taskAssigned(page.title, name);
     await createNotification(ctx, {
-      recipientProfileId: args.nextAssigneeProfileId,
+      recipientProfileId,
       startupId: page.startupId,
       type: "task_assigned",
       title: copy.title,
@@ -234,11 +246,10 @@ export async function notifyTaskStakeholders(
       args.nextTaskStatus,
       name,
     );
-    // Zadatak prati onaj kome je dodeljen i onaj koji ga je otvorio.
-    const recipients = new Set<Id<"profiles">>();
-    const assigneeAfterChange =
-      args.nextAssigneeProfileId ?? page.assigneeProfileId;
-    if (assigneeAfterChange !== null) recipients.add(assigneeAfterChange);
+    // Zadatak prate svi kojima je dodeljen i onaj koji ga je otvorio.
+    const recipients = new Set<Id<"profiles">>(
+      args.assigneeProfileIdsAfterChange,
+    );
     recipients.add(page.createdByProfileId);
 
     for (const recipientProfileId of recipients) {

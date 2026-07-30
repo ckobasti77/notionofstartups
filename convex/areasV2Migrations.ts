@@ -7,6 +7,7 @@ import {
   findAvailableCanvasPosition,
   hasExactCanvasPositionCollision,
 } from "./canvasPlacement";
+import { relationEndpoints } from "./lib/page_relations";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -1039,9 +1040,10 @@ export const verifyAreasV2 = internalQuery({
         .paginate(paginationOpts);
       for (const relation of result.page) {
         if (relation.archivedAt !== null) continue;
+        const { pageAId, pageBId } = relationEndpoints(relation);
         const [note, task, duplicates] = await Promise.all([
-          ctx.db.get("pages", relation.notePageId),
-          ctx.db.get("pages", relation.taskPageId),
+          ctx.db.get("pages", pageAId),
+          ctx.db.get("pages", pageBId),
           ctx.db
             .query("pageRelations")
             .withIndex("by_scope_pair_active", (q) =>
@@ -1058,8 +1060,8 @@ export const verifyAreasV2 = internalQuery({
           task === null ||
           note.archivedAt !== null ||
           task.archivedAt !== null ||
-          note.kind !== "note" ||
-          task.kind !== "task" ||
+          // Vrsta endpointa se namerno više ne proverava: relacija sada spaja
+          // bilo koje dve stranice iste oblasti.
           note.startupId !== relation.startupId ||
           task.startupId !== relation.startupId ||
           note.areaId !== relation.areaId ||
