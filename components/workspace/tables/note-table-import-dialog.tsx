@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useMutation } from "convex/react";
 import { LoaderCircle, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,56 +15,75 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { normalizeTableMatrix } from "@/lib/csv";
-import { readTableFile } from "@/lib/table-file";
+import { estimateTableHtmlLength, readTableFile } from "@/lib/table-file";
 
-const MAX_COLUMNS = 64;
-const MAX_ROWS = 5_000;
-const IMPORT_BATCH = 200;
+/**
+ * Tabela u belešci živi u HTML telu koje server seče na 80.000 znakova
+ * (`cleanPageContent`), pa su granice mnogo uže nego kod tabela oblačića.
+ * Za velike tabele i dalje postoji tabela oblačić.
+ */
+const NOTE_TABLE_MAX_ROWS = 100;
+const NOTE_TABLE_MAX_COLS = 20;
+const BODY_LIMIT_SAFETY = 78_000;
 const PREVIEW_ROWS = 6;
 
-export function TableImportDialog({
-  pageId,
+export function NoteTableImportDialog({
   open,
   onOpenChange,
+  onImport,
+  getBodyLength,
 }: {
-  pageId: Id<"pages">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Ubacuje matricu u editor; poziva se tek posle svih provera. */
+  onImport: (matrix: string[][], firstRowIsHeader: boolean) => void;
+  /** Trenutna dužina HTML tela — za procenu da li uvoz staje u granicu. */
+  getBodyLength: () => number;
 }) {
-  const importRows = useMutation(api.pageTables.importRows);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [matrix, setMatrix] = useState<string[][] | null>(null);
   const [fileName, setFileName] = useState("");
   const [firstRowIsHeader, setFirstRowIsHeader] = useState(true);
-  const [replace, setReplace] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
 
   function reset() {
     setMatrix(null);
     setFileName("");
-    setProgress(null);
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function fitsBody(candidate: string[][]) {
+    return (
+      getBodyLength() + estimateTableHtmlLength(candidate) <= BODY_LIMIT_SAFETY
+    );
   }
 
   async function readFile(file: File) {
     setBusy(true);
     try {
       const rows = await readTableFile(file);
-      const normalized = normalizeTableMatrix(rows, MAX_COLUMNS);
+      // Širina se normalizuje na granicu + 1 da bi se prekoračenje primetilo,
+      // umesto da se višak kolona tiho odseče.
+      const normalized = normalizeTableMatrix(rows, NOTE_TABLE_MAX_COLS + 1);
       if (normalized.length === 0) {
         toast.error("U fajlu nema podataka za uvoz.");
         reset();
         return;
       }
-      if (normalized.length > MAX_ROWS) {
+      if (
+        normalized.length > NOTE_TABLE_MAX_ROWS ||
+        normalized[0].length > NOTE_TABLE_MAX_COLS
+      ) {
         toast.error(
-          `Fajl ima ${normalized.length} redova; granica je ${MAX_ROWS}.`,
+          `Tabela u belešci može imati najviše ${NOTE_TABLE_MAX_ROWS} redova i ${NOTE_TABLE_MAX_COLS} kolona — za veće tabele koristi tabela oblačić.`,
+        );
+        reset();
+        return;
+      }
+      if (!fitsBody(normalized)) {
+        toast.error(
+          "Tabela je prevelika za telo ove beleške — koristi tabela oblačić.",
         );
         reset();
         return;
@@ -84,55 +102,18 @@ export function TableImportDialog({
     }
   }
 
-  async function runImport() {
+  function runImport() {
     if (matrix === null) return;
-    const header = firstRowIsHeader ? matrix[0] : null;
-    const dataRows = firstRowIsHeader ? matrix.slice(1) : matrix;
-    const columns =
-      header ??
-      Array.from({ length: matrix[0].length }, (_, index) => `Kolona ${index + 1}`);
-
-    setBusy(true);
-    setProgress({ done: 0, total: dataRows.length });
-    try {
-      // Serije od 200 redova — jedna Convex mutacija ima transakcione limite.
-      let batchIndex = 0;
-      if (dataRows.length === 0) {
-        await importRows({
-          pageId,
-          columns,
-          rows: [],
-          mode: replace ? "replace" : "append",
-        });
-      }
-      for (let start = 0; start < dataRows.length; start += IMPORT_BATCH) {
-        const batch = dataRows.slice(start, start + IMPORT_BATCH);
-        await importRows({
-          pageId,
-          // Zaglavlja i „zameni” važe samo za prvu seriju; ostale dopunjuju.
-          ...(batchIndex === 0 ? { columns } : {}),
-          rows: batch,
-          mode: batchIndex === 0 && replace ? "replace" : "append",
-        });
-        batchIndex += 1;
-        setProgress({
-          done: Math.min(start + batch.length, dataRows.length),
-          total: dataRows.length,
-        });
-      }
-      toast.success(
-        `Uvezeno: ${dataRows.length} ${dataRows.length === 1 ? "red" : "redova"}.`,
-      );
-      onOpenChange(false);
-      reset();
-    } catch (error) {
+    // Telo je moglo da poraste dok je dijalog bio otvoren — provera se ponavlja.
+    if (!fitsBody(matrix)) {
       toast.error(
-        error instanceof Error ? error.message : "Uvoz nije uspeo.",
+        "Tabela je prevelika za telo ove beleške — koristi tabela oblačić.",
       );
-    } finally {
-      setBusy(false);
-      setProgress(null);
+      return;
     }
+    onImport(matrix, firstRowIsHeader);
+    onOpenChange(false);
+    reset();
   }
 
   const previewHeader = matrix && firstRowIsHeader ? matrix[0] : null;
@@ -150,10 +131,11 @@ export function TableImportDialog({
     >
       <DialogContent className="max-h-[min(48rem,92vh)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Uvoz iz Excel-a ili CSV-a</DialogTitle>
+          <DialogTitle>Uvoz tabele u belešku</DialogTitle>
           <DialogDescription>
-            Podržani su .xlsx, .xls i .csv. Iz Excel radne sveske uvozi se prvi
-            list. Najviše {MAX_COLUMNS} kolona i {MAX_ROWS} redova.
+            Podržani su .xlsx, .xls i .csv; iz Excel radne sveske uvozi se prvi
+            list. Tabela postaje deo teksta i može da se uređuje. Najviše{" "}
+            {NOTE_TABLE_MAX_ROWS} redova i {NOTE_TABLE_MAX_COLS} kolona.
           </DialogDescription>
         </DialogHeader>
 
@@ -187,27 +169,18 @@ export function TableImportDialog({
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{fileName}</span> —{" "}
-              {matrix.length} {matrix.length === 1 ? "red" : "redova"} ×{" "}
+              <span className="font-semibold text-foreground">{fileName}</span>{" "}
+              — {matrix.length} {matrix.length === 1 ? "red" : "redova"} ×{" "}
               {matrix[0].length} kolona
             </p>
 
-            <div className="flex flex-wrap gap-4">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <Checkbox
-                  checked={firstRowIsHeader}
-                  onCheckedChange={(value) => setFirstRowIsHeader(value === true)}
-                />
-                Prvi red su zaglavlja
-              </Label>
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <Checkbox
-                  checked={replace}
-                  onCheckedChange={(value) => setReplace(value === true)}
-                />
-                Zameni postojeći sadržaj
-              </Label>
-            </div>
+            <Label className="flex items-center gap-2 text-sm font-medium">
+              <Checkbox
+                checked={firstRowIsHeader}
+                onCheckedChange={(value) => setFirstRowIsHeader(value === true)}
+              />
+              Prvi red su zaglavlja
+            </Label>
 
             <div className="overflow-x-auto rounded-xl border border-border/70">
               <table className="w-full text-left text-xs">
@@ -241,16 +214,6 @@ export function TableImportDialog({
                 </tbody>
               </table>
             </div>
-
-            {progress ? (
-              <p
-                className="text-xs text-muted-foreground tabular-nums"
-                role="status"
-                aria-live="polite"
-              >
-                Uvoz u toku: {progress.done}/{progress.total}
-              </p>
-            ) : null}
           </div>
         )}
 
@@ -263,9 +226,8 @@ export function TableImportDialog({
               <Button type="button" variant="outline" onClick={reset}>
                 Izaberi drugi fajl
               </Button>
-              <Button type="button" disabled={busy} onClick={() => void runImport()}>
-                {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
-                Uvezi
+              <Button type="button" disabled={busy} onClick={runImport}>
+                Ubaci tabelu
               </Button>
             </>
           )}

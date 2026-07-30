@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { MAX_PAGE_FILE_BYTES } from "./lib/page_files";
+import { MAX_PAGE_FILE_BYTES, PRUNE_GRACE_MS } from "./lib/page_files";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -79,20 +79,30 @@ async function seedFileWorkspace() {
     name: string,
     contentType: string,
     body = "sadržaj",
+    targetPageId: Id<"pages"> = pageId,
   ) => {
     const { token } = await asOwner.mutation(api.pageFiles.generateUploadUrl, {
-      pageId,
+      pageId: targetPageId,
     });
     const storageId = await store(body, contentType);
     return await asOwner.mutation(api.pageFiles.attach, {
-      pageId,
+      pageId: targetPageId,
       storageId,
       token,
       name,
     });
   };
 
-  return { t, ...seeded, asOwner, asMember, pageId, store, upload };
+  const createNote = (title = "Beleška") =>
+    asOwner.mutation(api.pages.create, {
+      startupId: seeded.startupId,
+      areaId: seeded.areaId,
+      parentPageId: null,
+      kind: "note",
+      title,
+    });
+
+  return { t, ...seeded, asOwner, asMember, pageId, store, upload, createNote };
 }
 
 describe("fajlovi u oblačiću", () => {
@@ -210,10 +220,10 @@ describe("fajlovi u oblačiću", () => {
     await upload("c.png", "image/png");
 
     const storageId = await t.run(async (ctx) => {
-      const row = await ctx.db.get("pageFiles", second);
+      const row = await ctx.db.get("pageFiles", second.fileId);
       return row?.storageId ?? null;
     });
-    await asOwner.mutation(api.pageFiles.remove, { fileId: second });
+    await asOwner.mutation(api.pageFiles.remove, { fileId: second.fileId });
 
     const files = await asOwner.query(api.pageFiles.list, { pageId });
     expect(files.map((file) => file.name)).toEqual(["a.png", "c.png"]);
@@ -233,7 +243,7 @@ describe("fajlovi u oblačiću", () => {
     expect(await asMember.query(api.pageFiles.list, { pageId })).toEqual([]);
   });
 
-  test("fajl API odbija stranice koje nisu fajl oblačić", async () => {
+  test("fajl API odbija stranice koje ne podržavaju fajlove", async () => {
     const { startupId, areaId, asOwner } = await seedFileWorkspace();
     const taskId = await asOwner.mutation(api.pages.create, {
       startupId,
@@ -244,10 +254,103 @@ describe("fajlovi u oblačiću", () => {
     });
     await expect(
       asOwner.query(api.pageFiles.list, { pageId: taskId }),
-    ).rejects.toThrow("nije fajl oblačić");
+    ).rejects.toThrow("ne podržava fajlove");
   });
 
   test("granica veličine je izražena u bajtovima na serveru", () => {
     expect(MAX_PAGE_FILE_BYTES).toBe(50 * 1024 * 1024);
+  });
+});
+
+describe("prilozi u belešci", () => {
+  test("beleška prima fajlove, a njen dokument ne dobija sažetke", async () => {
+    const { t, asOwner, upload, createNote } = await seedFileWorkspace();
+    const noteId = await createNote();
+
+    const attached = await upload("logo.png", "image/png", "png", noteId);
+    expect(attached).toMatchObject({ category: "image", name: "logo.png" });
+    expect(attached.size).toBeGreaterThan(0);
+
+    const files = await asOwner.query(api.pageFiles.list, { pageId: noteId });
+    expect(files.map((file) => file.name)).toEqual(["logo.png"]);
+
+    // Sažeci (`fileCount` itd.) su rezervisani za „fajl” oblačiće.
+    const doc = await t.run((ctx) => ctx.db.get("pages", noteId));
+    expect(doc?.fileCount).toBeUndefined();
+    expect(doc?.filePrimaryCategory).toBeUndefined();
+  });
+
+  test("prune briše nereferencirane priloge starije od grace perioda", async () => {
+    const { t, asOwner, upload, createNote } = await seedFileWorkspace();
+    const noteId = await createNote();
+    const first = await upload("a.png", "image/png", "a", noteId);
+    const second = await upload("b.png", "image/png", "b", noteId);
+    const third = await upload("c.png", "image/png", "c", noteId);
+
+    const storageIds = await t.run(async (ctx) => {
+      const rows = await Promise.all(
+        [first, second, third].map((file) =>
+          ctx.db.get("pageFiles", file.fileId),
+        ),
+      );
+      // Svi prilozi se „ostare” da grace period ne bi štitio nijedan.
+      for (const row of rows) {
+        if (row === null) continue;
+        await ctx.db.patch("pageFiles", row._id, {
+          createdAt: Date.now() - PRUNE_GRACE_MS - 1_000,
+        });
+      }
+      return rows.map((row) => row?.storageId ?? null);
+    });
+
+    const result = await asOwner.mutation(api.pageFiles.prune, {
+      pageId: noteId,
+      // Neispravni id-jevi iz nalepljenog sadržaja se preskaču bez greške.
+      keepFileIds: [second.fileId, "nije-id", ""],
+    });
+    expect(result).toEqual({ removed: 2 });
+
+    const files = await asOwner.query(api.pageFiles.list, { pageId: noteId });
+    expect(files.map((file) => file.name)).toEqual(["b.png"]);
+    expect(files.map((file) => file.position)).toEqual([0]);
+
+    const [firstBlob, , thirdBlob] = await t.run((ctx) =>
+      Promise.all(
+        storageIds.map((storageId) =>
+          storageId === null
+            ? null
+            : ctx.db.system.get("_storage", storageId),
+        ),
+      ),
+    );
+    expect(firstBlob).toBeNull();
+    expect(thirdBlob).toBeNull();
+  });
+
+  test("prune ne dira sveže priloge — upload možda još nije sačuvan u telu", async () => {
+    const { asOwner, upload, createNote } = await seedFileWorkspace();
+    const noteId = await createNote();
+    await upload("svez.png", "image/png", "x", noteId);
+
+    const result = await asOwner.mutation(api.pageFiles.prune, {
+      pageId: noteId,
+      keepFileIds: [],
+    });
+    expect(result).toEqual({ removed: 0 });
+    const files = await asOwner.query(api.pageFiles.list, { pageId: noteId });
+    expect(files.map((file) => file.name)).toEqual(["svez.png"]);
+  });
+
+  test("prune odbija ne-vlasnika i stranice koje nisu beleške", async () => {
+    const { pageId, asOwner, asMember, createNote } =
+      await seedFileWorkspace();
+    const noteId = await createNote();
+
+    await expect(
+      asMember.mutation(api.pageFiles.prune, { pageId: noteId, keepFileIds: [] }),
+    ).rejects.toThrow("samo njegov autor");
+    await expect(
+      asOwner.mutation(api.pageFiles.prune, { pageId, keepFileIds: [] }),
+    ).rejects.toThrow("samo za beleške");
   });
 });

@@ -11,6 +11,7 @@ import {
   MAX_PAGE_FILE_BYTES,
   MAX_PAGE_FILES,
   pageFileCategoryFor,
+  PRUNE_GRACE_MS,
   syncPageFileSummary,
 } from "./lib/page_files";
 import { requireVisiblePage } from "./lib/pages";
@@ -46,13 +47,17 @@ function generateUploadToken() {
   );
 }
 
-async function requireFilePage(
+/**
+ * Fajlovi žive na „fajl” oblačićima i kao inline prilozi u telu beleške;
+ * ostale vrste stranica ih nemaju.
+ */
+async function requireAttachmentPage(
   ctx: QueryCtx | MutationCtx,
   pageId: Id<"pages">,
 ) {
   const page = await requireVisiblePage(ctx, pageId);
-  if (page.kind !== "file") {
-    throw new Error("Ova stranica nije fajl oblačić.");
+  if (page.kind !== "file" && page.kind !== "note") {
+    throw new Error("Ova stranica ne podržava fajlove.");
   }
   const { profile } = await requireStartupMember(ctx, page.startupId);
   return { page, profile };
@@ -71,7 +76,7 @@ export const list = query({
   args: { pageId: v.id("pages") },
   returns: v.array(pageFileValidator),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireFilePage(ctx, args.pageId);
+    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
     const rows = await listActivePageFiles(ctx, page._id);
     const canManage = page.createdByProfileId === profile._id;
     return await Promise.all(
@@ -99,7 +104,7 @@ export const generateUploadUrl = mutation({
     expiresAt: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireFilePage(ctx, args.pageId);
+    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
     assertOwner(page.createdByProfileId, profile._id);
     const rows = await listActivePageFiles(ctx, page._id);
     if (rows.length >= MAX_PAGE_FILES) {
@@ -143,9 +148,14 @@ export const attach = mutation({
     token: v.string(),
     name: v.string(),
   },
-  returns: v.id("pageFiles"),
+  returns: v.object({
+    fileId: v.id("pageFiles"),
+    name: v.string(),
+    size: v.number(),
+    category: pageFileCategoryValidator,
+  }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireFilePage(ctx, args.pageId);
+    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
     assertOwner(page.createdByProfileId, profile._id);
 
     const tokenHash = await hashUploadToken(args.token);
@@ -228,7 +238,7 @@ export const attach = mutation({
       title: `Fajl je dodat u „${page.title}”`,
       detail: name,
     });
-    return fileId;
+    return { fileId, name, size: metadata.size, category };
   },
 });
 
@@ -240,7 +250,7 @@ export const rename = mutation({
     if (file === null || file.archivedAt !== null) {
       throw new Error("Fajl nije pronađen.");
     }
-    const { page, profile } = await requireFilePage(ctx, file.pageId);
+    const { page, profile } = await requireAttachmentPage(ctx, file.pageId);
     assertOwner(page.createdByProfileId, profile._id);
     const name = cleanPageFileName(args.name);
     if (name === file.name) return null;
@@ -257,7 +267,7 @@ export const remove = mutation({
     if (file === null || file.archivedAt !== null) {
       throw new Error("Fajl nije pronađen.");
     }
-    const { page, profile } = await requireFilePage(ctx, file.pageId);
+    const { page, profile } = await requireAttachmentPage(ctx, file.pageId);
     assertOwner(page.createdByProfileId, profile._id);
     const now = Date.now();
     // Red se briše zajedno sa blobom — arhiviran prilog niko ne može da vrati,
@@ -278,7 +288,7 @@ export const reorder = mutation({
   args: { pageId: v.id("pages"), fileIds: v.array(v.id("pageFiles")) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireFilePage(ctx, args.pageId);
+    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
     assertOwner(page.createdByProfileId, profile._id);
     const rows = await listActivePageFiles(ctx, page._id);
     const byId = new Map(rows.map((row) => [row._id, row]));
@@ -296,5 +306,46 @@ export const reorder = mutation({
     }
     await syncPageFileSummary(ctx, page, profile._id, now);
     return null;
+  },
+});
+
+/**
+ * Briše priloge beleške koji više nisu referencirani u njenom telu. Klijent ga
+ * zove posle uspešnog čuvanja sa id-jevima iz sačuvanog HTML-a. Id-jevi stižu
+ * kao stringovi jer nalepljen sadržaj može da nosi tuđe ili neispravne
+ * vrednosti — takve samo preskačemo, ne rušimo čišćenje.
+ */
+export const prune = mutation({
+  args: { pageId: v.id("pages"), keepFileIds: v.array(v.string()) },
+  returns: v.object({ removed: v.number() }),
+  handler: async (ctx, args) => {
+    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
+    if (page.kind !== "note") {
+      throw new Error("Čišćenje priloga radi samo za beleške.");
+    }
+    assertOwner(page.createdByProfileId, profile._id);
+    const keep = new Set<Id<"pageFiles">>();
+    for (const raw of args.keepFileIds) {
+      const fileId = ctx.db.normalizeId("pageFiles", raw);
+      if (fileId !== null) keep.add(fileId);
+    }
+    const rows = await listActivePageFiles(ctx, page._id);
+    const now = Date.now();
+    let removed = 0;
+    for (const row of rows) {
+      if (keep.has(row._id)) continue;
+      if (now - row.createdAt < PRUNE_GRACE_MS) continue;
+      await ctx.db.delete(row._id);
+      await ctx.storage.delete(row.storageId);
+      removed += 1;
+    }
+    if (removed > 0) {
+      const remaining = await listActivePageFiles(ctx, page._id);
+      for (const [position, row] of remaining.entries()) {
+        if (row.position === position) continue;
+        await ctx.db.patch("pageFiles", row._id, { position, updatedAt: now });
+      }
+    }
+    return { removed };
   },
 });

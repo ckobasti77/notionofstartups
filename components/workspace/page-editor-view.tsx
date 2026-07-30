@@ -33,6 +33,10 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AssigneePicker } from "@/components/workspace/assignee-picker";
+import {
+  NoteAttachmentsProvider,
+  useNoteFileUpload,
+} from "@/components/workspace/files/note-attachments";
 import { PageFilesPanel } from "@/components/workspace/files/page-files-panel";
 import { PageTablePanel } from "@/components/workspace/tables/page-table-panel";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
@@ -69,6 +73,15 @@ export type PageEditorSaveState =
   | "error"
   | "conflict"
   | "invalid";
+
+/** Vadi id-jeve priloga iz HTML tela beleške (`data-file-id` na `noteFile` blokovima). */
+function extractNoteFileIds(html: string): string[] {
+  if (!html.includes("data-note-file")) return [];
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(parsed.querySelectorAll("[data-note-file]"))
+    .map((element) => element.getAttribute("data-file-id") ?? "")
+    .filter((id) => id !== "");
+}
 
 function combinedEditorSaveState(
   pageState: PageEditorSaveState,
@@ -125,6 +138,15 @@ export function PageEditorView({
   const updatePage = useMutation(api.areasV2.updatePage);
   const archivePage = useMutation(api.areasV2.archivePage);
   const detachPage = useMutation(api.areasV2.detachPage);
+  // Prilozi u telu beleške: spisak hrani i node view-ove (URL-ovi) i čišćenje.
+  const noteFiles = useQuery(
+    api.pageFiles.list,
+    page?.kind === "note" ? { pageId } : "skip",
+  );
+  const pruneNoteFiles = useMutation(api.pageFiles.prune);
+  const uploadNoteFile = useNoteFileUpload(
+    page?.kind === "note" && page.permissions.canEditBody ? page._id : null,
+  );
   const relationsResult = useQuery(api.areasV2.listRelations, {
     startupId: startup._id,
     pageId,
@@ -155,6 +177,11 @@ export function PageEditorView({
     createPageRevisionLedger(pageId, 0),
   );
   const latestDraftRef = useRef({ title: "", content: "" });
+  // Ogledalo za autosave efekat — spisak fajlova ne sme da mu širi dependencije.
+  const noteFilesCountRef = useRef(0);
+  useEffect(() => {
+    noteFilesCountRef.current = noteFiles?.length ?? 0;
+  }, [noteFiles]);
   const editorSaveState = combinedEditorSaveState(
     saveState,
     instructionsSaveState,
@@ -278,6 +305,22 @@ export function PageEditorView({
           baseRevisionRef.current = activeRevision;
         }
         setSaveState(localVersionRef.current === snapshotVersion ? "saved" : "dirty");
+        // Tek posle uspešnog čuvanja se čiste prilozi izbačeni iz tela. Unija
+        // sačuvanog snimka i živog nacrta štiti upload koji je stigao posle
+        // snimka; server dodatno ne dira redove mlađe od grace perioda.
+        if (page.kind === "note" && noteFilesCountRef.current > 0) {
+          const keepFileIds = Array.from(
+            new Set([
+              ...extractNoteFileIds(snapshot.content),
+              ...extractNoteFileIds(latestDraftRef.current.content),
+            ]),
+          );
+          void pruneNoteFiles({ pageId: requestPageId, keepFileIds }).catch(
+            () => {
+              // GC ne sme da prekine tok čuvanja; sledeći save pokušava opet.
+            },
+          );
+        }
       } catch (error) {
         if (activePageIdRef.current !== requestPageId) return;
 
@@ -307,6 +350,7 @@ export function PageEditorView({
     enqueuePageUpdate,
     page,
     pageId,
+    pruneNoteFiles,
     saveState,
     startup._id,
     title,
@@ -1111,16 +1155,23 @@ export function PageEditorView({
         </header>
         <div className="px-5 sm:px-8">
           {page.kind === "note" ? (
-            <RichTextEditor
-              key={page._id}
-              documentKey={page._id}
-              content={content}
-              editable={page.permissions.canEditBody}
-              onChange={({ html }) => {
-                setContent(html);
-                markDraftChanged({ ...latestDraftRef.current, content: html });
-              }}
-            />
+            <NoteAttachmentsProvider files={noteFiles}>
+              <RichTextEditor
+                key={page._id}
+                documentKey={page._id}
+                content={content}
+                editable={page.permissions.canEditBody}
+                attachments={
+                  uploadNoteFile !== null
+                    ? { upload: uploadNoteFile }
+                    : undefined
+                }
+                onChange={({ html }) => {
+                  setContent(html);
+                  markDraftChanged({ ...latestDraftRef.current, content: html });
+                }}
+              />
+            </NoteAttachmentsProvider>
           ) : page.kind === "file" ? (
             <div className="py-6">
               <PageFilesPanel

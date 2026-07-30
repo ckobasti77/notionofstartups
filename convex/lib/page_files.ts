@@ -6,6 +6,11 @@ type ReadCtx = QueryCtx | MutationCtx;
 export const MAX_PAGE_FILES = 25;
 export const MAX_PAGE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_PAGE_FILE_NAME_LENGTH = 200;
+/**
+ * Prilog mlađi od ovoga se ne briše pri čišćenju beleške — autosave je mogao
+ * da sačuva telo snimljeno pre nego što je fajl ubačen u tekst.
+ */
+export const PRUNE_GRACE_MS = 10 * 60 * 1000;
 
 export type PageFileCategory =
   | "image"
@@ -142,6 +147,9 @@ export async function syncPageFileSummary(
   now: number,
 ) {
   const rows = await listActivePageFiles(ctx, page._id);
+  // Sažetke na dokumentu ima samo „fajl” oblačić; beleška priloge prikazuje u
+  // telu, pa se njen dokument ne dira (attach ne sme da pomera ni `updatedAt`).
+  if (page.kind !== "file") return rows;
   const previewRow =
     PREVIEW_PRIORITY.flatMap((category) =>
       rows.filter((row) => row.category === category),

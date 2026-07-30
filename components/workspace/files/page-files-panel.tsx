@@ -22,39 +22,13 @@ import {
 } from "@/components/workspace/files/file-viewer-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { MAX_FILE_BYTES, MAX_FILES, uploadPageFile } from "@/lib/page-files";
 import {
   fileKindLabel,
   formatFileSize,
   PAGE_KIND_META,
 } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
-
-/** Mora da prati `MAX_PAGE_FILE_BYTES` i `MAX_PAGE_FILES` na serveru. */
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
-const MAX_FILES = 25;
-
-/** Ista lista kao `pageFileCategoryFor` na serveru; server je i dalje autoritet. */
-const SUPPORTED_EXTENSIONS = new Set([
-  "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "heic",
-  "mp4", "webm", "mov", "mp3", "wav", "m4a", "ogg",
-  "csv", "xls", "xlsx", "ods",
-  "txt", "md", "rtf", "json", "doc", "docx", "odt", "ppt", "pptx", "zip",
-]);
-const SUPPORTED_MIME_PREFIXES = ["image/", "video/", "audio/"];
-
-function isSupportedFile(file: File) {
-  const type = file.type.split(";")[0].trim().toLowerCase();
-  if (
-    type !== "" &&
-    type !== "application/octet-stream" &&
-    (type === "application/pdf" ||
-      SUPPORTED_MIME_PREFIXES.some((prefix) => type.startsWith(prefix)))
-  ) {
-    return true;
-  }
-  const extension = file.name.split(".").pop()?.trim().toLowerCase() ?? "";
-  return SUPPORTED_EXTENSIONS.has(extension);
-}
 
 export function PageFilesPanel({
   pageId,
@@ -79,32 +53,6 @@ export function PageFilesPanel({
   const [renamingId, setRenamingId] = useState<Id<"pageFiles"> | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  async function uploadOne(file: File) {
-    // Provera pre slanja: odbijena mutacija se poništava zajedno sa brisanjem
-    // bloba, pa fajl koji server ne prima ne treba ni da stigne do skladišta.
-    if (file.size > MAX_FILE_BYTES) {
-      throw new Error(
-        `veći je od ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB`,
-      );
-    }
-    if (!isSupportedFile(file)) {
-      throw new Error("ovaj tip fajla nije podržan");
-    }
-    const upload = await generateUploadUrl({ pageId });
-    const response = await fetch(upload.uploadUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": file.type || "application/octet-stream",
-      },
-      body: file,
-    });
-    if (!response.ok) throw new Error("Slanje fajla nije uspelo.");
-    const { storageId } = (await response.json()) as {
-      storageId: Id<"_storage">;
-    };
-    await attach({ pageId, storageId, token: upload.token, name: file.name });
-  }
-
   async function uploadMany(selected: FileList | File[]) {
     const list = Array.from(selected);
     if (list.length === 0) return;
@@ -113,7 +61,7 @@ export function PageFilesPanel({
     try {
       for (const file of list) {
         try {
-          await uploadOne(file);
+          await uploadPageFile({ pageId, file, generateUploadUrl, attach });
           added += 1;
         } catch (error) {
           toast.error(
