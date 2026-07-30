@@ -5,7 +5,13 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { MAX_PAGE_FILE_BYTES, PRUNE_GRACE_MS } from "./lib/page_files";
+import {
+  MAX_PAGE_FILE_BYTES,
+  MAX_PAGE_MEDIA_BYTES,
+  maxPageFileBytesFor,
+  pageFileCategoryFor,
+  PRUNE_GRACE_MS,
+} from "./lib/page_files";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -85,12 +91,16 @@ async function seedFileWorkspace() {
       pageId: targetPageId,
     });
     const storageId = await store(body, contentType);
-    return await asOwner.mutation(api.pageFiles.attach, {
+    const result = await asOwner.mutation(api.pageFiles.attach, {
       pageId: targetPageId,
       storageId,
       token,
       name,
     });
+    if (!result.ok) {
+      throw new Error(`attach je odbijen: ${result.message}`);
+    }
+    return result;
   };
 
   const createNote = (title = "Beleška") =>
@@ -127,22 +137,25 @@ describe("fajlovi u oblačiću", () => {
     ).toMatchObject({ fileCount: 3, filePrimaryCategory: "image" });
   });
 
-  test("nepodržan tip se odbija i ne ulazi u spisak", async () => {
-    const { pageId, asOwner, store } = await seedFileWorkspace();
+  test("nepodržan tip se odbija, ne ulazi u spisak i blob se briše", async () => {
+    const { t, pageId, asOwner, store } = await seedFileWorkspace();
     const { token } = await asOwner.mutation(api.pageFiles.generateUploadUrl, {
       pageId,
     });
     const storageId = await store("MZ", "application/x-msdownload");
 
-    await expect(
-      asOwner.mutation(api.pageFiles.attach, {
-        pageId,
-        storageId,
-        token,
-        name: "virus.exe",
-      }),
-    ).rejects.toThrow("nije podržan");
+    const result = await asOwner.mutation(api.pageFiles.attach, {
+      pageId,
+      storageId,
+      token,
+      name: "virus.exe",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "unsupported" });
     expect(await asOwner.query(api.pageFiles.list, { pageId })).toEqual([]);
+    // Odbijen blob ne sme da ostane bez reference u skladištu.
+    expect(
+      await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).toBeNull();
   });
 
   test("istekla ili tuđa dozvola ne prolazi", async () => {
@@ -160,6 +173,11 @@ describe("fajlovi u oblačiću", () => {
         name: "tudje.png",
       }),
     ).rejects.toThrow("samo njegov autor");
+    // Neuspeh autorizacije ne sme da dira blob — pozivalac nije dokazao da je
+    // blob njegov.
+    expect(
+      await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).not.toBeNull();
 
     await t.run(async (ctx) => {
       const upload = await ctx.db.query("pageFileUploads").first();
@@ -169,18 +187,21 @@ describe("fajlovi u oblačiću", () => {
         });
       }
     });
-    await expect(
-      asOwner.mutation(api.pageFiles.attach, {
-        pageId,
-        storageId,
-        token,
-        name: "kasno.png",
-      }),
-    ).rejects.toThrow("istekla");
+    const expired = await asOwner.mutation(api.pageFiles.attach, {
+      pageId,
+      storageId,
+      token,
+      name: "kasno.png",
+    });
+    expect(expired).toMatchObject({ ok: false, reason: "expired" });
+    // Istekla sopstvena dozvola briše blob umesto da ga ostavi bez reference.
+    expect(
+      await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).toBeNull();
   });
 
   test("isti blob ne može da visi na dva oblačića", async () => {
-    const { startupId, areaId, pageId, asOwner, store } =
+    const { t, startupId, areaId, pageId, asOwner, store } =
       await seedFileWorkspace();
     const first = await asOwner.mutation(api.pageFiles.generateUploadUrl, {
       pageId,
@@ -211,6 +232,54 @@ describe("fajlovi u oblačiću", () => {
         name: "ista.png",
       }),
     ).rejects.toThrow("već zakačen");
+    // Tuđ (već zakačen) blob ostaje netaknut.
+    expect(
+      await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).not.toBeNull();
+  });
+
+  test("attach preko limita briše blob umesto da ga ostavi bez reference", async () => {
+    const { t, owner, startupId, areaId, pageId, asOwner, store } =
+      await seedFileWorkspace();
+    // Dozvola se uzima pre nego što se oblačić napuni — generateUploadUrl bi
+    // posle limita odbio, a ovde se testira attach grana.
+    const { token } = await asOwner.mutation(api.pageFiles.generateUploadUrl, {
+      pageId,
+    });
+    const storageId = await store("x", "image/png");
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 25; index += 1) {
+        const filler = await ctx.storage.store(
+          new Blob([`f${index}`], { type: "image/png" }),
+        );
+        await ctx.db.insert("pageFiles", {
+          startupId,
+          areaId,
+          pageId,
+          storageId: filler,
+          name: `f${index}.png`,
+          contentType: "image/png",
+          size: 4,
+          category: "image",
+          position: index,
+          uploadedByProfileId: owner.profileId,
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+    const result = await asOwner.mutation(api.pageFiles.attach, {
+      pageId,
+      storageId,
+      token,
+      name: "preko.png",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "limit" });
+    expect(
+      await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).toBeNull();
   });
 
   test("brisanje uklanja i blob i prenumeriše preostale", async () => {
@@ -257,8 +326,31 @@ describe("fajlovi u oblačiću", () => {
     ).rejects.toThrow("ne podržava fajlove");
   });
 
-  test("granica veličine je izražena u bajtovima na serveru", () => {
+  test("granica veličine zavisi od kategorije", () => {
     expect(MAX_PAGE_FILE_BYTES).toBe(50 * 1024 * 1024);
+    expect(MAX_PAGE_MEDIA_BYTES).toBe(200 * 1024 * 1024);
+    expect(maxPageFileBytesFor("video")).toBe(MAX_PAGE_MEDIA_BYTES);
+    expect(maxPageFileBytesFor("image")).toBe(MAX_PAGE_FILE_BYTES);
+    expect(maxPageFileBytesFor("document")).toBe(MAX_PAGE_FILE_BYTES);
+  });
+
+  test("kategorija pada na ekstenziju kad content-type nije prepoznat", () => {
+    expect(pageFileCategoryFor("text/rtf", "a.rtf")).toBe("document");
+    expect(pageFileCategoryFor("text/x-csv", "b.csv")).toBe("sheet");
+    expect(pageFileCategoryFor("application/octet-stream", "IMG_1.heic")).toBe(
+      "image",
+    );
+    expect(pageFileCategoryFor(undefined, "IMG_2.heif")).toBe("image");
+    expect(pageFileCategoryFor("", "video.mov")).toBe("video");
+    // Prepoznat content-type i dalje ima prednost nad ekstenzijom.
+    expect(pageFileCategoryFor("image/png", "cudno.mp4")).toBe("image");
+    // Nepoznat tip sa nepoznatom ekstenzijom se i dalje odbija.
+    expect(pageFileCategoryFor("application/x-msdownload", "virus.exe")).toBe(
+      null,
+    );
+    expect(pageFileCategoryFor("application/octet-stream", "bezimena")).toBe(
+      null,
+    );
   });
 });
 

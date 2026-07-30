@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -32,6 +34,8 @@ export type PageRelationItem<
   pageId: PageId;
   title: string;
   kind: PageRelationKind;
+  /** Naziv oblasti druge strane; `null` kad je u istoj oblasti kao stranica. */
+  areaLabel: string | null;
   canDelete: boolean;
   canRequestDeletion: boolean;
 };
@@ -40,6 +44,8 @@ export type PageRelationCandidate<PageId extends string = string> = {
   pageId: PageId;
   title: string;
   kind: PageRelationKind;
+  /** Naziv oblasti kandidata; `null` kad je u istoj oblasti kao stranica. */
+  areaLabel: string | null;
 };
 
 export type PageRelationsPanelProps<
@@ -78,9 +84,11 @@ function kindLabel(kind: PageRelationKind) {
 const RELATION_COPY = {
   accusative: "stavku",
   instrumental: "stavkom",
-  noneAvailable: "U ovoj oblasti trenutno nema dostupnih stavki.",
+  noneAvailable: "Trenutno nema dostupnih stavki za povezivanje.",
   allLinked: "Sve dostupne stavke su već povezane.",
 } as const;
+
+const SAME_AREA_GROUP_LABEL = "Ova oblast";
 
 function RelationKindIcon({ kind }: { kind: PageRelationKind }) {
   const meta = PAGE_KIND_META[kind];
@@ -151,10 +159,40 @@ export function PageRelationsPanel<
       candidates.filter((candidate) => !relatedPageIds.has(candidate.pageId)),
     [candidates, relatedPageIds],
   );
-  const visibleCandidates = allAvailableCandidates.slice(
-    0,
-    MAX_RELATION_CANDIDATES,
+  const visibleCandidates = useMemo(
+    () => allAvailableCandidates.slice(0, MAX_RELATION_CANDIDATES),
+    [allAvailableCandidates],
   );
+  // Grupisanje po oblasti: stavke iz oblasti otvorene stranice idu prve, a
+  // ostale grupe redosledom prvog pojavljivanja (kandidati stižu po skorašnjosti).
+  const candidateGroups = useMemo(() => {
+    const withLabels = visibleCandidates.map((candidate, index) => ({
+      candidate,
+      label: occurrenceLabel(candidate.title, index, visibleCandidates),
+    }));
+    const groups = new Map<
+      string,
+      {
+        heading: string;
+        items: typeof withLabels;
+      }
+    >();
+    for (const entry of withLabels) {
+      const heading = entry.candidate.areaLabel ?? SAME_AREA_GROUP_LABEL;
+      const group = groups.get(heading);
+      if (group) group.items.push(entry);
+      else groups.set(heading, { heading, items: [entry] });
+    }
+    const ordered = Array.from(groups.values());
+    ordered.sort((a, b) =>
+      a.heading === SAME_AREA_GROUP_LABEL
+        ? -1
+        : b.heading === SAME_AREA_GROUP_LABEL
+          ? 1
+          : 0,
+    );
+    return ordered;
+  }, [visibleCandidates]);
   const selectedCandidateIsAvailable = visibleCandidates.some(
     (candidate) => candidate.pageId === selectedCandidate,
   );
@@ -245,8 +283,8 @@ export function PageRelationsPanel<
               id={descriptionId}
               className="mt-1 text-xs leading-5 text-muted-foreground"
             >
-              {currentLabel} se povezuje samo sa {oppositeCopy.instrumental} iz
-              iste oblasti.
+              {currentLabel} se povezuje sa {oppositeCopy.instrumental} iz bilo
+              koje oblasti.
             </p>
           </div>
         </div>
@@ -306,8 +344,13 @@ export function PageRelationsPanel<
                       <span className="block truncate text-sm font-semibold text-foreground">
                         {label}
                       </span>
-                      <span className="mt-0.5 block text-[0.6875rem] text-muted-foreground">
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
                         {kindLabel(relation.kind)}
+                        {relation.areaLabel !== null ? (
+                          <span className="truncate rounded-full border border-border/65 bg-background/75 px-1.5 py-px font-medium">
+                            {relation.areaLabel}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                     <ArrowRight
@@ -380,22 +423,20 @@ export function PageRelationsPanel<
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {visibleCandidates.map((candidate, index) => {
-                    const label = occurrenceLabel(
-                      candidate.title,
-                      index,
-                      visibleCandidates,
-                    );
-                    return (
-                      <SelectItem
-                        key={candidate.pageId}
-                        value={candidate.pageId}
-                        className="min-h-11"
-                      >
-                        {kindLabel(candidate.kind)} — {label}
-                      </SelectItem>
-                    );
-                  })}
+                  {candidateGroups.map((group) => (
+                    <SelectGroup key={group.heading}>
+                      <SelectLabel>{group.heading}</SelectLabel>
+                      {group.items.map(({ candidate, label }) => (
+                        <SelectItem
+                          key={candidate.pageId}
+                          value={candidate.pageId}
+                          className="min-h-11"
+                        >
+                          {kindLabel(candidate.kind)} — {label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
                 </SelectContent>
               </Select>
               <Button

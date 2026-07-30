@@ -32,8 +32,9 @@ Jedini glavni posao svakog Area/page ekrana je:
 9. Odbijanje ne briše dete i ne menja mu postojeću lokaciju.
 10. Arhiviranje roditelja ne briše tuđi aktivni sadržaj; njegova direktna deca
     vraćaju se jedan nivo naviše.
-11. Beleška i zadatak iz iste oblasti mogu biti povezani relacijom bez promene
-    parenta, autora ili statusa odobrenja.
+11. Bilo koje dve stranice istog startupa — i iz različitih oblasti — mogu biti
+    povezane relacijom bez promene parenta, autora ili statusa odobrenja.
+    Relacija preživljava premeštanje jednog kraja u drugu oblast.
 
 ## 3. Navigacija
 
@@ -42,6 +43,9 @@ Preporučeni URL ugovor:
 - `/?view=area&areaId=<id>` — root kanvas oblasti;
 - `/?view=page&pageId=<id>` — kanvas taska ili beleške;
 - browser Back/Forward prati prethodno otvorene kanvase;
+- dugme „Nazad” u breadcrumb-u i taster `Esc` vode jedan nivo hijerarhije
+  naviše: na roditeljski oblačić, odnosno na koren oblasti; Esc pre toga
+  poštuje otvorene slojeve (dijalozi, meniji, selekcija na kanvasu);
 - nevažeći, arhiviran ili nedostupan ID vraća korisnika na pripadajuću oblast
   uz jasnu poruku.
 
@@ -232,11 +236,14 @@ startup approvals pregled.
 - `archivedAt`, `createdAt`, `updatedAt`
 - indeksi po oblasti/pair-u, oba endpointa i autoru
 
-Invariant: endpointi su aktivne stranice iste oblasti i različitog tipa
-(`note` ↔ `task`). Relacija ne menja `parentPageId`. Kada su obe kartice
-direktna deca trenutno otvorenog kanvasa, relacija se vidi kao isprekidana linija na
-kanvasu; u suprotnom je dostupna u odeljku **Povezane stavke** u detaljima obe
-stranice.
+Invariant: endpointi su aktivne stranice istog startupa, bilo koje vrste i iz
+bilo kojih oblasti; `pairKey` je jedinstven na nivou startupa, a `areaId` reda
+je samo kanvas-scope (oblast u kojoj red nastaje, odnosno ciljna oblast kada se
+oba kraja presele zajedno). Relacija ne menja `parentPageId`. Kada su obe
+kartice direktna deca trenutno otvorenog kanvasa, relacija se vidi kao
+isprekidana linija na kanvasu; u suprotnom je dostupna u odeljku **Povezane
+stavke** u detaljima obe stranice, sa oznakom oblasti druge strane kada se
+oblasti razlikuju.
 
 Na `pages` se tokom widen faze opciono dodaju:
 

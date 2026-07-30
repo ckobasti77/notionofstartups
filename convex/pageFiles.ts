@@ -8,8 +8,8 @@ import { requireStartupMember } from "./lib/auth";
 import {
   cleanPageFileName,
   listActivePageFiles,
-  MAX_PAGE_FILE_BYTES,
   MAX_PAGE_FILES,
+  maxPageFileBytesFor,
   pageFileCategoryFor,
   PRUNE_GRACE_MS,
   syncPageFileSummary,
@@ -17,7 +17,9 @@ import {
 import { requireVisiblePage } from "./lib/pages";
 import { pageFileCategoryValidator } from "./lib/validators";
 
-const UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000;
+// 30 min: veliki video na sporoj mobilnoj vezi ume da traje duže od 10 min,
+// a istekla dozvola je ranije trajno ostavljala blob bez reference.
+const UPLOAD_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 const pageFileValidator = v.object({
   _id: v.id("pageFiles"),
@@ -148,12 +150,29 @@ export const attach = mutation({
     token: v.string(),
     name: v.string(),
   },
-  returns: v.object({
-    fileId: v.id("pageFiles"),
-    name: v.string(),
-    size: v.number(),
-    category: pageFileCategoryValidator,
-  }),
+  // Neuspeh posle uspešnog POST-a se VRAĆA umesto da se baci: bačena mutacija
+  // se cela poništava, pa bi `storage.delete` odbačenog bloba bio poništen sa
+  // njom i blob bi trajno ostao bez reference. Povratna vrednost dozvoljava da
+  // brisanje bloba i odbijanje priloga prođu u istoj transakciji.
+  returns: v.union(
+    v.object({
+      ok: v.literal(true),
+      fileId: v.id("pageFiles"),
+      name: v.string(),
+      size: v.number(),
+      category: pageFileCategoryValidator,
+    }),
+    v.object({
+      ok: v.literal(false),
+      reason: v.union(
+        v.literal("expired"),
+        v.literal("unsupported"),
+        v.literal("too_large"),
+        v.literal("limit"),
+      ),
+      message: v.string(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
     assertOwner(page.createdByProfileId, profile._id);
@@ -164,39 +183,18 @@ export const attach = mutation({
       .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
       .unique();
     const now = Date.now();
+    // Bez dozvole ili sa tuđom dozvolom se baca: pozivalac nije dokazao da je
+    // blob njegov, pa se blob ne sme ni dirati.
     if (
       upload === null ||
       upload.profileId !== profile._id ||
-      upload.pageId !== page._id ||
-      upload.expiresAt <= now
+      upload.pageId !== page._id
     ) {
       throw new Error("Dozvola za slanje fajla nije ispravna ili je istekla.");
     }
 
-    // Metapodaci se čitaju sa servera; klijentu se ne veruje ni za tip ni za
-    // veličinu, jer o njima zavise i prikaz i granica potrošnje.
-    const metadata = await ctx.db.system.get("_storage", args.storageId);
-    if (metadata === null) throw new Error("Fajl nije pronađen.");
-    const name = cleanPageFileName(args.name);
-    const category = pageFileCategoryFor(metadata.contentType, name);
-    // Napomena: mutacija koja baci se cela poništava, pa se blob odbačenog
-    // fajla ne može obrisati u istoj transakciji — ostaje bez reference, isto
-    // kao kod avatara (`storage.setAvatar`). Klijent zato proverava tip i
-    // veličinu pre slanja, da se do ovde stigne samo u retkim slučajevima.
-    if (category === null) {
-      throw new Error(
-        `Ovaj tip fajla nije podržan${
-          metadata.contentType ? `: ${metadata.contentType}` : ""
-        }.`,
-      );
-    }
-    if (metadata.size > MAX_PAGE_FILE_BYTES) {
-      throw new Error(
-        `Fajl može imati najviše ${Math.round(
-          MAX_PAGE_FILE_BYTES / (1024 * 1024),
-        )} MB.`,
-      );
-    }
+    // Da tuđi ili već zakačen blob nikada ne bude obrisan, provera vlasništva
+    // ide pre svake grane koja briše.
     const existingOwner = await ctx.db
       .query("pageFiles")
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
@@ -205,9 +203,48 @@ export const attach = mutation({
       throw new Error("Ovaj fajl je već zakačen za neki oblačić.");
     }
 
+    const rejectStoredBlob = async (
+      reason: "expired" | "unsupported" | "too_large" | "limit",
+      message: string,
+    ) => {
+      await ctx.storage.delete(args.storageId);
+      await ctx.db.delete(upload._id);
+      return { ok: false as const, reason, message };
+    };
+
+    if (upload.expiresAt <= now) {
+      return await rejectStoredBlob(
+        "expired",
+        "Dozvola za slanje je istekla — pošalji fajl ponovo.",
+      );
+    }
+
+    // Metapodaci se čitaju sa servera; klijentu se ne veruje ni za tip ni za
+    // veličinu, jer o njima zavise i prikaz i granica potrošnje.
+    const metadata = await ctx.db.system.get("_storage", args.storageId);
+    if (metadata === null) throw new Error("Fajl nije pronađen.");
+    const name = cleanPageFileName(args.name);
+    const category = pageFileCategoryFor(metadata.contentType, name);
+    if (category === null) {
+      return await rejectStoredBlob(
+        "unsupported",
+        `Ovaj tip fajla nije podržan${
+          metadata.contentType ? `: ${metadata.contentType}` : ""
+        }.`,
+      );
+    }
+    const maxBytes = maxPageFileBytesFor(category);
+    if (metadata.size > maxBytes) {
+      return await rejectStoredBlob(
+        "too_large",
+        `Fajl može imati najviše ${Math.round(maxBytes / (1024 * 1024))} MB.`,
+      );
+    }
+
     const rows = await listActivePageFiles(ctx, page._id);
     if (rows.length >= MAX_PAGE_FILES) {
-      throw new Error(
+      return await rejectStoredBlob(
+        "limit",
         `Oblačić može imati najviše ${MAX_PAGE_FILES} fajlova.`,
       );
     }
@@ -238,7 +275,7 @@ export const attach = mutation({
       title: `Fajl je dodat u „${page.title}”`,
       detail: name,
     });
-    return { fileId, name, size: metadata.size, category };
+    return { ok: true as const, fileId, name, size: metadata.size, category };
   },
 });
 

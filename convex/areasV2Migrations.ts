@@ -1046,10 +1046,9 @@ export const verifyAreasV2 = internalQuery({
           ctx.db.get("pages", pageBId),
           ctx.db
             .query("pageRelations")
-            .withIndex("by_scope_pair_active", (q) =>
+            .withIndex("by_startupId_and_pairKey_and_archivedAt", (q) =>
               q
                 .eq("startupId", relation.startupId)
-                .eq("areaId", relation.areaId)
                 .eq("pairKey", relation.pairKey)
                 .eq("archivedAt", null),
             )
@@ -1060,12 +1059,10 @@ export const verifyAreasV2 = internalQuery({
           task === null ||
           note.archivedAt !== null ||
           task.archivedAt !== null ||
-          // Vrsta endpointa se namerno više ne proverava: relacija sada spaja
-          // bilo koje dve stranice iste oblasti.
+          // Vrsta i oblast endpointa se namerno ne proveravaju: relacija spaja
+          // bilo koje dve stranice istog startupa, i preko granica oblasti.
           note.startupId !== relation.startupId ||
           task.startupId !== relation.startupId ||
-          note.areaId !== relation.areaId ||
-          task.areaId !== relation.areaId ||
           relation.pairKey !== pairKey(note._id, task._id) ||
           duplicates.length !== 1
         ) {

@@ -138,3 +138,16 @@ export function pageArchiveFallbackRoute(page: {
     ? { kind: "area", areaId: page.areaId }
     : { kind: "page", pageId: page.parentPageId };
 }
+
+/**
+ * „Nazad” kroz hijerarhiju oblačića: jedan nivo naviše — roditeljski oblačić
+ * ako je stavka ugnežđena, inače koren njene oblasti. Ista putanja kao
+ * pageArchiveFallbackRoute, ali pod svojim imenom da izmena jedne semantike
+ * ne povuče drugu.
+ */
+export function pageBackRoute(page: {
+  areaId: Id<"startupAreas">;
+  parentPageId: Id<"pages"> | null;
+}): WorkspaceRoute {
+  return pageArchiveFallbackRoute(page);
+}

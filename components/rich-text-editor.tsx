@@ -16,6 +16,8 @@ import {
   Heading2,
   ImagePlus,
   Italic,
+  Link2,
+  Link2Off,
   List,
   ListChecks,
   ListOrdered,
@@ -34,6 +36,10 @@ import {
 import { toast } from "sonner";
 
 import { NoteFile } from "@/components/workspace/files/note-file-node";
+import {
+  NoteLinkDialog,
+  type NoteLinkDraft,
+} from "@/components/workspace/notes/note-link-dialog";
 import { NoteTableImportDialog } from "@/components/workspace/tables/note-table-import-dialog";
 import type { AttachedPageFile } from "@/lib/page-files";
 import { noteTableContent } from "@/lib/table-file";
@@ -94,8 +100,13 @@ export function RichTextEditor({
   // tokom rendera, a `react-hooks/refs` tu zabranjuje zatvaranje nad refom.
   const imageInputId = useId();
   const fileInputId = useId();
-  const [pendingUploads, setPendingUploads] = useState(0);
+  // `done`/`total` hrane brojač „Otpremanje n/m…”; paralelne serije se sabiraju.
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
   const [tableImportOpen, setTableImportOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  // Snimak preživljava zatvaranje: dok se dijalog gasi animacijom, sadržaj
+  // treba da ostane isti umesto da se isprazni.
+  const [linkDraft, setLinkDraft] = useState<NoteLinkDraft | null>(null);
 
   /**
    * Šalje fajlove redom i ubacuje `noteFile` blok po završetku svakog (v1 bez
@@ -106,31 +117,55 @@ export function RichTextEditor({
     const upload = attachmentsRef.current?.upload;
     if (upload === undefined || files.length === 0) return;
     let insertAt = dropPos;
-    for (const original of files) {
-      setPendingUploads((count) => count + 1);
-      try {
-        const attrs = await upload(withReadableName(original));
-        if (attrs === null) continue;
-        const currentEditor = editorRef.current;
-        if (currentEditor === null || currentEditor.isDestroyed) return;
-        const node = {
-          type: "noteFile",
-          attrs: {
-            fileId: attrs.fileId,
-            category: attrs.category,
-            name: attrs.name,
-            size: attrs.size,
-          },
-        };
-        if (insertAt !== undefined) {
-          const at = Math.min(insertAt, currentEditor.state.doc.content.size);
-          currentEditor.chain().focus().insertContentAt(at, node).run();
-          insertAt = at + 1;
-        } else {
-          currentEditor.chain().focus().insertContent(node).run();
+    setUploadProgress((progress) => ({
+      done: progress.done,
+      total: progress.total + files.length,
+    }));
+    let finishedCount = 0;
+    try {
+      for (const original of files) {
+        try {
+          const attrs = await upload(withReadableName(original));
+          if (attrs === null) continue;
+          const currentEditor = editorRef.current;
+          if (currentEditor === null || currentEditor.isDestroyed) return;
+          const node = {
+            type: "noteFile",
+            attrs: {
+              fileId: attrs.fileId,
+              category: attrs.category,
+              name: attrs.name,
+              size: attrs.size,
+            },
+          };
+          if (insertAt !== undefined) {
+            const at = Math.min(insertAt, currentEditor.state.doc.content.size);
+            currentEditor.chain().focus().insertContentAt(at, node).run();
+            insertAt = at + 1;
+          } else {
+            currentEditor.chain().focus().insertContent(node).run();
+          }
+        } finally {
+          finishedCount += 1;
+          setUploadProgress((progress) => {
+            const done = progress.done + 1;
+            return done >= progress.total
+              ? { done: 0, total: 0 }
+              : { done, total: progress.total };
+          });
         }
-      } finally {
-        setPendingUploads((count) => count - 1);
+      }
+    } finally {
+      // Rani izlaz (npr. uništen editor) ne sme da ostavi brojač zaglavljen:
+      // fajlovi koji nikada neće krenuti skidaju se sa total-a.
+      const skipped = files.length - finishedCount;
+      if (skipped > 0) {
+        setUploadProgress((progress) => {
+          const total = progress.total - skipped;
+          return progress.done >= total
+            ? { done: 0, total: 0 }
+            : { done: progress.done, total };
+        });
       }
     }
   }, []);
@@ -142,6 +177,10 @@ export function RichTextEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        // Podrazumevano `openOnClick` otvara adresu i u režimu uređivanja, pa
+        // klik na link ne bi mogao da postavi kursor u njega. Otvaranje ostaje
+        // na čitanju (pravi `<a>`) i na Ctrl/Cmd+klik iz `handleClick`.
+        link: { openOnClick: false },
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -155,6 +194,17 @@ export function RichTextEditor({
         class:
           "tiptap min-h-[42vh] w-full max-w-none px-1 pb-28 pt-4 text-[15px] leading-7 text-foreground outline-none sm:min-h-[52vh] sm:text-base",
         "aria-label": "Sadržaj stranice",
+      },
+      handleClick: (view, _pos, event) => {
+        // U režimu uređivanja klik samo pomera kursor (vidi `openOnClick`), pa
+        // Ctrl/Cmd+klik ostaje način da se link otvori bez izlaska iz beleške.
+        if (!view.editable || !(event.ctrlKey || event.metaKey)) return false;
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return false;
+        const href = target.closest("a")?.getAttribute("href");
+        if (href === null || href === undefined) return false;
+        window.open(href, "_blank", "noopener,noreferrer");
+        return true;
       },
       handleDrop: (view, event, _slice, moved) => {
         // `moved` je interno premeštanje postojećeg bloka — to radi ProseMirror.
@@ -221,6 +271,51 @@ export function RichTextEditor({
     return <div className="h-[42vh] animate-pulse rounded-2xl bg-muted/35" />;
   }
 
+  const linkActive = editor.isActive("link");
+
+  const openLinkDialog = () => {
+    // Kursor unutar postojećeg linka širi selekciju na celu adresu — dijalog
+    // tada menja ceo link, a ne samo reč pod kursorom.
+    editor.chain().focus().extendMarkRange("link").run();
+    const { from, to, empty } = editor.state.selection;
+    if (empty) {
+      toast.error("Prvo obeleži tekst koji treba da vodi na link.");
+      return;
+    }
+    const text = editor.state.doc.textBetween(from, to, " ").trim();
+    const href = (editor.getAttributes("link").href as string | undefined) ?? "";
+    setLinkDraft({
+      text: text.length > 60 ? `${text.slice(0, 60)}…` : text,
+      href,
+      input: href,
+    });
+    setLinkOpen(true);
+  };
+
+  /**
+   * Lanac izmene ide bez `focus()` u sebi: dok je dijalog otvoren Radix vraća
+   * fokus sebi, pa se kursor u tekst vraća tek kad React upiše zatvoreno stanje
+   * i zamka fokusa popusti (`onCloseAutoFocus` je isključen da fokus ne bi
+   * završio na toolbar dugmetu).
+   */
+  const restoreEditorFocus = () => {
+    setTimeout(() => {
+      if (!editor.isDestroyed) editor.commands.focus();
+    }, 0);
+  };
+
+  const applyLink = (href: string) => {
+    setLinkOpen(false);
+    editor.chain().extendMarkRange("link").setLink({ href }).run();
+    restoreEditorFocus();
+  };
+
+  const removeLink = () => {
+    setLinkOpen(false);
+    editor.chain().extendMarkRange("link").unsetLink().run();
+    restoreEditorFocus();
+  };
+
   const actions: Array<ToolbarAction | "separator"> = [
     {
       label: "Podebljano",
@@ -246,6 +341,23 @@ export function RichTextEditor({
       active: () => editor.isActive("code"),
       run: () => editor.chain().focus().toggleCode().run(),
     },
+    {
+      label: linkActive ? "Izmeni link" : "Dodaj link",
+      icon: Link2,
+      active: () => linkActive,
+      run: openLinkDialog,
+    },
+    // Brzo skidanje linka bez otvaranja dijaloga — kao kod alata za tabele,
+    // dugme se pojavljuje samo kad ima šta da ukloni.
+    ...(linkActive
+      ? [
+          {
+            label: "Ukloni link",
+            icon: Link2Off,
+            run: removeLink,
+          },
+        ]
+      : []),
     "separator",
     {
       label: "Naslov 1",
@@ -289,7 +401,7 @@ export function RichTextEditor({
   if (attachments !== undefined) {
     actions.push(
       {
-        label: "Dodaj sliku",
+        label: "Dodaj sliku ili video",
         icon: ImagePlus,
         run: () => document.getElementById(imageInputId)?.click(),
       },
@@ -413,15 +525,19 @@ export function RichTextEditor({
           <input
             id={imageInputId}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             multiple
             tabIndex={-1}
             className="sr-only"
-            aria-label="Izbor slika za belešku"
+            aria-label="Izbor slika i video snimaka za belešku"
             onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              void insertFiles(files);
+              // Input se prazni tek posle slanja: iOS Safari ume da poništi
+              // File handle ako se value obriše dok se sadržaj još čita.
+              const input = event.currentTarget;
+              const files = Array.from(input.files ?? []);
+              void insertFiles(files).finally(() => {
+                input.value = "";
+              });
             }}
           />
           <input
@@ -432,24 +548,40 @@ export function RichTextEditor({
             className="sr-only"
             aria-label="Izbor fajlova za belešku"
             onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              void insertFiles(files);
+              const input = event.currentTarget;
+              const files = Array.from(input.files ?? []);
+              void insertFiles(files).finally(() => {
+                input.value = "";
+              });
             }}
           />
         </>
       ) : null}
       <EditorContent editor={editor} />
-      {pendingUploads > 0 ? (
+      {uploadProgress.total > 0 ? (
         <div
           className="pointer-events-none absolute bottom-4 right-2 z-20 flex items-center gap-2 rounded-full border border-border/70 bg-background/95 px-3 py-1.5 text-xs font-semibold text-muted-foreground shadow-lg backdrop-blur"
           role="status"
           aria-live="polite"
         >
           <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-          Otpremanje…
+          {uploadProgress.total > 1
+            ? `Otpremanje ${Math.min(uploadProgress.done + 1, uploadProgress.total)}/${uploadProgress.total}…`
+            : "Otpremanje…"}
         </div>
       ) : null}
+      <NoteLinkDialog
+        open={linkOpen}
+        draft={linkDraft}
+        onInputChange={(input) =>
+          setLinkDraft((current) =>
+            current === null ? null : { ...current, input },
+          )
+        }
+        onClose={() => setLinkOpen(false)}
+        onSubmit={applyLink}
+        onRemove={removeLink}
+      />
       <NoteTableImportDialog
         open={tableImportOpen}
         onOpenChange={setTableImportOpen}

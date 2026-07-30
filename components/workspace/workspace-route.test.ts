@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   pageArchiveFallbackRoute,
+  pageBackRoute,
   readAreasRouteCandidate,
   readWorkspaceLocation,
   readWorkspaceRouteCandidate,
@@ -170,6 +171,21 @@ describe("workspace URL route contract", () => {
     ).toEqual({ kind: "page", pageId: "parent-1" });
     expect(
       pageArchiveFallbackRoute({
+        areaId: "area-1" as never,
+        parentPageId: null,
+      }),
+    ).toEqual({ kind: "area", areaId: "area-1" });
+  });
+
+  it("vraća se za jedan nivo hijerarhije: na roditeljski oblačić ili koren oblasti", () => {
+    expect(
+      pageBackRoute({
+        areaId: "area-1" as never,
+        parentPageId: "parent-1" as never,
+      }),
+    ).toEqual({ kind: "page", pageId: "parent-1" });
+    expect(
+      pageBackRoute({
         areaId: "area-1" as never,
         parentPageId: null,
       }),

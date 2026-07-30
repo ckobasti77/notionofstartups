@@ -1020,6 +1020,14 @@ export default defineSchema({
       "pairKey",
       "archivedAt",
     ])
+    // Jedinstvenost para je na nivou startupa otkako relacije smeju da spajaju
+    // stranice iz različitih oblasti; `by_scope_pair_active` ostaje zbog
+    // rollback-a aplikacije, kao i deprecated polja iznad.
+    .index("by_startupId_and_pairKey_and_archivedAt", [
+      "startupId",
+      "pairKey",
+      "archivedAt",
+    ])
     .index("by_notePageId_and_archivedAt", ["notePageId", "archivedAt"])
     .index("by_taskPageId_and_archivedAt", ["taskPageId", "archivedAt"])
     .index("by_pageAId_and_archivedAt", ["pageAId", "archivedAt"])

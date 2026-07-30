@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { AlignLeft, AlertTriangle, Archive, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, FolderOutput, Info, LayoutGrid, List, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
+import { AlignLeft, AlertTriangle, Archive, ArrowLeft, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, FolderOutput, Info, LayoutGrid, List, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -38,6 +38,7 @@ import {
   useNoteFileUpload,
 } from "@/components/workspace/files/note-attachments";
 import { PageFilesPanel } from "@/components/workspace/files/page-files-panel";
+import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
 import { PageTablePanel } from "@/components/workspace/tables/page-table-panel";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
 import { PageRelationsPanel } from "@/components/workspace/page-relations";
@@ -594,6 +595,30 @@ export function PageEditorView({
     return <EditorSkeleton presentation={presentation} />;
   }
   const pageArea = startup.areas.find((area) => area._id === page.areaId);
+  const areaLabelById = new Map(
+    startup.areas.map((area) => [area._id, area.label]),
+  );
+  const relationAreaLabel = (areaId: Id<"startupAreas">) =>
+    areaId === page.areaId
+      ? null
+      : (areaLabelById.get(areaId) ?? "Nepoznata oblast");
+  const canMoveToArea = page.permissions.canMove && startup.areas.length > 1;
+  // „Nazad” = jedan nivo hijerarhije naviše: roditeljski oblačić ako je
+  // stavka ugnežđena, inače koren njene oblasti. Isti cilj kao Esc prečica.
+  const parentCrumb =
+    breadcrumbs && breadcrumbs.length > 1
+      ? breadcrumbs[breadcrumbs.length - 2]
+      : null;
+  const backTargetLabel = page.parentPageId
+    ? `„${parentCrumb?.title?.trim() || "roditeljsku stavku"}”`
+    : (pageArea?.label ?? "oblast");
+  const goBack = () => {
+    if (page.parentPageId) onOpenPage(page.parentPageId);
+    else onOpenArea?.(page.areaId);
+  };
+  const showBack =
+    presentation !== "dialog" &&
+    (page.parentPageId !== null || Boolean(onOpenArea));
   const status = (page.taskStatus ?? "backlog") as TaskStatus;
   const priority = (page.taskPriority ?? "medium") as TaskPriority;
   const checkpointTotal = page.checkpointTotal ?? 0;
@@ -620,6 +645,16 @@ export function PageEditorView({
 
     return (
       <div className="mx-auto w-full max-w-7xl px-4 pt-2 sm:px-7 lg:px-10">
+        <PageBreadcrumbNav
+          className="mb-2"
+          startupName={startup.name}
+          areaLabel={pageArea?.label ?? "Oblast"}
+          breadcrumbs={breadcrumbs}
+          onOpenArea={onOpenArea ? () => onOpenArea(page.areaId) : undefined}
+          onOpenPage={onOpenPage}
+          onBack={showBack ? goBack : undefined}
+          backLabel={backTargetLabel}
+        />
         <article
           data-workspace-enter
           className="rounded-2xl border border-border/75 bg-card px-3 py-3 shadow-sm sm:px-4"
@@ -810,6 +845,16 @@ export function PageEditorView({
                   >
                     <Plus /> Nova podstranica
                   </DropdownMenuItem>
+                  {canMoveToArea ? (
+                    <MoveToAreaMenu
+                      asSubmenu
+                      startupId={startup._id}
+                      pageId={page._id}
+                      pageTitle={page.title}
+                      currentAreaId={page.areaId}
+                      areas={startup.areas}
+                    />
+                  ) : null}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={() => void archive()}>
                     <Archive />
@@ -908,6 +953,7 @@ export function PageEditorView({
                     pageId: relation.linkedPage.pageId,
                     title: relation.linkedPage.title,
                     kind: relation.linkedPage.kind,
+                    areaLabel: relationAreaLabel(relation.linkedPage.areaId),
                     canDelete: relation.canDelete,
                     canRequestDeletion: relation.canRequestDeletion,
                   }))}
@@ -916,6 +962,7 @@ export function PageEditorView({
                       pageId: candidate.pageId,
                       title: candidate.title,
                       kind: candidate.kind,
+                      areaLabel: relationAreaLabel(candidate.areaId),
                     }),
                   )}
                   candidatesTruncated={relationsResult?.candidatesTruncated ?? false}
@@ -949,22 +996,33 @@ export function PageEditorView({
                     </>
                   )}
                 </div>
-                {page.permissions.canDetach ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={detachBusy}
-                    onClick={detachFromParent}
-                  >
-                    {detachBusy ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <FolderOutput />
-                    )}
-                    Odvoji u oblast
-                  </Button>
-                ) : null}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {page.permissions.canDetach ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={detachBusy}
+                      onClick={detachFromParent}
+                    >
+                      {detachBusy ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <FolderOutput />
+                      )}
+                      Odvoji u oblast
+                    </Button>
+                  ) : null}
+                  {canMoveToArea ? (
+                    <MoveToAreaMenu
+                      startupId={startup._id}
+                      pageId={page._id}
+                      pageTitle={page.title}
+                      currentAreaId={page.areaId}
+                      areas={startup.areas}
+                    />
+                  ) : null}
+                </div>
               </footer>
             </div>
           </SheetContent>
@@ -982,42 +1040,16 @@ export function PageEditorView({
           : "px-4 pb-24 pt-4 sm:px-7 lg:px-10 lg:pt-6",
       )}
     >
-      <nav data-workspace-enter className="scrollbar-thin mb-5 flex min-h-9 items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-muted-foreground" aria-label="Putanja stranice">
-        <span className="font-semibold text-foreground">{startup.name}</span>
-        <ChevronRight className="size-3.5" />
-        <button
-          type="button"
-          className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground"
-          onClick={() => onOpenArea?.(page.areaId)}
-          disabled={!onOpenArea}
-        >
-          {pageArea?.label ?? "Oblast"}
-        </button>
-        {breadcrumbs?.map((item, index) => {
-          const isCurrent = index === breadcrumbs.length - 1;
-          return (
-            <span key={item._id} className="contents">
-              <ChevronRight className="size-3.5" />
-              {isCurrent ? (
-                <span
-                  className="max-w-48 truncate px-1 py-1 font-semibold text-foreground"
-                  aria-current="page"
-                >
-                  {item.title}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground"
-                  onClick={() => onOpenPage(item._id)}
-                >
-                  {item.title}
-                </button>
-              )}
-            </span>
-          );
-        })}
-      </nav>
+      <PageBreadcrumbNav
+        className="mb-5"
+        startupName={startup.name}
+        areaLabel={pageArea?.label ?? "Oblast"}
+        breadcrumbs={breadcrumbs}
+        onOpenArea={onOpenArea ? () => onOpenArea(page.areaId) : undefined}
+        onOpenPage={onOpenPage}
+        onBack={showBack ? goBack : undefined}
+        backLabel={backTargetLabel}
+      />
       <article
         data-workspace-enter
         className={cn(
@@ -1213,6 +1245,7 @@ export function PageEditorView({
                 pageId: relation.linkedPage.pageId,
                 title: relation.linkedPage.title,
                 kind: relation.linkedPage.kind,
+                areaLabel: relationAreaLabel(relation.linkedPage.areaId),
                 canDelete: relation.canDelete,
                 canRequestDeletion: relation.canRequestDeletion,
               }))}
@@ -1221,6 +1254,7 @@ export function PageEditorView({
                   pageId: candidate.pageId,
                   title: candidate.title,
                   kind: candidate.kind,
+                  areaLabel: relationAreaLabel(candidate.areaId),
                 }),
               )}
               candidatesTruncated={
@@ -1239,6 +1273,8 @@ export function PageEditorView({
           {/* Block-level Author Entries (Sadržaj sa autorstvom članova) */}
           <PageAuthorEntries page={page} />
         </div>
+        {/* Dijalog „Detalji stavke” ima sopstveni sticky footer u shell-u sa
+            istim akcijama — ovde bi bile duplirane. */}
         {presentation === "page" ? (
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1253,7 +1289,7 @@ export function PageEditorView({
                 </>
               )}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {page.permissions.canDetach ? (
                 <Button
                   type="button"
@@ -1269,6 +1305,15 @@ export function PageEditorView({
                   )}
                   Odvoji u oblast
                 </Button>
+              ) : null}
+              {canMoveToArea ? (
+                <MoveToAreaMenu
+                  startupId={startup._id}
+                  pageId={page._id}
+                  pageTitle={page.title}
+                  currentAreaId={page.areaId}
+                  areas={startup.areas}
+                />
               ) : null}
               <Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}>
                 <Plus /> Podstranica
@@ -1496,6 +1541,90 @@ function TaskDetailWidgets({
       />
 
     </div>
+  );
+}
+
+function PageBreadcrumbNav({
+  startupName,
+  areaLabel,
+  breadcrumbs,
+  onOpenArea,
+  onOpenPage,
+  onBack,
+  backLabel,
+  className,
+}: {
+  startupName: string;
+  areaLabel: string;
+  breadcrumbs: Array<{ _id: Id<"pages">; title: string }> | undefined;
+  onOpenArea?: () => void;
+  onOpenPage: (pageId: Id<"pages">) => void;
+  /** Bez vrednosti nema dugmeta (dialog prezentacija — tamo je Esc zatvaranje). */
+  onBack?: () => void;
+  backLabel?: string;
+  className?: string;
+}) {
+  const backTitle = `Nazad na ${backLabel ?? "prethodni nivo"}`;
+  return (
+    <nav
+      data-workspace-enter
+      className={cn(
+        "scrollbar-thin flex min-h-9 items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-muted-foreground",
+        className,
+      )}
+      aria-label="Putanja stranice"
+    >
+      {onBack ? (
+        // Nativni `title` umesto Radix Tooltip-a: otvoren tooltip je dismissable
+        // sloj koji bi pojeo prvi Esc pre navigacije unazad.
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="mr-1 size-8 shrink-0 rounded-lg"
+          aria-label={backTitle}
+          aria-keyshortcuts="Escape"
+          title={`${backTitle} (Esc)`}
+          onClick={onBack}
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+        </Button>
+      ) : null}
+      <span className="font-semibold text-foreground">{startupName}</span>
+      <ChevronRight className="size-3.5" />
+      <button
+        type="button"
+        className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground"
+        onClick={onOpenArea}
+        disabled={!onOpenArea}
+      >
+        {areaLabel}
+      </button>
+      {breadcrumbs?.map((item, index) => {
+        const isCurrent = index === breadcrumbs.length - 1;
+        return (
+          <span key={item._id} className="contents">
+            <ChevronRight className="size-3.5" />
+            {isCurrent ? (
+              <span
+                className="max-w-48 truncate px-1 py-1 font-semibold text-foreground"
+                aria-current="page"
+              >
+                {item.title}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="max-w-40 truncate rounded px-1 py-1 hover:bg-accent hover:text-foreground"
+                onClick={() => onOpenPage(item._id)}
+              >
+                {item.title}
+              </button>
+            )}
+          </span>
+        );
+      })}
+    </nav>
   );
 }
 

@@ -44,6 +44,10 @@ import {
   type NestingTargetOption,
 } from "@/components/workspace/nesting-target-menu";
 import { DetachPageButton } from "@/components/workspace/detach-page-button";
+import {
+  MoveToAreaMenu,
+  type MoveToAreaOption,
+} from "@/components/workspace/move-to-area-menu";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   classifyDeadline,
@@ -94,6 +98,8 @@ export type AreaFlowNode = Node<AreaCanvasNodeData, "areaPage">;
 
 const AreaNodeActionsContext = createContext<{
   startupId: Id<"startups">;
+  areaId: Id<"startupAreas">;
+  areas: MoveToAreaOption[];
   nestingCandidates: NestingTargetOption[];
   openCanvas: (pageId: Id<"pages">) => void;
   openDetails: (pageId: Id<"pages">) => void;
@@ -108,6 +114,8 @@ function stopToolbarEventPropagation(event: SyntheticEvent) {
 
 export function AreaNodeActionsProvider({
   startupId,
+  areaId,
+  areas,
   nestingCandidates,
   openCanvas,
   openDetails,
@@ -117,6 +125,8 @@ export function AreaNodeActionsProvider({
   children,
 }: {
   startupId: Id<"startups">;
+  areaId: Id<"startupAreas">;
+  areas: MoveToAreaOption[];
   nestingCandidates: NestingTargetOption[];
   openCanvas: (pageId: Id<"pages">) => void;
   openDetails: (pageId: Id<"pages">) => void;
@@ -129,6 +139,8 @@ export function AreaNodeActionsProvider({
     <AreaNodeActionsContext.Provider
       value={{
         startupId,
+        areaId,
+        areas,
         nestingCandidates,
         openCanvas,
         openDetails,
@@ -315,6 +327,17 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
                   candidates={actions.nestingCandidates.filter(
                     (candidate) => candidate.pageId !== pageId,
                   )}
+                  compact
+                />
+              ) : null}
+              {data.canMove && actions.areas.length > 1 ? (
+                <MoveToAreaMenu
+                  startupId={actions.startupId}
+                  pageId={pageId}
+                  pageTitle={title}
+                  currentAreaId={actions.areaId}
+                  areas={actions.areas}
+                  className="border-0 shadow-none"
                   compact
                 />
               ) : null}

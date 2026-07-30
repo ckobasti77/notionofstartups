@@ -22,7 +22,12 @@ import {
 } from "@/components/workspace/files/file-viewer-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { MAX_FILE_BYTES, MAX_FILES, uploadPageFile } from "@/lib/page-files";
+import {
+  MAX_FILE_BYTES,
+  MAX_FILES,
+  MAX_MEDIA_BYTES,
+  uploadPageFile,
+} from "@/lib/page-files";
 import {
   fileKindLabel,
   formatFileSize,
@@ -47,7 +52,8 @@ export function PageFilesPanel({
   const renameFile = useMutation(api.pageFiles.rename);
   const removeFile = useMutation(api.pageFiles.remove);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+  const uploading = uploadProgress.total > 0;
   const [dragActive, setDragActive] = useState(false);
   const [openFileId, setOpenFileId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<Id<"pageFiles"> | null>(null);
@@ -56,7 +62,10 @@ export function PageFilesPanel({
   async function uploadMany(selected: FileList | File[]) {
     const list = Array.from(selected);
     if (list.length === 0) return;
-    setUploading(true);
+    setUploadProgress((progress) => ({
+      done: progress.done,
+      total: progress.total + list.length,
+    }));
     let added = 0;
     try {
       for (const file of list) {
@@ -69,6 +78,13 @@ export function PageFilesPanel({
               ? `„${file.name}”: ${error.message}`
               : `„${file.name}” nije dodat.`,
           );
+        } finally {
+          setUploadProgress((progress) => {
+            const done = progress.done + 1;
+            return done >= progress.total
+              ? { done: 0, total: 0 }
+              : { done, total: progress.total };
+          });
         }
       }
       if (added > 0) {
@@ -77,7 +93,6 @@ export function PageFilesPanel({
         );
       }
     } finally {
-      setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
   }
@@ -131,7 +146,8 @@ export function PageFilesPanel({
           />
           <p className="text-sm text-muted-foreground">
             Prevuci fajlove ovde ili ih izaberi. Najviše {MAX_FILES} po oblačiću,{" "}
-            {Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB po fajlu.
+            {Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB po fajlu (
+            {Math.round(MAX_MEDIA_BYTES / (1024 * 1024))} MB za video).
           </p>
           <Button
             type="button"
@@ -145,7 +161,11 @@ export function PageFilesPanel({
             ) : (
               <Upload className="size-4" />
             )}
-            Dodaj fajlove
+            {uploading && uploadProgress.total > 1
+              ? `Otpremanje ${Math.min(uploadProgress.done + 1, uploadProgress.total)}/${uploadProgress.total}…`
+              : uploading
+                ? "Otpremanje…"
+                : "Dodaj fajlove"}
           </Button>
         </div>
       ) : null}

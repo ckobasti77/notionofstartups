@@ -1,6 +1,6 @@
 "use client";
 
-
+import { useState } from "react";
 import { ChevronLeft, ChevronRight, Download, FileQuestion } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,11 +28,31 @@ export type ViewableFile = {
 };
 
 function FileBody({ file }: { file: ViewableFile }) {
+  // Pregledač koji ne ume da dekodira medij (HEIC/HEVC van Safarija) sruši
+  // `<img>`/`<video>` — tada ostaje kartica sa preuzimanjem. Potpisani URL-ovi
+  // rotiraju; novi URL zaslužuje nov pokušaj, pa se stanje poravnava tokom
+  // rendera umesto kroz efekat.
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [failedForUrl, setFailedForUrl] = useState(file.url);
+  if (failedForUrl !== file.url) {
+    setFailedForUrl(file.url);
+    setPreviewFailed(false);
+  }
   if (file.url === null) {
     return (
       <p className="rounded-xl border border-dashed border-border/70 px-4 py-10 text-center text-sm text-muted-foreground">
         Fajl više nije dostupan u skladištu.
       </p>
+    );
+  }
+  if (previewFailed && (file.category === "image" || file.category === "video")) {
+    return (
+      <div className="grid place-items-center gap-3 rounded-xl border border-dashed border-border/70 px-4 py-12 text-center">
+        <FileQuestion className="size-8 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm text-muted-foreground">
+          Pregled nije podržan u ovom pregledaču. Preuzmi fajl da bi ga otvorio.
+        </p>
+      </div>
     );
   }
   if (file.category === "image") {
@@ -43,6 +63,7 @@ function FileBody({ file }: { file: ViewableFile }) {
       <img
         src={file.url}
         alt={file.name}
+        onError={() => setPreviewFailed(true)}
         className="mx-auto max-h-[70vh] w-auto max-w-full rounded-xl object-contain"
       />
     );
@@ -52,6 +73,7 @@ function FileBody({ file }: { file: ViewableFile }) {
       <video
         src={file.url}
         controls
+        onError={() => setPreviewFailed(true)}
         className="mx-auto max-h-[70vh] w-full rounded-xl bg-black"
       >
         <track kind="captions" />

@@ -97,6 +97,8 @@ export type AreaCanvasViewProps = {
   rootPageId: Id<"pages"> | null;
   canvasLabel: string;
   areaKey: string;
+  /** Sve oblasti startupa — hrani „Premesti u oblast” akciju na karticama. */
+  areas: Array<{ _id: Id<"startupAreas">; label: string }>;
   filter: AreaCanvasFilter;
   onFilterChange: (filter: AreaCanvasFilter) => void;
   onOpenCanvas: (pageId: Id<"pages">) => void;
@@ -258,6 +260,7 @@ function AreaCanvasBody({
   rootPageId,
   canvasLabel,
   areaKey,
+  areas,
   filter,
   onFilterChange,
   onOpenCanvas,
@@ -302,6 +305,7 @@ function AreaCanvasBody({
       rootPageId={rootPageId}
       canvasLabel={canvasLabel}
       areaKey={areaKey}
+      areas={areas}
       filter={filter}
       onFilterChange={onFilterChange}
       canvasData={canvasData}
@@ -325,6 +329,7 @@ function AreaCanvasReady({
   rootPageId,
   canvasLabel,
   areaKey,
+  areas,
   filter,
   onFilterChange,
   canvasData,
@@ -1752,6 +1757,8 @@ function AreaCanvasReady({
     >
       <AreaNodeActionsProvider
       startupId={startupId}
+      areaId={areaId}
+      areas={areas}
       nestingCandidates={canvasData.pages.map((page) => ({
         pageId: page._id,
         title: page.title,
@@ -1909,6 +1916,14 @@ function AreaCanvasReady({
               current.map((node) => ({ ...node, selected: true })),
             );
           } else if (event.key === "Escape") {
+            const hasSelection =
+              nodes.some((node) => node.selected) ||
+              edges.some((edge) => edge.selected);
+            // Bez selekcije Esc putuje dalje do globalne navigacije „nazad”.
+            // Potrošen Esc se označava sa preventDefault — to je ugovor koji
+            // globalni slušalac u PageWorkspaceView poštuje.
+            if (!hasSelection) return;
+            event.preventDefault();
             setNodes((current) =>
               current.map((node) => ({ ...node, selected: false })),
             );

@@ -905,6 +905,338 @@ describe("Areas V2 backend", () => {
     ]);
   });
 
+  test("relacija spaja stranice iz različitih oblasti i vidi se sa obe strane", async () => {
+    const { startupA, areaA1, areaA2, asActor, asMember } =
+      await seedAreasV2Workspace();
+    const actorNote = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Beleška u prvoj oblasti",
+    });
+    const memberTask = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "task",
+      title: "Zadatak u drugoj oblasti",
+    });
+    const relationId = await asActor.mutation(api.areasV2.createRelation, {
+      startupId: startupA,
+      pageAId: actorNote.pageId,
+      pageBId: memberTask.pageId,
+    });
+    await expect(
+      asActor.mutation(api.areasV2.createRelation, {
+        startupId: startupA,
+        pageAId: memberTask.pageId,
+        pageBId: actorNote.pageId,
+      }),
+    ).resolves.toBe(relationId);
+
+    const [fromNote, fromTask] = await Promise.all([
+      asActor.query(api.areasV2.listRelations, {
+        startupId: startupA,
+        pageId: actorNote.pageId,
+      }),
+      asMember.query(api.areasV2.listRelations, {
+        startupId: startupA,
+        pageId: memberTask.pageId,
+      }),
+    ]);
+    expect(fromNote.relations).toEqual([
+      expect.objectContaining({
+        _id: relationId,
+        linkedPage: expect.objectContaining({
+          pageId: memberTask.pageId,
+          areaId: areaA2,
+        }),
+      }),
+    ]);
+    expect(fromTask.relations).toEqual([
+      expect.objectContaining({
+        _id: relationId,
+        linkedPage: expect.objectContaining({
+          pageId: actorNote.pageId,
+          areaId: areaA1,
+        }),
+      }),
+    ]);
+
+    const candidateNote = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "note",
+      title: "Kandidat iz druge oblasti",
+    });
+    const listed = await asActor.query(api.areasV2.listRelations, {
+      startupId: startupA,
+      pageId: actorNote.pageId,
+    });
+    expect(listed.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          pageId: candidateNote.pageId,
+          areaId: areaA2,
+        }),
+      ]),
+    );
+
+    const memberNote = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Članova beleška",
+    });
+    await expect(
+      asActor.mutation(api.areasV2.createRelation, {
+        startupId: startupA,
+        pageAId: memberNote.pageId,
+        pageBId: memberTask.pageId,
+      }),
+    ).rejects.toThrow("samo sa svojom stranicom");
+  });
+
+  test("relacija preživljava premeštanje jednog kraja u drugu oblast", async () => {
+    const { t, startupA, areaA1, areaA2, asActor } =
+      await seedAreasV2Workspace();
+    const movingNote = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Seleća beleška",
+    });
+    const stayingTask = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "task",
+      title: "Zadatak koji ostaje",
+    });
+    const relationId = await asActor.mutation(api.areasV2.createRelation, {
+      startupId: startupA,
+      pageAId: movingNote.pageId,
+      pageBId: stayingTask.pageId,
+    });
+    const result = await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: movingNote.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: null,
+    });
+    expect(result.nestingStatus).toBe("none");
+    const relation = await t.run(async (ctx) =>
+      ctx.db.get("pageRelations", relationId),
+    );
+    expect(relation?.archivedAt).toBeNull();
+    expect(relation?.areaId).toBe(areaA1);
+    const [fromMoved, fromStaying] = await Promise.all([
+      asActor.query(api.areasV2.listRelations, {
+        startupId: startupA,
+        pageId: movingNote.pageId,
+      }),
+      asActor.query(api.areasV2.listRelations, {
+        startupId: startupA,
+        pageId: stayingTask.pageId,
+      }),
+    ]);
+    expect(fromMoved.relations).toEqual([
+      expect.objectContaining({
+        _id: relationId,
+        linkedPage: expect.objectContaining({
+          pageId: stayingTask.pageId,
+          areaId: areaA1,
+        }),
+      }),
+    ]);
+    expect(fromStaying.relations).toEqual([
+      expect.objectContaining({
+        _id: relationId,
+        linkedPage: expect.objectContaining({
+          pageId: movingNote.pageId,
+          areaId: areaA2,
+        }),
+      }),
+    ]);
+  });
+
+  test("relacija se ponovo vezuje za ciljnu oblast kad se krajevi ponovo nađu zajedno", async () => {
+    const { t, startupA, areaA1, areaA2, asActor } =
+      await seedAreasV2Workspace();
+    // Slučaj (a): cross-area relacija pa premeštanje kraja iz izvorne oblasti.
+    const noteA1 = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Beleška koja se seli ka zadatku",
+    });
+    const taskA2 = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "task",
+      title: "Zadatak koji čeka",
+    });
+    const crossRelationId = await asActor.mutation(api.areasV2.createRelation, {
+      startupId: startupA,
+      pageAId: noteA1.pageId,
+      pageBId: taskA2.pageId,
+    });
+    await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: noteA1.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: null,
+    });
+    const crossRelation = await t.run(async (ctx) =>
+      ctx.db.get("pageRelations", crossRelationId),
+    );
+    expect(crossRelation?.archivedAt).toBeNull();
+    // Oba kraja su sada u areaA2, pa se i kanvas-scope reda seli tamo — bez
+    // ovoga linija ne bi postojala ni na jednom kanvasu, a red bi zauvek
+    // trošio limit oblasti u kojoj nema nijedan kraj.
+    expect(crossRelation?.areaId).toBe(areaA2);
+
+    // Slučaj (b): dva odvojena premeštanja iz iste oblasti.
+    const firstNote = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Prvi putnik",
+    });
+    const secondNote = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Drugi putnik",
+    });
+    const pairRelationId = await asActor.mutation(api.areasV2.createRelation, {
+      startupId: startupA,
+      pageAId: firstNote.pageId,
+      pageBId: secondNote.pageId,
+    });
+    await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: firstNote.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: null,
+    });
+    const midMove = await t.run(async (ctx) =>
+      ctx.db.get("pageRelations", pairRelationId),
+    );
+    expect(midMove?.areaId).toBe(areaA1);
+    await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: secondNote.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: null,
+    });
+    const reunited = await t.run(async (ctx) =>
+      ctx.db.get("pageRelations", pairRelationId),
+    );
+    expect(reunited?.archivedAt).toBeNull();
+    expect(reunited?.areaId).toBe(areaA2);
+  });
+
+  test("relacija čija se oba kraja sele menja kanvas-scope na ciljnu oblast", async () => {
+    const { t, startupA, areaA1, areaA2, asActor } =
+      await seedAreasV2Workspace();
+    const root = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Koren grane",
+    });
+    const child = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: root.pageId,
+      kind: "task",
+      title: "Dete grane",
+    });
+    const relationId = await asActor.mutation(api.areasV2.createRelation, {
+      startupId: startupA,
+      pageAId: root.pageId,
+      pageBId: child.pageId,
+    });
+    await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: root.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: null,
+    });
+    const relation = await t.run(async (ctx) =>
+      ctx.db.get("pageRelations", relationId),
+    );
+    expect(relation?.archivedAt).toBeNull();
+    expect(relation?.areaId).toBe(areaA2);
+  });
+
+  test("limit relacija se meri po oblasti u kojoj red nastaje", async () => {
+    const { t, actor, startupA, areaA1, areaA2, asActor } =
+      await seedAreasV2Workspace();
+    const noteInFull = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Beleška u punoj oblasti",
+    });
+    const taskInFull = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "task",
+      title: "Zadatak u punoj oblasti",
+    });
+    const noteElsewhere = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "note",
+      title: "Beleška u slobodnoj oblasti",
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 400; index += 1) {
+        await ctx.db.insert("pageRelations", {
+          startupId: startupA,
+          areaId: areaA1,
+          notePageId: noteInFull.pageId,
+          taskPageId: taskInFull.pageId,
+          pairKey: `filler:${index}`,
+          label: null,
+          authorProfileId: actor.profileId,
+          archivedAt: null,
+          createdAt: now + index,
+          updatedAt: now + index,
+        });
+      }
+    });
+    await expect(
+      asActor.mutation(api.areasV2.createRelation, {
+        startupId: startupA,
+        pageAId: noteInFull.pageId,
+        pageBId: noteElsewhere.pageId,
+      }),
+    ).rejects.toThrow("najviše 400 relacija");
+    await expect(
+      asActor.mutation(api.areasV2.createRelation, {
+        startupId: startupA,
+        pageAId: noteElsewhere.pageId,
+        pageBId: taskInFull.pageId,
+      }),
+    ).resolves.toBeDefined();
+  });
+
   test("članovi dodaju potpisani kontekst u briefing oblasti", async () => {
     const {
       member,

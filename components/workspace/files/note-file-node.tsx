@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   mergeAttributes,
   Node,
@@ -78,13 +79,23 @@ function NoteFileView({ node, editor, deleteNode }: NodeViewProps) {
   const name = String(row?.name ?? node.attrs.name ?? "");
   const size = Number(row?.size ?? node.attrs.size ?? 0);
   const url = row?.url ?? null;
+  // Pregledač koji ne ume da dekodira medij (HEIC/HEVC van Safarija) sruši
+  // `<img>`/`<video>` — tada se prikazuje generička kartica sa preuzimanjem.
+  // Potpisani URL-ovi rotiraju; novi URL zaslužuje nov pokušaj prikaza, pa se
+  // stanje poravnava tokom rendera umesto kroz efekat.
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [failedForUrl, setFailedForUrl] = useState(url);
+  if (failedForUrl !== url) {
+    setFailedForUrl(url);
+    setPreviewFailed(false);
+  }
 
   let body: React.ReactNode;
   if (row === undefined && loading) {
     body = <div className="h-16 animate-pulse rounded-xl bg-muted/40" />;
   } else if (row === undefined) {
     body = <UnavailableCard name={name} />;
-  } else if (category === "image" && url !== null) {
+  } else if (category === "image" && url !== null && !previewFailed) {
     body = (
       <button
         type="button"
@@ -99,16 +110,18 @@ function NoteFileView({ node, editor, deleteNode }: NodeViewProps) {
           src={url}
           alt={name}
           loading="lazy"
+          onError={() => setPreviewFailed(true)}
           className="mx-auto max-h-[28rem] w-auto max-w-full rounded-xl border border-border/40 object-contain"
         />
       </button>
     );
-  } else if (category === "video" && url !== null) {
+  } else if (category === "video" && url !== null && !previewFailed) {
     body = (
       <video
         src={url}
         controls
         preload="metadata"
+        onError={() => setPreviewFailed(true)}
         className="mx-auto max-h-[28rem] w-full rounded-xl bg-black"
       >
         <track kind="captions" />
@@ -122,9 +135,8 @@ function NoteFileView({ node, editor, deleteNode }: NodeViewProps) {
       </div>
     );
   } else if (
-    category === "image" ||
-    category === "video" ||
-    category === "audio"
+    (category === "image" || category === "video" || category === "audio") &&
+    url === null
   ) {
     // Medij bez URL-a — blob je nestao iz skladišta.
     body = <UnavailableCard name={name} />;
@@ -141,7 +153,9 @@ function NoteFileView({ node, editor, deleteNode }: NodeViewProps) {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold">{name}</span>
           <span className="text-[0.6875rem] text-muted-foreground">
-            {fileKindLabel(category)} · {formatFileSize(size)}
+            {previewFailed
+              ? "Pregled nije podržan u ovom pregledaču."
+              : `${fileKindLabel(category)} · ${formatFileSize(size)}`}
           </span>
         </span>
         <button

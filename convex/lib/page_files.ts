@@ -5,6 +5,8 @@ type ReadCtx = QueryCtx | MutationCtx;
 
 export const MAX_PAGE_FILES = 25;
 export const MAX_PAGE_FILE_BYTES = 50 * 1024 * 1024;
+/** Video sme više od ostalih — telefonski snimci lako pređu 50 MB. */
+export const MAX_PAGE_MEDIA_BYTES = 200 * 1024 * 1024;
 export const MAX_PAGE_FILE_NAME_LENGTH = 200;
 /**
  * Prilog mlađi od ovoga se ne briše pri čišćenju beleške — autosave je mogao
@@ -53,6 +55,7 @@ const EXTENSION_CATEGORIES: Record<string, PageFileCategory> = {
   svg: "image",
   avif: "image",
   heic: "image",
+  heif: "image",
   mp4: "video",
   webm: "video",
   mov: "video",
@@ -77,11 +80,11 @@ const EXTENSION_CATEGORIES: Record<string, PageFileCategory> = {
 };
 
 /**
- * Kategorija se izvodi iz `contentType`, ne iz imena fajla — ime dolazi od
- * korisnika i ne sme da odlučuje kako se sadržaj prikazuje. Ekstenzija se gleda
- * samo kad `Content-Type` uopšte nije stigao (neki pregledači ga izostave za
- * .md, .csv i slične). Nepoznat tip se odbija umesto da se tiho svrsta u
- * „dokument”.
+ * Kategorija se izvodi iz `contentType`; on ima prednost kad je prepoznat.
+ * Ekstenzija odlučuje kad tip nije stigao ili ga ne prepoznajemo (iOS Files i
+ * neki pregledači šalju prazan tip, `text/rtf`, `text/x-csv` i slično), a mapa
+ * sadrži isključivo bezopasne ekstenzije. Nepoznat tip sa nepoznatom
+ * ekstenzijom se i dalje odbija umesto da se tiho svrsta u „dokument”.
  */
 export function pageFileCategoryFor(
   contentType: string | undefined,
@@ -95,10 +98,14 @@ export function pageFileCategoryFor(
     if (normalized.startsWith("audio/")) return "audio";
     if (SHEET_CONTENT_TYPES.has(normalized)) return "sheet";
     if (DOCUMENT_CONTENT_TYPES.has(normalized)) return "document";
-    return null;
   }
   const extension = fileName.split(".").pop()?.trim().toLowerCase() ?? "";
   return EXTENSION_CATEGORIES[extension] ?? null;
+}
+
+/** Granica veličine po kategoriji: mediji sa telefona dobijaju širu granicu. */
+export function maxPageFileBytesFor(category: PageFileCategory): number {
+  return category === "video" ? MAX_PAGE_MEDIA_BYTES : MAX_PAGE_FILE_BYTES;
 }
 
 /** Redosled prikaza priloga na kartici; slika prva jer ona nosi pregled. */

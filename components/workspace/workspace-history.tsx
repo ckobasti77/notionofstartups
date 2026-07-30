@@ -32,7 +32,7 @@ type WorkspaceHistoryValue = {
 
 const WorkspaceHistoryContext = createContext<WorkspaceHistoryValue | null>(null);
 
-function isEditableTarget(target: EventTarget | null) {
+export function isEditableTarget(target: EventTarget | null) {
   return (
     target instanceof HTMLElement &&
     Boolean(

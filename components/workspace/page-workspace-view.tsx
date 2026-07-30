@@ -17,7 +17,11 @@ import {
   PageEditorView,
   type PageEditorSaveState,
 } from "@/components/workspace/page-editor-view";
-import { pageArchiveFallbackRoute } from "@/components/workspace/workspace-route";
+import {
+  pageArchiveFallbackRoute,
+  pageBackRoute,
+} from "@/components/workspace/workspace-route";
+import { isEditableTarget } from "@/components/workspace/workspace-history";
 import type {
   CreatePageTarget,
   StartupWithAreas,
@@ -117,6 +121,33 @@ export function PageWorkspaceView({
       archiveFallbackRef.current = pageArchiveFallbackRoute(page);
     }
   }, [page]);
+
+  // Esc = „nazad” za jedan nivo hijerarhije, isto što i dugme u breadcrumb-u.
+  // Ugovor: svako ko potroši Escape (Radix slojevi, kanvas sa selekcijom,
+  // prekid prevlačenja misli) pozove event.preventDefault() pre nego što
+  // događaj stigne do window bubble faze, pa je defaultPrevented dovoljan čuvar.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.repeat) return;
+      if (event.defaultPrevented) return;
+      if (isEditableTarget(event.target)) return;
+      // React Flow ima sopstvenu Esc tastaturnu semantiku na fokusiranim
+      // čvorovima/ivicama (selektuj/odselektuj/blur) i NE zove preventDefault
+      // — Esc sa njih ne sme istovremeno i da navigira.
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".react-flow__node, .react-flow__edge") !== null
+      ) {
+        return;
+      }
+      if (!page) return;
+      const backRoute = pageBackRoute(page);
+      if (backRoute.kind === "page") onOpenCanvas(backRoute.pageId);
+      else if (backRoute.kind === "area") onOpenArea(backRoute.areaId);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [page, onOpenCanvas, onOpenArea]);
 
   return (
     <div className={page && supportsTaskData(page.kind) ? "pb-8" : "pb-24"}>
@@ -280,6 +311,7 @@ export function PageWorkspaceView({
               rootPageId={page._id}
               canvasLabel={page.title || "Stranica bez naslova"}
               areaKey={canvasArea?.key ?? "other"}
+              areas={startup.areas}
               filter={filter}
               onFilterChange={setFilter}
               onOpenCanvas={onOpenCanvas}

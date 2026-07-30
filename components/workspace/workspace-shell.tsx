@@ -27,6 +27,7 @@ import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
 import { HomeView } from "@/components/workspace/home-view";
 import { IdeasView } from "@/components/workspace/ideas-view";
+import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { CommandCenterView } from "@/components/workspace/command-center-view";
@@ -1018,6 +1019,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                   )}
                   Odvoji u oblast
                 </Button>
+              ) : null}
+              {detailPage?.permissions.canMove && startup.areas.length > 1 ? (
+                <MoveToAreaMenu
+                  startupId={startup._id}
+                  pageId={detailPage._id}
+                  pageTitle={detailPage.title}
+                  currentAreaId={detailPage.areaId}
+                  areas={startup.areas}
+                />
               ) : null}
               <Button
                 type="button"

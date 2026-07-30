@@ -416,6 +416,7 @@ export function AreaView({
             rootPageId={null}
             canvasLabel={currentArea.label}
             areaKey={currentArea.key}
+            areas={startup.areas}
             filter={filter}
             onFilterChange={setFilter}
             onOpenCanvas={onOpenCanvas}

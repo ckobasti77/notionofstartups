@@ -197,6 +197,7 @@ const relationPageValidator = v.object({
   title: v.string(),
   kind: pageKindValidator,
   parentPageId: rootPageIdValidator,
+  areaId: v.id("startupAreas"),
 });
 const listedRelationValidator = v.object({
   _id: v.id("pageRelations"),
@@ -1013,11 +1014,12 @@ async function cancelPendingRequestsForChild(
   }
 }
 
-async function archiveRelationsForPage(
+// Stranica može biti na bilo kojoj strani relacije, pa se čitaju oba para
+// indeksa — stari (note/task) i novi (A/B) — i rezultat se dedupira.
+async function listActiveRelationsTouchingPage(
   ctx: MutationCtx,
   pageId: Id<"pages">,
-  now: number,
-) {
+): Promise<Doc<"pageRelations">[]> {
   const [asNote, asTask, asA, asB] = await Promise.all([
     ctx.db
       .query("pageRelations")
@@ -1053,7 +1055,16 @@ async function archiveRelationsForPage(
   if (rows.size > MAX_RELATIONS_PER_AREA) {
     throw new Error("Stranica ima previše relacija za jednu atomsku radnju.");
   }
-  for (const relation of rows.values()) {
+  return Array.from(rows.values());
+}
+
+async function archiveRelationsForPage(
+  ctx: MutationCtx,
+  pageId: Id<"pages">,
+  now: number,
+) {
+  const rows = await listActiveRelationsTouchingPage(ctx, pageId);
+  for (const relation of rows) {
     await ctx.db.patch("pageRelations", relation._id, {
       archivedAt: now,
       updatedAt: now,
@@ -2763,12 +2774,13 @@ export const listRelations = query({
         relationBatches.flat().map((relation) => [relation._id, relation]),
       ).values(),
     );
+    // Vidljivost relacije je po stranici, ne po oblasti — relacija sme da
+    // spaja stranice iz različitih oblasti istog startupa.
     const scopedRelations = rawRelations
       .slice(0, MAX_RELATIONS_PER_AREA)
       .filter(
         (relation) =>
           relation.startupId === args.startupId &&
-          relation.areaId === page.areaId &&
           relationTouchesPage(relation, page._id),
       );
     const linkedPageIds = Array.from(
@@ -2797,8 +2809,7 @@ export const listRelations = query({
         linked === null ||
         linked === undefined ||
         linked.archivedAt !== null ||
-        linked.startupId !== args.startupId ||
-        linked.areaId !== page.areaId
+        linked.startupId !== args.startupId
       ) {
         continue;
       }
@@ -2811,25 +2822,25 @@ export const listRelations = query({
           title: linked.title,
           kind: linked.kind,
           parentPageId: linked.parentPageId,
+          areaId: linked.areaId,
         },
         canDelete: relation.authorProfileId === profile._id,
         canRequestDeletion: relation.authorProfileId !== profile._id,
       });
     }
-    // Veže se sve sa svim, pa su kandidati sve aktivne stranice oblasti bez
-    // obzira na vrstu — sem same stranice i onih koje su već povezane.
+    // Veže se sve sa svim, pa su kandidati sve aktivne stranice startupa bez
+    // obzira na vrstu i oblast — sem same stranice i onih koje su već
+    // povezane. Redosled po poslednjoj izmeni, najskorije prve.
     const rawCandidates = await ctx.db
       .query("pages")
-      .withIndex("by_startup_area_parent_active_position", (q) =>
-        q.eq("startupId", args.startupId).eq("areaId", page.areaId),
+      .withIndex("by_startupId_and_archivedAt_and_updatedAt", (q) =>
+        q.eq("startupId", args.startupId).eq("archivedAt", null),
       )
       .order("desc")
       .take(MAX_RELATION_CANDIDATES * 3 + 1);
     const validCandidates = [];
     for (const candidate of rawCandidates) {
       if (
-        candidate.startupId !== args.startupId ||
-        candidate.archivedAt !== null ||
         candidate._id === page._id ||
         linkedIds.has(candidate._id) ||
         (page.createdByProfileId !== profile._id &&
@@ -2842,6 +2853,7 @@ export const listRelations = query({
         title: candidate.title,
         kind: candidate.kind,
         parentPageId: candidate.parentPageId,
+        areaId: candidate.areaId,
       });
     }
     return {
@@ -2875,9 +2887,6 @@ export const createRelation = mutation({
         startupId: args.startupId,
       }),
     ]);
-    if (pageA.areaId !== pageB.areaId) {
-      throw new Error("Relacija može povezati stranice samo u istoj oblasti.");
-    }
     if (
       pageA.createdByProfileId !== profile._id &&
       pageB.createdByProfileId !== profile._id
@@ -2885,23 +2894,26 @@ export const createRelation = mutation({
       throw new Error("Relaciju možete praviti samo sa svojom stranicom.");
     }
     // Poredak endpointa je kanonski (isti `pairKey` bez obzira ko je izvor),
-    // pa duplikat u suprotnom smeru ne može da nastane.
+    // pa duplikat u suprotnom smeru ne može da nastane. Jedinstvenost para je
+    // na nivou startupa jer relacija sme da spaja stranice različitih oblasti.
     const [firstPage, secondPage] =
       pageA._id < pageB._id ? [pageA, pageB] : [pageB, pageA];
     const key = pairKey(firstPage._id, secondPage._id);
     const existing = await ctx.db
       .query("pageRelations")
-      .withIndex("by_scope_pair_active", (q) =>
+      .withIndex("by_startupId_and_pairKey_and_archivedAt", (q) =>
         q
           .eq("startupId", args.startupId)
-          .eq("areaId", pageA.areaId)
           .eq("pairKey", key)
           .eq("archivedAt", null),
       )
       .first();
-    if (existing !== null && existing.startupId === args.startupId) {
+    if (existing !== null) {
       return existing._id;
     }
+    // Limit ostaje po oblasti u kojoj red nastaje (oblast stranice A): on
+    // ograničava koliko `getCanvas` čita za jednu oblast, pa mora da prati
+    // `areaId` reda, a ne ukupan broj relacija startupa.
     const active = await ctx.db
       .query("pageRelations")
       .withIndex("by_startup_area_active_created", (q) =>
@@ -2911,10 +2923,7 @@ export const createRelation = mutation({
           .eq("archivedAt", null),
       )
       .take(MAX_RELATIONS_PER_AREA + 1);
-    if (
-      active.filter((relation) => relation.startupId === args.startupId)
-        .length >= MAX_RELATIONS_PER_AREA
-    ) {
+    if (active.length >= MAX_RELATIONS_PER_AREA) {
       throw new Error(
         `Oblast može imati najviše ${MAX_RELATIONS_PER_AREA} relacija.`,
       );
@@ -3488,62 +3497,66 @@ export async function movePageAcrossAreasWithSidecars(
     }
   }
 
-  const oldRelations = await ctx.db
-    .query("pageRelations")
-    .withIndex("by_startup_area_active_created", (q) =>
-      q
-        .eq("startupId", args.page.startupId)
-        .eq("areaId", args.page.areaId)
-        .eq("archivedAt", null),
-    )
-    .take(MAX_RELATIONS_PER_AREA + 1);
-  if (oldRelations.length > MAX_RELATIONS_PER_AREA) {
-    throw new Error("Izvorna oblast ima previše relacija za jednu radnju.");
-  }
-  const targetRelations = await ctx.db
-    .query("pageRelations")
-    .withIndex("by_startup_area_active_created", (q) =>
-      q
-        .eq("startupId", args.page.startupId)
-        .eq("areaId", args.targetAreaId)
-        .eq("archivedAt", null),
-    )
-    .take(MAX_RELATIONS_PER_AREA + 1);
-  if (targetRelations.length > MAX_RELATIONS_PER_AREA) {
-    throw new Error("Ciljna oblast već ima previše aktivnih relacija.");
-  }
-  const occupiedTargetRelationKeys = new Set(
-    targetRelations.map((relation) => relation.pairKey),
-  );
-  const relationMoves = new Map<
+  // Relacije prate stranice, ne oblast. Red menja `areaId` (kanvas-scope)
+  // samo kad se oba kraja sele zajedno; relacija čiji drugi kraj ostaje se ne
+  // dira — postaje relacija preko granica oblasti i vidi se sa obe strane.
+  const touchingRelations = new Map<
     Id<"pageRelations">,
-    "move" | "archive"
+    Doc<"pageRelations">
   >();
-  let addedTargetRelations = 0;
-  for (const relation of oldRelations) {
+  for (const moved of movedPages) {
+    const rows = await listActiveRelationsTouchingPage(ctx, moved._id);
+    for (const relation of rows) {
+      if (relation.startupId !== args.page.startupId) continue;
+      touchingRelations.set(relation._id, relation);
+    }
+    if (touchingRelations.size > MAX_RELATIONS_PER_AREA) {
+      throw new Error("Grana ima previše relacija za jednu radnju.");
+    }
+  }
+  const relationRescopes: Doc<"pageRelations">[] = [];
+  for (const relation of touchingRelations.values()) {
     const { pageAId, pageBId } = relationEndpoints(relation);
-    const noteMoves = movedIds.has(pageAId);
-    const taskMoves = movedIds.has(pageBId);
-    if (!noteMoves && !taskMoves) continue;
-    if (
-      !noteMoves ||
-      !taskMoves ||
-      occupiedTargetRelationKeys.has(relation.pairKey)
-    ) {
-      relationMoves.set(relation._id, "archive");
+    const aMoves = movedIds.has(pageAId);
+    const bMoves = movedIds.has(pageBId);
+    if (!aMoves && !bMoves) continue;
+    if (relation.areaId === args.targetAreaId) continue;
+    if (aMoves && bMoves) {
+      relationRescopes.push(relation);
       continue;
     }
-    occupiedTargetRelationKeys.add(relation.pairKey);
-    addedTargetRelations += 1;
-    relationMoves.set(relation._id, "move");
+    // Jedan kraj se seli: kanvas-scope se pomera samo kad drugi kraj VEĆ živi
+    // u ciljnoj oblasti — posle premeštanja su oba kraja u njoj, pa linija
+    // mora da se crta na njenom kanvasu. Bez ovoga bi red zauvek ostao vezan
+    // za oblast u kojoj više nema nijednog kraja (nevidljiva linija + zauzet
+    // limit stare oblasti), a dedup po pairKey bi sprečio ponovno kreiranje.
+    const otherEndpoint = await ctx.db.get("pages", aMoves ? pageBId : pageAId);
+    if (
+      otherEndpoint !== null &&
+      otherEndpoint.archivedAt === null &&
+      otherEndpoint.areaId === args.targetAreaId
+    ) {
+      relationRescopes.push(relation);
+    }
   }
-  if (
-    targetRelations.length + addedTargetRelations >
-    MAX_RELATIONS_PER_AREA
-  ) {
-    throw new Error(
-      `Ciljna oblast može imati najviše ${MAX_RELATIONS_PER_AREA} relacija.`,
-    );
+  if (relationRescopes.length > 0) {
+    const targetRelations = await ctx.db
+      .query("pageRelations")
+      .withIndex("by_startup_area_active_created", (q) =>
+        q
+          .eq("startupId", args.page.startupId)
+          .eq("areaId", args.targetAreaId)
+          .eq("archivedAt", null),
+      )
+      .take(MAX_RELATIONS_PER_AREA + 1);
+    if (
+      targetRelations.length + relationRescopes.length >
+      MAX_RELATIONS_PER_AREA
+    ) {
+      throw new Error(
+        `Ciljna oblast može imati najviše ${MAX_RELATIONS_PER_AREA} relacija.`,
+      );
+    }
   }
 
   const legacySourceEdges = await listActiveLegacyAreaEdges(
@@ -3586,16 +3599,7 @@ export async function movePageAcrossAreasWithSidecars(
       updatedAt: args.now,
     });
   }
-  for (const relation of oldRelations) {
-    const decision = relationMoves.get(relation._id);
-    if (decision === undefined) continue;
-    if (decision === "archive") {
-      await ctx.db.patch("pageRelations", relation._id, {
-        archivedAt: args.now,
-        updatedAt: args.now,
-      });
-      continue;
-    }
+  for (const relation of relationRescopes) {
     await ctx.db.patch("pageRelations", relation._id, {
       areaId: args.targetAreaId,
       updatedAt: args.now,
