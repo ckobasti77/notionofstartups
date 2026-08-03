@@ -240,7 +240,7 @@ function PageTreeNode({
         data-thought-page-id={page._id}
         data-thought-drop-label={page.title}
         className={cn(
-          "relative flex min-h-8 items-center rounded-lg text-muted-foreground transition-[background-color,color,box-shadow]",
+          "relative flex min-h-8 items-start rounded-lg text-muted-foreground transition-[background-color,color,box-shadow]",
           activeDropTarget && "bg-primary/12 text-sidebar-foreground ring-2 ring-inset ring-primary/55",
           selected
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -253,7 +253,7 @@ function PageTreeNode({
           data-compact="true"
           aria-label={expanded ? `Sakrij podstranice za ${page.title}` : `Prikaži podstranice za ${page.title}`}
           aria-expanded={expanded}
-          className="ml-1 grid size-7 shrink-0 place-items-center rounded-md hover:bg-background/65 focus-visible:ring-2 focus-visible:ring-ring"
+          className="ml-1 mt-0.5 grid size-7 shrink-0 place-items-center rounded-md hover:bg-background/65 focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => onPageExpandedChange(page._id, !expanded)}
         >
           <ChevronRight
@@ -262,11 +262,13 @@ function PageTreeNode({
         </button>
         <button
           type="button"
-          className="flex min-h-8 min-w-0 flex-1 items-center gap-2 pr-1 text-left text-[0.8125rem]"
+          className="flex min-h-8 min-w-0 flex-1 items-start gap-2 py-1.5 pr-1 text-left text-[0.8125rem]"
           onClick={() => onOpenPage(page._id)}
         >
-          <Icon className="size-3.5 shrink-0 opacity-75" />
-          <span className="truncate">{page.title}</span>
+          <Icon className="mt-0.5 size-3.5 shrink-0 opacity-75" />
+          <span className="min-w-0 flex-1 whitespace-normal break-words leading-5">
+            {page.title}
+          </span>
           {supportsTaskData(page.kind) ? (
             <DeadlineBadge
               dueDate={page.dueDate}
@@ -274,7 +276,7 @@ function PageTreeNode({
               size="sm"
               showIcon={false}
               calmHidden
-              className="shrink-0"
+              className="mt-0.5 shrink-0"
             />
           ) : null}
         </button>
@@ -283,7 +285,7 @@ function PageTreeNode({
           variant="ghost"
           size="icon"
           data-compact="true"
-          className="mr-0.5 size-7 shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 focus:opacity-100"
+          className="mr-0.5 mt-0.5 size-7 shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 focus:opacity-100"
           aria-label={`Dodaj podstranicu u ${page.title}`}
           onClick={() => onCreate({ areaId, parentPageId: page._id })}
         >

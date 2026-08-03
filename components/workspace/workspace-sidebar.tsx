@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -140,6 +140,22 @@ const DEFAULT_PRIMARY_PANE_HEIGHT = 412;
 const MIN_PRIMARY_PANE_HEIGHT = 96;
 const MIN_AREAS_PANE_HEIGHT = 128;
 const SIDEBAR_RESIZE_HANDLE_HEIGHT = 9;
+const DEFAULT_SIDEBAR_WIDTH = 296;
+const MIN_SIDEBAR_WIDTH = DEFAULT_SIDEBAR_WIDTH;
+const SIDEBAR_WIDTH_STEP = 24;
+
+function subscribeToViewportWidth(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+function getViewportWidth() {
+  return window.innerWidth;
+}
+
+function getServerViewportWidth() {
+  return 1024;
+}
 
 function SidebarButton({
   label,
@@ -921,14 +937,127 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   const compact = props.collapsed && !props.temporarilyExpanded;
+  const sidebarRef = useRef<HTMLElement>(null);
+  const resizeStartRef = useRef<{
+    pointerId: number;
+    pointerX: number;
+    sidebarWidth: number;
+  } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const viewportWidth = useSyncExternalStore(
+    subscribeToViewportWidth,
+    getViewportWidth,
+    getServerViewportWidth,
+  );
+  const maxSidebarWidth = Math.max(
+    DEFAULT_SIDEBAR_WIDTH,
+    Math.floor(viewportWidth / 2),
+  );
+  const renderedSidebarWidth = Math.min(
+    maxSidebarWidth,
+    Math.max(MIN_SIDEBAR_WIDTH, sidebarWidth),
+  );
+
+  function setClampedSidebarWidth(nextWidth: number) {
+    setSidebarWidth(
+      Math.min(maxSidebarWidth, Math.max(MIN_SIDEBAR_WIDTH, nextWidth)),
+    );
+  }
+
+  function finishSidebarResize(pointerId: number) {
+    if (resizeStartRef.current?.pointerId !== pointerId) return;
+    resizeStartRef.current = null;
+    setIsResizingSidebar(false);
+  }
+
   return (
     <aside
+      ref={sidebarRef}
+      data-sidebar-width={Math.round(renderedSidebarWidth)}
+      data-sidebar-width-resizing={isResizingSidebar || undefined}
       className={cn(
-        "hidden h-dvh shrink-0 overflow-visible border-r border-sidebar-border bg-sidebar transition-[width] duration-300 lg:block",
-        compact ? "w-[4.5rem]" : "w-[18.5rem]",
+        "relative hidden h-dvh shrink-0 overflow-visible border-r border-sidebar-border bg-sidebar transition-[width] duration-300 lg:block",
+        compact && "w-[4.5rem]",
+        isResizingSidebar && "select-none transition-none",
       )}
+      style={compact ? undefined : { width: renderedSidebarWidth }}
     >
       <SidebarContent {...props} />
+      {compact ? null : (
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-label="Promeni širinu bočne navigacije"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={maxSidebarWidth}
+          aria-valuenow={Math.round(renderedSidebarWidth)}
+          aria-valuetext={`${Math.round(renderedSidebarWidth)} piksela širine`}
+          data-sidebar-width-resizer
+          data-resizing={isResizingSidebar || undefined}
+          className="group absolute inset-y-0 -right-1 z-40 flex w-2 touch-none cursor-col-resize items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+          title="Prevuci levo ili desno da promeniš širinu"
+          onDoubleClick={() => setClampedSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+          onKeyDown={(event) => {
+            const currentWidth =
+              sidebarRef.current?.getBoundingClientRect().width ??
+              renderedSidebarWidth;
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              setClampedSidebarWidth(currentWidth - SIDEBAR_WIDTH_STEP);
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault();
+              setClampedSidebarWidth(currentWidth + SIDEBAR_WIDTH_STEP);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              setClampedSidebarWidth(MIN_SIDEBAR_WIDTH);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              setClampedSidebarWidth(maxSidebarWidth);
+            }
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const currentWidth =
+              sidebarRef.current?.getBoundingClientRect().width;
+            if (currentWidth === undefined) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            resizeStartRef.current = {
+              pointerId: event.pointerId,
+              pointerX: event.clientX,
+              sidebarWidth: currentWidth,
+            };
+            setIsResizingSidebar(true);
+          }}
+          onPointerMove={(event) => {
+            const resizeStart = resizeStartRef.current;
+            if (!resizeStart || resizeStart.pointerId !== event.pointerId)
+              return;
+            setClampedSidebarWidth(
+              resizeStart.sidebarWidth + event.clientX - resizeStart.pointerX,
+            );
+          }}
+          onPointerUp={(event) => {
+            finishSidebarResize(event.pointerId);
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          }}
+          onPointerCancel={(event) => finishSidebarResize(event.pointerId)}
+          onLostPointerCapture={(event) => finishSidebarResize(event.pointerId)}
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "h-full w-px bg-transparent transition-[width,background-color]",
+              "group-hover:w-0.5 group-hover:bg-primary/55 group-focus-visible:w-0.5 group-focus-visible:bg-primary/70",
+              isResizingSidebar && "w-0.5 bg-primary/75",
+            )}
+          />
+        </div>
+      )}
     </aside>
   );
 }
