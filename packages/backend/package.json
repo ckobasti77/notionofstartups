@@ -1,0 +1,21 @@
+{
+  "name": "@notion-clone/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "convex dev",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@auth/core": "0.41.3",
+    "@convex-dev/auth": "^0.0.94",
+    "@convex-dev/migrations": "^0.3.5",
+    "convex": "^1.42.3",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/web-push": "^3.6.4",
+    "convex-test": "^0.0.54",
+    "typescript": "^5"
+  }
+}

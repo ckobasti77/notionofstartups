@@ -1,7 +1,14 @@
+import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Monorepo: lockfile i packages/backend žive dva nivoa iznad apps/web.
+  outputFileTracingRoot: path.join(__dirname, "../.."),
+  experimental: {
+    // Dozvoli import fajlova van apps/web (packages/backend/convex/_generated).
+    externalDir: true,
+  },
   async headers() {
     return [
       {
