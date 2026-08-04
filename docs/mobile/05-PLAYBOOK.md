@@ -1,556 +1,442 @@
 # Playbook — promptovi, modeli, režimi
 
-> Korak po korak od prve komande do App Store-a. Za svaki korak: **koji model**,
+> Korak po korak, od Faze 1 do gotove aplikacije. Za svaki korak: **koji model**,
 > **koji effort**, **koji režim**, i **tačan prompt** za copy-paste.
 >
-> Promptovi su pisani da se oslanjaju na dokumente iz `docs/mobile/` — zato su
-> kratki. Claude pročita dokument i ima ceo kontekst, umesto da mu ga ti
-> prepričavaš svaki put.
+> **Verzija 2** — prepisano posle Faze 0. Izmene u odnosu na prvu verziju:
+> web paritet je sada obavezan, testiranje ide na Androidu, `/goal` mehanika
+> ispravljena, putanje usklađene sa stvarnim repoom.
 
 ---
 
-## DEO A — Kako se bira model, effort i režim
+## ⚠️ Pravilo koje gazi sve ostalo
 
-### A0. ⚡ Profil „bez štednje" — ovo gazi sve tabele ispod
+> **Jedan backend, dva klijenta. Ništa novo ne postoji samo na jednom.**
 
-Ako ti cena nije ograničenje, ne čitaj ostatak Dela A. Radi ovako:
+Od Faze 1 nadalje, svaka funkcija koja se može napraviti i na webu — **pravi se i
+na webu**. Chat, obaveštenja, sve. Convex funkcija se piše jednom i troši dvaput.
+
+Korak nije završen dok ne radi na oba mesta. Ako nešto tehnički ne može na web
+(custom zvuci, haptika, widget), to se **izričito zapisuje** kao izuzetak, ne
+prećutno preskače.
+
+Praktično, svaka faza ima tri grupe koraka:
+
+| Grupa | Šta | Gde |
+|---|---|---|
+| **Z** — Zajedničko | Schema, Convex funkcije, testovi, migracije | `packages/backend/` |
+| **M** — Mobilni | React Native ekrani | `apps/mobile/src/` |
+| **W** — Web | Next.js prikazi | `apps/web/` |
+
+---
+
+## Trenutno stanje
+
+| | |
+|---|---|
+| Monorepo | `apps/web` · `apps/mobile` · `packages/backend` ✅ |
+| Faza 0 | Gotova — tokeni, navigacija, auth, pet tabova ✅ |
+| Mobilne rute | `apps/mobile/src/app/` (**ne** `app/`) |
+| Testiranje | **Android** — dev build, besplatno |
+| iOS | Odloženo. Traži $99/god, odluka za kasnije |
+| Web rute | Client-side, `WorkspaceRoute` u `apps/web/components/workspace/types.ts` |
+
+---
+
+# DEO A — Model, effort, režim
+
+## A0. Profil „bez štednje" — ovo koristi
 
 ```
 /model          → izaberi Opus 4.8 iz liste (NE kucaj `opus`, taj alias vodi na Opus 5)
 /effort xhigh
 ```
 
-I to je to za 90% koraka. `xhigh` ostaje uključen kroz celu sesiju.
+To je 90% koraka. `xhigh` ostaje uključen kroz celu sesiju.
 
-**Kada dižeš na `max`** — samo četiri mesta u celom projektu, plus zaglavljivanje:
+**`max` samo ovde:**
 
 | Korak | Zašto |
 |---|---|
-| 0.1 Monorepo refaktor | Dira živi deploy |
 | 1.1 Chat schema | Skupo za menjanje kasnije |
-| 1.8 Kanali i zvuci | **Nepovratno** na Androidu |
+| 1.9 Kanali i zvuci | **Nepovratno** na Androidu |
 | 3.2 Editor prototip | Najteži tehnički deo |
 | Bilo šta zaglavljeno posle 2 pokušaja | Očigledno |
 
-**Kada spuštaš na `high`** — nikad, osim ako ti se ne čeka. `xhigh` je sladak
-spot; `max` na mehaničkom poslu te samo usporava.
+> **`max` svuda te čini sporijim, ne bržim.** Na mehaničkom poslu misli minut i
+> po duže za isti rezultat.
 
-> ⚠️ **`max` svuda te čini sporijim, ne bržim.** Rekao si da hoćeš što pre —
-> to je wall-clock, ne tokeni. Na prekucavanju JSX-a `max` misli minut i po
-> duže za isti rezultat. Novac ti ne fali, ali vreme fali.
+**`ultrathink`** je nešto drugo — reč u samom promptu, jednokratno dublje
+razmišljanje, ne menja podešavanje sesije.
 
-**Šta ostaje isto bez obzira na profil:** plan mode pre svakog većeg zahvata i
-`/clear` između koraka. To nisu mere štednje — to je da ti ne razvali repo i da
-kvalitet ne padne na trećem koraku.
-
-**Jedini izuzetak koji bih probao:** korak 0.1 (monorepo refaktor) pusti jednom
-na **Fable 5 / `max`**. Taj korak je tačno profil za koji je Fable pravljen —
-dugo istraživanje pre prve izmene, preko celog repoa. Ako ti se ne dopadne
-rezultat, `/rewind` i vrati se na 4.8. Košta te 20 minuta da saznaš.
-
----
-
-### A1. Modeli
-
-| Alias | Model | Kada |
-|---|---|---|
-| `fable` | Fable 5 | Najjači. Dugačke sesije, istraživanje pre akcije, teški refaktori |
-| `opus` | Opus 5 | Arhitektura, schema, nepovratne odluke, debug teških bagova |
-| `sonnet` | Sonnet 5 | **Radni konj.** Pisanje koda po odobrenom planu, UI, testovi |
-| `haiku` | Haiku 4.5 | Sitnice — preimenovanje, formatiranje, mehaničke izmene |
-| `opusplan` | Opus planira → Sonnet izvršava | **Za tebe najkorisniji.** Vidi A4 |
-| `sonnet[1m]` | Sonnet, 1M konteksta | Kad treba da pročita ceo `areasV2.ts` (120 KB) i još pola repoa |
-
-Menja se sa `/model`, ili `/model sonnet` direktno.
-
-### A2. Reasoning effort
-
-Nivoi: `low` · `medium` · `high` (podrazumevano) · `xhigh` · `max`
+## A1. Režimi (`Shift+Tab` ciklus)
 
 ```
-/effort high        # postavi za sesiju
-/effort             # otvori meni
+Manual  →  Accept Edits  →  Plan
 ```
 
-Trajno u `settings.json`: `"effortLevel": "high"`.
-
-| Effort | Kada |
+| Režim | Kada |
 |---|---|
-| `low` | Mehanički posao. Preimenuj, prevedi, formatiraj |
-| `medium` | Rutinski UI ekran po specifikaciji koja već postoji |
-| `high` | **Podrazumevano.** Skoro sve |
-| `xhigh` | Nepovratne odluke, schema, teški bagovi, monorepo refaktor |
-| `max` | Zaglavio si posle dva pokušaja. Skupo — nemoj kao default |
+| **Plan** | Pre svakog koraka koji dira više fajlova |
+| **Accept Edits** | Kad je plan odobren i samo se izvršava |
+| **Manual** | Kad prvi put diraš nešto osetljivo |
 
-**`ultrathink`** je nešto drugo: reč koju ubaciš u sam prompt za jednokratno
-dublje razmišljanje. Ne menja podešavanje sesije.
+## A2. `/goal` — pazi na mehaniku
 
-```
-ultrathink: zašto unread badge ostaje na 1 posle čitanja?
-```
+**`/goal` odmah kreće da radi, sa samim uslovom kao zadatkom. Nema drugog
+prompta posle njega.**
 
-### A3. Režimi dozvola (`Shift+Tab` ciklus)
+Zato: detaljan zadatak ide u fajl, a goal ga referencira.
 
 ```
-Manual  →  Accept Edits  →  Plan  →  (Bypass)  →  (Auto)
+/goal Uradi sve iz docs/mobile/zadaci/1-3-testovi.md. Gotovo je kad je SVE ispod
+tačno i pokazano u transkriptu:
+1. `npm run check` izvršen, kod 0.
+2. `npx vitest run packages/backend/convex/chat.test.ts` izvršen, svi prolaze,
+   nijedan skipped.
+...
+Popravljaj i pokreći ponovo dok ne prođe. NE spuštaj kriterijum i ne menjaj
+provere da bi prošle.
 ```
 
-| Režim | Šta radi | Kada |
-|---|---|---|
-| **Manual** | Pita za svaku akciju | Kad prvi put diraš nešto osetljivo |
-| **Accept Edits** | Automatski prihvata izmene fajlova | Kad je plan odobren i samo se izvršava |
-| **Plan** | **Ne dira fajlove.** Čita, istražuje, napiše plan, čeka odobrenje | Pre svakog većeg zahvata |
+Ograničenja:
 
-### A4. `opusplan` — zašto je baš za tvoj slučaj
-
-```
-/model opusplan
-```
-
-Opus razmišlja u plan modu, Sonnet piše kod kad odobriš plan. Dobiješ Opus
-kvalitet odluka po Sonnet ceni izvršenja. Za projekat od 15 nedelja to je
-ozbiljna razlika.
-
-**Ovo neka ti bude podrazumevani model kroz ceo projekat.** Prebacuj se na
-`opus` ili `fable` samo za korake gde ovaj dokument to izričito kaže.
-
-### A5. Plan mode vs `/goal` vs Ultraplan
-
-Tri različite stvari, često se brkaju:
-
-| | Šta radi | Kad |
-|---|---|---|
-| **Plan mode** | Istraži → napiše plan → **ti odobriš** → izvršava | Pre svake izmene koja dira više fajlova |
-| **`/goal`** | Radi u petlji **sam**, dok uslov ne bude ispunjen | „Dok `npm run check` ne prođe" |
-| **Ultraplan** | Planira u cloudu, ti komentarišeš plan u browseru | Veliki zahvati gde hoćeš da komentarišeš pojedine delove plana |
-
-**Uslov ide do 4000 znakova.** To je otprilike stranica i po teksta — dovoljno da
-napišeš celu listu prijema, ne samo jednu rečenicu. Iskoristi to: što je uslov
-precizniji, to evaluator manje improvizuje.
-
-Kratka verzija, za rutinske korake:
-
-```
-/goal npm run check izlazi sa kodom 0 i svi testovi u chat.test.ts su zeleni
-```
-
-Duga verzija, za korake gde stvarno hoćeš da te pusti da odeš od računara:
-
-```
-/goal Zadatak je gotov kad je SVE ispod tačno:
-
-1. `npm run check` izvršen i izlazi sa kodom 0 — bez TypeScript grešaka i bez
-   ESLint upozorenja.
-2. `npx vitest run packages/backend/convex/chat.test.ts` izvršen, svi testovi
-   prolaze, nijedan nije preskočen (skipped) ni označen kao todo.
-3. Test fajl pokriva svih šest scenarija: član ne može da čita tuđi DM; thread
-   nasleđuje dozvole od zadatka; unread se NE povećava autoru poruke;
-   markChannelRead nulira i unreadCount i mentionCount; openDirectMessage vraća
-   isti kanal bez obzira koji od dvoje korisnika ga prvi pozove; lazy thread se
-   pravi tek pri prvoj poruci, ne unapred.
-4. `npx convex dev --once` izvršen bez greške — schema se primenjuje čisto.
-5. Nijedna funkcija u chat.ts nije ostala bez `returns` validatora — provereno i
-   pokazano u transkriptu.
-
-Ako neki od ovih koraka ne prolazi, popravi kod i pokreni ponovo. Ne menjaj
-test da bi prošao — popravi implementaciju.
-```
-
-Poslednja rečenica je bitna. Bez nje petlja ume da „ispuni uslov" tako što
-oslabi test.
-
-### Kako se piše uslov koji radi
-
-Evaluator (Haiku) sudi **isključivo po onome što je Claude pokazao u
-transkriptu**. Ne pokreće komande sam, ne otvara fajlove.
+- Uslov ide do **4000 znakova** — zato zadatak u fajl
+- Evaluator sudi **samo po transkriptu** — piši „izvršeno i izlaz pokazan", ne „radi"
+- **Ne kucaj `/clear` dok je goal aktivan** — briše ga
+- Prekid: `Ctrl+C` ili `/goal clear`
 
 | ✅ Dokazivo | ❌ Nedokazivo |
 |---|---|
 | `npm run check izlazi sa kodom 0` | `kod je čist` |
-| `ekran je otvoren i screenshot priložen` | `UI izgleda dobro` |
 | `svih 6 testova prolazi, ispis priložen` | `pokriveni su ivični slučajevi` |
-| `git diff pokazuje izmene samo u apps/mobile` | `nije ništa pokvareno` |
+| `git diff --stat pokazan` | `nije ništa pokvareno` |
 
-Zato u uslov piši **„izvršeno i izlaz pokazan"**, ne samo „radi".
+## A3. Higijena
 
-Zaustavljanje: `/goal clear` ili `Ctrl+C`. Status: `/goal` bez argumenata.
+| Komanda | Kada |
+|---|---|
+| `/context` | Na svakih sat vremena |
+| `/compact` | Preko ~70%, a još si u istom koraku |
+| `/clear` | **Između koraka.** Nov korak = nova sesija |
+| `Esc` `Esc` → `/rewind` | Kad nešto pukne |
 
-> ⚠️ `/goal` + Accept Edits znači da Claude radi sam, u petlji, i menja fajlove
-> bez pitanja. Pusti to samo kad si na zasebnoj grani i kad postoji checkpoint.
-
-### A6. Zlatno pravilo
-
-> **Plan mode + Opus za odluku. Accept Edits + Sonnet za izvršenje.**
->
-> Nikad ne puštaj Sonnet da sam odlučuje o schemi.
-> Nikad ne plaćaj Opus da prekucava JSX po gotovoj specifikaciji.
+**Najvažnije pravilo:** `/clear` između koraka iz Dela C.
 
 ---
 
-## DEO B — Priprema (uradi jednom, pre svega)
+# DEO B — Priprema (jednom)
 
-### B1. Ažuriraj `CLAUDE.md`
-
-Tvoj `CLAUDE.md` već radi `@AGENTS.md`. Dodaj mobilni kontekst.
+## B1. Dopuni `CLAUDE.md`
 
 ```
-/model sonnet
-/effort medium
+/model Opus 4.8 · /effort xhigh · Accept Edits
 ```
 
-> Pročitaj `docs/mobile/00-PLAN.md`. Dopuni `CLAUDE.md` sekcijom „Mobilna
-> aplikacija" koja ukratko opisuje: da je backend deljen između `apps/web` i
-> `apps/mobile`, da se `convex/` nikad ne menja samo zbog mobilnog bez provere
-> da web i dalje radi, i da su detaljni planovi u `docs/mobile/`. Dodaj
-> `@docs/mobile/00-PLAN.md` import. Maksimum 20 redova — `CLAUDE.md` se učitava
-> u svaku sesiju, ne pretrpavaj ga.
-
-### B2. Pravila po tipu fajla
-
-```
-/model sonnet
-/effort medium
-```
-
-> Napravi `.claude/rules/mobile.md` sa `paths: ["apps/mobile/**"]` u
-> frontmatteru. Sadržaj: konvencije za React Native u ovom projektu — NativeWind
-> umesto Tailwind klasa direktno, `expo-router` file-based rute, `npx expo
-> install` umesto `npm install`, minimalna dodirna meta 44pt, obavezan safe
-> area, `react-native-reanimated` umesto Framer Motion. Kratko i konkretno.
+> Pročitaj `docs/mobile/00-PLAN.md` i `05-PLAYBOOK.md`. Dopuni `CLAUDE.md`
+> sekcijom „Mobilna aplikacija i web paritet", maksimum 20 redova:
 >
-> Napravi i `.claude/rules/convex.md` sa `paths: ["packages/backend/**"]` koji
-> podseća da se pre pisanja Convex koda čita
-> `convex/_generated/ai/guidelines.md`, da svaka funkcija ima `returns`
-> validator, i da provera pristupa uvek ide kroz `requireStartupMember`.
+> - Monorepo: `apps/web`, `apps/mobile`, `packages/backend`
+> - Backend je deljen — Convex funkcija se piše jednom, troši dvaput
+> - **Svaka nova funkcija od Faze 1 nadalje mora da postoji i na webu i na
+>   mobilnom.** Izuzeci se izričito zapisuju, ne prećutno preskaču
+> - Mobilne rute su u `apps/mobile/src/app/`
+> - Detaljni planovi u `docs/mobile/`
+>
+> Dodaj `@docs/mobile/00-PLAN.md` import.
 
-### B3. Subagenti
+## B2. Pravila po tipu fajla
 
-Napravi tri, u `.claude/agents/`. Ovo se isplati — svaki radi u svom kontekstu i
-ne troši tvoj glavni.
+> Napravi tri fajla u `.claude/rules/`:
+>
+> `mobile.md` sa `paths: ["apps/mobile/**"]` — NativeWind, expo-router,
+> `npx expo install` umesto `npm install`, dodirna meta 44pt, tekst min 16px,
+> obavezan safe area, `react-native-reanimated` umesto Framer Motion, nikad
+> web API-ji (`window`, `document`, `localStorage`).
+>
+> `web.md` sa `paths: ["apps/web/**"]` — postojeće shadcn/Radix konvencije,
+> `WorkspaceRoute` model rutiranja, Tailwind v4 tokeni iz `globals.css`.
+>
+> `convex.md` sa `paths: ["packages/backend/**"]` — pre pisanja pročitaj
+> `convex/_generated/ai/guidelines.md`, svaka funkcija ima `returns` validator,
+> pristup uvek kroz `requireStartupMember`, `.withIndex()` umesto `.filter()`.
 
-**`.claude/agents/convex-review.md`**
+## B3. Subagenti
+
+### ⚠️ Za Convex već imaš bolje — ne pravi svoj
+
+U `.claude/skills/` je instaliran Convex plugin sa 40-ak skillova. Ne pravi
+`convex-review` subagenta — koristi njih:
+
+| Umesto | Koristi | Kada |
+|---|---|---|
+| pregled sheme | `/convex-design` | Z1.1, Z1B.1 |
+| pregled koda | `/convex-reviewer` | posle svake backend izmene |
+| **provera dozvola** | `/convex-authz` | **Z1B.3 — obavezno** |
+| indeksi, N+1 | `/convex-performance-audit` | Z1.2, Z1B.3 |
+| migracije | `/convex-migrate` | Z1.4 |
+| testovi | `/convex-test` | Z1.3 |
+| pred deploy | `/convex-deploy-guard` | kraj svake faze |
+
+Gde god u Delu C piše `@convex-review`, čitaj kao `/convex-reviewer`
+(ili `/convex-authz` kad je reč o dozvolama).
+
+### Tri subagenta koja stvarno treba da napraviš
+
+Ovih nema nigde — napravi ih u `.claude/agents/`.
+
+**`rn-review.md`**
 
 ```markdown
 ---
-description: Proverava Convex funkcije pre commit-a — validatore, indekse, provere pristupa, N+1 čitanja. Koristi posle svake izmene u packages/backend/convex.
-model: opus
-effort: high
-tools: [Read, Grep, Glob, Bash]
----
-
-Ti si recenzent Convex koda za ovaj projekat.
-
-Za svaku izmenjenu funkciju proveri:
-1. Ima li `args` i `returns` validator
-2. Ide li provera pristupa kroz `requireStartupMember` / `requireProfile` /
-   `requireAdmin` iz `convex/lib/auth.ts`
-3. Koristi li `.withIndex()` umesto `.filter()` na velikim tabelama
-4. Postoji li odgovarajući indeks u `schema.ts`
-5. Ima li čitanja u petlji koja bi trebalo da budu jedan upit
-6. Poštuje li limite iz `convex/lib/validators.ts`
-
-Vrati listu nalaza, najozbiljniji prvi. Ako nema problema, reci to jasno.
-Ne menjaj kod — samo prijavi.
-```
-
-**`.claude/agents/rn-review.md`**
-
-```markdown
----
-description: Pregleda React Native ekrane — dodirne mete, safe area, tastatura, prazna stanja, pristupačnost. Koristi posle svakog novog mobilnog ekrana.
+description: Pregleda React Native ekrane — dodirne mete, safe area, tastatura, prazna stanja. Koristi posle svakog mobilnog ekrana.
 model: sonnet
 effort: high
 tools: [Read, Grep, Glob]
 ---
-
-Ti si recenzent React Native UI koda.
-
-Proveri:
-1. Dodirne mete minimum 44x44 pt
-2. Safe area gore i dole (notch, home indicator)
-3. `KeyboardAvoidingView` gde postoji unos teksta
-4. Prazno, učitavanje i greška — sva tri stanja
-5. Osnovni tekst minimum 16px
-6. `accessibilityLabel` na ikonicama bez teksta
-7. Da se poštuje `AccessibilityInfo.isReduceMotionEnabled`
-8. Da se ne koriste web-only API-ji (localStorage, window, document)
-
-Vrati konkretne nalaze sa brojem linije. Ne menjaj kod.
+Proveri: dodirne mete 44x44pt · safe area gore i dole ·
+`KeyboardAvoidingView` gde ima unosa · prazno/učitavanje/greška — sva tri ·
+tekst min 16px · `accessibilityLabel` na ikonicama · nema web API-ja.
+Vrati nalaze sa brojem linije. Ne menjaj kod.
 ```
 
-**`.claude/agents/mobile-planner.md`**
+**`web-review.md`**
 
 ```markdown
 ---
-description: Razbija fazu iz docs/mobile na konkretne korake pre implementacije. Koristi na početku svake nove faze.
-model: opus
-effort: xhigh
+description: Pregleda Next.js prikaze — pristupačnost, stanja, konzistentnost sa postojećim workspace komponentama. Koristi posle svakog web prikaza.
+model: sonnet
+effort: high
 tools: [Read, Grep, Glob]
 ---
-
-Pročitaj relevantne dokumente iz `docs/mobile/` i postojeći kod.
-
-Vrati plan implementacije: redosled fajlova, šta svaki radi, koje Convex
-funkcije zove, koji su rizici i šta se testira. Bez pisanja koda.
-
-Budi konkretan sa imenima fajlova i funkcija. Ako ti nešto u dokumentu nije
-jasno ili je u koliziji sa postojećim kodom, prijavi to umesto da pretpostaviš.
+Proveri: prati li postojeće obrasce iz `apps/web/components/workspace/` ·
+tastaturna navigacija i fokus · prazno/učitavanje/greška — sva tri ·
+kontrast i `aria-*` · koristi tokene iz `globals.css`, ne hardkodovane boje ·
+radi li u svetloj i tamnoj temi.
+Vrati nalaze sa brojem linije. Ne menjaj kod.
 ```
 
-Provera: `/agents` treba da ih prikaže sva tri.
+**`parity-check.md`** ⚠️ najvažniji
 
-### B4. Higijena duge sesije
+```markdown
+---
+description: Proverava da li funkcija postoji i na webu i na mobilnom. Koristi na kraju svake faze.
+model: opus
+effort: high
+tools: [Read, Grep, Glob]
+---
+Uporedi `apps/web` i `apps/mobile` za zadatu funkciju.
 
-| Komanda | Kada |
-|---|---|
-| `/context` | Na svakih sat vremena — vidiš koliko je konteksta zauzeto |
-| `/compact` | Kad `/context` pređe ~70%, a još si u istom zadatku |
-| `/clear` | **Između koraka.** Nov korak = nova sesija |
-| `Esc` `Esc` → `/rewind` | Kad nešto pukne — vrati kod i razgovor na checkpoint |
-| `/resume` | Vrati se na raniju sesiju |
+Za svaku Convex funkciju koju jedan klijent zove a drugi ne — prijavi.
+Za svaku radnju koju korisnik može na jednom a ne na drugom — prijavi.
 
-**Najvažnije pravilo cele sesije:** `/clear` između koraka iz Dela C. Svaki korak
-je zaseban zadatak. Ako ne čistiš, do trećeg koraka Claude vuče 100k tokena
-nebitnog konteksta i kvalitet pada.
+Za svaki nalaz reci jedno od:
+- PROPUST — može se napraviti, samo nije
+- IZUZETAK — tehnički nemoguće (navedi zašto)
+
+Vrati tabelu. Ne menjaj kod.
+```
 
 ---
 
-## DEO C — Korak po korak
+# DEO C — Faze
 
-Format svakog koraka:
+Format:
 
 ```
 ▸ Model · Effort · Režim
   Prompt
 ```
 
----
-
-## FAZA 0 — Temelj (1 nedelja)
-
-### 0.1 Monorepo refaktor ⚠️
-
-Najrizičniji korak u projektu — dira živi deploy. Zato Opus i `xhigh`.
-
-```
-/clear
-/model opus
-/effort xhigh
-Shift+Tab → Plan mode
-```
-
-> Pročitaj `docs/mobile/00-PLAN.md` sekciju 3.
->
-> Napravi plan za prelazak ovog repozitorijuma na npm workspaces monorepo:
-> Next.js aplikacija ide u `apps/web`, Convex backend u `packages/backend`,
-> priprema se prazan `apps/mobile`.
->
-> Plan mora da pokrije: sve `tsconfig.json` path aliase, `convex.json`,
-> `.github` workflow-e, `.vercel` konfiguraciju, `vitest.config.ts`, `next.config.ts`,
-> i `.claude/skills` ako referenciraju putanje. Posebno naglasi šta moram
-> **ručno** da promenim u Vercel dashboard-u i u Convex podešavanjima.
->
-> Ne menjaj ništa dok ne odobrim plan.
-
-Kad odobriš — pre izvršenja napravi granu:
-
-```bash
-git checkout -b monorepo-refactor
-```
-
-Posle izvršenja, verifikacija:
-
-```
-/goal npm run check prolazi bez greške, npx convex dev --once prolazi bez greške, i `npm run build` u apps/web uspešno završi
-```
-
-> ⚠️ Ne merge-uj dok ne testiraš pun deploy sa grane. Ako pukne — `/rewind`.
-
-### 0.2 Expo skelet
-
-```
-/clear
-/model sonnet
-/effort medium
-Shift+Tab Shift+Tab → Accept Edits
-```
-
-> Pročitaj `docs/mobile/01-SETUP-WINDOWS.md` korake 3–4.
->
-> Napravi Expo aplikaciju u `apps/mobile` sa expo-router i TypeScript-om.
-> Instaliraj pakete iz koraka 3 dokumenta, isključivo preko `npx expo install`.
-> Podesi NativeWind. Napravi `eas.json` tačno kao u koraku 5 dokumenta.
->
-> Postavi `app.json`: ime aplikacije, slug, bundle identifier
-> `com.PROMENI.notionclone`, ikona i splash placeholder.
->
-> Na kraju mi reci šta ja treba ručno da uradim (Expo nalog, `eas login`).
-
-### 0.3 Convex i auth na mobilnom
-
-```
-/clear
-/model opus
-/effort high
-Shift+Tab → Plan mode
-```
-
-> Pročitaj `docs/mobile/01-SETUP-WINDOWS.md` korak 8 i `packages/backend/convex/auth.ts`.
->
-> Napravi plan za povezivanje `apps/mobile` sa Convex-om: `ConvexReactClient`,
-> `ConvexAuthProvider` sa `expo-secure-store` kao skladištem, ekran prijave,
-> i deep link koji hvata pozivnicu (`invites.ts`) i vodi na registraciju.
->
-> Posebno mi objasni kako Convex Auth flow radi na React Native u odnosu na web
-> — gde je razlika i šta može da zezne.
-
-### 0.4 Dizajn tokeni
-
-```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
-```
-
-> Pročitaj `apps/web/app/globals.css` i `docs/mobile/02-EKRANI.md` sekciju 11.
->
-> Prenesi dizajn tokene u `apps/mobile`: `tailwind.config.js` sa istim bojama,
-> radijusima i tipografskom skalom, plus svetla i tamna tema. Napravi
-> `useColorScheme` hook koji podržava svetlo / tamno / sistemsko.
->
-> Napravi osnovne primitive u `apps/mobile/components/ui/`: Button, Card, Input,
-> Badge, Avatar, Skeleton — po uzoru na `apps/web/components/ui/`, ali native.
-
-### 0.5 Tab navigacija
-
-```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
-```
-
-> Pročitaj `docs/mobile/02-EKRANI.md` sekcije 2 i 3.
->
-> Napravi navigacionu strukturu sa expo-router: `(auth)` i `(app)` grupe, pet
-> tabova (Danas, Prostor, Chat, Obaveštenja, Više), header sa startup
-> switcher-om koji čita `startups.listForCurrent`.
->
-> Ekrani neka budu prazni placeholder-i sa naslovom. Cilj je da navigacija radi
-> i da se vidi lista mojih startupa.
-
-**✅ Faza 0 gotova kad:** uloguješ se na telefonu i vidiš svoje startupe.
+Posle svakog koraka: `/clear`.
 
 ---
 
-## FAZA 1 — Chat i notifikacije (3 nedelje)
+# KORAK 0 — Preimenovanje u Devotion
 
-### 1.1 Chat schema ⚠️
-
-Schema je skupa za menjanje kasnije. Zato `fable` i `xhigh`.
+> Uradi ovo **pre** Faze 1. Što više koda napišeš, to je preimenovanje skuplje.
 
 ```
-/clear
-/model fable
-/effort xhigh
-Shift+Tab → Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
-> Pročitaj `docs/mobile/04-CHAT.md` u celosti, pa `packages/backend/convex/schema.ts`.
+> Aplikacija se zove **Devotion**. Preimenuj je svuda u kodu.
 >
-> Napravi plan za dodavanje pet chat tabela. Pre nego što napišeš plan,
-> proveri da li se predloženi indeksi zaista poklapaju sa upitima iz sekcije 8
-> dokumenta, i da li denormalizacija u `chatChannels` pokriva listu razgovora
-> bez N+1 čitanja.
+> Napravi plan koji pokriva najmanje:
 >
-> Ako nađeš grešku ili propust u dokumentu — reci mi to umesto da ga slepo
-> slediš. Dokument je nacrt, ne zakon.
+> - `apps/mobile/app.json` — `name`, `slug`, `scheme`, `ios.bundleIdentifier`,
+>   `android.package`. Predloži mi identifikator pre nego što upišeš.
+> - `apps/web` — naslov u `app/layout.tsx`, metadata, `manifest`, favicon tekst
+> - Imena paketa: `@notion-clone/web` → `@devotion/web`,
+>   `@notion-clone/backend` → `@devotion/backend`, `mobile` → `@devotion/mobile`.
+>   Svi `package.json` fajlovi plus svaka `import` referenca.
+> - Root `package.json` — `name`
+> - `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/**`
+> - Sve korisniku vidljive niske u UI-ju gde piše staro ime
+>
+> Posle izmene pokreni `npm install` (imena workspace paketa su se promenila),
+> pa `npm run check`.
+>
+> Napravi grane pre nego što kreneš.
 
-Posle odobrenja i izvršenja:
+**Šta moraš ručno, van koda:**
+
+| Stavka | Kako |
+|---|---|
+| Ime foldera i git remote | Ti, ručno — ne diraj dok si usred posla |
+| Convex deployment | Ne može da se preimenuje; ime ostaje, nije vidljivo korisnicima |
+| Vercel projekat | Settings → General → Project Name |
+
+---
+
+# FAZA 1 — Chat i obaveštenja (3–4 nedelje)
+
+> Chat je jedina stvar koju desktop nema. Zato ide prvi — i zato ide **na oba
+> klijenta odjednom**.
+
+## Z1.1 — Chat schema ⚠️
 
 ```
-@convex-review proveri nove chat tabele i indekse
+/clear · Opus 4.8 · effort max · Plan mode
 ```
 
-### 1.2 Chat backend
+> Pročitaj `docs/mobile/04-CHAT.md` u celosti, pa
+> `packages/backend/convex/schema.ts`.
+>
+> Napravi plan za dodavanje pet chat tabela. Pre plana proveri da li se
+> predloženi indeksi zaista poklapaju sa upitima iz sekcije 8 dokumenta, i da li
+> denormalizacija u `chatChannels` pokriva listu razgovora bez N+1 čitanja.
+>
+> Imaj u vidu da će iste funkcije koristiti i web i mobilni klijent — ako neki
+> deo sheme to otežava, reci sad.
+>
+> Obrati posebnu pažnju na tri stvari iz dokumenta:
+> - `kind: "startup"` — opšti kanal, tačno jedan po startupu, implicitno
+>   članstvo, ne može da se napusti ni arhivira (sekcija 5b)
+> - `kind: "agent"` — priprema za AI agenta, vidi `docs/mobile/06-AGENT.md`
+> - `sourceMessageId` polje na `pages`, `ideaNodes` i `thoughtNodes` — veza
+>   nazad ka poruci iz koje je entitet nastao (sekcija 5c)
+>
+> Ako nađeš grešku ili propust u dokumentu — reci mi umesto da ga slepo slediš.
+> Dokument je nacrt, ne zakon.
+
+Posle: `@convex-review proveri nove chat tabele i indekse`
+
+## Z1.2 — Chat backend
 
 ```
-/clear
-/model opusplan
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/04-CHAT.md` sekcije 3–8.
 >
-> Implementiraj `packages/backend/convex/chat.ts`: upite `listChannels`,
-> `messages`, `channelForAnchor`, `unreadSummary`, i mutacije `sendMessage`,
-> `sendToAnchor`, `markChannelRead`, `openDirectMessage`, `toggleReaction`.
+> Implementiraj `packages/backend/convex/chat.ts`: upiti `listChannels`,
+> `messages`, `channelForAnchor`, `unreadSummary`, `listDirectMessages`,
+> `listFollowedThreads`; mutacije `sendMessage`, `sendToAnchor`,
+> `markChannelRead`, `openDirectMessage`, `toggleReaction`, `editMessage`,
+> `deleteMessage`, `setNotificationLevel`.
 >
 > Kritično: `requireChannelAccess` iz sekcije 3, lazy kreiranje threada iz
-> sekcije 4, i inkrementalni unread iz sekcije 5. Ne izmišljaj drugi model
+> sekcije 4, inkrementalni unread iz sekcije 5. Ne izmišljaj drugi model
 > dozvola — sve ide kroz postojeći `requireStartupMember`.
-
-### 1.3 Testovi za chat
-
-```
-/clear
-/model sonnet
-/effort high
-Accept Edits
-```
-
-> Pogledaj kako su pisani `packages/backend/convex/tasks.test.ts` i
-> `notifications.test.ts`, pa napiši `chat.test.ts` u istom stilu.
 >
-> Pokrij: član ne može da čita tuđi DM, thread nasleđuje dozvole od zadatka,
-> unread se ne povećava autoru, `markChannelRead` nulira brojač,
-> `openDirectMessage` vraća isti kanal bez obzira ko ga zove prvi, lazy thread
-> se pravi tek pri prvoj poruci.
+> Funkcije moraju biti klijent-neutralne. Bez pretpostavki o platformi.
+
+## Z1.3 — Testovi
 
 ```
-/goal svi testovi u packages/backend/convex/chat.test.ts prolaze i npm run check izlazi bez greške
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-### 1.4 Migracija kanala
+Prvo napiši zadatak u fajl:
+
+> Napravi `docs/mobile/zadaci/1-3-testovi.md` sa specifikacijom testova za chat,
+> po uzoru na postojeće `tasks.test.ts` i `notifications.test.ts`. Pokrij:
+> član ne može da čita tuđi DM · thread nasleđuje dozvole od zadatka ·
+> unread se ne povećava autoru · `markChannelRead` nulira oba brojača ·
+> `openDirectMessage` vraća isti kanal bez obzira ko zove prvi ·
+> lazy thread se pravi tek pri prvoj poruci · `dedupeKey` sprečava dupli push.
+
+Pa pokreni petlju:
 
 ```
-/clear
-/model sonnet
-/effort high
-Plan mode
+/goal Uradi sve iz docs/mobile/zadaci/1-3-testovi.md. Gotovo je kad je SVE ispod tačno i pokazano u transkriptu:
+1. `npx vitest run packages/backend/convex/chat.test.ts` izvršen, svi testovi prolaze, nijedan nije skipped ni todo.
+2. `npm run check` izvršen iz roota, izlazi sa kodom 0.
+3. Svih sedam scenarija iz specifikacije ima svoj test.
+4. `git status` pokazan i čist.
+Popravljaj i pokreći ponovo dok ne prođe. NE menjaj test da bi prošao — popravi implementaciju. Ako te blokira nešto što ne možeš sam, upiši BLOKADA u docs/mobile/zadaci/1-3-izvestaj.md, commit-uj, i tek onda je uslov ispunjen.
+```
+
+## Z1.4 — Migracija kanala
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/04-CHAT.md` sekciju 9 i postojeće migracije u
 > `packages/backend/convex/migrations.ts`.
 >
 > Napiši migraciju koja za svaki aktivan startup pravi kanal po oblasti i
-> `chatReads` red za svakog člana. Idempotentna — ponovno pokretanje ne sme da
-> napravi duplikate.
+> `chatReads` red za svakog člana. Idempotentna — ponovno pokretanje ne pravi
+> duplikate. Bez sistemskih poruka dobrodošlice.
 
-### 1.5 Lista razgovora
+## W1.5 — Web: chat prikaz ⚠️ novo
 
 ```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `apps/web/components/workspace/types.ts`, `workspace-route.ts`,
+> `workspace-shell.tsx` i `workspace-sidebar.tsx` da razumeš kako web rutiranje
+> i prikazi rade.
+>
+> Napravi plan za chat na webu:
+>
+> 1. Dodaj `{ kind: "chat"; channelId?: Id<"chatChannels"> }` u `WorkspaceRoute`
+> 2. Proširi `readWorkspaceRouteCandidate` i `workspaceRouteHref` za `view=chat`
+> 3. Stavku „Chat" u `workspace-sidebar.tsx` sa unread badge-om
+> 4. `chat-view.tsx` — dvokolonski raspored: lista kanala levo, razgovor desno
+> 5. Poruke, reakcije, odgovori, pominjanja, prilozi
+>
+> Prati postojeće obrasce — isti shadcn primitivi, isti tokeni, ista logika
+> praznih stanja kao ostali prikazi. Neka izgleda kao deo aplikacije, ne kao
+> nakalemljen chat.
+
+Posle: `@web-review pregledaj chat-view`
+
+## W1.6 — Web: threadovi na entitetima
+
+```
+/clear · Opus 4.8 · effort xhigh · Accept Edits
+```
+
+> Poveži chat threadove sa entitetima na webu.
+>
+> U `page-editor-view.tsx` i `page-workspace-view.tsx` dodaj panel „Diskusija"
+> koji zove `chat.channelForAnchor` i, ako kanala nema, prvom porukom ga pravi
+> preko `sendToAnchor`.
+>
+> Isto za ideje u `ideas-view.tsx` i `idea-discussion-dialog.tsx` — ako već
+> postoji diskusija na idejama, razmisli da li da se zameni chat threadom ili
+> ostavi paralelno. Reci mi šta predlažeš pre nego što uradiš.
+
+## M1.7 — Mobilni: lista razgovora
+
+```
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
 > Pročitaj `docs/mobile/02-EKRANI.md` sekciju 6.
 >
-> Napravi Chat tab: tri segmenta (Kanali / Direktne / Praćeno), lista sa
-> poslednjom porukom, vremenom i unread badge-om. Podaci iz `chat.listChannels`
-> i `chat.listDirectMessages`.
+> Napravi Chat tab u `apps/mobile/src/app/(app)/(tabs)/chat.tsx`: tri segmenta
+> (Kanali / Direktne / Praćeno), lista sa poslednjom porukom, vremenom i unread
+> badge-om. Podaci iz `chat.listChannels` i `chat.listDirectMessages`.
 
-### 1.6 Ekran razgovora
+## M1.8 — Mobilni: ekran razgovora
 
 ```
-/clear
-/model sonnet
-/effort high
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/02-EKRANI.md` sekciju 6 i `04-CHAT.md` sekciju 7.
@@ -561,19 +447,39 @@ Accept Edits
 >
 > Za threadove header nosi kontekst entiteta i vodi na njega.
 >
-> Obrati pažnju na tastaturu — unos mora da ostane vidljiv.
+> Pazi na tastaturu — unos mora da ostane vidljiv.
+
+Posle: `@rn-review pregledaj ekran razgovora`
+
+## Z1.8b — Pretvaranje poruke u entitet ⚠️ novo
 
 ```
-@rn-review pregledaj ekran razgovora
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
-### 1.7 Expo push infrastruktura
+> Pročitaj `docs/mobile/04-CHAT.md` sekciju 5c.
+>
+> Implementiraj `chat.convertMessage` — poruka postaje zadatak, ideja, misao ili
+> beleška.
+>
+> **Kritično: konverzija ide kroz postojeće putanje kreiranja**
+> (`pages.create`, `ideas.create`, `thoughts.create`), ne kroz nov kod. Time
+> validacija, dozvole, aktivnost i obaveštenja rade automatski. Ako primetiš da
+> neka putanja ne prima potrebne argumente, reci mi pre nego što je zaobiđeš.
+>
+> Uključi: prenos priloga, izvođenje naslova iz prvog reda, sistemsku poruku sa
+> linkom u kanalu, `sourceMessageId` na kreiranom entitetu, i mogućnost da se
+> ista poruka pretvori više puta.
+>
+> **Web:** kontekstni meni na poruci → „Pretvori u…". Iskoristi postojeći
+> obrazac iz `thought-conversion-dialog.tsx` i `thought-destination-picker.tsx`.
+>
+> **Mobilni:** long-press → isti izbor kroz bottom sheet.
+
+## Z1.9 — Expo push infrastruktura
 
 ```
-/clear
-/model opus
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/03-NOTIFIKACIJE.md` sekciju 2, pa
@@ -583,390 +489,530 @@ Plan mode
 > Napravi plan za `expoPushTokens` tabelu i `expoPush.ts` akciju, i za granu u
 > `createNotification` koja šalje i na Expo pored postojećeg web push-a.
 >
-> Web push mora da nastavi da radi netaknut. Objasni mi gde tačno u
-> `createNotification` ide nova grana i zašto baš tu.
+> **Web push mora da nastavi da radi netaknut** — isti korisnik može imati i
+> desktop browser i telefon, i obe dostave moraju da rade paralelno.
+>
+> Dodaj nove tipove `chat_message`, `chat_mention`, `chat_dm` u
+> `notificationTypeValidator` i `chat` u `notificationTargetTypeValidator`.
 
-### 1.8 Kanali i zvuci ⚠️ NEPOVRATNO
-
-Jedina odluka u projektu koja se ne može opozvati. `xhigh`, plan mode, bez žurbe.
+## M1.10 — Kanali i zvuci ⚠️ NEPOVRATNO
 
 ```
-/clear
-/model opus
-/effort xhigh
-Plan mode
+/clear · Opus 4.8 · effort max · Plan mode
 ```
 
 > Pročitaj `docs/mobile/03-NOTIFIKACIJE.md` sekcije 3, 4 i 5.
 >
-> ⚠️ Android zaključava zvuk za notification channel pri kreiranju. Ovo je
-> nepovratno za postojeće instalacije.
+> ⚠️ Android zaključava zvuk za notification channel pri kreiranju. Nepovratno
+> za postojeće instalacije.
 >
 > Napravi plan za: konstantu `CHANNEL_VERSION`, katalog od sedam kanala sa
-> verzionisanim ID-jevima, kreiranje kanala pri pokretanju aplikacije, brisanje
-> starih verzija, i upis `channelVersion` u `expoPushTokens`.
+> verzionisanim ID-jevima, kreiranje pri pokretanju, brisanje starih verzija,
+> upis `channelVersion` u `expoPushTokens`, i `expo-notifications` config plugin
+> u `app.json`.
 >
-> Pre plana, preispitaj katalog iz sekcije 3 — da li je sedam kanala prava
-> granularnost, i da li je mapiranje 13 tipova na 7 kanala smisleno. Reci mi
-> ako bi nešto promenio.
+> Pre plana preispitaj katalog iz sekcije 3 — je li sedam kanala prava
+> granularnost i je li mapiranje 13 tipova na 7 kanala smisleno. Reci ako bi
+> nešto promenio.
 >
-> Takođe: `expo-notifications` config plugin u `app.json` sa `sounds` nizom,
-> i tačan format za oba OS-a.
+> **Izuzetak za web:** custom zvuci ne postoje ni u jednom browseru. Zapiši to u
+> plan kao izričit izuzetak, ne prećuti.
 
-**Zvučne fajlove pripremaš ti**, ne Claude. Sekcija 6 dokumenta ima `ffmpeg`
-komande i opis karaktera svakog zvuka.
+Zvučne fajlove praviš ti — sekcija 6 ima `ffmpeg` komande i opis karaktera.
 
-### 1.9 Rutiranje na tap
+## Z1.11 — Rutiranje na tap, oba klijenta
 
 ```
-/clear
-/model sonnet
-/effort high
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> Kad korisnik tapne obaveštenje, `data.targetType` i `data.targetId` treba da
-> otvore tačan ekran. Tipovi su `page`, `ideas`, `approvals`, `puls` i novi
-> `chat` — vidi `convex/lib/validators.ts`.
+> Obaveštenje mora da otvori tačan ekran na oba klijenta.
 >
-> Implementiraj rutiranje, uključujući slučaj kad je aplikacija bila potpuno
-> zatvorena (cold start iz obaveštenja).
-
-### 1.10 Ekran podešavanja obaveštenja
-
-```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
-```
-
-> Pročitaj `docs/mobile/03-NOTIFIKACIJE.md` sekciju 7. Napravi ekran
-> „Obaveštenja i zvuci" sa prekidačima po tipu, dugmetom za probu zvuka,
-> tihim satima, i linkom ka sistemskim podešavanjima preko `Linking.openSettings()`.
+> **Mobilni:** `data.targetType` → ekran, uključujući cold start iz zatvorene
+> aplikacije. Tipovi: `page`, `ideas`, `approvals`, `puls`, `chat`.
 >
-> Tihi sati se primenjuju na serveru — dodaj i to u `expoPush.ts`.
+> **Web:** proširi `notifications-panel.tsx` novim tipovima (`chat_message`,
+> `chat_mention`, `chat_dm`) sa ikonama, i rutiranje za `targetType === "chat"`
+> na novu `view=chat` rutu. Service worker koji obrađuje web push takođe mora
+> da zna za `chat` cilj.
 
-**✅ Faza 1 gotova kad:** tim priča kroz aplikaciju i svako zna po zvuku šta je
-stiglo. Prođi checklist iz sekcije 9 dokumenta o notifikacijama, na fizičkim
-uređajima.
+## Z1.12 — Podešavanja obaveštenja, oba klijenta
+
+```
+/clear · Opus 4.8 · effort xhigh · Accept Edits
+```
+
+> Pročitaj `docs/mobile/03-NOTIFIKACIJE.md` sekciju 7.
+>
+> **Mobilni:** ekran „Obaveštenja i zvuci" — prekidači po tipu, dugme za probu
+> zvuka, tihi sati, link ka sistemskim podešavanjima preko `Linking.openSettings()`.
+>
+> **Web:** isti prekidači po tipu i tihi sati u `profile-dialog.tsx` ili novom
+> dijalogu. Bez probe zvuka — to je izuzetak, zapiši ga.
+>
+> Podešavanja se čuvaju **po profilu, ne po uređaju**, da isključen tip važi
+> svuda. Tihi sati se primenjuju na serveru, u `expoPush.ts` i `push.ts`.
+
+## ✅ Kraj Faze 1
+
+```
+@parity-check uporedi chat i obaveštenja između apps/web i apps/mobile
+```
+
+Pa checklist iz `03-NOTIFIKACIJE.md` sekcije 9, na **fizičkom Android uređaju**.
 
 ---
 
-## FAZA 2 — Zadaci (2 nedelje)
+# FAZA 1B — AI agent (2,5 nedelje)
 
-Odavde je ritam ustaljen: `opusplan` + `high` + plan mode za svaki ekran.
+> Ide odmah posle chata jer živi u njemu. Zavisi samo od backenda, koji je već
+> ceo tu. Pun opis u `docs/mobile/06-AGENT.md`.
 
-### 2.1 Danas
+## Z1B.1 — Registar modela
 
 ```
-/clear
-/model opusplan
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/06-AGENT.md` sekciju 3.
+>
+> Napravi `aiProviders` tabelu i mutacije za dodavanje, izmenu, brisanje i
+> postavljanje podrazumevanog modela. Samo admin (`requireAdmin`).
+>
+> ⚠️ **Disciplina oko ključa je najvažniji deo ovog koraka.** Polje `apiKey` sme
+> da se čita isključivo iz `internalQuery` / `internalAction`. Nijedan javni
+> upit ne sme da ga vrati. UI vidi samo `label`, `model`, `keySuffix`, `enabled`
+> i `lastError`. Izmena ključa je „unesi nov", nikad „prikaži postojeći".
+>
+> Proveri moj predlog sheme — ako vidiš način da ključ procuri, reci.
+
+Posle: `@convex-review proveri aiProviders — posebno da apiKey ne izlazi ni iz jedne javne funkcije`
+
+## Z1B.2 — OpenAI-kompatibilan klijent
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/06-AGENT.md` sekciju 3.
+>
+> Napiši **jedan** adapter za OpenAI-kompatibilan `/chat/completions` sa tool
+> calling-om. Groq, OpenRouter, DeepSeek, Mistral, Google preko compat
+> endpointa — svi su samo `baseUrl` + `model` + `apiKey`. Ne piši više adaptera.
+>
+> Dodaj akciju „Testiraj vezu" koja šalje jedan trivijalan poziv **sa jednim
+> alatom** i proverava da li model ume tool calling. Model koji ne ume odbij
+> odmah, sa jasnom porukom.
+
+## Z1B.3 — Alati za čitanje
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/06-AGENT.md` sekcije 2 i 4.
+>
+> Napravi `packages/backend/convex/agentTools.ts` sa alatima za čitanje iz
+> tabele u sekciji 4.
+>
+> ⚠️ **Svaki alat prima `asProfileId` i izvršava se sa dozvolama tog korisnika,
+> nikad kao superkorisnik.** Deljen je ključ za model, ne pristup podacima.
+> Ako negde ne možeš da postigneš tu izolaciju kroz postojeće `require*`
+> pomoćnike, stani i reci mi — ne zaobilazi.
+>
+> Kreni od pet: `listMyTasks`, `listTeamTasks`, `listOverdue`,
+> `listMyThoughts`, `searchPages`. Ostale posle.
+
+Posle: `@convex-review proveri da nijedan alat ne čita van dozvola pozivaoca`
+
+## Z1B.4 — Petlja agenta
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/06-AGENT.md` sekciju 5.
+>
+> Napravi `packages/backend/convex/agent.ts` — akcija koja vodi razgovor:
+> poziv modelu, izvršavanje traženih alata, vraćanje rezultata, dok model ne
+> prestane da traži alate.
+>
+> Obavezna ograničenja: `MAX_TOOL_ROUNDS = 6`, `MAX_TOOL_CALLS_PER_ROUND = 4`.
+> Bez njih jedan loš upit potroši dnevni limit.
+>
+> Obradi i greške provajdera — rate limit, istekao ključ, model ne postoji —
+> tako da korisnik dobije razumljivu poruku, a `lastError` se upiše u
+> `aiProviders`.
+
+## Z1B.5 — Agent u chatu, oba klijenta
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/06-AGENT.md` sekcije 1 i 8.
+>
+> Napravi `kind: "agent"` kanal — po korisniku jedan, privatan, stoji na dnu
+> liste razgovora sa 🤖 ikonom.
+>
+> **Web i mobilni oba.** Isti tok, isti odgovori, razlikuje se samo prikaz.
+>
+> Dodaj indikator „agent razmišlja" dok petlja radi, i prikaži koje je alate
+> zvao — korisnik treba da vidi odakle mu odgovor, ne samo rezultat.
+
+## Z1B.6 — `@agent` u običnim kanalima
+
+```
+/clear · Opus 4.8 · effort xhigh · Accept Edits
+```
+
+> Pominjanje `@agent` u bilo kom kanalu poziva agenta da odgovori **u tom
+> kanalu**, tako da tim vidi odgovor.
+>
+> Agent i dalje čita sa dozvolama onoga ko ga je pomenuo — ne onoga ko čita
+> kanal. Ako odgovor sadrži nešto što neko u kanalu ne sme da vidi, to je
+> curenje. Predloži mi kako da to rešimo pre nego što implementiraš.
+
+## Z1B.7 — Alati za pisanje + potvrda
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/06-AGENT.md` sekciju 4, deo „Faza B" i „Potvrda pre
+> pisanja".
+>
+> Dodaj alate za pisanje. **Svaki mora da ide kroz postojeću mutaciju** —
+> `createTask` zove `pages.create` sa `kind: "task"`, istu funkciju koju zove i
+> dugme u UI. Bez drugih vrata u sistem.
+>
+> Svaka izmena traži potvrdu u chatu pre izvršenja: prikaz šta će se napraviti,
+> pa `[Napravi] [Izmeni] [Otkaži]`. Čitanje bez potvrde, pisanje nikad.
+>
+> Oba klijenta — bottom sheet na mobilnom, dijalog na webu.
+
+## Z1B.8 — Podešavanja AI, oba klijenta
+
+```
+/clear · Opus 4.8 · effort xhigh · Accept Edits
+```
+
+> Ekran / dijalog „AI" sa listom modela, dugmetom „Dodaj model", izborom
+> podrazumevanog i prikazom poslednje greške.
+>
+> Forma po sekciji 3 dokumenta: naziv, provajder iz padajućeg spiska (popunjava
+> `baseUrl`), model, API ključ, „Testiraj vezu".
+>
+> Vidljivo samo adminu.
+
+## ✅ Kraj Faze 1B
+
+```
+@parity-check uporedi agenta između apps/web i apps/mobile
+```
+
+Probaj stvarna pitanja: „koji su mi hitni zadaci", „šta je prekoračilo rok",
+„pročitaj mi poslednju misao", „koji hitni zadaci su dodeljeni drugima".
+
+---
+
+# FAZA 2 — Zadaci na mobilnom (2 nedelje)
+
+> Web ovo već ima. Ovde nema W koraka — samo se mobilni izjednačava.
+
+## M2.1 — Danas
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/02-EKRANI.md` sekciju 4 i
 > `apps/web/components/workspace/command-center-view.tsx`.
 >
-> Napravi tab Danas: segmenti Pregled / Moji zadaci, grupisanje po prekoračeno /
-> danas / sledeće / blokirano, kartice zadataka sa svajp gestovima (desno =
-> done sa haptikom, levo = meni).
+> Napravi tab Danas: segmenti Pregled / Moji zadaci, grupisanje po
+> prekoračeno / danas / sledeće / blokirano, kartice sa svajp gestovima
+> (desno = done sa haptikom, levo = meni).
 >
-> Bez kanbana — svajp lista, kako dokument opisuje.
+> Bez kanbana — svajp lista.
 
-### 2.2 Detalj zadatka
+## M2.2 — Detalj zadatka
 
 ```
-/clear
-/model opusplan
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/02-EKRANI.md` sekciju 9.2.
 >
-> Napravi ekran detalja zadatka: status, prioritet, rok, izvršioci (max 10),
-> instrukcije, checkpointi sa progresom (max 100), i link na thread diskusije iz
-> chata. Checkpoint tap = odmah toggle + haptika, bez dugmeta za čuvanje.
+> Ekran detalja zadatka: status, prioritet, rok, izvršioci (max 10),
+> instrukcije, checkpointi sa progresom (max 100), i link na chat thread.
+> Checkpoint tap = odmah toggle + haptika, bez dugmeta za čuvanje.
 
-### 2.3 Puls
+## M2.3 — Puls i aktivnost
 
 ```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> Pročitaj `apps/web/components/workspace/puls-view.tsx` i `convex/puls.ts`.
-> Napravi mobilnu verziju sedmičnog pulsa, sa navigacijom kroz nedelje.
+> Mobilne verzije `puls-view.tsx` i `activity-view.tsx`, sa navigacijom kroz
+> nedelje.
 
 ---
 
-## FAZA 3 — Stranice (3 nedelje)
+# FAZA 3 — Stranice na mobilnom (3 nedelje)
 
-### 3.1 Stablo i lista
-
-```
-/clear
-/model opusplan
-/effort high
-Plan mode
-```
-
-> Pročitaj `docs/mobile/02-EKRANI.md` sekciju 5. Napravi tab Prostor:
-> nivo oblasti, pa lista stranica sa ikonom po `kind`, pa ugnježdene stranice sa
-> breadcrumb-om. Nazad koristi logiku iz `workspace-route.ts` (`pageBackRoute`).
-
-### 3.2 Editor ⚠️ najteži korak faze
+## M3.1 — Stablo i lista
 
 ```
-/clear
-/model fable
-/effort xhigh
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `docs/mobile/02-EKRANI.md` sekciju 5. Tab Prostor: nivo oblasti, pa
+> lista stranica sa ikonom po `kind`, pa ugnježdene sa breadcrumb-om. Nazad
+> koristi `pageBackRoute` logiku iz `workspace-route.ts`.
+
+## M3.2 — Editor ⚠️ najteži korak
+
+```
+/clear · Opus 4.8 · effort max · Plan mode
 ```
 
 > Pročitaj `docs/mobile/00-PLAN.md` sekciju 5.1 i
 > `apps/web/components/rich-text-editor.tsx` u celosti.
 >
 > Napravi plan za mobilni editor preko `@10play/tentap-editor`: kako se
-> postojeće Tiptap ekstenzije (`starter-kit`, `extension-table`,
-> `extension-list`) pakuju u web bundle za WebView, kako ide bridge u oba smera,
-> i kako se zadržava postojeći autosave sa `revision` konflikt-zaštitom iz
+> postojeće Tiptap ekstenzije pakuju u web bundle za WebView, kako ide bridge u
+> oba smera, i kako se zadržava autosave sa `revision` konflikt-zaštitom iz
 > `pages.ts`.
 >
-> Prvo mi napravi **minimalan prototip** samo sa bold/italic/liste, da izmerimo
-> performanse pre nego što uložimo u pun editor. Ne kreni na kompletnu
-> implementaciju odmah.
+> **Prvo minimalan prototip** samo sa bold/italic/liste, da izmerimo performanse
+> pre nego što uložimo u pun editor. Ne kreni na kompletnu implementaciju odmah.
 
-### 3.3 Tabele i prilozi
+## M3.3 — Tabele i prilozi
 
 ```
-/clear
-/model sonnet
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/02-EKRANI.md` sekciju 9.4 i `convex/pageTables.ts`,
-> `pageFiles.ts`. Napravi pregled tabele sa zamrznutom prvom kolonom i
-> editovanjem ćelije kroz bottom sheet, plus upload priloga iz galerije i kamere.
+> `pageFiles.ts`. Pregled tabele sa zamrznutom prvom kolonom, editovanje ćelije
+> kroz bottom sheet, upload priloga iz galerije i kamere.
 
-### 3.4 Pretraga
+## M3.4 — Pretraga
 
 ```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> `convex/search.ts` + `search-dialog.tsx` → mobilni ekran pretrage preko celog
-> ekrana, sa rezultatima grupisanim po tipu.
+> `convex/search.ts` → mobilni ekran pretrage preko celog ekrana, rezultati
+> grupisani po tipu.
 
 ---
 
-## FAZA 4 — Odobrenja i canvasi (2 nedelje)
+# FAZA 4 — Odobrenja i canvasi (2 nedelje)
 
-### 4.1 Odobrenja
-
-```
-/clear
-/model opusplan
-/effort high
-Plan mode
-```
-
-> Pročitaj `apps/web/components/workspace/approvals-view.tsx` (28 KB) i
-> `convex/collaboration.ts`. Napravi mobilni ekran odobrenja: deletion ballots,
-> nesting requests, glasanje. Ovo je ekran gde je mobilni **bolji** od desktopa
-> — glasa se u pokretu, pa neka bude brz i jasan.
-
-### 4.2 Embed rute za canvas
+## M4.1 — Odobrenja
 
 ```
-/clear
-/model opus
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
+```
+
+> Pročitaj `apps/web/components/workspace/approvals-view.tsx` i
+> `convex/collaboration.ts`. Mobilni ekran odobrenja: deletion ballots, nesting
+> requests, glasanje. Ovo je ekran gde je mobilni bolji od desktopa — glasa se u
+> pokretu, neka bude brz i jasan.
+
+## W4.2 — Web: embed rute za canvas
+
+```
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
 > Pročitaj `docs/mobile/00-PLAN.md` sekciju 5.2 i postojeće preview rute u
 > `apps/web/app/canvas-preview/`, `codex-ideas-preview/`,
 > `codex-thought-flow-preview/`.
 >
-> Napravi plan za `/embed/canvas/[kind]/[id]` rutu: bez sidebara i chrome-a,
-> autentikacija tokenom, touch-friendly kontrole, i `postMessage` protokol
-> definisan u dokumentu.
+> Napravi plan za `/embed/canvas/[kind]/[id]`: bez sidebara i chrome-a,
+> autentikacija tokenom, touch-friendly kontrole, `postMessage` protokol iz
+> dokumenta.
+>
+> Ovo je web rad koji služi mobilnom — ali embed rute mogu biti korisne i za
+> deljenje canvasa. Reci ako vidiš tu priliku.
 
-### 4.3 Mobilni canvas ekran
+## M4.3 — Mobilni canvas
 
 ```
-/clear
-/model sonnet
-/effort high
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> Pročitaj `docs/mobile/02-EKRANI.md` sekciju 9.3. Napravi full-screen ekran sa
-> native headerom, `react-native-webview` u sredini i native akcionim rail-om.
-> Tap na node otvara native bottom sheet sa detaljem.
+> Pročitaj `docs/mobile/02-EKRANI.md` sekciju 9.3. Full-screen ekran: native
+> header, `react-native-webview` u sredini, native akcioni rail. Tap na node
+> otvara native bottom sheet.
 >
 > Pazi na sudar gestova: WebView uzima pan i zoom, native zadržava swipe-back.
 
-### 4.4 Ideje i admin
+## M4.4 — Ideje i admin
 
 ```
-/clear
-/model sonnet
-/effort medium
-Accept Edits
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> Napravi ekran Ideje (lista + glasanje native, canvas kroz WebView iz 4.3) i
-> admin ekrane: članovi (`startups.listMembers`) i pozivnice (`invites.ts`),
-> vidljive samo za `role === "admin"`.
+> Ekran Ideje (lista + glasanje native, canvas kroz WebView iz 4.3) i admin
+> ekrani: članovi (`startups.listMembers`) i pozivnice (`invites.ts`), vidljivi
+> samo za `role === "admin"`.
+
+## ✅ Kraj Faze 4
+
+```
+@parity-check uporedi sve funkcije između apps/web i apps/mobile
+```
+
+Ovde bi lista propusta trebalo da bude prazna, osim izričitih izuzetaka.
 
 ---
 
-## FAZA 5 — Mobilne supermoći (2 nedelje)
+# FAZA 5 — Nove mogućnosti (2 nedelje)
+
+> Ovde se web paritet **procenjuje po stavci**. Neke stvari browser može, neke
+> ne. Svaka odluka se zapisuje.
+
+| Stavka | Mobilni | Web | Napomena |
+|---|---|---|---|
+| Glasovna beleška → ideja | ✅ | ✅ | Browser ima `MediaRecorder` |
+| Kamera → prilog | ✅ | ⚠️ | Web: upload fajla + `getUserMedia` |
+| Deljenje iz drugih aplikacija | ✅ | ❌ | Share Target traži PWA instalaciju |
+| Home screen widget | ✅ | ❌ | Nema web ekvivalent |
+| Biometrija kao brava | ✅ | ❌ | Izuzetak |
+| Haptika | ✅ | ❌ | Izuzetak |
+
+Svaka stavka je zaseban korak sa `/clear` između:
 
 ```
-/clear
-/model opusplan
-/effort high
-Plan mode
+/clear · Opus 4.8 · effort xhigh · Plan mode
 ```
 
-Jedan po jedan, svaki kao zaseban korak sa `/clear` između:
+> Glasovna beleška: `expo-av` snimanje na mobilnom, `MediaRecorder` na webu.
+> Upload u Convex storage, transkript, pa kreiranje `ideaNodes` zapisa.
+> **Backend deo mora biti zajednički** — jedna Convex akcija za oba klijenta.
 
-> Glasovna beleška: `expo-av` snimanje, upload u Convex storage, transkript, pa
-> kreiranje `ideaNodes` zapisa. Dugme u FAB meniju i kao brza akcija.
+> Kamera: `expo-camera` na mobilnom → prilog na stranici ili nova stranica.
+> Na webu upload fajla u isti tok. Zajednička mutacija.
 
-> Share sheet: registruj aplikaciju kao share target na oba OS-a. Podeljen
-> tekst ili link postaje nova ideja ili zadatak, uz izbor startupa.
-
-> Kamera: `expo-camera` → slika → prilog na stranici ili nova stranica sa slikom.
-
-> Home screen widget sa današnjim zadacima. Napomena: widget je native kod
-> (WidgetKit na iOS, Glance na Androidu) — objasni mi obim posla pre nego što
-> kreneš.
-
-> Biometrija: `expo-local-authentication` kao brava pri otvaranju, opciono u
-> podešavanjima.
+> Widget sa današnjim zadacima. Native kod (Glance na Androidu) — objasni mi
+> obim posla pre nego što kreneš. Izuzetak za web, zapiši ga.
 
 > Haptika: `expo-haptics` na završetku zadatka, slanju poruke, svajpu.
+> Izuzetak za web.
 
 ---
 
-## FAZA 6 — Izlazak (2 nedelje)
+# FAZA 6 — Distribucija timu (1 nedelja)
 
-### 6.1 Ikone i grafika
+> Nema App Store-a, nema Play Store-a. Interna aplikacija.
 
-```
-/clear
-/model sonnet
-/effort medium
-```
-
-> Napravi plan za sve grafičke resurse: ikona aplikacije u svim potrebnim
-> veličinama, adaptivna ikona za Android, splash, **monohromatska bela ikona za
-> obaveštenja**, screenshotovi za obe prodavnice. Reci mi tačno koje dimenzije
-> mi trebaju i šta moram sam da nacrtam.
-
-### 6.2 Provera pred izlazak
+## 6.1 — Grafika
 
 ```
-/clear
-/model fable
-/effort xhigh
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> Pročitaj sve iz `docs/mobile/`. Prođi kroz `apps/mobile` i napravi izveštaj:
-> šta iz planiranog nije implementirano, gde nedostaju prazna stanja ili obrada
-> grešaka, gde nema `accessibilityLabel`, gde bi aplikacija pukla bez mreže, i
-> šta bi moglo da izazove odbijanje u App Store review-u.
+> Napravi plan za grafičke resurse: ikona u svim veličinama, adaptivna ikona za
+> Android, splash, **monohromatska bela ikona za obaveštenja**. Reci mi tačne
+> dimenzije i šta moram sam da nacrtam.
+>
+> I promeni `com.PROMENI.notionclone` u `app.json` u pravi bundle identifier —
+> pitaj me koji pre nego što upišeš. Isto za `PROMENI.example.com` u
+> `associatedDomains` i `intentFilters`.
+
+## 6.2 — Provera pred puštanje
+
+```
+/clear · Opus 4.8 · effort max · Plan mode
+```
+
+> Pročitaj sve iz `docs/mobile/`. Prođi kroz `apps/mobile` i `apps/web` i
+> napravi izveštaj:
+>
+> - šta iz planiranog nije implementirano
+> - gde nedostaju prazna stanja ili obrada grešaka
+> - gde nema `accessibilityLabel`
+> - gde bi aplikacija pukla bez mreže
+> - **koje funkcije postoje na jednom klijentu a ne na drugom**
 >
 > Ne popravljaj — samo prijavi, sortirano po ozbiljnosti.
 
-### 6.3 Build i submit
+## 6.3 — Build i distribucija
 
 ```
-/clear
-/model sonnet
-/effort medium
+/clear · Opus 4.8 · effort xhigh · Accept Edits
 ```
 
-> Pročitaj `docs/mobile/01-SETUP-WINDOWS.md` korak 9. Vodi me kroz production
-> build i submit za obe platforme, korak po korak. Reci mi tačno šta ja kucam,
-> a šta ti radiš.
+> Vodi me kroz `eas build --profile preview --platform android`, i objasni kako
+> tim instalira APK sa linka. Reci mi šta ja kucam, a šta ti radiš.
+>
+> Napiši i `docs/mobile/DISTRIBUCIJA.md` — kratko uputstvo za članove tima:
+> kako da instaliraju, kako da dozvole instalaciju iz nepoznatog izvora, kako da
+> uključe obaveštenja, i šta da rade kad stigne nova verzija.
 
 ---
 
-## DEO D — Kad zapne
+# DEO D — Kad zapne
 
 | Situacija | Šta uraditi |
 |---|---|
-| Isti bag dva puta nepopravljen | `/clear`, pa `/model fable`, `/effort max`, i opiši bag **od nule** — bez istorije neuspelih pokušaja |
-| Claude menja fajlove koje nisi tražio | Prebaci na Manual mode. Suzi prompt na jedan fajl |
-| Odgovori postali plitki | `/context` — verovatno si preko 70%. `/compact` ili `/clear` |
-| Nešto je puklo posle izmene | `Esc` `Esc` → `/rewind` na checkpoint pre izmene |
-| Ne razumeš zašto nešto ne radi | `ultrathink: ` + opis. Jednokratno, bez menjanja efforta |
-| Veliki refaktor, hoćeš da komentarišeš plan po delovima | `/ultraplan <opis>` — planira u cloudu, ti komentarišeš u browseru |
-| Petlja „radi dok ne prođe" | `/goal <merljiv uslov>`. Uslov mora biti dokaziv iz transkripta |
+| Isti bag dva puta nepopravljen | `/clear`, `effort max`, opiši bag **od nule** bez istorije pokušaja |
+| Claude menja fajlove koje nisi tražio | Manual mode, suzi prompt na jedan fajl |
+| Odgovori postali plitki | `/context` — verovatno preko 70%. `/compact` ili `/clear` |
+| Nešto puklo posle izmene | `Esc` `Esc` → `/rewind` |
+| Ne razumeš zašto ne radi | `ultrathink: ` + opis |
+| Veliki refaktor, hoćeš da komentarišeš plan po delovima | `/ultraplan <opis>` |
+| „Radi dok ne prođe" | Zadatak u fajl, pa `/goal <merljiv uslov>` |
+| Zaboravio si da li nešto ima na webu | `@parity-check <funkcija>` |
 
 ---
 
-## DEO E — Šta raditi svaki dan
+# DEO E — Svaki dan
 
 ```bash
 # Terminal 1
 npx convex dev
 
-# Terminal 2
+# Terminal 2 — mobilni
 cd apps/mobile && npx expo start --dev-client
 
-# Terminal 3
+# Terminal 3 — web
+npm run dev
+
+# Terminal 4
 claude
 ```
 
-U Claude sesiji:
+U sesiji: `/model` → Opus 4.8, `/effort xhigh`.
 
-```
-/model opusplan
-/effort high
-```
-
-Pa jedan korak iz Dela C. Kad korak završi:
+Posle svakog koraka:
 
 1. `@convex-review` ako je diran backend
 2. `@rn-review` ako je diran mobilni ekran
-3. `npm run check`
-4. Test na fizičkom telefonu — **ne samo na emulatoru**
-5. Commit
-6. `/clear` pre sledećeg koraka
+3. `@web-review` ako je diran web prikaz
+4. `npm run check`
+5. Test na **fizičkom Android telefonu** — ne samo na emulatoru
+6. Test na webu
+7. Commit
+8. `/clear`
+
+Na kraju svake faze: `@parity-check`.
 
 ---
 
-## Rezime u jednoj tabeli
+# Rezime
 
-**Profil „bez štednje" (A0) — ovo koristi:**
+| Tip posla | Effort | Režim |
+|---|---|---|
+| Schema, nepovratne odluke | `max` | Plan |
+| Backend funkcije | `xhigh` | Plan |
+| Nov ekran ili prikaz | `xhigh` | Plan / Accept Edits |
+| Testovi | `xhigh` | Accept Edits + `/goal` |
+| Mehanički posao | `high` | Accept Edits |
+| Zaglavljeno posle 2 pokušaja | `max` | Manual |
 
-| Tip posla | Model | Effort | Režim |
-|---|---|---|---|
-| Monorepo refaktor (0.1) | Opus 4.8 *(probaj Fable 5)* | `max` | Plan |
-| Chat schema (1.1) | Opus 4.8 | `max` | Plan |
-| Kanali i zvuci (1.8) ⚠️ | Opus 4.8 | `max` | Plan |
-| Editor prototip (3.2) | Opus 4.8 | `max` | Plan |
-| Backend funkcije | Opus 4.8 | `xhigh` | Plan |
-| Složen ekran (chat, editor) | Opus 4.8 | `xhigh` | Plan |
-| Nov ekran po specifikaciji | Opus 4.8 | `xhigh` | Accept Edits |
-| Testovi | Opus 4.8 | `xhigh` | Accept Edits + `/goal` |
-| Preimenovanje, formatiranje | Opus 4.8 | `high` | Accept Edits |
-| Zaglavljeno posle 2 pokušaja | Opus 4.8 | `max` | Manual |
-| Finalna revizija pred izlazak (6.2) | Opus 4.8 | `max` | Plan |
-
-Ignoriši `sonnet`, `haiku` i `opusplan` gde god se pominju u koracima iz Dela C —
-to su preporuke za profil sa vođenjem računa o ceni.
+Model je **Opus 4.8** svuda. Izaberi ga iz `/model` liste — alias `opus` vodi na
+Opus 5.

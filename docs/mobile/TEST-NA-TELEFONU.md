@@ -1,101 +1,128 @@
-# Testiranje na iPhone-u
+# Testiranje na telefonu
 
-Dva različita načina, za dve različite faze. Ne mešaj ih.
+> ⚠️ **Ispravka (avgust 2026).** Ranija verzija ovog dokumenta je tvrdila da za
+> Fazu 0 možeš da testiraš na iPhone-u preko Expo Go bez Apple naloga. **To više
+> ne važi.**
+>
+> Od maja 2026. Expo Go na App Store-u je zamrznut na **SDK 54** — verzija za
+> SDK 55 je zapela na Apple odobrenju bez roka. Ovaj projekat je na **SDK 57**.
+> Te dve verzije se nikad neće sresti.
+>
+> Expo sada Expo Go zvanično tretira kao „alat za učenje" i za sve ostalo
+> upućuje na development build.
 
-| Faza | Način | Treba li Apple nalog | Vreme do prvog pokretanja |
+---
+
+## Tri puta — izaberi jedan
+
+| Put | Košta | Vreme | Radi za |
 |---|---|---|---|
-| **0 — 3** | Expo Go | ❌ ne | 5 minuta |
-| **1+** (notifikacije) | Development build | ✅ da, $99/god | 24–48h za nalog + 20 min build |
+| **A. Android** | 0 din | odmah | Faze 0–4 |
+| **B. iOS development build** | $99/god | 24–48h za nalog | sve, uključujući zvuke |
+| **C. `eas go`** | $99/god | isto kao B | isto što i Expo Go, ali ličan |
 
 ---
 
-## A. Faza 0 — Expo Go (radi odmah, besplatno)
+## A. Android — jedini besplatan način, radi odmah
 
-Za tokene i navigaciju ne treba ništa native. Expo Go je dovoljan.
+Expo Go za SDK 57 **postoji za Android**. Play Store nije zapeo kao App Store.
 
-### Koraci
+Tokeni, navigacija i ekrani se ne razlikuju po platformi — ono što potvrdiš na
+Androidu važi i za iOS. Ovo je najbrži način da vidiš da li Faza 0 radi.
 
-1. **Na iPhone-u:** instaliraj **Expo Go** iz App Store-a
-2. **Telefon i PC na istom Wi-Fi** — ovo je najčešći razlog zašto ne radi
-3. **Na PC-u, dva terminala:**
+### Na fizičkom Android telefonu
 
-```powershell
-# Terminal 1 — backend
-cd "C:\Users\admin\Desktop\Web Dev Projects\notion-clone"
-npx convex dev
-```
+1. Otvori `https://expo.dev/go?sdkVersion=57&platform=android&device=true`
+2. Skini APK odatle (ne iz Play Store-a — tamo je druga verzija)
+3. Instaliraj, dozvoli instalaciju iz nepoznatog izvora
+4. `npx expo start` na PC-u, skeniraj QR
 
-```powershell
-# Terminal 2 — mobilni
-cd "C:\Users\admin\Desktop\Web Dev Projects\notion-clone\apps\mobile"
+### Na emulatoru
+
+Ako imaš Android Studio iz koraka 2 setup vodiča:
+
+```bash
+cd apps/mobile
 npx expo start
+# pritisni `a`
 ```
-
-4. **Skeniraj QR kod aplikacijom Kamera** (ne Expo Go skenerom — na iOS-u se
-   skenira Kamerom, iskoči notifikacija, tapneš je)
-
-Ako ne poveže — telefon i PC nisu na istom Wi-Fi. Rešenje:
-
-```powershell
-npx expo start --tunnel
-```
-
-Sporije, ali radi kroz bilo koju mrežu.
-
-### Šta proveriti
-
-- [ ] Aplikacija se otvara bez crvenog ekrana greške
-- [ ] Pet tabova na dnu: Danas · Prostor · Chat · Obaveštenja · Više
-- [ ] Tabovi se prebacuju
-- [ ] Header prikazuje naziv startupa
-- [ ] Tap na naziv otvara listu tvojih startupa ⚠️ **ovo je pravi test**
-- [ ] Promeni temu telefona (Settings → Display) — aplikacija prati
-- [ ] Prazna stanja se vide, nema belih ekrana
-
-> ⚠️ **Ako je lista startupa prazna ili baci grešku**, korak 0.3 (Convex + auth)
-> nije završen. To nije bag u navigaciji — nedostaje ceo sloj ispod.
 
 ---
 
-## B. Faza 1+ — Development build
+## B. iOS development build — pravo rešenje
 
-Čim dođu notifikacije, Expo Go više ne može — custom zvuci traže native kod.
+Ovo ti ionako treba od Faze 1 (custom zvuci ne rade ni u jednom Expo Go).
+Razlika je samo što sad postaje **blokada, a ne priprema**.
 
-### Šta treba pripremiti unapred
+### 1. Apple Developer Program — $99/godišnje
 
-1. **Apple Developer Program — $99/godišnje**
-   `developer.apple.com` → Enroll
-   **Odobrenje traje 24–48h.** Prijavi se čim počneš Fazu 0, da te ne zadrži.
+`developer.apple.com` → Enroll. **Odobrenje 24–48h.** Uradi danas.
 
-2. **Registruj telefon:**
+### 2. Registruj iPhone
 
-```powershell
+```bash
 eas device:create
 ```
 
 Generiše link → otvoriš ga na iPhone-u → instaliraš profil.
 
-3. **Build:**
+### 3. Build
 
-```powershell
+```bash
 eas build --profile development --platform ios
 ```
 
-10–20 minuta. EAS pita da li da upravlja sertifikatima — **reci da**.
+10–20 minuta. Na pitanje o sertifikatima — **pusti EAS da upravlja**.
 
-4. **Instaliraj:** otvori link sa builda na iPhone-u.
+### 4. Instaliraj
 
-5. **Prvi put obavezno:**
-   Settings → General → VPN & Device Management → tvoj profil → **Trust**
-   Bez ovoga aplikacija neće da se otvori.
+Otvori link sa builda na iPhone-u.
 
-6. **Odsad pokrećeš razvoj sa:**
+**Prvi put obavezno:** Settings → General → VPN & Device Management → tvoj profil
+→ **Trust**. Bez toga se aplikacija ne otvara.
 
-```powershell
+### 5. Odsad
+
+```bash
 npx expo start --dev-client
 ```
 
-i skeniraš QR **svojom** aplikacijom, ne Expo Go-om.
+Skeniraš QR **svojom** aplikacijom. Expo Go ti više nikad ne treba.
+
+---
+
+## C. `eas go` — ako baš hoćeš Expo Go na iPhone-u
+
+```bash
+eas go
+```
+
+Sagradi ličnu verziju Expo Go za tvoj SDK i pošalje je u tvoj TestFlight.
+
+**Takođe traži Apple Developer članarinu**, pa nema prednost nad putem B —
+a development build tvoje prave aplikacije ti je korisniji od Expo Go.
+
+---
+
+## Šta NE raditi
+
+❌ **Ne spuštaj projekat na SDK 54** da bi Expo Go iz App Store-a radio.
+Izgubio bi dane na version churn, a za notifikacije u Fazi 1 ti dev build ionako
+treba. Rešavao bi problem koji za dve nedelje prestaje da postoji.
+
+❌ **Ne traži iOS simulator za Windows.** Ne postoji.
+
+---
+
+## Šta proveriti kad se otvori
+
+- [ ] Aplikacija se otvara bez crvenog ekrana
+- [ ] Pet tabova: Danas · Prostor · Chat · Obaveštenja · Više
+- [ ] Tabovi se prebacuju
+- [ ] Header prikazuje naziv startupa
+- [ ] Tap na naziv otvara listu tvojih startupa ⚠️ **ovo je pravi test**
+- [ ] Promena teme telefona menja temu aplikacije
+- [ ] Nema belih ekrana — prazna stanja se vide
 
 ---
 
@@ -103,9 +130,16 @@ i skeniraš QR **svojom** aplikacijom, ne Expo Go-om.
 
 | Simptom | Uzrok | Rešenje |
 |---|---|---|
+| „requires a newer version of Expo Go" | App Store Expo Go = SDK 54, projekat = SDK 57 | Put A ili B gore |
 | QR se skenira ali ne učitava | Različit Wi-Fi | `npx expo start --tunnel` |
-| Crveni ekran „Unable to resolve module" | Keš | `npx expo start --clear` |
-| Lista startupa prazna | Korak 0.3 nije gotov | Vidi `NOCNI-IZVESTAJ.md` |
-| „Network request failed" | Convex ne radi | Proveri Terminal 1 i `EXPO_PUBLIC_CONVEX_URL` |
+| „Unable to resolve module" | Keš | `npx expo start --clear` |
+| Lista startupa prazna | Convex ne radi | Proveri `npx convex dev` i `EXPO_PUBLIC_CONVEX_URL` |
 | Aplikacija se ne otvara (dev build) | Profil nije poveren | Settings → VPN & Device Management → Trust |
-| Notifikacije ne stižu | Testiraš u Expo Go ili na simulatoru | Treba dev build + **fizički** uređaj |
+| Notifikacije ne stižu | Expo Go ili emulator | Dev build + **fizički** uređaj |
+
+---
+
+**Izvori:**
+
+- [Expo Go and the App Store in May 2026](https://expo.dev/changelog/expo-go-and-app-store-may-2026)
+- [Install Expo Go for SDK 57](https://expo.dev/go)

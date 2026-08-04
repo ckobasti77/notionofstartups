@@ -34,10 +34,12 @@ chatChannels: defineTable({
   startupId: v.id("startups"),
 
   kind: v.union(
+    v.literal("startup"),   // opšti kanal — svi članovi startupa, tačno jedan
     v.literal("area"),      // kanal oblasti: #dev, #marketing
     v.literal("custom"),    // ručno napravljen kanal
     v.literal("dm"),        // razgovor dvoje ljudi
     v.literal("thread"),    // diskusija zakačena za entitet
+    v.literal("agent"),     // razgovor sa AI agentom (vidi 06-AGENT.md)
   ),
 
   // kind === "area"
@@ -361,6 +363,146 @@ export const markChannelRead = mutation({
 
 Za kanale sa `notificationLevel === "mentions"` prikazuj **tačku**, ne broj.
 Broj sugeriše da moraš da ih pročitaš sve; tačka kaže „ima nečeg novog".
+
+---
+
+## 5b. Opšti kanal startupa
+
+Svaki startup ima **tačno jedan** opšti kanal — mesto za sve što ne pripada
+nijednoj oblasti.
+
+```ts
+{
+  kind: "startup",
+  areaId: null,
+  name: "Opšte",
+  isPrivate: false,
+}
+```
+
+Pravila koja ga razlikuju od ostalih:
+
+- **Članstvo je implicitno.** Ko je u `startupMembers`, u kanalu je. Nema
+  `chatMembers` redova, ne može se napustiti.
+- **Ne može se arhivirati ni obrisati.** Ni admin.
+- **Pravi ga migracija**, zajedno sa kanalima oblasti (sekcija 9).
+- Stoji **prvi** u listi razgovora, iznad oblasti.
+
+```ts
+// convex/lib/chat.ts
+export async function startupChannel(ctx: ReadCtx, startupId: Id<"startups">) {
+  return await ctx.db
+    .query("chatChannels")
+    .withIndex("by_startup_and_kind", (q) =>
+      q.eq("startupId", startupId).eq("kind", "startup").eq("archivedAt", null),
+    )
+    .unique();
+}
+```
+
+Time hijerarhija razgovora izgleda ovako:
+
+```
+Opšte              ← ceo startup, jedan
+# dev              ← po oblasti
+# marketing
+# sales
+# other
+🧵 Redizajn        ← threadovi na entitetima
+👤 Marko           ← DM
+🤖 Agent           ← AI (06-AGENT.md)
+```
+
+---
+
+## 5c. Pretvaranje poruke u entitet
+
+> Ovo je funkcija zbog koje hibridni model ima smisla: razgovor ne ostaje
+> razgovor, nego postaje posao.
+
+Long-press na poruku (mobilni) ili kontekstni meni (web) → **„Pretvori u…"** →
+zadatak · ideja · misao · beleška.
+
+### Mutacija
+
+```ts
+export const convertMessage = mutation({
+  args: {
+    messageId: v.id("chatMessages"),
+    target: v.union(
+      v.literal("task"),
+      v.literal("note"),
+      v.literal("idea"),
+      v.literal("thought"),
+    ),
+    areaId: v.optional(v.id("startupAreas")),   // za task i note
+    title: v.optional(v.string()),              // ako korisnik menja naslov
+  },
+  returns: v.object({
+    kind: v.string(),
+    id: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get("chatMessages", args.messageId);
+    if (message === null || message.deletedAt !== null) {
+      throw new Error("Poruka nije pronađena.");
+    }
+    const { channel, profile } = await requireChannelAccess(ctx, message.channelId);
+
+    const title = args.title?.trim() || deriveTitle(message.body);
+
+    // Ide kroz POSTOJEĆE putanje kreiranja — bez novog koda za validaciju,
+    // dozvole i aktivnost. Ovo je ceo trik.
+    const created = await createFromChat(ctx, {
+      target: args.target,
+      startupId: channel.startupId,
+      areaId: args.areaId,
+      title,
+      body: message.body,
+      profileId: profile._id,
+      sourceMessageId: message._id,
+    });
+
+    // Trag u razgovoru, da se zna gde je poruka otišla
+    await postSystemMessage(ctx, channel._id, {
+      body: `${profile.displayName} je pretvorio/la poruku u ${LABEL[args.target]}`,
+      targetType: created.kind,
+      targetId: created.id,
+    });
+
+    return created;
+  },
+});
+```
+
+### Veza u oba smera
+
+Kreirani entitet nosi `sourceMessageId`, pa se sa zadatka može skočiti nazad na
+razgovor iz koga je nastao:
+
+```ts
+// dodatak na `pages`, `ideaNodes`, `thoughtNodes`
+sourceMessageId: v.optional(v.union(v.id("chatMessages"), v.null())),
+```
+
+A u razgovoru ostaje sistemska poruka sa linkom napred. Nijedna strana ne gubi
+kontekst.
+
+### Šta se ponovo koristi
+
+Na webu već postoje `thought-conversion-dialog.tsx` i
+`thought-destination-picker.tsx` — obrazac za „pretvori ovo u ono, izaberi
+odredište" je rešen. Chat konverzija koristi isti UI, samo sa drugim izvorom.
+
+### Detalji koji se lako promaše
+
+- **Prilog se prenosi.** Ako je poruka imala sliku, ona postaje prilog na
+  stranici, ne gubi se.
+- **Naslov se izvodi iz prvog reda**, ostatak ide u telo. Poruka od 400 znakova
+  ne sme da postane zadatak sa 400 znakova u naslovu.
+- **Konverzija ne briše poruku.** Razgovor ostaje čitljiv.
+- **Ista poruka se može pretvoriti više puta** — jednom u zadatak, jednom u
+  ideju. Ne zaključavaj.
 
 ---
 
