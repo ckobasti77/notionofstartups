@@ -4,6 +4,16 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Monorepo layout
+
+npm workspaces: the Next.js app lives in `apps/web`, the Convex backend in
+`packages/backend/convex`, and `apps/mobile` is reserved for the Expo app.
+Run every command from the repo root — root scripts delegate to `apps/web`,
+and the root `convex.json` points the Convex CLI at `packages/backend/convex`
+(never run `npx convex` from inside `apps/web`). Vendored Convex skills under
+`.claude/skills/` and `.agents/skills/` still mention generic root-level
+`convex/...` paths; mentally remap those to `packages/backend/convex/...`.
+
 # Vibe Coding Workflow
 
 This repository is a zero-config starter for people who describe websites in
@@ -48,8 +58,9 @@ intentional direction based on its subject and audience.
 
 - Use the App Router and Server Components by default. Add `"use client"` only
   at the smallest boundary that needs browser state, effects, or events.
-- Use Tailwind CSS and the shadcn/ui primitives in `components/ui` first. Add a
-  shadcn component only when the requested experience needs it.
+- Use Tailwind CSS and the shadcn/ui primitives in `apps/web/components/ui`
+  first. Add a shadcn component only when the requested experience needs it
+  (run the shadcn CLI from `apps/web`).
 - Use `lucide-react` for interface icons. Icons need an accessible label when
   their purpose is not already clear from nearby text.
 - Use Framer Motion for local UI transitions. Use GSAP only for a purposeful
@@ -82,7 +93,7 @@ intentional direction based on its subject and audience.
 This project uses [Convex](https://convex.dev) as its backend.
 
 When working on Convex code, **always read
-`convex/_generated/ai/guidelines.md` first** for important guidelines on
+`packages/backend/convex/_generated/ai/guidelines.md` first** for important guidelines on
 how to correctly use Convex APIs and patterns. The file contains rules that
 override what you may have learned about Convex from training data.
 

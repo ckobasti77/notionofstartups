@@ -16,6 +16,20 @@ Privatni operativni prostor za mali tim koji vodi više startupa. Aplikacija spa
 
 Codex planiranje i obaveštenja su namerno ostavljeni za drugu fazu, nakon što tim potvrdi svakodnevni workflow jezgra aplikacije.
 
+## Struktura repozitorijuma
+
+npm workspaces monorepo:
+
+- `apps/web` — Next.js aplikacija
+- `apps/mobile` — rezervisano za Expo aplikaciju (vidi `docs/mobile/`)
+- `packages/backend` — Convex backend (`packages/backend/convex`)
+
+Sve komande se pokreću iz korena repozitorijuma: root skripte delegiraju u
+`apps/web`, a root `convex.json` usmerava Convex CLI na
+`packages/backend/convex`. Convex CLI (`npx convex ...`) se pokreće
+**isključivo iz korena** — pokrenut iz `apps/web` pogrešno bi zaključio gde je
+functions direktorijum.
+
 ## Lokalno pokretanje
 
 Potreban je Node.js 20.9 ili noviji.
@@ -34,7 +48,19 @@ npm run dev
 npx convex dev
 ```
 
-Otvori [http://localhost:3000](http://localhost:3000). `npm run dev` pokreće standardni Next.js razvojni server sa podrazumevanim Turbopack bundlerom i portom 3000. `npx convex dev` zasebno pokreće standardni Convex watcher.
+Otvori [http://localhost:3000](http://localhost:3000). `npm run dev` pokreće standardni Next.js razvojni server (Turbopack) na portu 3000. `npx convex dev` zasebno pokreće standardni Convex watcher. Production build (`npm run build`) koristi webpack.
+
+Env fajlovi žive na dva mesta: root `.env.local` je dom Convex CLI-ja
+(`CONVEX_DEPLOYMENT` i vrednosti koje CLI sam upisuje), a `apps/web/.env.local`
+drži `NEXT_PUBLIC_*` varijable koje Next čita u build-u. Na svežem clone-u:
+
+```bash
+cp .env.example .env.local
+cp apps/web/.env.example apps/web/.env.local
+```
+
+pa posle prvog `npx convex dev` prekopiraj `NEXT_PUBLIC_*` vrednosti iz root
+`.env.local` u `apps/web/.env.local`.
 
 Aktuelno lokalno Convex okruženje je već povezano kroz `.env.local`. Za potpuno nov Convex deployment prvo pokreni:
 
@@ -52,7 +78,8 @@ npx convex env set BOOTSTRAP_ADMIN_CODE "izaberi-dug-slucajan-kod"
 npm run check
 ```
 
-Komanda pokreće ESLint i production build. Convex funkcije i schema se proveravaju i objavljuju na dev deployment komandom:
+Komanda pokreće ESLint (ceo repo) i production build za `apps/web`. Testovi
+oba workspace-a: `npm test`. Convex funkcije i schema se proveravaju i objavljuju na dev deployment komandom (iz korena):
 
 ```bash
 npx convex dev --once
