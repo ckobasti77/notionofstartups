@@ -50,14 +50,71 @@ export const notificationTypeValidator = v.union(
   v.literal("vote_requested"),
   v.literal("request_resolved"),
   v.literal("puls_ready"),
+  // Chat (vidi docs/mobile/04-CHAT.md sekcija 6). Zvuci se mapiraju po tipu.
+  v.literal("chat_message"),
+  v.literal("chat_mention"),
+  v.literal("chat_dm"),
 );
 
-/** Kuda vodi klik na obaveštenje. */
+/** Kuda vodi klik na obaveštenje. `chat` vodi na kanal (targetId je channelId). */
 export const notificationTargetTypeValidator = v.union(
   v.literal("page"),
   v.literal("ideas"),
   v.literal("approvals"),
   v.literal("puls"),
+  v.literal("chat"),
+);
+
+// --- Chat (docs/mobile/04-CHAT.md) ---------------------------------------
+
+/**
+ * Vrsta chat kanala. `startup` je opšti kanal — tačno jedan po startupu,
+ * implicitno članstvo, ne može da se napusti ni arhivira (sekcija 5b). `agent`
+ * je AI sagovornik, po korisniku jedan (docs/mobile/06-AGENT.md).
+ */
+export const chatChannelKindValidator = v.union(
+  v.literal("startup"),
+  v.literal("area"),
+  v.literal("custom"),
+  v.literal("dm"),
+  v.literal("thread"),
+  v.literal("agent"),
+);
+
+/**
+ * Entitet za koji je thread kanal zakačen (`kind === "thread"`). `message` je
+ * diskusija otvorena iz same chat poruke — thread nasleđuje pristup od kanala
+ * te poruke (04-CHAT.md 5c). Pronalaženje ide preko `chatChannels.by_anchor`.
+ */
+export const chatAnchorTypeValidator = v.union(
+  v.literal("page"),
+  v.literal("idea"),
+  v.literal("thought"),
+  v.literal("deletionRequest"),
+  v.literal("message"),
+);
+
+export const chatMessageKindValidator = v.union(
+  v.literal("text"),
+  v.literal("file"),
+  v.literal("voice"),
+  v.literal("system"),
+);
+
+export const chatMemberRoleValidator = v.union(
+  v.literal("owner"),
+  v.literal("member"),
+);
+
+/**
+ * Nivo obaveštenja po kanalu, po profilu. Živi na `chatReads` (ne na
+ * `chatMembers`) da bi radio i za implicitne startup/area kanale. Odsutan red
+ * ili polje = `all`.
+ */
+export const chatNotificationLevelValidator = v.union(
+  v.literal("all"),
+  v.literal("mentions"),
+  v.literal("none"),
 );
 
 export const checkpointItemValidator = v.object({
@@ -104,6 +161,20 @@ export const MAX_TABLE_LABEL_LENGTH = 120;
 export const MAX_TABLE_IMPORT_BATCH = 200;
 export const MAX_TABLE_PAGE_SIZE = 200;
 export const MAX_TASK_DUE_DATE = 253_402_300_799_999;
+
+// --- Chat limiti (docs/mobile/04-CHAT.md) --------------------------------
+export const MAX_CHAT_MESSAGE_LENGTH = 10_000;
+/** Denormalizovani pregled poslednje poruke u listi razgovora. */
+export const CHAT_PREVIEW_LENGTH = 100;
+/** Prozor u kome autor sme da izmeni poruku (04-CHAT.md 8, „~15 min"). */
+export const CHAT_EDIT_WINDOW_MS = 15 * 60 * 1_000;
+export const MAX_CHAT_MENTIONS = 50;
+/** Gornja granica čitanja u listama — zaštita, ne očekivanje. */
+export const CHAT_CHANNELS_CAP = 200;
+export const CHAT_UNREAD_SUMMARY_CAP = 500;
+export const CHAT_SEARCH_CAP = 50;
+/** Koliko primalaca dobija unread/notifikaciju po poruci pre batch obrasca. */
+export const CHAT_RECIPIENTS_CAP = 200;
 
 export type TaskCheckpointInput = {
   id: string;

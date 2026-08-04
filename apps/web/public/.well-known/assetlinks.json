@@ -3,7 +3,7 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.PROMENI.notionclone",
+      "package_name": "com.devotion.app",
       "sha256_cert_fingerprints": [
         "PLACEHOLDER_REPLACE_WITH_ANDROID_SIGNING_SHA256_FINGERPRINT"
       ]

@@ -70,7 +70,7 @@ export function AuthScreen({ inviteCode }: AuthScreenProps) {
         <div className="flex items-center gap-3">
           <AppMark className="size-9" />
           <div>
-            <p className="text-sm font-semibold tracking-tight">Notion Clone</p>
+            <p className="text-sm font-semibold tracking-tight">Devotion</p>
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
               Privatni radni prostor
             </p>
@@ -122,7 +122,7 @@ export function AuthScreen({ inviteCode }: AuthScreenProps) {
           <div className="mb-9 flex items-center gap-3 lg:hidden">
             <AppMark className="size-9" />
             <div>
-              <p className="font-semibold">Notion Clone</p>
+              <p className="font-semibold">Devotion</p>
               <p className="text-xs text-muted-foreground">Privatni radni prostor</p>
             </div>
           </div>

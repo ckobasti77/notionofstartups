@@ -2,6 +2,11 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  chatAnchorTypeValidator,
+  chatChannelKindValidator,
+  chatMemberRoleValidator,
+  chatMessageKindValidator,
+  chatNotificationLevelValidator,
   checkpointItemValidator,
   notificationTargetTypeValidator,
   notificationTypeValidator,
@@ -141,6 +146,8 @@ export default defineSchema({
     lastConvertedIdeaId: v.optional(v.id("ideaNodes")),
     lastConvertedPageId: v.union(v.id("pages"), v.null()),
     lastConvertedAt: v.union(v.number(), v.null()),
+    // Poruka iz koje je misao nastala (chat „Pretvori u…", 04-CHAT.md 5c).
+    sourceMessageId: v.optional(v.id("chatMessages")),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -237,6 +244,10 @@ export default defineSchema({
     // Trenutak prelaska u „Gotovo”. `updatedAt` nije upotrebljiv kao izvor jer
     // svaka kasnija izmena završenog zadatka pomera nedelju u kojoj je završen.
     completedAt: v.optional(v.union(v.number(), v.null())),
+    // Poruka iz koje je zadatak/beleška nastao (chat „Pretvori u…", 04-CHAT.md
+    // 5c). Bez indeksa u v1: skok je entitet→poruka; obrnuti smer ide preko
+    // sistemske poruke u kanalu, ne upitom.
+    sourceMessageId: v.optional(v.id("chatMessages")),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
     archivedAt: v.union(v.number(), v.null()),
@@ -588,6 +599,8 @@ export default defineSchema({
     isParent: v.optional(v.boolean()),
     convertedPageId: v.union(v.id("pages"), v.null()),
     convertedAt: v.union(v.number(), v.null()),
+    // Poruka iz koje je ideja nastala (chat „Pretvori u…", 04-CHAT.md 5c).
+    sourceMessageId: v.optional(v.id("chatMessages")),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1141,5 +1154,116 @@ export default defineSchema({
     .index("by_actorProfileId_and_createdAt", [
       "actorProfileId",
       "createdAt",
+    ]),
+
+  // --- Chat (docs/mobile/04-CHAT.md) --------------------------------------
+
+  chatChannels: defineTable({
+    startupId: v.id("startups"),
+    kind: chatChannelKindValidator,
+    // kind === "area": kanal oblasti.
+    areaId: v.union(v.id("startupAreas"), v.null()),
+    // kind === "thread": polimorfna veza ka entitetu.
+    anchorType: v.union(chatAnchorTypeValidator, v.null()),
+    anchorId: v.union(v.string(), v.null()),
+    // kind === "dm": sortirani par "profileA:profileB". Za `agent` kanal:
+    // "agent:<profileId>" — deterministično pronalaženje bez posebnog indeksa.
+    dmKey: v.union(v.string(), v.null()),
+    name: v.string(),
+    isPrivate: v.boolean(),
+    // Denormalizovano zbog liste razgovora — bez ovoga je pregled N+1.
+    lastMessageAt: v.number(),
+    lastMessagePreview: v.string(),
+    lastMessageAuthorId: v.union(v.id("profiles"), v.null()),
+    messageCount: v.number(),
+    createdByProfileId: v.id("profiles"),
+    archivedAt: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+  })
+    // Globalni/admin pogled po skorašnjosti. Lista po korisniku se sklapa iz
+    // by_startup_and_kind (javni) + chatMembers (DM/privatni/thread) — ovaj
+    // indeks NE daje access-filtriranu listu (04-CHAT.md, analiza B2).
+    .index("by_startup_and_lastMessageAt", [
+      "startupId",
+      "archivedAt",
+      "lastMessageAt",
+    ])
+    .index("by_startup_and_kind", ["startupId", "kind", "archivedAt"])
+    .index("by_anchor", ["anchorType", "anchorId"])
+    .index("by_startup_and_dmKey", ["startupId", "dmKey"])
+    .index("by_area", ["areaId", "archivedAt"]),
+
+  chatMessages: defineTable({
+    channelId: v.id("chatChannels"),
+    // Duplirano zbog provere pristupa bez join-a i kao search filterField.
+    startupId: v.id("startups"),
+    authorProfileId: v.union(v.id("profiles"), v.null()), // null = sistemska
+    body: v.string(),
+    mentions: v.array(v.id("profiles")),
+    kind: chatMessageKindValidator,
+    attachmentStorageId: v.optional(v.id("_storage")),
+    attachmentName: v.union(v.string(), v.null()),
+    attachmentType: v.union(v.string(), v.null()),
+    attachmentSize: v.union(v.number(), v.null()),
+    voiceDurationMs: v.union(v.number(), v.null()),
+    replyToMessageId: v.union(v.id("chatMessages"), v.null()),
+    editedAt: v.union(v.number(), v.null()),
+    deletedAt: v.union(v.number(), v.null()), // soft delete
+    createdAt: v.number(),
+  })
+    // Lista poruka: uključuje i soft-obrisane (prikazuju se kao tombstone).
+    .index("by_channel_and_createdAt", ["channelId", "createdAt"])
+    .index("by_channel_active", ["channelId", "deletedAt", "createdAt"])
+    .index("by_author", ["authorProfileId", "createdAt"])
+    .searchIndex("search_body", {
+      searchField: "body",
+      filterFields: ["startupId", "channelId", "deletedAt"],
+    }),
+
+  // Eksplicitno članstvo — DM, privatni/custom kanali, threadovi, agent. Za
+  // kind === "startup"/"area" članstvo je implicitno (startupMembers), pa ovde
+  // nema redova. Nivo obaveštenja NIJE ovde — živi na chatReads (04-CHAT.md D).
+  chatMembers: defineTable({
+    channelId: v.id("chatChannels"),
+    profileId: v.id("profiles"),
+    startupId: v.id("startups"),
+    role: chatMemberRoleValidator,
+    joinedAt: v.number(),
+    leftAt: v.union(v.number(), v.null()),
+  })
+    .index("by_channel", ["channelId", "leftAt"])
+    .index("by_profile", ["profileId", "leftAt"])
+    .index("by_channel_and_profile", ["channelId", "profileId"])
+    // „Moji DM/threadovi u startupu" bez skeniranja članstava kroz sve startupe.
+    .index("by_profile_and_startup", ["profileId", "startupId", "leftAt"]),
+
+  // Po kanalu, po profilu. Nosi unread brojače i nivo obaveštenja. Nedostajući
+  // red = 0 unread i nivo „all"; redovi nastaju lenjo (nema seed migracije).
+  chatReads: defineTable({
+    channelId: v.id("chatChannels"),
+    profileId: v.id("profiles"),
+    startupId: v.id("startups"),
+    lastReadAt: v.number(),
+    lastReadMessageId: v.union(v.id("chatMessages"), v.null()),
+    unreadCount: v.number(), // održavano inkrementalno, ne računa se pri čitanju
+    mentionCount: v.number(),
+    notificationLevel: v.optional(chatNotificationLevelValidator),
+    updatedAt: v.number(),
+  })
+    .index("by_channel_and_profile", ["channelId", "profileId"])
+    .index("by_profile", ["profileId"])
+    .index("by_profile_and_startup", ["profileId", "startupId"]),
+
+  chatReactions: defineTable({
+    messageId: v.id("chatMessages"),
+    profileId: v.id("profiles"),
+    emoji: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_message", ["messageId"])
+    .index("by_message_and_profile_and_emoji", [
+      "messageId",
+      "profileId",
+      "emoji",
     ]),
 });

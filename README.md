@@ -1,4 +1,4 @@
-# Notion Clone
+# Devotion
 
 Privatni operativni prostor za mali tim koji vodi više startupa. Aplikacija spaja hijerarhijske beleške, zadatke, odgovornosti i aktivnost tima u jedan miran, pregledan interfejs.
 

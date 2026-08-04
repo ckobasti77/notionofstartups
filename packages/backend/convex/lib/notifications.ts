@@ -21,9 +21,17 @@ export type NotificationType =
   | "idea_converted"
   | "vote_requested"
   | "request_resolved"
-  | "puls_ready";
+  | "puls_ready"
+  | "chat_message"
+  | "chat_mention"
+  | "chat_dm";
 
-export type NotificationTargetType = "page" | "ideas" | "approvals" | "puls";
+export type NotificationTargetType =
+  | "page"
+  | "ideas"
+  | "approvals"
+  | "puls"
+  | "chat";
 
 /** Srpske oznake statusa; Convex kod ne uvozi iz app `lib/`. */
 export const TASK_STATUS_LABELS = {

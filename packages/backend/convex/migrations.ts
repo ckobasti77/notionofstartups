@@ -235,6 +235,82 @@ export const backfillPageRelationEndpoints = migrations.define({
   },
 });
 
+/**
+ * Kanali oblasti + opšti kanal za svaki aktivan startup (04-CHAT.md sekcija 9).
+ * Iterira `startups`; za svaki pravi tačno jedan `kind:"startup"` kanal i po
+ * jedan `kind:"area"` kanal po oblasti. Idempotentno — ponovni run ne duplira.
+ * Namerno NE seeduje `chatReads` (odluka F: „nema reda = 0 unread", lenjo) i ne
+ * upisuje poruke dobrodošlice — dira samo `chatChannels`.
+ */
+export const backfillChatChannels = migrations.define({
+  table: "startups",
+  migrateOne: async (ctx, startup) => {
+    if (startup.archivedAt !== null) return;
+
+    const existingGeneral = await ctx.db
+      .query("chatChannels")
+      .withIndex("by_startup_and_kind", (q) =>
+        q
+          .eq("startupId", startup._id)
+          .eq("kind", "startup")
+          .eq("archivedAt", null),
+      )
+      .first();
+    if (existingGeneral === null) {
+      await ctx.db.insert("chatChannels", {
+        startupId: startup._id,
+        kind: "startup",
+        areaId: null,
+        anchorType: null,
+        anchorId: null,
+        dmKey: null,
+        name: "Opšte",
+        isPrivate: false,
+        lastMessageAt: startup.createdAt,
+        lastMessagePreview: "",
+        lastMessageAuthorId: null,
+        messageCount: 0,
+        createdByProfileId: startup.createdByProfileId,
+        archivedAt: null,
+        createdAt: startup.createdAt,
+      });
+    }
+
+    const areas = await ctx.db
+      .query("startupAreas")
+      .withIndex("by_startupId_and_position", (q) =>
+        q.eq("startupId", startup._id),
+      )
+      .collect();
+    for (const area of areas) {
+      const existingArea = await ctx.db
+        .query("chatChannels")
+        .withIndex("by_area", (q) =>
+          q.eq("areaId", area._id).eq("archivedAt", null),
+        )
+        .first();
+      if (existingArea !== null) continue;
+      await ctx.db.insert("chatChannels", {
+        startupId: startup._id,
+        kind: "area",
+        areaId: area._id,
+        anchorType: null,
+        anchorId: null,
+        dmKey: null,
+        name: area.label,
+        isPrivate: false,
+        lastMessageAt: startup.createdAt,
+        lastMessagePreview: "",
+        lastMessageAuthorId: null,
+        messageCount: 0,
+        createdByProfileId: startup.createdByProfileId,
+        archivedAt: null,
+        createdAt: startup.createdAt,
+      });
+    }
+  },
+});
+
 export const run = migrations.runner();
 
 export const verifyContributionBackfill = internalQuery({
@@ -444,6 +520,59 @@ export const verifyTaskCheckpointBackfill = internalQuery({
       missingRows,
       mismatchedCounts,
       complete: !truncated && missingRows === 0 && mismatchedCounts === 0,
+      truncated,
+    };
+  },
+});
+
+export const verifyChatChannelBackfill = internalQuery({
+  args: {},
+  returns: v.object({
+    scannedStartups: v.number(),
+    missingGeneral: v.number(),
+    missingAreaChannels: v.number(),
+    complete: v.boolean(),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const startups = await ctx.db.query("startups").take(501);
+    const active = startups.filter((startup) => startup.archivedAt === null);
+    let missingGeneral = 0;
+    let missingAreaChannels = 0;
+    for (const startup of active) {
+      const general = await ctx.db
+        .query("chatChannels")
+        .withIndex("by_startup_and_kind", (q) =>
+          q
+            .eq("startupId", startup._id)
+            .eq("kind", "startup")
+            .eq("archivedAt", null),
+        )
+        .first();
+      if (general === null) missingGeneral += 1;
+
+      const areas = await ctx.db
+        .query("startupAreas")
+        .withIndex("by_startupId_and_position", (q) =>
+          q.eq("startupId", startup._id),
+        )
+        .collect();
+      for (const area of areas) {
+        const channel = await ctx.db
+          .query("chatChannels")
+          .withIndex("by_area", (q) =>
+            q.eq("areaId", area._id).eq("archivedAt", null),
+          )
+          .first();
+        if (channel === null) missingAreaChannels += 1;
+      }
+    }
+    const truncated = startups.length > 500;
+    return {
+      scannedStartups: active.length,
+      missingGeneral,
+      missingAreaChannels,
+      complete: !truncated && missingGeneral === 0 && missingAreaChannels === 0,
       truncated,
     };
   },

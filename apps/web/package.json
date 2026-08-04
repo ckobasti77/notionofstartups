@@ -1,5 +1,5 @@
 {
-  "name": "@notion-clone/web",
+  "name": "@devotion/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,7 +10,7 @@
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
     "@convex-dev/auth": "^0.0.94",
-    "@notion-clone/backend": "*",
+    "@devotion/backend": "*",
     "@radix-ui/react-accordion": "^1.2.16",
     "@radix-ui/react-context-menu": "^2.3.3",
     "@radix-ui/react-dialog": "^1.1.19",

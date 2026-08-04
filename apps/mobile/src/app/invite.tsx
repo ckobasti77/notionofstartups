@@ -14,7 +14,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { accessErrorMessage } from '@/lib/errors';
 
 /**
- * Cilj deep linka `notionclone://invite?code=…&email=…` (i universal linka
+ * Cilj deep linka `devotion://invite?code=…&email=…` (i universal linka
  * `https://<DOMEN>/invite?…`). Upamti pozivnicu, pa preusmeri po auth stanju —
  * preslikava dva invite efekta iz web [app-root.tsx]:
  *  - neprijavljen → sign-up (email prefilovan, kod u kontekstu),

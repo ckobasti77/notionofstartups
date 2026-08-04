@@ -14,7 +14,7 @@ export function GET() {
       apps: [],
       details: [
         {
-          appID: "TEAMID.com.PROMENI.notionclone",
+          appID: "TEAMID.com.devotion.app",
           paths: ["/invite", "/invite/*"],
         },
       ],

@@ -443,7 +443,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
           {compact ? null : (
             <div className="min-w-0">
               <p className="truncate text-sm font-bold tracking-[-0.02em]">
-                Notion on Startups.
+                Devotion
               </p>
               <p className="truncate text-[0.6875rem] text-muted-foreground">
                 Tim u jednom toku
@@ -1143,7 +1143,7 @@ export function StartupEmptyRail({
       <div className="flex items-center gap-2.5">
         <AppMark />
         <div>
-          <p className="text-sm font-bold">Notion on Startups.</p>
+          <p className="text-sm font-bold">Devotion</p>
           <p className="text-xs text-muted-foreground">Tim u jednom toku</p>
         </div>
       </div>

@@ -1,5 +1,5 @@
 {
-  "name": "notion-clone",
+  "name": "devotion",
   "version": "0.1.0",
   "private": true,
   "workspaces": [
@@ -10,11 +10,11 @@
     "node": ">=20.9"
   },
   "scripts": {
-    "dev": "npm run dev --workspace @notion-clone/web",
-    "dev:mobile": "npm run start --workspace mobile",
-    "dev:backend": "npm run dev --workspace @notion-clone/backend",
-    "build": "npm run build --workspace @notion-clone/web",
-    "start": "npm run start --workspace @notion-clone/web",
+    "dev": "npm run dev --workspace @devotion/web",
+    "dev:mobile": "npm run start --workspace @devotion/mobile",
+    "dev:backend": "npm run dev --workspace @devotion/backend",
+    "build": "npm run build --workspace @devotion/web",
+    "start": "npm run start --workspace @devotion/web",
     "lint": "eslint",
     "test": "vitest run",
     "check": "npm run lint && npm run build"

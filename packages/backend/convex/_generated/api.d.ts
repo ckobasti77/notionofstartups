@@ -14,6 +14,7 @@ import type * as areasV2Migrations from "../areasV2Migrations.js";
 import type * as auth from "../auth.js";
 import type * as canvasPlacement from "../canvasPlacement.js";
 import type * as canvases from "../canvases.js";
+import type * as chat from "../chat.js";
 import type * as collaboration from "../collaboration.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   canvasPlacement: typeof canvasPlacement;
   canvases: typeof canvases;
+  chat: typeof chat;
   collaboration: typeof collaboration;
   crons: typeof crons;
   dashboard: typeof dashboard;
