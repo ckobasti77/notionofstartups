@@ -20,6 +20,9 @@ const eslintConfig = defineConfig([
     "apps/web/build/**",
     "**/next-env.d.ts",
     "packages/backend/convex/_generated/**",
+    // The Expo app has its own React Native ESLint setup (`expo lint`);
+    // the Next.js ruleset here does not apply to it.
+    "apps/mobile/**",
   ]),
 ]);
 
