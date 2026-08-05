@@ -48,6 +48,21 @@
           "photosPermission": "Devotion pristupa galeriji da priložiš slike u razgovoru.",
           "cameraPermission": "Devotion koristi kameru da uslikaš i pošalješ fotografiju u razgovoru."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#0F172A",
+          "sounds": [
+            "./assets/sounds/dm.wav",
+            "./assets/sounds/mention.wav",
+            "./assets/sounds/channel.wav",
+            "./assets/sounds/task.wav",
+            "./assets/sounds/deadline.wav",
+            "./assets/sounds/vote.wav"
+          ]
+        }
       ]
     ],
     "experiments": {

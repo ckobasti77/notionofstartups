@@ -1108,6 +1108,32 @@ export default defineSchema({
     .index("by_endpoint", ["endpoint"])
     .index("by_profileId", ["profileId"]),
 
+  // Native push tokeni (Expo), paralelno sa web `pushSubscriptions`. Isti
+  // korisnik može imati oba — desktop browser i telefon — i obe dostave rade
+  // nezavisno (docs/mobile/03-NOTIFIKACIJE.md sekcija 2).
+  expoPushTokens: defineTable({
+    profileId: v.id("profiles"),
+    // ExponentPushToken[...]; jedinstven po uređaju, upsert ide preko by_token.
+    token: v.string(),
+    platform: v.union(v.literal("ios"), v.literal("android")),
+    deviceName: v.union(v.string(), v.null()),
+    appVersion: v.string(),
+    // Koju generaciju kanala uređaj poznaje (sekcija 4.1 — Android zaključava
+    // zvuk za kanal, pa se novi zvuk isporučuje kroz novi `_vN` kanal).
+    channelVersion: v.number(),
+    // Korisnikova podešavanja obaveštenja; prazno = ništa nije utišano.
+    mutedTypes: v.array(notificationTypeValidator),
+    // Tihi sati kao minuti od ponoći u Europe/Belgrade; `null` = isključeno.
+    quietHoursStart: v.union(v.number(), v.null()),
+    quietHoursEnd: v.union(v.number(), v.null()),
+    lastSeenAt: v.number(),
+    // Broj neuspelih dostava; posle praga se token gasi (kao kod weba).
+    failureCount: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_profileId", ["profileId"])
+    .index("by_token", ["token"]),
+
   activities: defineTable({
     startupId: v.id("startups"),
     actorProfileId: v.id("profiles"),

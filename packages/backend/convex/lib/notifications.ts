@@ -62,6 +62,38 @@ export function belgradeDayKey(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
+/**
+ * Minuti od ponoći u Europe/Belgrade (0–1439) — osnova tihih sati. Zona i letnje
+ * računanje vremena idu kroz `Intl`, ista tehnika kao `belgradeDayKey`.
+ */
+export function belgradeMinutesOfDay(timestamp: number) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Europe/Belgrade",
+  }).formatToParts(new Date(timestamp));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return hour * 60 + minute;
+}
+
+/**
+ * Da li je `minute` (minuti od ponoći) unutar tihih sati `[start, end)`. Rukuje
+ * prelaskom preko ponoći (npr. 22:00→08:00). `null` granice ili prazan prozor
+ * (start === end) znače da tihi sati nisu aktivni.
+ */
+export function isWithinQuietHours(
+  start: number | null,
+  end: number | null,
+  minute: number,
+) {
+  if (start === null || end === null || start === end) return false;
+  return start < end
+    ? minute >= start && minute < end
+    : minute >= start || minute < end;
+}
+
 // Copy živi na jednom mestu da bi ton bio isti u aplikaciji i u push obaveštenju.
 export const notificationCopy = {
   taskAssigned: (taskTitle: string, actorName: string) => ({
@@ -201,7 +233,15 @@ export async function createNotification(
   });
 
   // Push ide van transakcije: mreža ne sme da blokira ni da obori upis.
+  //
+  // Dve nezavisne grane iz iste tačke (posle svih guard-ova i posle upisa reda):
+  //   push.deliver     → web (VAPID, desktop browser)
+  //   expoPush.deliver → native (Expo, Android + iOS telefon)
+  // Isti korisnik može imati oba uređaja; obe dostave rade paralelno. Odvojeni
+  // `runAfter` jobovi znače da pad jedne grane ne dira drugu, a oba nasleđuju
+  // ista pravila potiskivanja odavde (docs/mobile/03-NOTIFIKACIJE.md sekcija 2).
   await ctx.scheduler.runAfter(0, internal.push.deliver, { notificationId });
+  await ctx.scheduler.runAfter(0, internal.expoPush.deliver, { notificationId });
 
   return notificationId;
 }
