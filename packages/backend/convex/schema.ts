@@ -1238,7 +1238,8 @@ export default defineSchema({
     .index("by_profile_and_startup", ["profileId", "startupId", "leftAt"]),
 
   // Po kanalu, po profilu. Nosi unread brojače i nivo obaveštenja. Nedostajući
-  // red = 0 unread i nivo „all"; redovi nastaju lenjo (nema seed migracije).
+  // red = 0 unread i nivo „all". Opšti i kanali oblasti se seeduju (migracija
+  // `backfillChatReads`, unread 0); DM/thread redovi nastaju lenjo.
   chatReads: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),

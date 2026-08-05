@@ -1,6 +1,6 @@
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { insertContribution } from "./lib/collaboration";
@@ -239,8 +239,8 @@ export const backfillPageRelationEndpoints = migrations.define({
  * Kanali oblasti + opšti kanal za svaki aktivan startup (04-CHAT.md sekcija 9).
  * Iterira `startups`; za svaki pravi tačno jedan `kind:"startup"` kanal i po
  * jedan `kind:"area"` kanal po oblasti. Idempotentno — ponovni run ne duplira.
- * Namerno NE seeduje `chatReads` (odluka F: „nema reda = 0 unread", lenjo) i ne
- * upisuje poruke dobrodošlice — dira samo `chatChannels`.
+ * Dira samo `chatChannels` i ne upisuje poruke dobrodošlice; `chatReads` seed
+ * (unread 0 po članu) radi zasebna migracija `backfillChatReads`.
  */
 export const backfillChatChannels = migrations.define({
   table: "startups",
@@ -311,7 +311,94 @@ export const backfillChatChannels = migrations.define({
   },
 });
 
+/**
+ * `chatReads` seed za opšti kanal i kanale oblasti (04-CHAT.md sekcija 9, korak 2).
+ * Iterira `startups`; za svaki aktivan startup upisuje po jedan `chatReads` red sa
+ * `unreadCount: 0` za svakog aktivnog člana, u svakom `kind:"startup"` i
+ * `kind:"area"` kanalu. Pokrenuti posle `backfillChatChannels` (kanali moraju da
+ * postoje); ako ih još nema, migracija za taj startup ne radi ništa.
+ *
+ * Idempotentno i bezbedno za ponovni run: čista logika „insert-if-absent". Postojeći
+ * red se NIKAD ne patch-uje — lenjo kreiran red sa `unreadCount > 0` iz stvarne
+ * upotrebe se preskače, pa se brojači ne nuliraju. DM/thread/custom/agent kanali se
+ * ne seeduju (nastaju lenjo), niti se upisuju poruke dobrodošlice.
+ *
+ * `batchSize: 1` je namerno: ovo je fan-out migracija koja po startupu upisuje
+ * (kanali × članovi) redova. Jedan startup po transakciji drži read/write daleko
+ * ispod limita transakcije bez obzira na broj oblasti i članova.
+ */
+export const backfillChatReads = migrations.define({
+  table: "startups",
+  batchSize: 1,
+  migrateOne: async (ctx, startup) => {
+    if (startup.archivedAt !== null) return;
+
+    const general = await ctx.db
+      .query("chatChannels")
+      .withIndex("by_startup_and_kind", (q) =>
+        q
+          .eq("startupId", startup._id)
+          .eq("kind", "startup")
+          .eq("archivedAt", null),
+      )
+      .collect();
+    const areaChannels = await ctx.db
+      .query("chatChannels")
+      .withIndex("by_startup_and_kind", (q) =>
+        q
+          .eq("startupId", startup._id)
+          .eq("kind", "area")
+          .eq("archivedAt", null),
+      )
+      .collect();
+    const channels = [...general, ...areaChannels];
+    if (channels.length === 0) return;
+
+    const members = await ctx.db
+      .query("startupMembers")
+      .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
+        q.eq("startupId", startup._id).eq("archivedAt", null),
+      )
+      .collect();
+
+    for (const channel of channels) {
+      for (const member of members) {
+        const existing = await ctx.db
+          .query("chatReads")
+          .withIndex("by_channel_and_profile", (q) =>
+            q.eq("channelId", channel._id).eq("profileId", member.profileId),
+          )
+          .unique();
+        if (existing !== null) continue;
+        await ctx.db.insert("chatReads", {
+          channelId: channel._id,
+          profileId: member.profileId,
+          startupId: startup._id,
+          lastReadAt: channel.createdAt,
+          lastReadMessageId: null,
+          unreadCount: 0,
+          mentionCount: 0,
+          updatedAt: channel.createdAt,
+        });
+      }
+    }
+  },
+});
+
 export const run = migrations.runner();
+
+/**
+ * Ceo chat backfill jednom komandom, u ispravnom redosledu: prvo kanali
+ * (`backfillChatChannels`), pa readovi (`backfillChatReads`) — readovi zavise od
+ * postojanja kanala. Ako prvi padne, staje i ne nastavlja; ponovni poziv nastavlja
+ * od prekida, a već završene migracije se preskaču.
+ *
+ *   npx convex run migrations:runChatBackfill
+ */
+export const runChatBackfill = migrations.runner([
+  internal.migrations.backfillChatChannels,
+  internal.migrations.backfillChatReads,
+]);
 
 export const verifyContributionBackfill = internalQuery({
   args: {},
@@ -573,6 +660,69 @@ export const verifyChatChannelBackfill = internalQuery({
       missingGeneral,
       missingAreaChannels,
       complete: !truncated && missingGeneral === 0 && missingAreaChannels === 0,
+      truncated,
+    };
+  },
+});
+
+export const verifyChatReadsBackfill = internalQuery({
+  args: {},
+  returns: v.object({
+    scannedStartups: v.number(),
+    missingReads: v.number(),
+    complete: v.boolean(),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const startups = await ctx.db.query("startups").take(501);
+    const active = startups.filter((startup) => startup.archivedAt === null);
+    let truncated = startups.length > 500;
+    let missingReads = 0;
+    for (const startup of active) {
+      const general = await ctx.db
+        .query("chatChannels")
+        .withIndex("by_startup_and_kind", (q) =>
+          q
+            .eq("startupId", startup._id)
+            .eq("kind", "startup")
+            .eq("archivedAt", null),
+        )
+        .collect();
+      const areaChannels = await ctx.db
+        .query("chatChannels")
+        .withIndex("by_startup_and_kind", (q) =>
+          q
+            .eq("startupId", startup._id)
+            .eq("kind", "area")
+            .eq("archivedAt", null),
+        )
+        .collect();
+      const channels = [...general, ...areaChannels];
+
+      const members = await ctx.db
+        .query("startupMembers")
+        .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
+          q.eq("startupId", startup._id).eq("archivedAt", null),
+        )
+        .take(501);
+      if (members.length > 500) truncated = true;
+
+      for (const channel of channels) {
+        for (const member of members) {
+          const read = await ctx.db
+            .query("chatReads")
+            .withIndex("by_channel_and_profile", (q) =>
+              q.eq("channelId", channel._id).eq("profileId", member.profileId),
+            )
+            .unique();
+          if (read === null) missingReads += 1;
+        }
+      }
+    }
+    return {
+      scannedStartups: active.length,
+      missingReads,
+      complete: !truncated && missingReads === 0,
       truncated,
     };
   },
