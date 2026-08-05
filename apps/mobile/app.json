@@ -35,7 +35,20 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Devotion koristi mikrofon za snimanje glasovnih poruka u chatu."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Devotion pristupa galeriji da priložiš slike u razgovoru.",
+          "cameraPermission": "Devotion koristi kameru da uslikaš i pošalješ fotografiju u razgovoru."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

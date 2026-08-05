@@ -1,8 +1,8 @@
 ---
+name: web-review
 description: Pregleda Next.js prikaze — pristupačnost, stanja, konzistentnost sa postojećim workspace komponentama. Koristi posle svakog web prikaza.
 model: sonnet
-effort: high
-tools: [Read, Grep, Glob]
+tools: Read, Grep, Glob
 ---
 Proveri: prati li postojeće obrasce iz `apps/web/components/workspace/` ·
 tastaturna navigacija i fokus · prazno/učitavanje/greška — sva tri ·

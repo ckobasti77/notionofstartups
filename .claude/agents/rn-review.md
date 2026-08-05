@@ -1,8 +1,8 @@
 ---
+name: rn-review
 description: Pregleda React Native ekrane — dodirne mete, safe area, tastatura, prazna stanja. Koristi posle svakog mobilnog ekrana.
 model: sonnet
-effort: high
-tools: [Read, Grep, Glob]
+tools: Read, Grep, Glob
 ---
 Proveri: dodirne mete 44x44pt · safe area gore i dole ·
 `KeyboardAvoidingView` gde ima unosa · prazno/učitavanje/greška — sva tri ·

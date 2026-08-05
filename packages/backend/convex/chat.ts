@@ -1593,3 +1593,17 @@ export const archiveChannel = mutation({
     return null;
   },
 });
+
+/**
+ * URL za upload priloga (slika/fajl/glasovna poruka) u kanal. Vraća sirov
+ * Convex upload URL; klijent zatim POST-uje fajl, dobija `storageId` i prosledi
+ * ga u `sendMessage`. Autorizacija je ista kao za slanje poruke — član kanala.
+ */
+export const generateUploadUrl = mutation({
+  args: { channelId: v.id("chatChannels") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    await requireChannelAccess(ctx, args.channelId);
+    return await ctx.storage.generateUploadUrl();
+  },
+});

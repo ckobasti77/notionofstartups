@@ -17,6 +17,7 @@ import {
   Home,
   Lightbulb,
   LogOut,
+  MessageCircle,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -106,6 +107,7 @@ type WorkspaceSidebarProps = {
   activeDropAreaId: Id<"startupAreas"> | null;
   pendingApprovals: number;
   unreadNotifications: number;
+  chatUnread: number;
   onOpenNotifications: () => void;
   onDragPageStart: (pageId: Id<"pages">) => void;
   onDragPageEnd: () => void;
@@ -122,6 +124,7 @@ type WorkspaceSidebarProps = {
 
 const primaryNav = [
   { kind: "home" as const, label: "Početna", icon: Home },
+  { kind: "chat" as const, label: "Chat", icon: MessageCircle },
   {
     kind: "thoughts" as const,
     label: "Moje misli",
@@ -538,7 +541,9 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                   badge={
                     item.kind === "approvals"
                       ? props.pendingApprovals
-                      : undefined
+                      : item.kind === "chat"
+                        ? props.chatUnread
+                        : undefined
                   }
                   active={route.kind === item.kind}
                   collapsed={compact}

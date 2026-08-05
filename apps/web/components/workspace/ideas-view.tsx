@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { EntityDiscussionPanel } from "@/components/workspace/chat/entity-discussion-panel";
 import { IdeasCanvasView } from "@/components/workspace/ideas-canvas-view";
 import { IdeaInlineThread } from "@/components/workspace/idea-discussion-dialog";
 import type { StartupWithAreas } from "@/components/workspace/types";
@@ -57,6 +58,7 @@ import { cn } from "@/lib/utils";
 type IdeasViewProps = {
   startup: StartupWithAreas;
   onOpenPage: (pageId: Id<"pages">) => void;
+  onOpenChannel?: (channelId: Id<"chatChannels">) => void;
 };
 
 type IdeaNodeItem = {
@@ -83,7 +85,7 @@ type IdeaNodeItem = {
 
 type IdeaColor = "neutral" | "violet" | "blue" | "green" | "amber" | "rose";
 
-export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
+export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps) {
   const [viewMode, setViewMode] = useState<"table" | "canvas">("canvas");
   const [searchQuery, setSearchQuery] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -627,11 +629,27 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
                                       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
                                         {node.text}
                                       </p>
-                                      <IdeaInlineThread
-                                        ideaId={node._id}
-                                        canAdd={!node.canEdit}
-                                        className="mt-4 border-t border-border/60 pt-4"
-                                      />
+                                      <div className="mt-4 space-y-4 border-t border-border/60 pt-4">
+                                        <div>
+                                          <h5 className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                                            Predlozi izmena
+                                          </h5>
+                                          <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
+                                            Doprinosi članova koje autor ideje odobrava ili odbija.
+                                          </p>
+                                          <IdeaInlineThread
+                                            ideaId={node._id}
+                                            canAdd={!node.canEdit}
+                                            className="mt-2"
+                                          />
+                                        </div>
+                                        <EntityDiscussionPanel
+                                          startupId={startup._id}
+                                          anchorType="idea"
+                                          anchorId={node._id}
+                                          onOpenChannel={onOpenChannel}
+                                        />
+                                      </div>
                                     </div>
                                     <div className="flex shrink-0 flex-wrap gap-2">
                                       {node.canEdit ? (
@@ -783,11 +801,27 @@ export function IdeasView({ startup, onOpenPage }: IdeasViewProps) {
               />
             ) : null}
             {editingIdea ? (
-              <IdeaInlineThread
-                ideaId={editingIdea._id}
-                canAdd={!editingIdea.canEdit}
-                className="border-t border-border/60 pt-4"
-              />
+              <div className="space-y-4 border-t border-border/60 pt-4">
+                <div>
+                  <h5 className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    Predlozi izmena
+                  </h5>
+                  <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
+                    Doprinosi članova koje autor ideje odobrava ili odbija.
+                  </p>
+                  <IdeaInlineThread
+                    ideaId={editingIdea._id}
+                    canAdd={!editingIdea.canEdit}
+                    className="mt-2"
+                  />
+                </div>
+                <EntityDiscussionPanel
+                  startupId={startup._id}
+                  anchorType="idea"
+                  anchorId={editingIdea._id}
+                  onOpenChannel={onOpenChannel}
+                />
+              </div>
             ) : null}
           </div>
 

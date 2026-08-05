@@ -734,6 +734,20 @@ describe("chat funkcije", () => {
       }),
     ).rejects.toThrow("Nemate pristup ovom razgovoru.");
   });
+
+  test("generateUploadUrl: član kanala dobija URL, autsajder odbijen", async () => {
+    const s = await seedChatWorkspace();
+    const url = await s.asMember.mutation(api.chat.generateUploadUrl, {
+      channelId: s.general,
+    });
+    expect(typeof url).toBe("string");
+    expect(url.length).toBeGreaterThan(0);
+    await expect(
+      s.asOutsider.mutation(api.chat.generateUploadUrl, {
+        channelId: s.general,
+      }),
+    ).rejects.toThrow("Nemate pristup ovom startupu.");
+  });
 });
 
 // Sedam ciljanih scenarija iz docs/mobile/zadaci/1-3-testovi.md. Svaki stoji sam

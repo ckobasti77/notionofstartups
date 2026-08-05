@@ -40,6 +40,14 @@ export function readWorkspaceRouteCandidate(
   if (view === "my-tasks") return { kind: "my-tasks" };
   if (view === "activity") return { kind: "activity" };
   if (view === "approvals") return { kind: "approvals" };
+  if (view === "chat") {
+    // `channelId` je opcion — bez njega chat se otvara na listi razgovora.
+    // Nevalidan id prikaz gracefully svede na listu (kao `puls` sa `week`).
+    const channelId = params.get("channelId")?.trim();
+    return channelId
+      ? { kind: "chat", channelId: channelId as Id<"chatChannels"> }
+      : { kind: "chat" };
+  }
   if (view === "puls") {
     // `week` nosi bilo koji trenutak iz željene nedelje; prikaz ga normalizuje
     // na svoj lokalni ponedeljak.
@@ -103,6 +111,7 @@ export function workspaceRouteHref(
   url.searchParams.delete("view");
   url.searchParams.delete("areaId");
   url.searchParams.delete("pageId");
+  url.searchParams.delete("channelId");
   url.searchParams.delete("week");
   url.searchParams.delete("startupId");
   url.searchParams.set("view", route.kind);
@@ -111,6 +120,8 @@ export function workspaceRouteHref(
     url.searchParams.set("areaId", route.areaId);
   } else if (route.kind === "page") {
     url.searchParams.set("pageId", route.pageId);
+  } else if (route.kind === "chat" && route.channelId) {
+    url.searchParams.set("channelId", route.channelId);
   } else if (route.kind === "puls" && route.weekStart !== undefined) {
     url.searchParams.set("week", String(route.weekStart));
   }
@@ -122,6 +133,8 @@ export function workspaceRouteHref(
 export function workspaceRouteAfterStartupSwitch(
   currentRoute: WorkspaceRoute,
 ): WorkspaceRoute {
+  // Kanali su per-startup: ostani u chatu, ali otpusti izabrani kanal.
+  if (currentRoute.kind === "chat") return { kind: "chat" };
   return currentRoute.kind === "home" ||
     currentRoute.kind === "ideas" ||
     currentRoute.kind === "thoughts" ||

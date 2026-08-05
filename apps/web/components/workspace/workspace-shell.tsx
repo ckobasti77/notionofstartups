@@ -23,6 +23,7 @@ import { ActivityView } from "@/components/workspace/activity-view";
 import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
 import { AreaView } from "@/components/workspace/area-view";
+import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
 import { HomeView } from "@/components/workspace/home-view";
@@ -202,6 +203,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     api.notifications.unreadCount,
     startup ? { startupId: startup._id } : "skip",
   );
+  const chatUnread = useQuery(api.chat.unreadSummary, {});
   const detailPage = useQuery(
     api.pages.get,
     detailPageId ? { pageId: detailPageId } : "skip",
@@ -812,6 +814,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       (approvalsOverview?.pendingCount ?? 0) +
       (pageNestingInbox?.incoming.length ?? 0),
     unreadNotifications: unreadNotifications?.count ?? 0,
+    chatUnread:
+      chatUnread?.byStartup.find((entry) => entry.startupId === startup._id)
+        ?.unreadCount ?? 0,
     onOpenNotifications: () => setNotificationsOpen(true),
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
@@ -823,14 +828,20 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
       <WorkspaceSidebar {...sidebarProps} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><Button variant="ghost" size="icon" className="relative" aria-label={`Obaveštenja${(unreadNotifications?.count ?? 0) > 0 ? `, ${unreadNotifications?.count} nepročitano` : ""}`} onClick={() => setNotificationsOpen(true)}><Bell />{(unreadNotifications?.count ?? 0) > 0 ? <span aria-hidden="true" className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[0.625rem] font-bold leading-4 tabular-nums text-primary-foreground">{unreadNotifications?.capped ? "99+" : unreadNotifications?.count}</span> : null}</Button><ThemeToggle /></header>
-        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas"}>
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "chat" ? "Chat" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><Button variant="ghost" size="icon" className="relative" aria-label={`Obaveštenja${(unreadNotifications?.count ?? 0) > 0 ? `, ${unreadNotifications?.count} nepročitano` : ""}`} onClick={() => setNotificationsOpen(true)}><Bell />{(unreadNotifications?.count ?? 0) > 0 ? <span aria-hidden="true" className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[0.625rem] font-bold leading-4 tabular-nums text-primary-foreground">{unreadNotifications?.capped ? "99+" : unreadNotifications?.count}</span> : null}</Button><ThemeToggle /></header>
+        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
           {route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
             <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
-            <IdeasView startup={startup} onOpenPage={openPageDetails} />
+            <IdeasView
+              startup={startup}
+              onOpenPage={openPageDetails}
+              onOpenChannel={(channelId) =>
+                navigateRoute({ kind: "chat", channelId })
+              }
+            />
           ) : route.kind === "today" ? (
             <CommandCenterView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
           ) : route.kind === "my-tasks" ? (
@@ -846,6 +857,17 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             <ActivityView startup={startup} />
           ) : route.kind === "approvals" ? (
             <ApprovalsView startup={startup} />
+          ) : route.kind === "chat" ? (
+            <ChatView
+              startup={startup}
+              profile={profile}
+              channelId={route.channelId}
+              onSelectChannel={(channelId) =>
+                navigateRoute({ kind: "chat", channelId })
+              }
+              onOpenList={() => navigateRoute({ kind: "chat" })}
+              onOpenPage={openPageDetails}
+            />
           ) : route.kind === "area" ? (
             <AreaView
               startup={startup}
@@ -867,6 +889,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               }
               onOpenArea={(areaId) =>
                 navigateRoute({ kind: "area", areaId })
+              }
+              onOpenChannel={(channelId) =>
+                navigateRoute({ kind: "chat", channelId })
               }
               onOpenDetails={openPageDetails}
               onCreateChild={openCreate}
@@ -962,6 +987,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenArea={(areaId) => {
                   if (!canLeavePageDetails()) return;
                   if (!navigateRoute({ kind: "area", areaId })) return;
+                  setDetailPageId(null);
+                  setDetailSaveState("saved");
+                }}
+                onOpenChannel={(channelId) => {
+                  if (!canLeavePageDetails()) return;
+                  if (!navigateRoute({ kind: "chat", channelId })) return;
                   setDetailPageId(null);
                   setDetailSaveState("saved");
                 }}

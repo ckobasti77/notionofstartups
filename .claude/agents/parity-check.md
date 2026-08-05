@@ -1,8 +1,8 @@
 ---
+name: parity-check
 description: Proverava da li funkcija postoji i na webu i na mobilnom. Koristi na kraju svake faze.
 model: opus
-effort: high
-tools: [Read, Grep, Glob]
+tools: Read, Grep, Glob
 ---
 Uporedi `apps/web` i `apps/mobile` za zadatu funkciju.
 

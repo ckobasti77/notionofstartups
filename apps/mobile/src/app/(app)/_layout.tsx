@@ -13,6 +13,8 @@ export default function AppLayout() {
     <ActiveStartupProvider>
       <Stack screenOptions={{ header: () => <AppHeader /> }}>
         <Stack.Screen name="(tabs)" />
+        {/* Razgovor je full-screen (van tabova) i nosi sopstveni header. */}
+        <Stack.Screen name="razgovor/[id]" options={{ headerShown: false }} />
       </Stack>
     </ActiveStartupProvider>
   );

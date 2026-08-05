@@ -28,6 +28,7 @@ export type WorkspaceRoute =
   | { kind: "my-tasks" }
   | { kind: "activity" }
   | { kind: "approvals" }
+  | { kind: "chat"; channelId?: Id<"chatChannels"> }
   | { kind: "puls"; weekStart?: number }
   | { kind: "area"; areaId: Id<"startupAreas"> }
   | { kind: "page"; pageId: Id<"pages"> };

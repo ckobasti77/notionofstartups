@@ -13,6 +13,7 @@ import { useQuery } from "convex/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
+import { EntityDiscussionPanel } from "@/components/workspace/chat/entity-discussion-panel";
 import {
   PageEditorView,
   type PageEditorSaveState,
@@ -66,6 +67,7 @@ export function PageWorkspaceView({
   pageId,
   onOpenCanvas,
   onOpenArea,
+  onOpenChannel,
   onOpenDetails,
   onCreateChild,
   onArchived,
@@ -75,6 +77,7 @@ export function PageWorkspaceView({
   pageId: Id<"pages">;
   onOpenCanvas: (pageId: Id<"pages">) => void;
   onOpenArea: (areaId: Id<"startupAreas">) => void;
+  onOpenChannel?: (channelId: Id<"chatChannels">) => void;
   onOpenDetails: (pageId: Id<"pages">) => void;
   onCreateChild: (target: CreatePageTarget) => void;
   onArchived: (fallbackRoute: WorkspaceRoute) => void;
@@ -156,6 +159,7 @@ export function PageWorkspaceView({
         pageId={pageId}
         onOpenPage={onOpenCanvas}
         onOpenArea={onOpenArea}
+        onOpenChannel={onOpenChannel}
         onCreateChild={onCreateChild}
         onArchived={() => {
           if (archiveFallbackRef.current) {
@@ -171,6 +175,7 @@ export function PageWorkspaceView({
       />
 
       {page ? (
+        <>
         <section
           className={cn(
             "mx-auto w-full max-w-7xl px-4 sm:px-7 lg:px-10",
@@ -446,6 +451,20 @@ export function PageWorkspaceView({
             </div>
           )}
         </section>
+        {/* Za zadatke (task-canvas) editor vraća samo komandni bar, pa se
+            „Diskusija" prikazuje ovde ispod kanvasa; beleške/tabele je dobijaju
+            unutar samog editora. */}
+        {supportsTaskData(page.kind) ? (
+          <section className="mx-auto mt-8 w-full max-w-7xl px-4 sm:px-7 lg:px-10">
+            <EntityDiscussionPanel
+              startupId={startup._id}
+              anchorType="page"
+              anchorId={page._id}
+              onOpenChannel={onOpenChannel}
+            />
+          </section>
+        ) : null}
+        </>
       ) : (
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-7 lg:px-10">
           <Skeleton className="h-[34rem] rounded-3xl" />

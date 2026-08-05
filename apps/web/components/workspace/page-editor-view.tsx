@@ -38,6 +38,7 @@ import {
   useNoteFileUpload,
 } from "@/components/workspace/files/note-attachments";
 import { PageFilesPanel } from "@/components/workspace/files/page-files-panel";
+import { EntityDiscussionPanel } from "@/components/workspace/chat/entity-discussion-panel";
 import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
 import { PageTablePanel } from "@/components/workspace/tables/page-table-panel";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
@@ -107,6 +108,7 @@ export function PageEditorView({
   pageId,
   onOpenPage,
   onOpenArea,
+  onOpenChannel,
   onCreateChild,
   onArchived,
   presentation = "page",
@@ -118,6 +120,7 @@ export function PageEditorView({
   pageId: Id<"pages">;
   onOpenPage: (pageId: Id<"pages">) => void;
   onOpenArea?: (areaId: Id<"startupAreas">) => void;
+  onOpenChannel?: (channelId: Id<"chatChannels">) => void;
   onCreateChild: (target: CreatePageTarget) => void;
   onArchived: () => void;
   presentation?: "page" | "dialog" | "task-canvas";
@@ -1267,6 +1270,16 @@ export function PageEditorView({
               onDelete={unlinkPage}
               onRequestDeletion={requestUnlinkPage}
               onOpenPage={onOpenPage}
+            />
+          </div>
+
+          <div className="pb-1 pt-2">
+            <EntityDiscussionPanel
+              startupId={startup._id}
+              anchorType="page"
+              anchorId={page._id}
+              members={members}
+              onOpenChannel={onOpenChannel}
             />
           </div>
 
