@@ -13,6 +13,8 @@ import { api } from '@/convex/_generated/api';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { FullScreenLoader } from '@/components/full-screen-loader';
 import { PendingInviteProvider } from '@/context/pending-invite';
+import { PendingTargetProvider } from '@/context/pending-target';
+import { useNotificationTapCapture } from '@/lib/notifications/use-notification-target';
 import { ThemeProvider, useAppTheme } from '@/theme/theme-provider';
 import { AUTH_STORAGE_NAMESPACE, convex, secureStorage } from '@/lib/convex';
 
@@ -61,6 +63,9 @@ function RootNavigator() {
  */
 function ThemedApp() {
   const { scheme } = useAppTheme();
+  // Hvatanje tapa na obaveštenje mora da radi pre auth gate-a (hladan start,
+  // neprijavljen korisnik) — zato ovde, u uvek-montiranom root sloju.
+  useNotificationTapCapture();
   return (
     <NavigationThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
@@ -78,7 +83,9 @@ export default function RootLayout() {
         storage={secureStorage}
         storageNamespace={AUTH_STORAGE_NAMESPACE}>
         <PendingInviteProvider>
-          <ThemedApp />
+          <PendingTargetProvider>
+            <ThemedApp />
+          </PendingTargetProvider>
         </PendingInviteProvider>
       </ConvexAuthProvider>
     </ThemeProvider>

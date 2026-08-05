@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
+  AtSign,
   BellRing,
   CalendarClock,
   CheckSquare2,
   Flame,
   Gavel,
   Lightbulb,
+  MessageCircle,
+  MessageSquare,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,7 +32,12 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
-export type NotificationTargetType = "page" | "ideas" | "approvals" | "puls";
+export type NotificationTargetType =
+  | "page"
+  | "ideas"
+  | "approvals"
+  | "puls"
+  | "chat";
 
 export type NotificationItem = {
   _id: Id<"notifications">;
@@ -54,6 +62,11 @@ const TYPE_ICON: Record<string, typeof CheckSquare2> = {
   vote_requested: Gavel,
   request_resolved: Gavel,
   puls_ready: Sparkles,
+  // Chat: pominjanje nosi @, DM je razgovor jedan-na-jedan, poruka u kanalu je
+  // opšti balončić. Ikona je fallback — chat obaveštenja obično imaju avatar autora.
+  chat_message: MessageCircle,
+  chat_mention: AtSign,
+  chat_dm: MessageSquare,
 };
 
 /** Prekoračen rok je jedini tip koji sme da nosi crvenu. */

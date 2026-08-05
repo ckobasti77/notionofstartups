@@ -615,6 +615,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         );
         return;
       }
+      if (item.targetType === "chat") {
+        // targetId je channelId (packages/backend/convex/lib/notificationTarget.ts);
+        // bez njega chat se otvara na listi razgovora.
+        navigateRoute(
+          item.targetId === null
+            ? { kind: "chat" }
+            : { kind: "chat", channelId: item.targetId as Id<"chatChannels"> },
+        );
+        return;
+      }
       if (item.targetId === null) {
         navigateRoute({ kind: "today" });
         return;

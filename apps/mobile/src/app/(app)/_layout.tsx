@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { AppHeader } from '@/components/app-header';
 import { ActiveStartupProvider } from '@/context/active-startup';
 import { usePushRegistration } from '@/lib/notifications/register';
+import { useNotificationTargetNavigation } from '@/lib/notifications/use-notification-target';
 
 /**
  * Zaštićeni segment aplikacije. Gate u root `_layout.tsx` prikazuje ovaj segment
@@ -15,6 +16,8 @@ export default function AppLayout() {
 
   return (
     <ActiveStartupProvider>
+      {/* Otvara zapamćeni cilj obaveštenja — mora unutar ActiveStartupProvider-a. */}
+      <NotificationTargetNavigator />
       <Stack screenOptions={{ header: () => <AppHeader /> }}>
         <Stack.Screen name="(tabs)" />
         {/* Razgovor je full-screen (van tabova) i nosi sopstveni header. */}
@@ -22,4 +25,10 @@ export default function AppLayout() {
       </Stack>
     </ActiveStartupProvider>
   );
+}
+
+/** Bez UI-ja: samo veže navigaciju cilja na `pending-target` i aktivan startup. */
+function NotificationTargetNavigator() {
+  useNotificationTargetNavigation();
+  return null;
 }

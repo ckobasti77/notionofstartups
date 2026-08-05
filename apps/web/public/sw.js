@@ -46,7 +46,12 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-/** Pravi URL aplikacije koji vodi tačno na povod obaveštenja. */
+/**
+ * Pravi URL aplikacije koji vodi tačno na povod obaveštenja. Mora da se poklapa
+ * sa `packages/backend/convex/lib/notificationTarget.ts` (SW je statički fajl i
+ * ne može da uveze taj modul, pa ga preslikava) i sa `readWorkspaceRouteCandidate`
+ * u `components/workspace/workspace-route.ts` koji ovaj URL čita pri učitavanju.
+ */
 function targetUrl(data) {
   const params = new URLSearchParams();
   if (data.startupId) params.set("startupId", data.startupId);
@@ -54,6 +59,10 @@ function targetUrl(data) {
   if (data.targetType === "page" && data.targetId) {
     params.set("view", "page");
     params.set("pageId", data.targetId);
+  } else if (data.targetType === "chat") {
+    params.set("view", "chat");
+    // channelId je opcion — bez njega chat se otvara na listi razgovora.
+    if (data.targetId) params.set("channelId", data.targetId);
   } else if (data.targetType === "ideas") {
     params.set("view", "ideas");
   } else if (data.targetType === "approvals") {
