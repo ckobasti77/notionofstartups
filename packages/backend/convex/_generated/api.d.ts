@@ -9,6 +9,7 @@
  */
 
 import type * as activity from "../activity.js";
+import type * as adminAuth from "../adminAuth.js";
 import type * as areasV2 from "../areasV2.js";
 import type * as areasV2Migrations from "../areasV2Migrations.js";
 import type * as auth from "../auth.js";
@@ -29,6 +30,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_collaboration from "../lib/collaboration.js";
 import type * as lib_notificationChannels from "../lib/notificationChannels.js";
 import type * as lib_notificationSettingsCatalog from "../lib/notificationSettingsCatalog.js";
+import type * as lib_notificationTarget from "../lib/notificationTarget.js";
 import type * as lib_notifications from "../lib/notifications.js";
 import type * as lib_onboarding from "../lib/onboarding.js";
 import type * as lib_page_creation from "../lib/page_creation.js";
@@ -69,6 +71,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   activity: typeof activity;
+  adminAuth: typeof adminAuth;
   areasV2: typeof areasV2;
   areasV2Migrations: typeof areasV2Migrations;
   auth: typeof auth;
@@ -89,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "lib/collaboration": typeof lib_collaboration;
   "lib/notificationChannels": typeof lib_notificationChannels;
   "lib/notificationSettingsCatalog": typeof lib_notificationSettingsCatalog;
+  "lib/notificationTarget": typeof lib_notificationTarget;
   "lib/notifications": typeof lib_notifications;
   "lib/onboarding": typeof lib_onboarding;
   "lib/page_creation": typeof lib_page_creation;

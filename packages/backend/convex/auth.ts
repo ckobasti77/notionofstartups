@@ -7,7 +7,7 @@ import { authorizeSignup, completeSignup } from "./lib/onboarding";
 const MIN_PASSWORD_LENGTH = 12;
 const MAX_PASSWORD_LENGTH = 128;
 
-function normalizeEmail(value: unknown) {
+export function normalizeEmail(value: unknown) {
   if (typeof value !== "string") {
     throw new ConvexError("Unesite ispravnu email adresu.");
   }
@@ -26,7 +26,7 @@ function normalizeEmail(value: unknown) {
   return email;
 }
 
-function validatePasswordRequirements(password: string) {
+export function validatePasswordRequirements(password: string) {
   const isStrong =
     password.length >= MIN_PASSWORD_LENGTH &&
     password.length <= MAX_PASSWORD_LENGTH &&

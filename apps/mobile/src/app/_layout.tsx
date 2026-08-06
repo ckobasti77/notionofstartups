@@ -7,14 +7,13 @@ import {
 } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { useConvexAuth, useQuery } from 'convex/react';
 
-import { api } from '@/convex/_generated/api';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { FullScreenLoader } from '@/components/full-screen-loader';
 import { PendingInviteProvider } from '@/context/pending-invite';
 import { PendingTargetProvider } from '@/context/pending-target';
 import { useNotificationTapCapture } from '@/lib/notifications/use-notification-target';
+import { useAuthGate } from '@/hooks/use-auth-gate';
 import { ThemeProvider, useAppTheme } from '@/theme/theme-provider';
 import { AUTH_STORAGE_NAMESPACE, convex, secureStorage } from '@/lib/convex';
 
@@ -22,33 +21,29 @@ SplashScreen.preventAutoHideAsync();
 
 /**
  * Auth gate — preslikava state-machine iz web [app-root.tsx], ali kroz expo-router
- * `Stack.Protected` grupe umesto uslovnog renderovanja.
- *
- * Tok: `useConvexAuth` daje auth stanje, `profiles.getCurrent` postojanje profila.
- * `null` profil = prijavljen ali bez profila → onboarding (ensureCurrent).
+ * `Stack.Protected` grupe umesto uslovnog renderovanja. Stanje dolazi iz
+ * [useAuthGate] (isti hook koristi i `index.tsx` za preusmeravanje korena `/`).
  */
 function RootNavigator() {
-  const { isLoading, isAuthenticated } = useConvexAuth();
-  const profile = useQuery(api.profiles.getCurrent, isAuthenticated ? {} : 'skip');
+  const status = useAuthGate();
 
-  // Token se čita iz SecureStore-a asinhrono (`isLoading`), a profil se tek učitava
-  // (`undefined`). Dok traje — samo loader, inače treperi ekran prijave na startu.
-  if (isLoading || (isAuthenticated && profile === undefined)) {
+  // Dok se token čita iz SecureStore-a i profil učitava — samo loader, inače
+  // treperi ekran prijave na startu.
+  if (status === 'loading') {
     return <FullScreenLoader />;
   }
 
-  const hasProfile = isAuthenticated && profile != null;
-  const needsOnboarding = isAuthenticated && profile === null;
-
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Protected guard={!isAuthenticated}>
+      {/* Uvek dostupan koren `/`; sam preusmerava po auth stanju (index.tsx). */}
+      <Stack.Screen name="index" />
+      <Stack.Protected guard={status === 'unauthenticated'}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
-      <Stack.Protected guard={needsOnboarding}>
+      <Stack.Protected guard={status === 'onboarding'}>
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
-      <Stack.Protected guard={hasProfile}>
+      <Stack.Protected guard={status === 'ready'}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
       {/* Uvek dostupan cilj deep linka; sam preusmerava po auth stanju. */}
