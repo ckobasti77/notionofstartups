@@ -34,6 +34,8 @@ export default function AppLayout() {
         <Stack.Screen name="aktivnost" options={{ headerShown: false }} />
         {/* Pretraga — full-screen, otvara se iz ikonice u `AppHeader`. */}
         <Stack.Screen name="pretraga" options={{ headerShown: false }} />
+        {/* Odobrenja — full-screen, otvara se iz taba „Više". */}
+        <Stack.Screen name="odobrenja" options={{ headerShown: false }} />
         {/* Merni prototip editora (Faza 3, §5.1) — privremeno; briše se posle merenja. */}
         <Stack.Screen name="editor-spike" options={{ headerShown: false }} />
       </Stack>

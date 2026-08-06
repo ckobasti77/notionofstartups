@@ -1,4 +1,5 @@
 import { useAuthActions } from '@convex-dev/auth/react';
+import { useQuery } from 'convex/react';
 import {
   Activity,
   Bell,
@@ -23,6 +24,8 @@ import { TabScreen } from '@/components/tab-screen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { useActiveStartup } from '@/context/active-startup';
+import { api } from '@/convex/_generated/api';
 import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
@@ -39,7 +42,7 @@ type MenuItem = {
 
 const MENU: MenuItem[][] = [
   [
-    { icon: Vote, label: 'Odobrenja', badge: '2' },
+    { icon: Vote, label: 'Odobrenja', route: '/odobrenja' },
     { icon: ChartColumn, label: 'Puls', route: '/puls' },
     { icon: Lightbulb, label: 'Ideje' },
     { icon: Brain, label: 'Misli' },
@@ -67,6 +70,21 @@ export default function ViseScreen() {
   const { colors, preference, setPreference } = useAppTheme();
   const { signOut } = useAuthActions();
   const router = useRouter();
+  const { activeStartupId } = useActiveStartup();
+
+  // Živi badge za „Odobrenja": glasanja o brisanju + ugnježdavanje ideja
+  // (`overview.pendingCount`) + ugnježdavanje stranica (`listNestingInbox`).
+  const arg = activeStartupId ? { startupId: activeStartupId } : 'skip';
+  const overview = useQuery(api.collaboration.overview, arg);
+  const nestingInbox = useQuery(api.areasV2.listNestingInbox, arg);
+  const approvalsCount = (overview?.pendingCount ?? 0) + (nestingInbox?.incoming.length ?? 0);
+
+  const badgeFor = (item: MenuItem): string | undefined => {
+    if (item.label === 'Odobrenja') {
+      return approvalsCount > 0 ? String(approvalsCount) : undefined;
+    }
+    return item.badge;
+  };
 
   return (
     <TabScreen title="Više">
@@ -110,11 +128,12 @@ export default function ViseScreen() {
           <Card key={groupIndex} style={styles.menuCard}>
             {group.map((item, itemIndex) => {
               const Icon = item.icon;
+              const badge = badgeFor(item);
               return (
                 <Pressable
                   key={item.label}
                   accessibilityRole="button"
-                  accessibilityLabel={item.label}
+                  accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
                   onPress={() => {
                     if (item.route) router.push(item.route);
                   }}
@@ -125,7 +144,7 @@ export default function ViseScreen() {
                   ]}>
                   <Icon size={20} color={colors.foreground} />
                   <Text style={[styles.rowLabel, { color: colors.foreground }]}>{item.label}</Text>
-                  {item.badge ? <Badge label={item.badge} variant="destructive" /> : null}
+                  {badge ? <Badge label={badge} variant="destructive" /> : null}
                   <ChevronRight size={18} color={colors.mutedForeground} />
                 </Pressable>
               );
