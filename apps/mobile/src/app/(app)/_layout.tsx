@@ -36,6 +36,12 @@ export default function AppLayout() {
         <Stack.Screen name="pretraga" options={{ headerShown: false }} />
         {/* Odobrenja — full-screen, otvara se iz taba „Više". */}
         <Stack.Screen name="odobrenja" options={{ headerShown: false }} />
+        {/* Canvas (WebView) — full-screen; swipe-back isključen da se ne bije sa
+            horizontalnim pan-om WebView-a (§9.3), „nazad" je dugme u headeru. */}
+        <Stack.Screen
+          name="canvas/[kind]/[id]"
+          options={{ headerShown: false, gestureEnabled: false }}
+        />
         {/* Merni prototip editora (Faza 3, §5.1) — privremeno; briše se posle merenja. */}
         <Stack.Screen name="editor-spike" options={{ headerShown: false }} />
       </Stack>
