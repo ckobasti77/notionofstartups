@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePaginatedQuery, useQuery } from 'convex/react';
+import { useRouter } from 'expo-router';
 import { ChevronDown, Search } from 'lucide-react-native';
 
 import { api } from '@/convex/_generated/api';
@@ -19,6 +20,7 @@ import { fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 export function AppHeader() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { activeStartupId, setActiveStartupId } = useActiveStartup();
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
@@ -87,9 +89,7 @@ export function AppHeader() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Pretraga"
-        onPress={() => {
-          // Ekran pretrage stiže u kasnijoj fazi (docs/mobile/02-EKRANI.md, 3).
-        }}
+        onPress={() => router.push('/pretraga')}
         style={({ pressed }) => [styles.iconButton, pressed && { backgroundColor: colors.muted }]}>
         <Search size={22} color={colors.foreground} />
       </Pressable>
