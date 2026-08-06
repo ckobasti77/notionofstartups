@@ -22,9 +22,10 @@ const MAX_PULL = 120;
 
 /**
  * Kartica zadatka sa svajpom. Desno preko praga → `onDone` (haptika); levo preko
- * praga → `onMenu`. Tap → `onMenu`, long-press → `onQuickStatus` (brzi status).
- * `activeOffsetX`/`failOffsetY` prepuštaju vertikalni skrol listi i ne kradu tap.
- * Kad korisnik nema pravo da menja status, svajp-desno se odbije uz upozorenje.
+ * praga → `onMenu`. Tap → `onOpen` (detalj zadatka, docs/mobile/02-EKRANI.md §4),
+ * long-press → `onQuickStatus` (brzi status). `activeOffsetX`/`failOffsetY`
+ * prepuštaju vertikalni skrol listi i ne kradu tap. Kad korisnik nema pravo da
+ * menja status, svajp-desno se odbije uz upozorenje.
  */
 export function TaskCard({
   task,
@@ -33,6 +34,7 @@ export function TaskCard({
   now,
   canDone,
   onDone,
+  onOpen,
   onMenu,
   onQuickStatus,
 }: {
@@ -42,6 +44,7 @@ export function TaskCard({
   now: number;
   canDone: boolean;
   onDone: () => void;
+  onOpen: () => void;
   onMenu: () => void;
   onQuickStatus: () => void;
 }) {
@@ -123,8 +126,8 @@ export function TaskCard({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={task.title}
-            accessibilityHint="Dodirni za meni akcija, dugi pritisak za brzi status"
-            onPress={onMenu}
+            accessibilityHint="Dodirni za detalj zadatka, dugi pritisak za brzi status"
+            onPress={onOpen}
             onLongPress={() => {
               void Haptics.selectionAsync();
               onQuickStatus();

@@ -108,6 +108,18 @@ export function formatListTimestamp(channel: ChatChannel): string {
 // Čiste funkcije za mehuriće, grupisanje i separatore. Portovano sa web
 // `apps/web/lib/chat.ts` — ista logika, bez DOM-a.
 
+/** „1 poruka", „3 poruke", „7 poruka" — srpska pluralizacija (ogledalo weba). */
+export function porukaWord(count: number): string {
+  const absolute = Math.abs(count);
+  const lastDigit = absolute % 10;
+  const lastTwo = absolute % 100;
+  if (lastDigit === 1 && lastTwo !== 11) return 'poruka';
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) {
+    return 'poruke';
+  }
+  return 'poruka';
+}
+
 /** Curirani brzi set reakcija (bez emoji biblioteke), isti kao na webu. */
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅', '🙏', '🔥'] as const;
 

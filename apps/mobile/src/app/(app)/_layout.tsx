@@ -22,6 +22,8 @@ export default function AppLayout() {
         <Stack.Screen name="(tabs)" />
         {/* Razgovor je full-screen (van tabova) i nosi sopstveni header. */}
         <Stack.Screen name="razgovor/[id]" options={{ headerShown: false }} />
+        {/* Detalj zadatka — full-screen, sopstveni header sa „nazad". */}
+        <Stack.Screen name="zadatak/[id]" options={{ headerShown: false }} />
         {/* Podešavanja obaveštenja — full-screen, sopstveni header sa „nazad". */}
         <Stack.Screen name="podesavanja-obavestenja" options={{ headerShown: false }} />
       </Stack>

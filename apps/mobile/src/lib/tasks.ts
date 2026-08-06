@@ -10,6 +10,13 @@ import type { api } from '@/convex/_generated/api';
 export type CommandCenterTask =
   FunctionReturnType<typeof api.tasks.commandCenter>['tasks'][number];
 
+/** Pun detalj zadatka (page sa `kind: "task"`) iz `pages.get` — za ekran detalja. */
+export type TaskDetails = FunctionReturnType<typeof api.pages.get>;
+
+/** Jedan checkpoint iz `taskCheckpoints.listForTask`. */
+export type TaskCheckpoint =
+  FunctionReturnType<typeof api.taskCheckpoints.listForTask>[number];
+
 /** Izvršilac zadatka iz `taskAssignees.listForTasks`. */
 export type TaskAssignee =
   FunctionReturnType<typeof api.taskAssignees.listForTasks>[number]['assignees'][number];

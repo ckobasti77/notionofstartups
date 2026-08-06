@@ -28,6 +28,14 @@ export const TASK_PRIORITY_META = {
 
 export type TaskPriority = keyof typeof TASK_PRIORITY_META;
 
+/**
+ * Limiti izvršilaca i checkpointa — ogledalo `packages/backend/convex/lib/validators.ts`
+ * (`MAX_TASK_ASSIGNEES`, `MAX_TASK_CHECKPOINTS`). Klijent ih poštuje da izbegne
+ * server error na prekoračenju; server ostaje jedini autoritet.
+ */
+export const MAX_TASK_ASSIGNEES = 10;
+export const MAX_TASK_CHECKPOINTS = 100;
+
 /** Statusi koje komandni centar smatra otvorenim (ogledalo `OPEN_TASK_STATUSES`). */
 export const OPEN_TASK_STATUSES: readonly TaskStatus[] = [
   'backlog',

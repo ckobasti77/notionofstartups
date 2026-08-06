@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from 'convex/react';
-import { type ErrorBoundaryProps } from 'expo-router';
+import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { CalendarX2, ChevronDown, ChevronRight, ListTodo } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -57,6 +57,7 @@ function useNow(): number {
  */
 export default function DanasScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   const now = useNow();
   const { activeStartupId } = useActiveStartup();
   const [segment, setSegment] = useState<TodaySegmentId>('overview');
@@ -202,6 +203,7 @@ export default function DanasScreen() {
       now={now}
       canDone={canChangeStatusFor(task)}
       onDone={() => markDone(task)}
+      onOpen={() => router.push({ pathname: '/zadatak/[id]', params: { id: task._id } })}
       onMenu={() => openMenu(task, false)}
       onQuickStatus={() => openMenu(task, true)}
     />

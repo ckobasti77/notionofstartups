@@ -13,6 +13,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { dueDayDiff } from '@/lib/deadline';
 import {
   dueDateInDays,
+  MAX_TASK_ASSIGNEES,
   priorityColor,
   statusColor,
   TASK_PRIORITY_META,
@@ -22,7 +23,19 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from '@/lib/task-meta';
-import type { CommandCenterTask, StartupMember, TaskAssignee } from '@/lib/tasks';
+import type { StartupMember, TaskAssignee } from '@/lib/tasks';
+
+/**
+ * Minimalni oblik zadatka koji ovaj sheet stvarno čita. I `CommandCenterTask`
+ * (Danas) i rezultat `pages.get` (ekran detalja) ga zadovoljavaju — pa oba ekrana
+ * dele isti editor bez cast-a.
+ */
+export type EditableTask = {
+  title: string;
+  taskStatus: TaskStatus | null;
+  taskPriority: TaskPriority | null;
+  dueDate: number | null;
+};
 import type { Id } from '@/convex/_generated/dataModel';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
@@ -58,7 +71,7 @@ export function TaskActionsSheet({
   onSetAssignees,
   onClose,
 }: {
-  task: CommandCenterTask | null;
+  task: EditableTask | null;
   statusOnly?: boolean;
   now: number;
   assignees: TaskAssignee[];
@@ -78,6 +91,7 @@ export function TaskActionsSheet({
 
   const assignedIds = new Set(assignees.map((a) => a.profileId));
   const isSelfAssigned = currentProfileId !== null && assignedIds.has(currentProfileId);
+  const atAssigneeLimit = assignedIds.size >= MAX_TASK_ASSIGNEES;
 
   const dueDayDiffValue =
     task && task.dueDate !== null ? dueDayDiff(task.dueDate, now) : null;
@@ -90,7 +104,10 @@ export function TaskActionsSheet({
   const toggleMember = (profileId: Id<'profiles'>) => {
     const next = new Set(assignedIds);
     if (next.has(profileId)) next.delete(profileId);
-    else next.add(profileId);
+    else {
+      if (next.size >= MAX_TASK_ASSIGNEES) return; // klijentska brana pre server errora
+      next.add(profileId);
+    }
     onSetAssignees([...next]);
   };
 
@@ -172,25 +189,43 @@ export function TaskActionsSheet({
                   </View>
                 </Section>
 
-                <Section label="Izvršilac" colors={colors}>
+                <Section
+                  label={
+                    canEditAll
+                      ? `Izvršioci  ${assignedIds.size}/${MAX_TASK_ASSIGNEES}`
+                      : 'Izvršioci'
+                  }
+                  hint={
+                    canEditAll && atAssigneeLimit
+                      ? `Dostignut maksimum od ${MAX_TASK_ASSIGNEES} izvršilaca.`
+                      : undefined
+                  }
+                  colors={colors}>
                   {canEditAll && members === undefined ? (
                     <Text style={[styles.hint, { color: colors.mutedForeground }]}>
                       Učitavanje članova…
+                    </Text>
+                  ) : canEditAll && members && members.length === 0 ? (
+                    <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+                      Nema članova u ovom startupu.
                     </Text>
                   ) : canEditAll && members ? (
                     <View style={styles.members}>
                       {members.map((member) => {
                         const active = assignedIds.has(member.profile._id);
+                        const memberDisabled = !active && atAssigneeLimit;
                         return (
                           <Pressable
                             key={member.membershipId}
                             accessibilityRole="checkbox"
-                            accessibilityState={{ checked: active }}
+                            accessibilityState={{ checked: active, disabled: memberDisabled }}
                             accessibilityLabel={member.profile.displayName}
+                            disabled={memberDisabled}
                             onPress={() => toggleMember(member.profile._id)}
                             style={({ pressed }) => [
                               styles.memberRow,
-                              pressed && { backgroundColor: colors.muted },
+                              memberDisabled && { opacity: 0.4 },
+                              pressed && !memberDisabled && { backgroundColor: colors.muted },
                             ]}>
                             <Avatar
                               name={member.profile.displayName}
