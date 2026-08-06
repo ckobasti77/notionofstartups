@@ -38,19 +38,21 @@ type MenuItem = {
   badge?: string;
   /** Ruta na tap; bez nje je stavka još placeholder (faze 2–4). */
   route?: AppRoute;
+  /** Vidljiva samo administratorima (`profile.role === 'admin'`). */
+  adminOnly?: boolean;
 };
 
 const MENU: MenuItem[][] = [
   [
     { icon: Vote, label: 'Odobrenja', route: '/odobrenja' },
     { icon: ChartColumn, label: 'Puls', route: '/puls' },
-    { icon: Lightbulb, label: 'Ideje' },
+    { icon: Lightbulb, label: 'Ideje', route: '/ideje' },
     { icon: Brain, label: 'Misli' },
     { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
   ],
   [
-    { icon: Users, label: 'Članovi tima' },
-    { icon: Mail, label: 'Pozivnice' },
+    { icon: Users, label: 'Članovi tima', route: '/clanovi', adminOnly: true },
+    { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
     { icon: Settings, label: 'Podešavanja' },
     { icon: Bell, label: 'Obaveštenja i zvuci', route: '/podesavanja-obavestenja' },
   ],
@@ -78,6 +80,13 @@ export default function ViseScreen() {
   const overview = useQuery(api.collaboration.overview, arg);
   const nestingInbox = useQuery(api.areasV2.listNestingInbox, arg);
   const approvalsCount = (overview?.pendingCount ?? 0) + (nestingInbox?.incoming.length ?? 0);
+
+  // Admin stavke (Članovi, Pozivnice) se skrivaju ako korisnik nije admin.
+  const profile = useQuery(api.profiles.getCurrent, {});
+  const isAdmin = profile?.role === 'admin';
+  const visibleMenu = MENU.map((group) =>
+    group.filter((item) => !item.adminOnly || isAdmin),
+  ).filter((group) => group.length > 0);
 
   const badgeFor = (item: MenuItem): string | undefined => {
     if (item.label === 'Odobrenja') {
@@ -124,7 +133,7 @@ export default function ViseScreen() {
         </View>
 
         {/* Menu grupe */}
-        {MENU.map((group, groupIndex) => (
+        {visibleMenu.map((group, groupIndex) => (
           <Card key={groupIndex} style={styles.menuCard}>
             {group.map((item, itemIndex) => {
               const Icon = item.icon;

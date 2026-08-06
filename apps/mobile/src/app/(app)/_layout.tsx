@@ -42,6 +42,11 @@ export default function AppLayout() {
           name="canvas/[kind]/[id]"
           options={{ headerShown: false, gestureEnabled: false }}
         />
+        {/* Ideje — native lista + glasanje, canvas kroz WebView. */}
+        <Stack.Screen name="ideje" options={{ headerShown: false }} />
+        {/* Admin: članovi tima i pozivnice (ulaz skriven ne-adminima u „Više"). */}
+        <Stack.Screen name="clanovi" options={{ headerShown: false }} />
+        <Stack.Screen name="pozivnice" options={{ headerShown: false }} />
         {/* Merni prototip editora (Faza 3, §5.1) — privremeno; briše se posle merenja. */}
         <Stack.Screen name="editor-spike" options={{ headerShown: false }} />
       </Stack>
