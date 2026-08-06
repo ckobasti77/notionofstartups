@@ -190,7 +190,9 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
           onAction={showAdd ? () => setMenuOpen(true) : undefined}
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 96 }]}
+          showsVerticalScrollIndicator={false}>
           {files.map((file) => {
             const Icon = CATEGORY_META[file.category].icon;
             return (
@@ -277,7 +279,12 @@ function AddMenu({
 }) {
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Zatvori" style={styles.backdrop} onPress={onClose} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Zatvori"
+        style={styles.backdrop}
+        onPress={onClose}
+      />
       <View
         style={[
           styles.menu,
@@ -320,7 +327,6 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 8,
-    paddingBottom: 96,
   },
   row: {
     flexDirection: 'row',

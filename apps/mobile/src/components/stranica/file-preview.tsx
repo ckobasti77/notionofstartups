@@ -25,7 +25,11 @@ export function FilePreview({ file, onClose }: { file: PreviewFile | null; onClo
 
   return (
     <Modal visible={file !== null} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom },
+        ]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Pressable
             accessibilityRole="button"

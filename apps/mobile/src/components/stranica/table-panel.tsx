@@ -2,6 +2,7 @@ import { usePaginatedQuery, useMutation, useQuery } from 'convex/react';
 import { Columns3, Plus, Table2 } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { CellEditSheet, ColumnEditSheet } from '@/components/stranica/cell-edit-sheet';
@@ -29,6 +30,7 @@ type EditingColumn = { columnId: string; label: string };
  */
 export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const meta = useQuery(api.pageTables.getMeta, { pageId });
   const { results: rows, status, loadMore } = usePaginatedQuery(
     api.pageTables.listRows,
@@ -150,7 +152,9 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
         </View>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}>
         <View style={styles.tableRow}>
           {/* Zamrznuta prva kolona */}
           <View>
@@ -411,12 +415,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   toolbarLabel: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.medium,
   },
-  scrollContent: {
-    paddingBottom: 32,
-  },
+  scrollContent: {},
   tableRow: {
     flexDirection: 'row',
   },
@@ -440,11 +442,11 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
   },
   headerText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: fontWeight.semibold,
   },
   cellText: {
-    fontSize: 15,
+    fontSize: 16,
   },
   emptyRows: {
     alignItems: 'center',
@@ -453,7 +455,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: 16,
     textAlign: 'center',
   },
   addFirstRow: {
@@ -466,7 +468,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   addFirstLabel: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.medium,
   },
   loadMore: {
@@ -479,7 +481,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   loadMoreLabel: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.semibold,
   },
 });

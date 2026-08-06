@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -55,9 +54,16 @@ export function CellEditSheet({
 
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Zatvori" style={styles.backdrop} onPress={onClose} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Zatvori"
+        style={styles.backdrop}
+        onPress={onClose}
+      />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        // `padding` na oba OS-a: Expo SDK 57 edge-to-edge (Android) razbija OS
+        // `adjustResize` unutar Modal-a (isto kao `quick-add-sheet`/`razgovor`).
+        behavior="padding"
         style={styles.avoider}
         pointerEvents="box-none">
         <View
@@ -156,9 +162,16 @@ export function ColumnEditSheet({
 
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Zatvori" style={styles.backdrop} onPress={onClose} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Zatvori"
+        style={styles.backdrop}
+        onPress={onClose}
+      />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        // `padding` na oba OS-a: Expo SDK 57 edge-to-edge (Android) razbija OS
+        // `adjustResize` unutar Modal-a (isto kao `quick-add-sheet`/`razgovor`).
+        behavior="padding"
         style={styles.avoider}
         pointerEvents="box-none">
         <View
