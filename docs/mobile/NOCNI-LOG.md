@@ -131,3 +131,52 @@ Typed routes regenerisani za `/odobrenja` (isti postupak kao korak 2).
 `npm run check` (root): **0**
 
 ---
+
+## [01:29] KORAK 4 — W4.2 Embed rute za canvas ⚠️ jedini web korak
+Status: GOTOVO (za `ideas`; `thoughts`/`area`/`page` DELIMIČNO — vidi Preskočeno)
+Fajlovi (svi novi):
+- `apps/web/app/embed/canvas/[kind]/[id]/page.tsx` (50 r)
+- `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx` (250 r)
+- `apps/web/app/embed/canvas/[kind]/[id]/error.tsx` (31 r)
+
+`wc -l` napomena: `error.tsx` je 31 red (< 40), ali **nije placeholder** — to je
+funkcionalna Next granica greške (`"use client"`, prima `error`+`reset`, prikazuje
+poruku i dugme „Pokušaj ponovo"; hvata npr. `requireStartupMember` bacanje kad
+token nema pristup). Kompaktna je jer joj je posao uzak.
+
+Bitno otkriće: preview rute iz zadatka (`app/canvas-preview/` itd.) **postoje ali
+su prazni direktorijumi** — nije bilo šta da se kopira. Canvas view komponente
+(`IdeasCanvasView`…) primaju već razrešene podatke + gomilu callback-a i traže
+1000-redova kontejner (`ideas-view.tsx`), pa se ne mogu „samo umetnuti".
+
+Šta radi:
+- Ruta `/embed/canvas/[kind]/[id]?token=<jwt>&theme=<light|dark>` — pun ekran, bez
+  sidebara/chrome-a (root layout obavija samo providere).
+- **Token-auth**: zaseban `ConvexReactClient` + `setAuth(() => token)` (sinhrono,
+  pre prvog upita), obmotan u `ConvexProvider` koji zaseni cookie-auth iz layout-a.
+- **Ideje**: read/nav `@xyflow/react` (v12) iz `api.ideas.list`; apsolutne pozicije
+  (sabiranje relativnih offseta uz lanac roditelja), bez editovanja layouta
+  (ergonomija sa §5.2). Touch kontrole (krupnije `Controls`, pinch/pan).
+- **postMessage protokol** (§5.2): WebView→native `node:open`, `selection`, `ready`;
+  native→WebView `theme`, `focus` — plus prošireno `zoom`/`fit` da mobilni rail
+  (korak 5) ima mete (zaseban commit, i dalje unutar web koraka).
+- Stanja: učitavanje, prazno („Prazan kanvas"), token/kind splash, `error.tsx`.
+
+Provereno u browseru (dev server na :3000):
+- `/embed/canvas/ideas/test-id` (bez tokena) → splash „Nedostaje token", bez greške.
+- `…?token=faketoken&theme=dark` → token-klijent **stvarno ispalio** autentikovan
+  `ideas.list`; backend vratio `ArgumentValidationError` (jer „test-id" nije Id),
+  a `error.tsx` boundary to uhvatio i prikazao čisto — nema belog ekrana.
+  (Pun render sa pravim podacima traži validan token+startupId sa uređaja.)
+
+Preskočeno / DELIMIČNO (pošteno):
+- **`thoughts` / `area` / `page` kanvasi** — ruta ih prihvata, infrastruktura
+  (auth, tema, protokol) je zajednička, ali dohvat podataka za njih nije povezan;
+  svaki traži svoj kontejner-nivo plumbing (drugačiji upiti i oblik čvorova).
+  Prikazuju čistu poruku „još nije povezan". `ideas` je kritična vrsta za korake
+  5–6, pa je ona odrađena end-to-end. **Za Jovana:** ostale vrste su sledeći web
+  posao (po uzoru na `ideas`).
+
+`npm run check` (root, uklj. `next build` + tsc): **0** (embed ruta = ƒ dynamic)
+
+---
