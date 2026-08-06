@@ -177,6 +177,17 @@ Preskočeno / DELIMIČNO (pošteno):
   5–6, pa je ona odrađena end-to-end. **Za Jovana:** ostale vrste su sledeći web
   posao (po uzoru na `ideas`).
 
+Pregled (`web-review`): 2 blokade + polish popravljeni (zaseban commit):
+- **Tema se poništavala** — root `ThemeProvider` (system/localStorage) je u mount
+  efektu gazio naš `?theme=` (roditelj posle deteta). Rešeno rAF re-assertom;
+  pravi kanal je native `{type:'theme'}` posle `ready` (šalje se u koraku 5).
+- **iframe fallback mrtav** — `next.config.ts` `frame-ancestors 'none'` blokira
+  framing; `postNative` sveden na RN most (embed je RN-WebView-only).
+- Touch mete kontrola 44px; ARIA `role=status/alert` + `aria-label`; hardkodovan
+  hex iz box-shadow → `var(--primary)`; `ConvexReactClient.close()` na cleanup.
+- Prihvaćeno kako jeste: dupli root provideri na `/embed` (ne mogu se izuzeti bez
+  bekstva iz root layout-a); `ready` poruka je peti tip van §5.2 (dokumentovati).
+
 `npm run check` (root, uklj. `next build` + tsc): **0** (embed ruta = ƒ dynamic)
 
 ---
