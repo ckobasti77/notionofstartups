@@ -191,3 +191,54 @@ Pregled (`web-review`): 2 blokade + polish popravljeni (zaseban commit):
 `npm run check` (root, uklj. `next build` + tsc): **0** (embed ruta = ƒ dynamic)
 
 ---
+
+## [01:49] KORAK 5 — M4.3 Mobilni canvas
+Status: GOTOVO (za `ideas`; ostale vrste zavise od koraka 4 backend-a)
+Fajlovi (svi novi osim `_layout`):
+- `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx` (274 r — nov ekran)
+- `apps/mobile/src/components/canvas/canvas-rail.tsx` (125 r)
+- `apps/mobile/src/components/canvas/idea-node-sheet.tsx` (216 r — detalj + glasanje)
+- `apps/mobile/src/components/canvas/idea-create-sheet.tsx` (164 r)
+- `apps/mobile/src/lib/embed-url.ts` (38 r)
+- `apps/mobile/src/app/(app)/_layout.tsx` (registracija, `gestureEnabled:false`)
+
+`wc -l` napomena: `embed-url.ts` je 38 r (< 40), ali **nije ekran ni placeholder**
+— to je lib helper sa pravom logikom (gradi embed URL sa token/theme query-jem,
+`canvasKindLabel`); pravilo ≥40 važi za ekrane.
+
+Šta radi:
+- Full-screen: native header + `react-native-webview` nad embed rutom + native rail.
+- URL: `${EXPO_PUBLIC_WEB_URL}/embed/canvas/${kind}/${id}?token=<jwt>&theme=<scheme>`;
+  token iz `useAuthToken()`.
+- **Most poruka**: WebView→native `node:open`/`ready`; native→WebView `theme`
+  (na `ready` i na promenu šeme — autoritativni kanal, rešava web-review blokadu #1),
+  `zoom`/`fit` (iz rail-a).
+- **Rail**: zoom−/+/centriraj (postMessage), „Nova ideja" (ideje → `ideas.create`).
+- **Tap na čvor** → `node:open` → native bottom sheet: naslov/tekst/autor + glasanje
+  (`ideas.vote`, up/down). Detalj se razrešava native iz istog `ideas.list`.
+- **Sudar gestova**: swipe-back isključen (`gestureEnabled:false`), „nazad" je dugme.
+- Stanja: učitavanje (spinner overlay), greška (`onError`/`onHttpError` + „pokušaj
+  ponovo" reload), fallback (nema `EXPO_PUBLIC_WEB_URL` / token / nepoznat kind).
+
+Preskočeno (pošteno):
+- **`[⛶]` rotacija u landscape** — traži `expo-screen-orientation` (nije instaliran);
+  nisam dodavao paket radi jedne sporedne funkcije. Zabeleženo za kasnije.
+- **Ulazna tačka** za ekran stiže u koraku 6 (tab „Više" → Ideje → dugme „Canvas").
+  Za `area`/`thoughts` ulaz čeka da im se poveže dohvat u embed-u (korak 4 backend).
+- **`.env.example`** — `apps/mobile/.gitignore` ignoriše `.env*`, pa placeholder
+  `EXPO_PUBLIC_WEB_URL` nije mogao da se commit-uje; dokumentovan je u kodu
+  (`embed-url.ts` komentar + fallback poruka na ekranu). **Za Jovana:** dodati
+  `EXPO_PUBLIC_WEB_URL` u `.env.local`.
+
+Ne može se end-to-end proveriti bez uređaja + `EXPO_PUBLIC_WEB_URL`; logika mosta
+je preslikana iz protokola koji je web strana (korak 4) već verifikovala u browseru.
+
+Pregled (`rn-review`): bez blokade; 4 naloga popravljena (zaseban commit) —
+boja broja glasova prati vrstu (down u dark temi), tap na čvor pre `ideas.list`
+se pamti pa razreši, 20s timeout za zaglavljen WebView, i `EmptyState` opis
+podignut na 16px (ponavljan nalaz kroz sve korake — sad rešen za ceo app).
+
+`tsc --noEmit` (apps/mobile): **0**
+`npm run check` (root): **0**
+
+---
