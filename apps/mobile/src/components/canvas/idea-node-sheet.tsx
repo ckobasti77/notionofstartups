@@ -85,6 +85,7 @@ export function IdeaNodeSheet({
                 count={idea.upvotes}
                 active={idea.userVote === 'up'}
                 activeBg={colors.success}
+                activeFg={colors.successForeground}
                 disabled={busy}
                 onPress={() => void castVote('up')}
                 colors={colors}
@@ -95,6 +96,7 @@ export function IdeaNodeSheet({
                 count={idea.downvotes}
                 active={idea.userVote === 'down'}
                 activeBg={colors.destructive}
+                activeFg={colors.destructiveForeground}
                 disabled={busy}
                 onPress={() => void castVote('down')}
                 colors={colors}
@@ -113,6 +115,7 @@ function VoteButton({
   count,
   active,
   activeBg,
+  activeFg,
   disabled,
   onPress,
   colors,
@@ -122,6 +125,7 @@ function VoteButton({
   count: number;
   active: boolean;
   activeBg: string;
+  activeFg: string;
   disabled: boolean;
   onPress: () => void;
   colors: ColorTokens;
@@ -143,11 +147,7 @@ function VoteButton({
         },
       ]}>
       {icon}
-      <Text
-        style={[
-          styles.voteCount,
-          { color: active ? colors.successForeground : colors.foreground },
-        ]}>
+      <Text style={[styles.voteCount, { color: active ? activeFg : colors.foreground }]}>
         {count}
       </Text>
     </Pressable>

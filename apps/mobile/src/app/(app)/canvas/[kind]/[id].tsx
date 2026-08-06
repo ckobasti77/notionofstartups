@@ -41,6 +41,8 @@ export default function CanvasScreen() {
   const [failed, setFailed] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedIdea, setSelectedIdea] = useState<IdeaDetail | null>(null);
+  // Tapnuti čvor čeka dok `ideas.list` ne stigne (tap može preteći podatke).
+  const [pendingNodeId, setPendingNodeId] = useState<string | null>(null);
 
   const isIdeas = kind === 'ideas';
   // Detalj čvora se razrešava native (isti `ideas.list` koji WebView crta).
@@ -61,11 +63,25 @@ export default function CanvasScreen() {
     postToWeb({ type: 'theme', mode: scheme });
   }, [scheme, postToWeb]);
 
-  const openNode = useCallback(
-    (nodeId: string) => {
-      if (!isIdeas || !ideasData) return;
-      const node = ideasData.nodes.find((n) => n._id === nodeId);
-      if (!node) return;
+  // Zaštita od zaglavljenog WebView-a (mreža koja nikad ne javi ni load ni error):
+  // posle 20s ponudi „pokušaj ponovo" umesto večnog spinera.
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => setFailed('Isteklo vreme učitavanja kanvasa.'), 20000);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
+  // Razreši čvor na čekanju čim `ideas.list` bude tu (ili odustani ako ga nema).
+  useEffect(() => {
+    if (pendingNodeId === null) return;
+    if (!isIdeas) {
+      setPendingNodeId(null);
+      return;
+    }
+    if (!ideasData) return; // sačekaj podatke
+    const node = ideasData.nodes.find((n) => n._id === pendingNodeId);
+    setPendingNodeId(null);
+    if (node) {
       setSelectedIdea({
         _id: node._id,
         title: node.title,
@@ -75,9 +91,8 @@ export default function CanvasScreen() {
         userVote: node.userVote,
         author: node.author,
       });
-    },
-    [isIdeas, ideasData],
-  );
+    }
+  }, [pendingNodeId, ideasData, isIdeas]);
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -88,9 +103,9 @@ export default function CanvasScreen() {
         return;
       }
       if (msg.type === 'ready') postToWeb({ type: 'theme', mode: scheme });
-      else if (msg.type === 'node:open' && msg.nodeId) openNode(msg.nodeId);
+      else if (msg.type === 'node:open' && msg.nodeId) setPendingNodeId(msg.nodeId);
     },
-    [openNode, postToWeb, scheme],
+    [postToWeb, scheme],
   );
 
   const reload = () => {
