@@ -5,6 +5,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { FilesPanel } from '@/components/stranica/files-panel';
+import { TablePanel } from '@/components/stranica/table-panel';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { pageKindLabel, pageKindMeta } from '@/lib/page-kinds';
@@ -12,10 +14,10 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
 
 /**
- * Editor stranice — placeholder (docs/mobile/02-EKRANI.md §9.1). Pravi rich-text
- * editor (tentap/Tiptap u WebView-u) stiže u sledećem koraku Faze 3; za sada ekran
- * postoji da bi „Otvori" na belešci/fajlu/tabeli iz „Prostor" taba imalo odredište.
- * Zadatak ima svoj, već napravljen ekran (`zadatak/[id]`).
+ * Ekran stranice (docs/mobile/02-EKRANI.md §9). Sadržaj se bira po `kind`:
+ * `table` → `TablePanel` (M3.3), `file` → `FilesPanel` (M3.3). Beleška (`note`)
+ * i dalje čeka rich-text editor (M3.2, „measure-then-decide"), pa prikazuje
+ * placeholder. Zadatak ima svoj ekran (`zadatak/[id]`), ovamo ne stiže.
  */
 export default function StranicaScreen() {
   const colors = useThemeColors();
@@ -35,17 +37,41 @@ export default function StranicaScreen() {
     );
   }
 
-  const Icon = pageKindMeta(page.kind).icon;
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PageHeader title={page.title} onBack={() => router.back()} colors={colors} />
-      <EmptyState
-        icon={<Icon size={40} color={colors.mutedForeground} />}
-        title="Editor stiže uskoro"
-        description={`Uređivanje sadržaja (${pageKindLabel(page.kind)}) stiže u sledećem koraku Faze 3.`}
+      <PageContent
+        pageId={pageId}
+        kind={page.kind}
+        canManage={page.permissions.canEdit}
+        colors={colors}
       />
     </View>
+  );
+}
+
+function PageContent({
+  pageId,
+  kind,
+  canManage,
+  colors,
+}: {
+  pageId: Id<'pages'>;
+  kind: 'note' | 'task' | 'file' | 'table';
+  canManage: boolean;
+  colors: ColorTokens;
+}) {
+  if (kind === 'table') return <TablePanel pageId={pageId} />;
+  if (kind === 'file') return <FilesPanel pageId={pageId} canManage={canManage} />;
+
+  // Beleška (i zaštitni ostatak): editor još nije spreman.
+  const Icon = pageKindMeta(kind).icon;
+  return (
+    <EmptyState
+      icon={<Icon size={40} color={colors.mutedForeground} />}
+      title="Editor stiže uskoro"
+      description={`Uređivanje sadržaja (${pageKindLabel(kind)}) stiže sa rich-text editorom (M3.2).`}
+    />
   );
 }
 
