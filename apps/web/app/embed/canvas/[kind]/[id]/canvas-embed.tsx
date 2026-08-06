@@ -84,18 +84,18 @@ function CanvasInner({
   initialTheme: ThemeMode;
 }) {
   const [colorMode, setColorMode] = useState<ThemeMode>(initialTheme);
-  const { fitView } = useReactFlow();
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", colorMode === "dark");
   }, [colorMode]);
 
-  // Prijem poruka iz native ljuske: tema i fokus na čvor. iOS isporučuje preko
-  // `window`, Android preko `document` — slušamo oba.
+  // Prijem poruka iz native ljuske (protokol §5.2, prošireno zoom/fit za native
+  // akcioni rail). iOS isporučuje preko `window`, Android preko `document`.
   useEffect(() => {
     const handle = (raw: unknown) => {
       if (typeof raw !== "string") return;
-      let msg: { type?: string; mode?: string; nodeId?: string };
+      let msg: { type?: string; mode?: string; nodeId?: string; direction?: string };
       try {
         msg = JSON.parse(raw);
       } catch {
@@ -105,6 +105,11 @@ function CanvasInner({
         setColorMode(msg.mode);
       } else if (msg.type === "focus" && msg.nodeId) {
         void fitView({ nodes: [{ id: msg.nodeId }], duration: 500, maxZoom: 1.4 });
+      } else if (msg.type === "fit") {
+        void fitView({ duration: 400 });
+      } else if (msg.type === "zoom") {
+        if (msg.direction === "out") void zoomOut({ duration: 200 });
+        else void zoomIn({ duration: 200 });
       }
     };
     const onWindow = (e: MessageEvent) => handle(e.data);
@@ -116,7 +121,7 @@ function CanvasInner({
       window.removeEventListener("message", onWindow);
       document.removeEventListener("message", onDocument);
     };
-  }, [fitView, kind]);
+  }, [fitView, zoomIn, zoomOut, kind]);
 
   if (kind === "ideas") {
     return <IdeasFlow startupId={id as Id<"startups">} colorMode={colorMode} />;
