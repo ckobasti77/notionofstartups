@@ -28,6 +28,7 @@ import type * as lib_activity from "../lib/activity.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_collaboration from "../lib/collaboration.js";
 import type * as lib_notificationChannels from "../lib/notificationChannels.js";
+import type * as lib_notificationSettingsCatalog from "../lib/notificationSettingsCatalog.js";
 import type * as lib_notifications from "../lib/notifications.js";
 import type * as lib_onboarding from "../lib/onboarding.js";
 import type * as lib_page_creation from "../lib/page_creation.js";
@@ -42,6 +43,7 @@ import type * as lib_task_checkpoint_canvas_edges from "../lib/task_checkpoint_c
 import type * as lib_task_checkpoints from "../lib/task_checkpoints.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as migrations from "../migrations.js";
+import type * as notificationSettings from "../notificationSettings.js";
 import type * as notifications from "../notifications.js";
 import type * as pageFiles from "../pageFiles.js";
 import type * as pageTables from "../pageTables.js";
@@ -86,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/collaboration": typeof lib_collaboration;
   "lib/notificationChannels": typeof lib_notificationChannels;
+  "lib/notificationSettingsCatalog": typeof lib_notificationSettingsCatalog;
   "lib/notifications": typeof lib_notifications;
   "lib/onboarding": typeof lib_onboarding;
   "lib/page_creation": typeof lib_page_creation;
@@ -100,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   "lib/task_checkpoints": typeof lib_task_checkpoints;
   "lib/validators": typeof lib_validators;
   migrations: typeof migrations;
+  notificationSettings: typeof notificationSettings;
   notifications: typeof notifications;
   pageFiles: typeof pageFiles;
   pageTables: typeof pageTables;

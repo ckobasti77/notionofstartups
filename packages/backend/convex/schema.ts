@@ -1121,11 +1121,13 @@ export default defineSchema({
     // Koju generaciju kanala uređaj poznaje (sekcija 4.1 — Android zaključava
     // zvuk za kanal, pa se novi zvuk isporučuje kroz novi `_vN` kanal).
     channelVersion: v.number(),
-    // Korisnikova podešavanja obaveštenja; prazno = ništa nije utišano.
-    mutedTypes: v.array(notificationTypeValidator),
-    // Tihi sati kao minuti od ponoći u Europe/Belgrade; `null` = isključeno.
-    quietHoursStart: v.union(v.number(), v.null()),
-    quietHoursEnd: v.union(v.number(), v.null()),
+    // LEGACY: podešavanja su preseljena u `notificationSettings` (po profilu, ne
+    // po uređaju — sekcija 7). Polja su ostavljena OPCIONA da postojeći redovi i
+    // dalje validiraju bez migracije; `save` ih više ne upisuje, dostava ih ne
+    // čita. Ukloniti kad se stari redovi presele.
+    mutedTypes: v.optional(v.array(notificationTypeValidator)),
+    quietHoursStart: v.optional(v.union(v.number(), v.null())),
+    quietHoursEnd: v.optional(v.union(v.number(), v.null())),
     lastSeenAt: v.number(),
     // Broj neuspelih dostava; posle praga se token gasi (kao kod weba).
     failureCount: v.number(),
@@ -1133,6 +1135,22 @@ export default defineSchema({
   })
     .index("by_profileId", ["profileId"])
     .index("by_token", ["token"]),
+
+  // Podešavanja obaveštenja PO PROFILU (ne po uređaju): isključen tip važi na
+  // svim uređajima i na webu i na mobilnom (docs/mobile/03-NOTIFIKACIJE.md
+  // sekcija 7). Jedan red po profilu, kreira se lenjo pri prvoj izmeni; njegovo
+  // odsustvo znači podrazumevano stanje (ništa utišano, bez tihih sati). Obe
+  // grane dostave (`push.ts`, `expoPush.ts`) čitaju odavde.
+  notificationSettings: defineTable({
+    profileId: v.id("profiles"),
+    // Utišani tipovi; prazno = ništa nije utišano. Filtrira i web i native push.
+    mutedTypes: v.array(notificationTypeValidator),
+    // Tihi sati kao minuti od ponoći u Europe/Belgrade; `null` = isključeno.
+    // Primenjuju se na SERVERU; `mention` i `deadline` ih probijaju (sekcija 7).
+    quietHoursStart: v.union(v.number(), v.null()),
+    quietHoursEnd: v.union(v.number(), v.null()),
+    updatedAt: v.number(),
+  }).index("by_profileId", ["profileId"]),
 
   activities: defineTable({
     startupId: v.id("startups"),

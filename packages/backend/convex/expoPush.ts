@@ -8,6 +8,7 @@ import {
   type NotificationType,
 } from "./lib/notifications";
 import {
+  CHANNEL_VERSION,
   type ResolvedChannel,
   resolveChannel,
 } from "./lib/notificationChannels";
@@ -49,14 +50,16 @@ type ExpoPayload = {
   targetId: string | null;
   notificationId: Id<"notifications">;
   badge: number;
+  // Podešavanja PO PROFILU (isti za sve uređaje) — filter je po notifikaciji,
+  // ne po tokenu (docs/mobile/03-NOTIFIKACIJE.md sekcija 7).
+  mutedTypes: Array<NotificationType>;
+  quietHoursStart: number | null;
+  quietHoursEnd: number | null;
   tokens: Array<{
     _id: Id<"expoPushTokens">;
     token: string;
     platform: "ios" | "android";
     channelVersion: number;
-    mutedTypes: Array<NotificationType>;
-    quietHoursStart: number | null;
-    quietHoursEnd: number | null;
   }>;
 } | null;
 
@@ -96,29 +99,30 @@ export const deliver = internalAction({
     );
     if (payload === null) return empty("nema pretplaćenih uređaja");
 
-    const minuteOfDay = belgradeMinutesOfDay(Date.now());
+    // Filter je PO PROFILU (podešavanja su ista za sve uređaje), pa se odlučuje
+    // jednom za celu notifikaciju, ne po tokenu.
+    if (payload.mutedTypes.includes(payload.type)) return empty("utišan tip");
 
-    // Filter po uređaju: utišan tip, i tihi sati (osim kanala koji ih probijaju).
-    const outgoing: Array<Outgoing> = [];
-    for (const token of payload.tokens) {
-      if (token.mutedTypes.includes(payload.type)) continue;
-      const channel = resolveChannel(payload.type, token.channelVersion);
-      if (
-        !channel.breaksQuietHours &&
-        isWithinQuietHours(
-          token.quietHoursStart,
-          token.quietHoursEnd,
-          minuteOfDay,
-        )
-      ) {
-        continue;
-      }
-      outgoing.push({
-        tokenId: token._id,
-        message: buildMessage(token, payload, channel),
-      });
+    // Tihi sati na serveru; `mention` i `deadline` ih probijaju (sekcija 7) —
+    // to nosi `breaksQuietHours` iz kataloga kanala, isto pravilo kao web push.
+    const minuteOfDay = belgradeMinutesOfDay(Date.now());
+    if (
+      !resolveChannel(payload.type, CHANNEL_VERSION).breaksQuietHours &&
+      isWithinQuietHours(payload.quietHoursStart, payload.quietHoursEnd, minuteOfDay)
+    ) {
+      return empty("tihi sati");
     }
-    if (outgoing.length === 0) return empty("utišano ili tihi sati");
+
+    // Poruka se i dalje gradi po tokenu — kanal cilja tačan `_vN` po uređaju.
+    const outgoing: Array<Outgoing> = payload.tokens.map((token) => ({
+      tokenId: token._id,
+      message: buildMessage(
+        token,
+        payload,
+        resolveChannel(payload.type, token.channelVersion),
+      ),
+    }));
+    if (outgoing.length === 0) return empty("nema pretplaćenih uređaja");
 
     const accessToken = process.env.EXPO_ACCESS_TOKEN;
     const results: Array<DeliveryResult> = [];

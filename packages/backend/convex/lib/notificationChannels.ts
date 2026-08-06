@@ -179,6 +179,17 @@ export function channelIdFor(
   return `${base}_v${channelVersion}`;
 }
 
+/**
+ * Da li tip probija tihe sate — bez rešavanja celog kanala. Web push (`push.ts`)
+ * nema pojam kanala ni `channelVersion`, ali mora da poštuje ISTO pravilo tihih
+ * sati kao native (`mention` i `deadline` prolaze; sekcija 7), pa deli ovaj
+ * izvor umesto da drugi put nabraja tipove.
+ */
+export function typeBreaksQuietHours(type: NotificationType): boolean {
+  const def = NOTIFICATION_CHANNELS[TYPE_TO_CHANNEL[type]];
+  return TYPE_OVERRIDES[type]?.breaksQuietHours ?? def.breaksQuietHours;
+}
+
 export type ResolvedChannel = {
   channelId: string;
   soundBase: string | null;

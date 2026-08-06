@@ -12,6 +12,7 @@ import {
   Lightbulb,
   MessageCircle,
   MessageSquare,
+  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -77,11 +78,15 @@ export function NotificationsSheet({
   onOpenChange,
   startupId,
   onOpenNotification,
+  onOpenSettings,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   startupId: Id<"startups">;
   onOpenNotification: (item: NotificationItem) => void;
+  /** Otvara dijalog „Obaveštenja i zvuci". Dijalog živi u shell-u kao zaseban
+   * modal (ne ugnježđen u ovaj Sheet), pa se otvara preko callback-a. */
+  onOpenSettings: () => void;
 }) {
   const { results, status, loadMore } = usePaginatedQuery(
     api.notifications.list,
@@ -132,8 +137,16 @@ export function NotificationsSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="border-b border-border/70 px-5 py-3">
+        <div className="space-y-2 border-b border-border/70 px-5 py-3">
           <PushToggle />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start text-xs text-muted-foreground"
+            onClick={onOpenSettings}
+          >
+            <SlidersHorizontal className="size-3.5" /> Obaveštenja i zvuci
+          </Button>
         </div>
 
         {unreadCount > 0 ? (

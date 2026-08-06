@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import { requireProfile } from "./lib/auth";
 import { notificationTypeValidator } from "./lib/validators";
+import { readSettings } from "./notificationSettings";
 
 /** Posle ovoliko odbijenih dostava token se briše kao mrtav (kao kod weba). */
 const MAX_EXPO_FAILURES = 5;
@@ -19,10 +20,6 @@ const MAX_EXPO_TOKENS = 20;
 const MAX_TOKEN_LENGTH = 512;
 const MAX_DEVICE_NAME_LENGTH = 128;
 const MAX_APP_VERSION_LENGTH = 32;
-const MINUTES_IN_DAY = 1_440;
-
-/** Broj tipova = gornja granica dužine `mutedTypes`. */
-const MAX_MUTED_TYPES = 32;
 
 const platformValidator = v.union(v.literal("ios"), v.literal("android"));
 
@@ -40,17 +37,11 @@ function validateChannelVersion(value: number) {
   return value;
 }
 
-function validateQuietMinute(value: number, label: string) {
-  if (!Number.isInteger(value) || value < 0 || value >= MINUTES_IN_DAY) {
-    throw new Error(`${label} mora biti minut u danu (0–1439).`);
-  }
-  return value;
-}
-
 /**
  * Upisuje Expo token ovog uređaja. Token je jedinstven po uređaju, pa ponovna
- * prijava osvežava postojeći red. Korisnikova podešavanja (mutedTypes, tihi
- * sati) se pri osvežavanju NE diraju — vezana su za korisnika, ne za sesiju.
+ * prijava osvežava postojeći red. Podešavanja obaveštenja NISU ovde — žive po
+ * profilu u `notificationSettings`, pa nova prijava uređaja odmah nasleđuje
+ * korisnikova pravila bez kopiranja.
  */
 export const save = mutation({
   args: {
@@ -101,9 +92,6 @@ export const save = mutation({
       deviceName,
       appVersion,
       channelVersion,
-      mutedTypes: [],
-      quietHoursStart: null,
-      quietHoursEnd: null,
       lastSeenAt: now,
       failureCount: 0,
       createdAt: now,
@@ -124,54 +112,6 @@ export const remove = mutation({
       await ctx.db.delete("expoPushTokens", existing._id);
     }
     return null;
-  },
-});
-
-/**
- * Podešavanja obaveštenja su po korisniku (jedan ekran, sekcija 7), pa se
- * primenjuju na SVE uređaje tog korisnika odjednom.
- */
-export const setNotificationSettings = mutation({
-  args: {
-    mutedTypes: v.array(notificationTypeValidator),
-    quietHoursStart: v.union(v.number(), v.null()),
-    quietHoursEnd: v.union(v.number(), v.null()),
-  },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    const profile = await requireProfile(ctx);
-
-    if (args.mutedTypes.length > MAX_MUTED_TYPES) {
-      throw new Error("Previše utišanih tipova.");
-    }
-    const mutedTypes = [...new Set(args.mutedTypes)];
-
-    // Tihi sati su prozor: ili oba postavljena, ili oba prazna.
-    if ((args.quietHoursStart === null) !== (args.quietHoursEnd === null)) {
-      throw new Error("Tihi sati moraju imati i početak i kraj.");
-    }
-    const quietHoursStart =
-      args.quietHoursStart === null
-        ? null
-        : validateQuietMinute(args.quietHoursStart, "Početak tihih sati");
-    const quietHoursEnd =
-      args.quietHoursEnd === null
-        ? null
-        : validateQuietMinute(args.quietHoursEnd, "Kraj tihih sati");
-
-    const tokens = await ctx.db
-      .query("expoPushTokens")
-      .withIndex("by_profileId", (q) => q.eq("profileId", profile._id))
-      .take(MAX_EXPO_TOKENS);
-
-    for (const token of tokens) {
-      await ctx.db.patch("expoPushTokens", token._id, {
-        mutedTypes,
-        quietHoursStart,
-        quietHoursEnd,
-      });
-    }
-    return tokens.length;
   },
 });
 
@@ -234,9 +174,10 @@ async function computeBadge(
 }
 
 /**
- * Podaci koje `expoPush.deliver` treba za slanje. Vraća sam notifikaciju plus
- * sve tokene primaoca (sa njihovim podešavanjima) — vremenski filter (tihi
- * sati) radi akcija, jer upit ne sme da čita sat.
+ * Podaci koje `expoPush.deliver` treba za slanje. Vraća notifikaciju, tokene
+ * primaoca i njegova podešavanja PO PROFILU (`notificationSettings`) — utišani
+ * tipovi i tihi sati važe za sve uređaje jednako. Vremenski filter (tihi sati)
+ * radi akcija, jer upit ne sme da čita sat.
  */
 export const expoPayloadForNotification = internalQuery({
   args: { notificationId: v.id("notifications") },
@@ -250,15 +191,15 @@ export const expoPayloadForNotification = internalQuery({
       targetId: v.union(v.string(), v.null()),
       notificationId: v.id("notifications"),
       badge: v.number(),
+      mutedTypes: v.array(notificationTypeValidator),
+      quietHoursStart: v.union(v.number(), v.null()),
+      quietHoursEnd: v.union(v.number(), v.null()),
       tokens: v.array(
         v.object({
           _id: v.id("expoPushTokens"),
           token: v.string(),
           platform: platformValidator,
           channelVersion: v.number(),
-          mutedTypes: v.array(notificationTypeValidator),
-          quietHoursStart: v.union(v.number(), v.null()),
-          quietHoursEnd: v.union(v.number(), v.null()),
         }),
       ),
     }),
@@ -276,6 +217,7 @@ export const expoPayloadForNotification = internalQuery({
       .take(MAX_EXPO_TOKENS);
     if (tokens.length === 0) return null;
 
+    const settings = await readSettings(ctx, notification.recipientProfileId);
     const badge = await computeBadge(ctx, notification.recipientProfileId);
 
     return {
@@ -287,14 +229,14 @@ export const expoPayloadForNotification = internalQuery({
       targetId: notification.targetId,
       notificationId: notification._id,
       badge,
+      mutedTypes: settings.mutedTypes,
+      quietHoursStart: settings.quietHoursStart,
+      quietHoursEnd: settings.quietHoursEnd,
       tokens: tokens.map((token) => ({
         _id: token._id,
         token: token.token,
         platform: token.platform,
         channelVersion: token.channelVersion,
-        mutedTypes: token.mutedTypes,
-        quietHoursStart: token.quietHoursStart,
-        quietHoursEnd: token.quietHoursEnd,
       })),
     };
   },

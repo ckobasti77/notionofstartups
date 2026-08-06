@@ -79,9 +79,6 @@ function insertToken(
     token: string;
     platform?: "ios" | "android";
     channelVersion?: number;
-    mutedTypes?: Array<NotificationType>;
-    quietHoursStart?: number | null;
-    quietHoursEnd?: number | null;
     failureCount?: number;
   },
 ) {
@@ -94,12 +91,33 @@ function insertToken(
       deviceName: null,
       appVersion: "1.0.0",
       channelVersion: overrides.channelVersion ?? 1,
-      mutedTypes: overrides.mutedTypes ?? [],
-      quietHoursStart: overrides.quietHoursStart ?? null,
-      quietHoursEnd: overrides.quietHoursEnd ?? null,
       lastSeenAt: now,
       failureCount: overrides.failureCount ?? 0,
       createdAt: now,
+    }),
+  );
+}
+
+/**
+ * Podešavanja obaveštenja su PO PROFILU (`notificationSettings`), ne po tokenu —
+ * pa se u testovima seje jednom po korisniku i važe za sve njegove uređaje.
+ */
+function setSettings(
+  t: SeedCtx,
+  profileId: Id<"profiles">,
+  settings: {
+    mutedTypes?: Array<NotificationType>;
+    quietHoursStart?: number | null;
+    quietHoursEnd?: number | null;
+  },
+) {
+  return t.run((ctx) =>
+    ctx.db.insert("notificationSettings", {
+      profileId,
+      mutedTypes: settings.mutedTypes ?? [],
+      quietHoursStart: settings.quietHoursStart ?? null,
+      quietHoursEnd: settings.quietHoursEnd ?? null,
+      updatedAt: Date.now(),
     }),
   );
 }
@@ -223,47 +241,15 @@ describe("registracija tokena", () => {
     ).toBe(0);
   });
 
-  test("setNotificationSettings pogađa sve uređaje i opstaje kroz ponovnu prijavu", async () => {
-    const { t, asMember } = await seed();
-    await asMember.mutation(api.expoPushTokens.save, {
-      token: "ExponentPushToken[ios]",
-      platform: "ios",
-      deviceName: null,
-      appVersion: "1.0.0",
-      channelVersion: 1,
-    });
-    await asMember.mutation(api.expoPushTokens.save, {
-      token: "ExponentPushToken[android]",
-      platform: "android",
-      deviceName: null,
-      appVersion: "1.0.0",
-      channelVersion: 1,
+  test("save NE dira podešavanja — ona žive po profilu, ne po tokenu", async () => {
+    const { t, asMember, member } = await seed();
+    await setSettings(t, member.profileId, {
+      mutedTypes: ["chat_message"],
+      quietHoursStart: 1320,
+      quietHoursEnd: 480,
     });
 
-    const updated = await asMember.mutation(
-      api.expoPushTokens.setNotificationSettings,
-      {
-        mutedTypes: ["chat_message", "chat_message"],
-        quietHoursStart: 1320,
-        quietHoursEnd: 480,
-      },
-    );
-    expect(updated).toBe(2);
-
-    const rows = await t.run((ctx) =>
-      ctx.db.query("expoPushTokens").collect(),
-    );
-    expect(rows.every((r) => r.mutedTypes.length === 1)).toBe(true); // dedupe
-    expect(
-      rows.every(
-        (r) =>
-          r.mutedTypes.includes("chat_message") &&
-          r.quietHoursStart === 1320 &&
-          r.quietHoursEnd === 480,
-      ),
-    ).toBe(true);
-
-    // Ponovna prijava istog uređaja NE briše korisnikova podešavanja.
+    // Prijava uređaja ne sme da resetuje korisnikova podešavanja.
     await asMember.mutation(api.expoPushTokens.save, {
       token: "ExponentPushToken[ios]",
       platform: "ios",
@@ -271,22 +257,57 @@ describe("registracija tokena", () => {
       appVersion: "2.0.0",
       channelVersion: 1,
     });
-    const iosRow = await t.run((ctx) =>
-      ctx.db
-        .query("expoPushTokens")
-        .withIndex("by_token", (q) =>
-          q.eq("token", "ExponentPushToken[ios]"),
-        )
-        .unique(),
+
+    const settings = await asMember.query(api.notificationSettings.get, {});
+    expect(settings.mutedTypes).toContain("chat_message");
+    expect(settings.quietHoursStart).toBe(1320);
+    expect(settings.quietHoursEnd).toBe(480);
+    // Token ne nosi kopiju podešavanja.
+    const rows = await t.run((ctx) =>
+      ctx.db.query("notificationSettings").collect(),
     );
-    expect(iosRow?.mutedTypes).toContain("chat_message");
-    expect(iosRow?.quietHoursStart).toBe(1320);
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe("notificationSettings", () => {
+  test("update upsertuje jedan red po profilu i dedupuje tipove", async () => {
+    const { t, asMember } = await seed();
+    await asMember.mutation(api.notificationSettings.update, {
+      mutedTypes: ["chat_message", "chat_message", "idea_voted"],
+      quietHoursStart: 1320,
+      quietHoursEnd: 480,
+    });
+    // Drugi poziv menja isti red, ne pravi novi.
+    await asMember.mutation(api.notificationSettings.update, {
+      mutedTypes: ["puls_ready"],
+      quietHoursStart: null,
+      quietHoursEnd: null,
+    });
+
+    const rows = await t.run((ctx) =>
+      ctx.db.query("notificationSettings").collect(),
+    );
+    expect(rows).toHaveLength(1);
+
+    const settings = await asMember.query(api.notificationSettings.get, {});
+    expect(settings.mutedTypes).toEqual(["puls_ready"]);
+    expect(settings.quietHoursStart).toBeNull();
+    expect(settings.quietHoursEnd).toBeNull();
   });
 
-  test("setNotificationSettings odbija nepotpun prozor tihih sati", async () => {
+  test("get vraća podrazumevano stanje kad red ne postoji", async () => {
+    const { asMember } = await seed();
+    const settings = await asMember.query(api.notificationSettings.get, {});
+    expect(settings.mutedTypes).toEqual([]);
+    expect(settings.quietHoursStart).toBeNull();
+    expect(settings.quietHoursEnd).toBeNull();
+  });
+
+  test("update odbija nepotpun prozor tihih sati", async () => {
     const { asMember } = await seed();
     await expect(
-      asMember.mutation(api.expoPushTokens.setNotificationSettings, {
+      asMember.mutation(api.notificationSettings.update, {
         mutedTypes: [],
         quietHoursStart: 1320,
         quietHoursEnd: null,
@@ -342,10 +363,8 @@ describe("expoPush.deliver", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await insertToken(t, member.profileId, {
-      token: "tok",
-      mutedTypes: ["chat_message"],
-    });
+    await insertToken(t, member.profileId, { token: "tok" });
+    await setSettings(t, member.profileId, { mutedTypes: ["chat_message"] });
     const notificationId = await insertNotification(t, {
       recipientProfileId: member.profileId,
       startupId: startup,
@@ -355,7 +374,7 @@ describe("expoPush.deliver", () => {
     const result = await t.action(internal.expoPush.deliver, {
       notificationId,
     });
-    expect(result.skipped).toBe("utišano ili tihi sati");
+    expect(result.skipped).toBe("utišan tip");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -370,8 +389,8 @@ describe("expoPush.deliver", () => {
     const nowMinute = belgradeMinutesOfDay(Date.now());
     const quietStart = (nowMinute + 1439) % 1440;
     const quietEnd = (nowMinute + 2) % 1440;
-    await insertToken(t, member.profileId, {
-      token: "tok",
+    await insertToken(t, member.profileId, { token: "tok" });
+    await setSettings(t, member.profileId, {
       quietHoursStart: quietStart,
       quietHoursEnd: quietEnd,
     });
@@ -517,8 +536,8 @@ describe("expoPush.deliver", () => {
     const nowMinute = belgradeMinutesOfDay(Date.now());
     const quietStart = (nowMinute + 1439) % 1440;
     const quietEnd = (nowMinute + 2) % 1440;
-    await insertToken(t, member.profileId, {
-      token: "tok",
+    await insertToken(t, member.profileId, { token: "tok" });
+    await setSettings(t, member.profileId, {
       quietHoursStart: quietStart,
       quietHoursEnd: quietEnd,
     });

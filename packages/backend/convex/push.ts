@@ -5,6 +5,12 @@ import webpush from "web-push";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
+import {
+  belgradeMinutesOfDay,
+  isWithinQuietHours,
+  type NotificationType,
+} from "./lib/notifications";
+import { typeBreaksQuietHours } from "./lib/notificationChannels";
 
 type DeliveryOutcome = "sent" | "gone" | "failed";
 
@@ -21,10 +27,15 @@ type DeliveryResult = {
 type PushPayload = {
   title: string;
   body: string | null;
+  type: NotificationType;
   startupId: Id<"startups">;
   targetType: string;
   targetId: string | null;
   notificationId: Id<"notifications">;
+  // Podešavanja PO PROFILU — isti izvor kao native push (sekcija 7).
+  mutedTypes: Array<NotificationType>;
+  quietHoursStart: number | null;
+  quietHoursEnd: number | null;
   subscriptions: Array<{
     _id: Id<"pushSubscriptions">;
     endpoint: string;
@@ -70,6 +81,24 @@ export const deliver = internalAction({
     );
     if (payload === null) {
       return { sent: 0, removed: 0, skipped: "nema pretplaćenih uređaja" };
+    }
+
+    // Ista pravila potiskivanja kao native (`expoPush.ts`): podešavanja su po
+    // profilu, pa se odlučuje jednom za celu notifikaciju (sekcija 7).
+    if (payload.mutedTypes.includes(payload.type)) {
+      return { sent: 0, removed: 0, skipped: "utišan tip" };
+    }
+    // Tihi sati na serveru; `mention` i `deadline` ih probijaju — namerno, da
+    // te ono što traži odgovor ili ističe probudi i noću (`typeBreaksQuietHours`).
+    if (
+      !typeBreaksQuietHours(payload.type) &&
+      isWithinQuietHours(
+        payload.quietHoursStart,
+        payload.quietHoursEnd,
+        belgradeMinutesOfDay(Date.now()),
+      )
+    ) {
+      return { sent: 0, removed: 0, skipped: "tihi sati" };
     }
 
     webpush.setVapidDetails(subject, publicKey, privateKey);

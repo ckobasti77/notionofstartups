@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { Inbox, Settings } from 'lucide-react-native';
 
 import { EmptyState } from '@/components/empty-state';
@@ -12,13 +13,16 @@ import { useThemeColors } from '@/theme/theme-provider';
  */
 export default function ObavestenjaScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   return (
     <TabScreen
       title="Obaveštenja"
       actions={
         <>
           <Button label="Označi sve" variant="ghost" size="sm" onPress={() => {}} />
-          <IconButton accessibilityLabel="Podešavanja zvukova">
+          <IconButton
+            accessibilityLabel="Obaveštenja i zvuci"
+            onPress={() => router.push('/podesavanja-obavestenja')}>
             <Settings size={22} color={colors.foreground} />
           </IconButton>
         </>

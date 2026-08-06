@@ -30,6 +30,7 @@ import { HomeView } from "@/components/workspace/home-view";
 import { IdeasView } from "@/components/workspace/ideas-view";
 import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
+import { NotificationSettingsDialog } from "@/components/workspace/notification-settings-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { CommandCenterView } from "@/components/workspace/command-center-view";
 import {
@@ -173,6 +174,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   const markNotificationRead = useMutation(api.notifications.markRead);
   const movePage = useMutation(api.areasV2.movePage);
   const resizePage = useMutation(api.areasV2.resizePage);
@@ -930,6 +932,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         onOpenChange={setNotificationsOpen}
         startupId={startup._id}
         onOpenNotification={openNotificationTarget}
+        onOpenSettings={() => {
+          // Zatvori panel pa otvori dijalog — samo jedan modal aktivan u datom
+          // trenutku (izbegava dupli overlay i nestovane Radix modale).
+          setNotificationsOpen(false);
+          setNotificationSettingsOpen(true);
+        }}
+      />
+      <NotificationSettingsDialog
+        open={notificationSettingsOpen}
+        onOpenChange={setNotificationSettingsOpen}
       />
       <Dialog
         open={detailPageId !== null}

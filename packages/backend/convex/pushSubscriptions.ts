@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireProfile } from "./lib/auth";
+import { notificationTypeValidator } from "./lib/validators";
+import { readSettings } from "./notificationSettings";
 
 /** Posle ovoliko odbijenih dostava pretplata se briše kao mrtva. */
 const MAX_PUSH_FAILURES = 5;
@@ -121,17 +123,27 @@ export const myDeviceCount = query({
   },
 });
 
-/** Podaci koje Node akcija treba da pošalje push. */
+/**
+ * Podaci koje Node akcija treba da pošalje push. Uz pretplate vraća i tip
+ * događaja i podešavanja PO PROFILU (`notificationSettings`) — akcija po njima
+ * odlučuje o utišanom tipu i tihim satima, istim pravilima kao native push
+ * (docs/mobile/03-NOTIFIKACIJE.md sekcija 7). Vremenski filter radi akcija, jer
+ * upit ne sme da čita sat.
+ */
 export const pushPayloadForNotification = internalQuery({
   args: { notificationId: v.id("notifications") },
   returns: v.union(
     v.object({
       title: v.string(),
       body: v.union(v.string(), v.null()),
+      type: notificationTypeValidator,
       startupId: v.id("startups"),
       targetType: v.string(),
       targetId: v.union(v.string(), v.null()),
       notificationId: v.id("notifications"),
+      mutedTypes: v.array(notificationTypeValidator),
+      quietHoursStart: v.union(v.number(), v.null()),
+      quietHoursEnd: v.union(v.number(), v.null()),
       subscriptions: v.array(
         v.object({
           _id: v.id("pushSubscriptions"),
@@ -155,13 +167,19 @@ export const pushPayloadForNotification = internalQuery({
       .take(20);
     if (subscriptions.length === 0) return null;
 
+    const settings = await readSettings(ctx, notification.recipientProfileId);
+
     return {
       title: notification.title,
       body: notification.body ?? null,
+      type: notification.type,
       startupId: notification.startupId,
       targetType: notification.targetType,
       targetId: notification.targetId,
       notificationId: notification._id,
+      mutedTypes: settings.mutedTypes,
+      quietHoursStart: settings.quietHoursStart,
+      quietHoursEnd: settings.quietHoursEnd,
       subscriptions: subscriptions.map((subscription) => ({
         _id: subscription._id,
         endpoint: subscription.endpoint,

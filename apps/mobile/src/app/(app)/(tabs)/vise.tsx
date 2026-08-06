@@ -15,6 +15,7 @@ import {
   Vote,
   type LucideIcon,
 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { TabScreen } from '@/components/tab-screen';
@@ -24,10 +25,15 @@ import { Card } from '@/components/ui/card';
 import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
+/** Tipizovana ruta expo-routera (isti tip koji `router.push` prima). */
+type AppRoute = Parameters<ReturnType<typeof useRouter>['push']>[0];
+
 type MenuItem = {
   icon: LucideIcon;
   label: string;
   badge?: string;
+  /** Ruta na tap; bez nje je stavka još placeholder (faze 2–4). */
+  route?: AppRoute;
 };
 
 const MENU: MenuItem[][] = [
@@ -42,7 +48,7 @@ const MENU: MenuItem[][] = [
     { icon: Users, label: 'Članovi tima' },
     { icon: Mail, label: 'Pozivnice' },
     { icon: Settings, label: 'Podešavanja' },
-    { icon: Bell, label: 'Obaveštenja i zvuci' },
+    { icon: Bell, label: 'Obaveštenja i zvuci', route: '/podesavanja-obavestenja' },
   ],
 ];
 
@@ -59,6 +65,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }
 export default function ViseScreen() {
   const { colors, preference, setPreference } = useAppTheme();
   const { signOut } = useAuthActions();
+  const router = useRouter();
 
   return (
     <TabScreen title="Više">
@@ -107,7 +114,9 @@ export default function ViseScreen() {
                   key={item.label}
                   accessibilityRole="button"
                   accessibilityLabel={item.label}
-                  onPress={() => {}}
+                  onPress={() => {
+                    if (item.route) router.push(item.route);
+                  }}
                   style={({ pressed }) => [
                     styles.row,
                     itemIndex > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
