@@ -93,3 +93,41 @@ bude tipizovana ruta — `.expo/` je gitignored, ništa se ne commit-uje.
 `npm run check` (root): **0**
 
 ---
+
+## [01:15] KORAK 3 — M4.1 Odobrenja
+Status: GOTOVO
+Fajlovi:
+- `apps/mobile/src/app/(app)/odobrenja.tsx` (424 r — nov ekran)
+- `apps/mobile/src/app/(app)/_layout.tsx` (registracija rute)
+- `apps/mobile/src/app/(app)/(tabs)/vise.tsx` (živi badge + ruta `/odobrenja`)
+
+Šta radi:
+- Ekran u tabu „Više" (bivši statični badge „2" → **živi broj**:
+  `overview.pendingCount + listNestingInbox.incoming`).
+- Objedinjuje tri izvora u iste kartice:
+  1. **Brisanje** (`overview.requestsForVote` + `deletionBallots`) — jednoglasnost:
+     jedan „Protiv" odmah odbija, „Za" briše tek kad svi odobre; kartica pokazuje
+     „fali još N glasova ZA". Ko traži → `startups.listMembers` (limit 50).
+  2. **Ugnježdavanje ideja** (`collaboration.resolveNesting`) — child → parent,
+     Odobri/Odbij.
+  3. **Ugnježdavanje stranica** (`areasV2.approveNesting/rejectNesting`) — isto.
+- Svaka nepovratna radnja (i „Za brisanje" i svaki „Protiv"/„Odbij", jer trajno
+  zatvaraju tuđi zahtev) traži potvrdu. Po-kartica zaključavanje tokom mutacije.
+- Stanja: učitavanje, prazno („Sve je čisto"), „izaberi startup", `ErrorBoundary`.
+
+Preskočeno (pošteno):
+- **Moji zahtevi / istorija / vraćeni sadržaj** — `overview` ih vraća
+  (`myRequests`, `history`, `recovered`) i web ih prikazuje, ali mobilni ekran je
+  namerno fokusiran na ono što čeka MOJU odluku („glasanje u pokretu"). Read-only
+  pregled sopstvenih zahteva je sekundaran; ostavljen za kasnije. **Za Jovana.**
+
+Pregled (`rn-review`): 1 blokada + 3 naloga popravljena (zaseban commit) —
+`insets.bottom` na listi; potvrda i za „Protiv"/„Odbij"; `listMembers` limit 50;
+zauzeta kartica više ne zaključava ostale.
+
+Typed routes regenerisani za `/odobrenja` (isti postupak kao korak 2).
+
+`tsc --noEmit` (apps/mobile): **0**
+`npm run check` (root): **0**
+
+---
