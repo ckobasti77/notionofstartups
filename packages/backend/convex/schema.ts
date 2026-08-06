@@ -1311,4 +1311,30 @@ export default defineSchema({
       "profileId",
       "emoji",
     ]),
+
+  // --- AI provajderi (docs/mobile/06-AGENT.md sekcija 3) -------------------
+  //
+  // OpenAI-kompatibilan provajder = baseUrl + model + apiKey. Konfiguriše ga
+  // admin startupa iz UI. `apiKey` je TAJNA: čita se ISKLJUČIVO iz internal
+  // funkcija (`getDefaultProviderWithKey`, `getWithKey`) — nijedan javni upit ne
+  // sme da ga vrati. UI vidi samo `keySuffix` (poslednja 4 znaka). Brisanje je
+  // hard delete, bez `archivedAt`, da obrisan ključ stvarno nestane.
+  aiProviders: defineTable({
+    startupId: v.id("startups"),
+    label: v.string(), // "Groq — Llama 3.3" (korisnikov naziv)
+    baseUrl: v.string(), // https://api.groq.com/openai/v1
+    model: v.string(), // llama-3.3-70b-versatile
+    apiKey: v.string(), // ⚠️ nikad ne izlazi iz internal funkcija
+    keySuffix: v.string(), // "a3f9" — server-side izvedeno, jedino se pokazuje
+    isDefault: v.boolean(),
+    enabled: v.boolean(),
+    createdByProfileId: v.id("profiles"),
+    lastUsedAt: v.union(v.number(), v.null()),
+    lastErrorAt: v.union(v.number(), v.null()),
+    lastError: v.union(v.string(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_startupId_and_enabled", ["startupId", "enabled"])
+    .index("by_startupId_and_isDefault", ["startupId", "isDefault"]),
 });

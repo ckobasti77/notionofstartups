@@ -10,6 +10,7 @@
 
 import type * as activity from "../activity.js";
 import type * as adminAuth from "../adminAuth.js";
+import type * as aiProviders from "../aiProviders.js";
 import type * as areasV2 from "../areasV2.js";
 import type * as areasV2Migrations from "../areasV2Migrations.js";
 import type * as auth from "../auth.js";
@@ -72,6 +73,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   adminAuth: typeof adminAuth;
+  aiProviders: typeof aiProviders;
   areasV2: typeof areasV2;
   areasV2Migrations: typeof areasV2Migrations;
   auth: typeof auth;
