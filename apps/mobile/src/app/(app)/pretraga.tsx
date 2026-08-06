@@ -101,6 +101,7 @@ export default function PretragaScreen() {
             value={text}
             onChangeText={setText}
             autoFocus
+            accessibilityLabel="Polje za pretragu"
             placeholder="Pretraži beleške, zadatke, poruke…"
             placeholderTextColor={colors.mutedForeground}
             selectionColor={colors.primary}
@@ -125,6 +126,14 @@ export default function PretragaScreen() {
           title="Pronađi ono što ti treba"
           description="Unesi bar dva slova. Pretražujemo stranice, zadatke i poruke ovog startupa."
         />
+      ) : activeStartupId === null ? (
+        // Bez izabranog startupa pretraga nema opseg — jasna poruka umesto
+        // večitog spinera (rn-review). Startup se bira iz headera.
+        <EmptyState
+          icon={<Search size={40} color={colors.mutedForeground} />}
+          title="Izaberi startup"
+          description="Pretraga radi u okviru jednog startupa. Izaberi ga iz zaglavlja pa pokušaj ponovo."
+        />
       ) : loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} accessibilityLabel="Pretražujem" />
@@ -139,7 +148,10 @@ export default function PretragaScreen() {
         <ScrollView
           contentContainerStyle={[styles.results, { paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag">
+          keyboardDismissMode="on-drag"
+          // iOS: uvuci sadržaj iznad tastature da poslednji rezultati ne ostanu
+          // skriveni dok se kuca (Android rešava adjustResize).
+          automaticallyAdjustKeyboardInsets>
           {tasks.length > 0 ? (
             <Section title="Zadaci" colors={colors}>
               {tasks.map((p) => (
@@ -318,12 +330,13 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    height: MIN_TOUCH_TARGET,
     fontSize: fontSize.base,
-    paddingVertical: 8,
+    paddingVertical: 0,
   },
   clearBtn: {
-    width: 32,
-    height: 32,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
   },
