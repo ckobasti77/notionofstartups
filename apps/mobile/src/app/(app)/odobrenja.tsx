@@ -56,12 +56,18 @@ function ideaLabel(node: { title: string | null; text: string } | null): string 
 export default function OdobrenjaScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
 
   const arg = activeStartupId ? { startupId: activeStartupId } : 'skip';
   const overview = useQuery(api.collaboration.overview, arg);
   const nestingInbox = useQuery(api.areasV2.listNestingInbox, arg);
-  const members = useQuery(api.startups.listMembers, arg);
+  // `limit: 50` (maksimum) da ime podnosioca ne padne na „Član tima" u većim
+  // timovima — podrazumevani `listMembers` vraća samo prvih 25 (rn-review).
+  const members = useQuery(
+    api.startups.listMembers,
+    activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
+  );
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -101,6 +107,7 @@ export default function OdobrenjaScreen() {
         secondary: {
           label: 'Protiv',
           variant: 'secondary',
+          confirm: 'Jedan glas PROTIV trajno odbija ovaj zahtev za brisanje. Nastaviti?',
           run: () => voteOnDeletion({ requestId: req._id, vote: 'reject' }),
         },
       });
@@ -123,6 +130,7 @@ export default function OdobrenjaScreen() {
         secondary: {
           label: 'Odbij',
           variant: 'secondary',
+          confirm: 'Ovim se zahtev za ugnježdavanje trajno odbija. Nastaviti?',
           run: () => resolveNesting({ requestId: req._id, approve: false }),
         },
       });
@@ -145,6 +153,7 @@ export default function OdobrenjaScreen() {
         secondary: {
           label: 'Odbij',
           variant: 'secondary',
+          confirm: 'Ovim se zahtev za ugnježdavanje trajno odbija. Nastaviti?',
           run: () => rejectPageNesting({ startupId: activeStartupId, requestId: req.requestId }),
         },
       });
@@ -208,13 +217,14 @@ export default function OdobrenjaScreen() {
           description="Nema zahteva koji čekaju tvoju odluku."
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}>
           {items.map((item) => (
             <ApprovalCard
               key={item.key}
               item={item}
               busy={busyKey === item.key}
-              disabled={busyKey !== null && busyKey !== item.key}
               onPrimary={() => act(item.key, item.primary)}
               onSecondary={() => act(item.key, item.secondary)}
               colors={colors}
@@ -229,14 +239,12 @@ export default function OdobrenjaScreen() {
 function ApprovalCard({
   item,
   busy,
-  disabled,
   onPrimary,
   onSecondary,
   colors,
 }: {
   item: ApprovalItem;
   busy: boolean;
-  disabled: boolean;
   onPrimary: () => void;
   onSecondary: () => void;
   colors: ColorTokens;
@@ -260,7 +268,7 @@ function ApprovalCard({
           label={item.secondary.label}
           variant={item.secondary.variant}
           onPress={onSecondary}
-          disabled={disabled || busy}
+          disabled={busy}
           style={styles.flexBtn}
         />
         <Button
@@ -268,7 +276,6 @@ function ApprovalCard({
           variant={item.primary.variant}
           onPress={onPrimary}
           loading={busy}
-          disabled={disabled}
           style={styles.flexBtn}
         />
       </View>
@@ -371,7 +378,6 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 12,
-    paddingBottom: 32,
   },
   card: {
     borderRadius: radius.xl,
