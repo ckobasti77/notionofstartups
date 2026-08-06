@@ -5,6 +5,7 @@ import {
   Brain,
   ChartColumn,
   ChevronRight,
+  FlaskConical,
   Lightbulb,
   Mail,
   Monitor,
@@ -132,6 +133,26 @@ export default function ViseScreen() {
           </Card>
         ))}
 
+        {/* TODO(Faza 3, §5.1): privremeni ulaz u merni prototip editora.
+            Izbriši ovaj blok (i rutu `editor-spike` + ekran) posle merenja. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Editor spike (merenje)"
+          onPress={() => {
+            const spikeRoute: string = '/editor-spike';
+            router.push(spikeRoute as AppRoute);
+          }}
+          style={({ pressed }) => [
+            styles.spike,
+            { borderColor: colors.border },
+            pressed && { backgroundColor: colors.muted },
+          ]}>
+          <FlaskConical size={18} color={colors.mutedForeground} />
+          <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
+            Editor spike (merenje)
+          </Text>
+        </Pressable>
+
         <Button
           label="Odjavi se"
           variant="ghost"
@@ -201,5 +222,19 @@ const styles = StyleSheet.create({
   },
   signOut: {
     marginTop: 4,
+  },
+  spike: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 44,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: 'dashed',
+  },
+  spikeLabel: {
+    fontSize: 14,
+    fontWeight: fontWeight.medium,
   },
 });

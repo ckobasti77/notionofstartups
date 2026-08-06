@@ -1,0 +1,198 @@
+/// <reference types="vite/client" />
+import { convexTest } from "convex-test";
+import { describe, expect, test } from "vitest";
+
+import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+type Ctx = Parameters<Parameters<ReturnType<typeof convexTest>["run"]>[0]>[0];
+
+/** Ubaci člana + startup sa dve oblasti; vrati id-jeve i `subject` za identitet. */
+async function seedWorkspace(ctx: Ctx) {
+  const t0 = 1_000_000;
+  const userId = await ctx.db.insert("users", {});
+  const profileId = await ctx.db.insert("profiles", {
+    userId,
+    displayName: "Test",
+    email: "test@example.com",
+    role: "admin",
+    archivedAt: null,
+    createdAt: t0,
+    updatedAt: t0,
+  });
+  const startupId = await ctx.db.insert("startups", {
+    name: "Acme",
+    description: "",
+    createdByProfileId: profileId,
+    archivedAt: null,
+    createdAt: t0,
+    updatedAt: t0,
+  });
+  await ctx.db.insert("startupMembers", {
+    startupId,
+    profileId,
+    addedByProfileId: profileId,
+    archivedAt: null,
+    createdAt: t0,
+  });
+  const dev = await ctx.db.insert("startupAreas", {
+    startupId,
+    key: "dev",
+    label: "Dev notes",
+    position: 0,
+    createdAt: t0,
+  });
+  const marketing = await ctx.db.insert("startupAreas", {
+    startupId,
+    key: "marketing",
+    label: "Marketing notes",
+    position: 1,
+    createdAt: t0,
+  });
+  return { userId, profileId, startupId, dev, marketing };
+}
+
+/** Kompletan `pages` dokument sa svim obaveznim poljima (opciona izostavljena). */
+async function insertPage(
+  ctx: Ctx,
+  args: {
+    startupId: Id<"startups">;
+    areaId: Id<"startupAreas">;
+    profileId: Id<"profiles">;
+    title: string;
+    updatedAt: number;
+    parentPageId?: Id<"pages"> | null;
+    kind?: "note" | "task" | "file" | "table";
+    archivedAt?: number | null;
+    position?: number;
+  },
+) {
+  return await ctx.db.insert("pages", {
+    startupId: args.startupId,
+    areaId: args.areaId,
+    parentPageId: args.parentPageId ?? null,
+    kind: args.kind ?? "note",
+    title: args.title,
+    searchText: "",
+    revision: 0,
+    position: args.position ?? 0,
+    taskStatus: null,
+    taskPriority: null,
+    assigneeProfileId: null,
+    dueDate: null,
+    taskSortAt: 0,
+    createdByProfileId: args.profileId,
+    updatedByProfileId: args.profileId,
+    archivedAt: args.archivedAt ?? null,
+    createdAt: args.updatedAt,
+    updatedAt: args.updatedAt,
+  });
+}
+
+describe("pages.areaTopLevelCounts", () => {
+  test("broji samo ne-arhivirane stranice na vrhu oblasti", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await t.run(async (ctx) => {
+      const s = await seedWorkspace(ctx);
+      const top1 = await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Vrh 1",
+        updatedAt: 10,
+      });
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Vrh 2",
+        updatedAt: 20,
+      });
+      // Ugnježdena (ima roditelja) — ne broji se na vrhu.
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Dete",
+        updatedAt: 30,
+        parentPageId: top1,
+      });
+      // Arhivirana na vrhu — ne broji se.
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Obrisana",
+        updatedAt: 40,
+        archivedAt: 41,
+      });
+      return s;
+    });
+
+    const counts = await t
+      .withIdentity({ subject: seed.userId })
+      .query(api.pages.areaTopLevelCounts, { startupId: seed.startupId });
+
+    const byArea = new Map(counts.map((entry) => [entry.areaId, entry]));
+    expect(byArea.get(seed.dev)).toMatchObject({ count: 2, capped: false });
+    expect(byArea.get(seed.marketing)).toMatchObject({ count: 0, capped: false });
+  });
+
+  test("odbija korisnika koji nije član startupa", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await t.run((ctx) => seedWorkspace(ctx));
+    const outsiderId = await t.run((ctx) => ctx.db.insert("users", {}));
+
+    await expect(
+      t
+        .withIdentity({ subject: outsiderId })
+        .query(api.pages.areaTopLevelCounts, { startupId: seed.startupId }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("pages.recentForStartup", () => {
+  test("vraća ne-arhivirane stranice sortirane po updatedAt opadajuće", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await t.run(async (ctx) => {
+      const s = await seedWorkspace(ctx);
+      await insertPage(ctx, { startupId: s.startupId, areaId: s.dev, profileId: s.profileId, title: "Staro", updatedAt: 100 });
+      await insertPage(ctx, { startupId: s.startupId, areaId: s.dev, profileId: s.profileId, title: "Novo", updatedAt: 300 });
+      await insertPage(ctx, { startupId: s.startupId, areaId: s.marketing, profileId: s.profileId, title: "Srednje", updatedAt: 200 });
+      await insertPage(ctx, { startupId: s.startupId, areaId: s.dev, profileId: s.profileId, title: "Arhivirano", updatedAt: 999, archivedAt: 999 });
+      return s;
+    });
+
+    const recent = await t
+      .withIdentity({ subject: seed.userId })
+      .query(api.pages.recentForStartup, { startupId: seed.startupId });
+
+    expect(recent.map((page) => page.title)).toEqual(["Novo", "Srednje", "Staro"]);
+  });
+
+  test("poštuje limit (najskorije prvo)", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await t.run(async (ctx) => {
+      const s = await seedWorkspace(ctx);
+      for (let i = 0; i < 5; i += 1) {
+        await insertPage(ctx, {
+          startupId: s.startupId,
+          areaId: s.dev,
+          profileId: s.profileId,
+          title: `P${i}`,
+          updatedAt: 100 + i * 10,
+        });
+      }
+      return s;
+    });
+
+    const recent = await t
+      .withIdentity({ subject: seed.userId })
+      .query(api.pages.recentForStartup, { startupId: seed.startupId, limit: 2 });
+
+    expect(recent.map((page) => page.title)).toEqual(["P4", "P3"]);
+  });
+});

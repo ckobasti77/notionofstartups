@@ -32,6 +32,7 @@ import {
 } from "./lib/profile_summary";
 import { resolveTaskAssignees } from "./lib/task_assignees";
 import {
+  boundedLimit,
   checkpointItemValidator,
   cleanRequiredText,
   pageKindValidator,
@@ -253,6 +254,74 @@ export const getBreadcrumbs = query({
       }
     }
     return breadcrumbs.reverse();
+  },
+});
+
+/**
+ * Broj stranica na vrhu svake oblasti (`parentPageId === null`) za startup.
+ * Napaja brojač u mobilnom „Prostor" tabu (Nivo 1). Čitanje je ograničeno na
+ * `CAP + 1` po oblasti — brojanje kroz `.take()` ostaje ograničeno (guidelines
+ * zabranjuju `.collect().length`); preko granice klijent prikaže „99+".
+ */
+export const areaTopLevelCounts = query({
+  args: { startupId: v.id("startups") },
+  returns: v.array(
+    v.object({
+      areaId: v.id("startupAreas"),
+      count: v.number(),
+      capped: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    const areas = await ctx.db
+      .query("startupAreas")
+      .withIndex("by_startupId_and_position", (q) =>
+        q.eq("startupId", args.startupId),
+      )
+      .take(50);
+    const CAP = 99;
+    return await Promise.all(
+      areas.map(async (area) => {
+        const rows = await ctx.db
+          .query("pages")
+          .withIndex(
+            "by_areaId_and_parentPageId_and_archivedAt_and_position",
+            (q) =>
+              q
+                .eq("areaId", area._id)
+                .eq("parentPageId", null)
+                .eq("archivedAt", null),
+          )
+          .take(CAP + 1);
+        return {
+          areaId: area._id,
+          count: Math.min(rows.length, CAP),
+          capped: rows.length > CAP,
+        };
+      }),
+    );
+  },
+});
+
+/**
+ * Poslednje izmenjene (ne-arhivirane) stranice startupa — sekcija „Nedavno" u
+ * mobilnom „Prostor" tabu. Sortirano po `updatedAt` opadajuće preko indeksa.
+ */
+export const recentForStartup = query({
+  args: { startupId: v.id("startups"), limit: v.optional(v.number()) },
+  returns: v.array(pageSummaryValidator),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    const limit = boundedLimit(args.limit, 10, 25);
+    const rows = await ctx.db
+      .query("pages")
+      .withIndex("by_startupId_and_archivedAt_and_updatedAt", (q) =>
+        q.eq("startupId", args.startupId).eq("archivedAt", null),
+      )
+      .order("desc")
+      .take(limit);
+    return rows.map(summarizePage);
   },
 });
 

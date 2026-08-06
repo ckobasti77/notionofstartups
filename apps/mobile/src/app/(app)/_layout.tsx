@@ -24,12 +24,16 @@ export default function AppLayout() {
         <Stack.Screen name="razgovor/[id]" options={{ headerShown: false }} />
         {/* Detalj zadatka — full-screen, sopstveni header sa „nazad". */}
         <Stack.Screen name="zadatak/[id]" options={{ headerShown: false }} />
+        {/* Editor stranice (placeholder do Faze 3) — full-screen, sopstveni header. */}
+        <Stack.Screen name="stranica/[id]" options={{ headerShown: false }} />
         {/* Podešavanja obaveštenja — full-screen, sopstveni header sa „nazad". */}
         <Stack.Screen name="podesavanja-obavestenja" options={{ headerShown: false }} />
         {/* Puls — sedmični pregled, full-screen, sopstveni header. */}
         <Stack.Screen name="puls" options={{ headerShown: false }} />
         {/* Aktivnost — hronološka lista, full-screen, sopstveni header. */}
         <Stack.Screen name="aktivnost" options={{ headerShown: false }} />
+        {/* Merni prototip editora (Faza 3, §5.1) — privremeno; briše se posle merenja. */}
+        <Stack.Screen name="editor-spike" options={{ headerShown: false }} />
       </Stack>
     </ActiveStartupProvider>
   );
