@@ -127,7 +127,7 @@ export function tasksWord(count: number): string {
   return 'zadataka';
 }
 
-const SR_MONTHS_SHORT = [
+export const SR_MONTHS_SHORT = [
   'jan',
   'feb',
   'mar',

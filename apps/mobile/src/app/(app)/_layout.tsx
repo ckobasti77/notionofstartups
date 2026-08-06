@@ -26,6 +26,10 @@ export default function AppLayout() {
         <Stack.Screen name="zadatak/[id]" options={{ headerShown: false }} />
         {/* Podešavanja obaveštenja — full-screen, sopstveni header sa „nazad". */}
         <Stack.Screen name="podesavanja-obavestenja" options={{ headerShown: false }} />
+        {/* Puls — sedmični pregled, full-screen, sopstveni header. */}
+        <Stack.Screen name="puls" options={{ headerShown: false }} />
+        {/* Aktivnost — hronološka lista, full-screen, sopstveni header. */}
+        <Stack.Screen name="aktivnost" options={{ headerShown: false }} />
       </Stack>
     </ActiveStartupProvider>
   );

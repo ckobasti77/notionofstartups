@@ -39,10 +39,10 @@ type MenuItem = {
 const MENU: MenuItem[][] = [
   [
     { icon: Vote, label: 'Odobrenja', badge: '2' },
-    { icon: ChartColumn, label: 'Puls' },
+    { icon: ChartColumn, label: 'Puls', route: '/puls' },
     { icon: Lightbulb, label: 'Ideje' },
     { icon: Brain, label: 'Misli' },
-    { icon: Activity, label: 'Aktivnost' },
+    { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
   ],
   [
     { icon: Users, label: 'Članovi tima' },

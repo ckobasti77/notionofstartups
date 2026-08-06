@@ -2,11 +2,22 @@ import { UserRound } from 'lucide-react-native';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/avatar';
-import type { TaskAssignee } from '@/lib/tasks';
+import type { Id } from '@/convex/_generated/dataModel';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
 const AVATAR = 26;
+
+/**
+ * Minimalni oblik izvršioca koji stack koristi. Puni `TaskAssignee`
+ * (`taskAssignees.listForTasks`) i sažeti izvršilac iz `puls.getWeekly` su oba
+ * strukturno saglasni s ovim — pa stack radi za oba bez kastovanja.
+ */
+export type StackAssignee = {
+  profileId: Id<'profiles'>;
+  displayName: string;
+  avatarUrl: string | null;
+};
 
 /**
  * Preklopljeni avatari izvršilaca (najviše `max`, pa „+N"). Nedodeljeni zadatak
@@ -16,7 +27,7 @@ export function AssigneeStack({
   assignees,
   max = 3,
 }: {
-  assignees: TaskAssignee[];
+  assignees: StackAssignee[];
   max?: number;
 }) {
   const colors = useThemeColors();
