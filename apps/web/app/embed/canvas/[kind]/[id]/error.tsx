@@ -12,7 +12,11 @@ export default function EmbedError({
   reset: () => void;
 }) {
   return (
-    <div className="fixed inset-0 grid place-items-center bg-background px-6 text-center text-foreground">
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="fixed inset-0 grid place-items-center bg-background px-6 text-center text-foreground"
+    >
       <div className="max-w-sm">
         <p className="text-base font-semibold">Kanvas se ne može učitati</p>
         <p className="mt-1 text-sm text-muted-foreground">

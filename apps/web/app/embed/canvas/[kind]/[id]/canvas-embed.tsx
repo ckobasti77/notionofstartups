@@ -23,17 +23,16 @@ type ThemeMode = "light" | "dark";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 /**
- * Poruka native ljusci. RN `WebView` ubacuje `window.ReactNativeWebView`; kad ga
- * nema (npr. otvoreno u iframe/pregledaču) padamo na `postMessage` roditelju.
- * Protokol: `docs/mobile/00-PLAN.md` §5.2.
+ * Poruka native ljusci preko RN `WebView` mosta (`window.ReactNativeWebView`).
+ * Namerno bez `window.parent` iframe fallback-a: globalni `next.config.ts` postavlja
+ * `frame-ancestors 'none'`, pa embed i tako ne sme u iframe — jedini podržani
+ * kontekst je RN WebView. Protokol: `docs/mobile/00-PLAN.md` §5.2.
  */
 function postNative(message: Record<string, unknown>) {
   if (typeof window === "undefined") return;
-  const payload = JSON.stringify(message);
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } })
     .ReactNativeWebView;
-  if (bridge) bridge.postMessage(payload);
-  else window.parent?.postMessage(payload, "*");
+  bridge?.postMessage(JSON.stringify(message));
 }
 
 /**
@@ -61,8 +60,15 @@ export function CanvasEmbed({
     return c;
   }, [token]);
 
+  // Zatvori klijent (i njegov socket) kad se token promeni ili se ekran ugasi.
+  useEffect(() => {
+    return () => {
+      void client?.close();
+    };
+  }, [client]);
+
   if (!client) {
-    return <Center>Konfiguracija nije potpuna (NEXT_PUBLIC_CONVEX_URL).</Center>;
+    return <Center role="alert">Konfiguracija nije potpuna (NEXT_PUBLIC_CONVEX_URL).</Center>;
   }
 
   return (
@@ -87,7 +93,13 @@ function CanvasInner({
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", colorMode === "dark");
+    const apply = () => document.documentElement.classList.toggle("dark", colorMode === "dark");
+    apply();
+    // Root layout `ThemeProvider` primeni svoju (system/localStorage) temu u mount
+    // efektu — a roditeljski efekti idu POSLE dečjih, pa bi pregazio naš `?theme=`.
+    // rAF re-asserta posle commit-a da tema iz query-ja / native poruke pobedi.
+    const raf = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(raf);
   }, [colorMode]);
 
   // Prijem poruka iz native ljuske (protokol §5.2, prošireno zoom/fit za native
@@ -191,7 +203,7 @@ function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorM
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
 
   return (
-    <div className="fixed inset-0 bg-background">
+    <div className="fixed inset-0 bg-background" role="application" aria-label="Kanvas ideja">
       <EmbedStyles />
       <ReactFlow
         nodes={nodes}
@@ -217,7 +229,10 @@ function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorM
         <Controls showInteractive={false} />
       </ReactFlow>
       {nodes.length === 0 ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+        <div
+          role="status"
+          className="pointer-events-none absolute inset-0 grid place-items-center"
+        >
           <span className="text-sm text-muted-foreground">Prazan kanvas ideja.</span>
         </div>
       ) : null}
@@ -225,9 +240,19 @@ function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorM
   );
 }
 
-function Center({ children }: { children: React.ReactNode }) {
+function Center({
+  children,
+  role = "status",
+}: {
+  children: React.ReactNode;
+  role?: "status" | "alert";
+}) {
   return (
-    <div className="fixed inset-0 grid place-items-center bg-background px-6 text-center text-foreground">
+    <div
+      role={role}
+      aria-live={role === "alert" ? "assertive" : "polite"}
+      className="fixed inset-0 grid place-items-center bg-background px-6 text-center text-foreground"
+    >
       <div>{children}</div>
     </div>
   );
@@ -237,9 +262,9 @@ function Center({ children }: { children: React.ReactNode }) {
 function EmbedStyles() {
   return (
     <style>{`
-      .react-flow__controls-button { width: 2.5rem; height: 2.5rem; }
-      .react-flow__controls-button svg { max-width: 1.1rem; max-height: 1.1rem; }
-      .embed-node--approved { box-shadow: 0 0 0 2px var(--color-primary, #4a42d8); }
+      .react-flow__controls-button { width: 2.75rem; height: 2.75rem; }
+      .react-flow__controls-button svg { max-width: 1.2rem; max-height: 1.2rem; }
+      .embed-node--approved { box-shadow: 0 0 0 2px var(--primary); }
     `}</style>
   );
 }

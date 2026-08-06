@@ -32,18 +32,23 @@ function EmbedResolver() {
   const theme = search.get("theme") === "dark" ? "dark" : "light";
 
   if (!KINDS.includes(kind as CanvasKind)) {
-    return <Splash label={`Nepoznata vrsta kanvasa: ${kind}`} />;
+    return <Splash label={`Nepoznata vrsta kanvasa: ${kind}`} tone="error" />;
   }
   if (!token) {
-    return <Splash label="Nedostaje token za pristup kanvasu." />;
+    return <Splash label="Nedostaje token za pristup kanvasu." tone="error" />;
   }
 
   return <CanvasEmbed kind={kind as CanvasKind} id={id} token={token} theme={theme} />;
 }
 
-function Splash({ label }: { label: string }) {
+/** `tone="error"` označava trajno stanje (alert), podrazumevano je učitavanje (status). */
+function Splash({ label, tone = "loading" }: { label: string; tone?: "loading" | "error" }) {
   return (
-    <div className="fixed inset-0 grid place-items-center bg-background px-6 text-center text-sm text-muted-foreground">
+    <div
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+      className="fixed inset-0 grid place-items-center bg-background px-6 text-center text-sm text-muted-foreground"
+    >
       {label}
     </div>
   );
