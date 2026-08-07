@@ -242,3 +242,36 @@ podignut na 16px (ponavljan nalaz kroz sve korake — sad rešen za ceo app).
 `npm run check` (root): **0**
 
 ---
+
+## [01:59] KORAK 6 — M4.4 Ideje i admin
+Status: GOTOVO
+Fajlovi:
+- `apps/mobile/src/app/(app)/ideje.tsx` (329 r — nov ekran)
+- `apps/mobile/src/app/(app)/clanovi.tsx` (163 r — nov ekran, admin)
+- `apps/mobile/src/app/(app)/pozivnice.tsx` (400 r — nov ekran, admin)
+- `apps/mobile/src/app/(app)/_layout.tsx` (3 nove rute)
+- `apps/mobile/src/app/(app)/(tabs)/vise.tsx` (Ideje ruta; admin gating)
+
+Šta radi:
+- **Ideje**: native lista iz `api.ideas.list` sa glasanjem (`ideas.vote`, up/down,
+  boja prati vrstu); dugme „Canvas" u headeru → `/canvas/ideas/<startupId>`
+  (ulaz u ekran iz koraka 5). Prazno stanje nudi otvaranje canvasa.
+- **Članovi tima** (admin): `startups.listMembers` (limit 50), avatar + ime + email.
+- **Pozivnice** (admin): `invites.list` (email + status badge: na čekanju /
+  prihvaćena / istekla / opozvana), kreiranje (`invites.create` → kod se pokaže
+  **jednom** u Alert-u jer server čuva samo hash), opoziv uz potvrdu.
+- **Admin gating**: `profile.role === 'admin'` (iz `profiles.getCurrent`); Članovi
+  i Pozivnice se u „Više" **skrivaju** ne-adminima; `invites.*` i tako traže
+  `requireAdmin` na backendu (dvostruka brana).
+- Sva stanja + `ErrorBoundary` na svakom ekranu.
+
+Preskočeno (pošteno):
+- **Canvas ideja** koristi WebView iz koraka 5 (ista embed ruta) — nije zaseban
+  kod. „Misli" ostaju placeholder u „Više" (thoughts canvas nije povezan u embed).
+- **Kopiranje koda pozivnice** — `expo-clipboard` nije instaliran; kod se pokazuje
+  u Alert-u da ga admin prepiše. Dodavanje clipboard-a je sitan naknadni korak.
+
+`tsc --noEmit` (apps/mobile): **0**
+`npm run check` (root): **0**
+
+---
