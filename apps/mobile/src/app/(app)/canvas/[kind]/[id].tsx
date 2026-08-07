@@ -9,9 +9,11 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { CanvasRail, type RailAction } from '@/components/canvas/canvas-rail';
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { IdeaNodeSheet, type IdeaDetail } from '@/components/canvas/idea-node-sheet';
+import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
 import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { useActiveStartup } from '@/context/active-startup';
 import type { Id } from '@/convex/_generated/dataModel';
 import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-url';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
@@ -36,6 +38,7 @@ export default function CanvasScreen() {
   const router = useRouter();
   const { scheme } = useAppTheme();
   const token = useAuthToken();
+  const { activeStartupId } = useActiveStartup();
   const params = useLocalSearchParams<{ kind: string; id: string }>();
   const kind = params.kind as CanvasKind;
   const id = params.id;
@@ -54,6 +57,18 @@ export default function CanvasScreen() {
 
   const isIdeas = kind === 'ideas';
   const isThoughts = kind === 'thoughts';
+  const isArea = kind === 'area';
+  const isPage = kind === 'page';
+  // area/page čvorovi su stranice — tap ih otvara u punom native ekranu stranice
+  // (bogatije od bottom sheet-a), zato node:open ovde navigira umesto da otvara detalj.
+  const isPageKind = isArea || isPage;
+
+  const openPage = useCallback(
+    (pageId: string) => {
+      router.push({ pathname: '/stranica/[id]', params: { id: pageId } });
+    },
+    [router],
+  );
 
   // URL je stabilan: token više ne ulazi u njega (išao bi u logove), a tema je samo
   // za prvi paint — dalje promene idu kroz most, pa se WebView ne reloaduje (§5.2).
@@ -103,13 +118,18 @@ export default function CanvasScreen() {
         // Detalj stiže uz poruku — otvori sheet po vrsti, bez čekanja/upita.
         if (isIdeas) setOpenIdea(msg.node as IdeaDetail);
         else if (isThoughts) setOpenThought(msg.node as ThoughtDetail);
+        else if (isPageKind) {
+          // area/page čvor je stranica → otvori njen pun native ekran.
+          const pageNode = msg.node as { _id?: string };
+          if (pageNode._id) openPage(pageNode._id);
+        }
       } else if (msg.type === 'selection') {
         const ids = msg.ids ?? [];
         setSelectedNodeIds(ids);
         setSelectedNode(ids.length === 1 ? msg.node ?? null : null);
       }
     },
-    [postToWeb, scheme, token, isIdeas, isThoughts],
+    [postToWeb, scheme, token, isIdeas, isThoughts, isPageKind, openPage],
   );
 
   const reload = () => {
@@ -132,6 +152,9 @@ export default function CanvasScreen() {
     primaryAction = hasSingleSelection
       ? { label: 'Otvori misao', icon: openIcon, onPress: () => setOpenThought(selectedNode as ThoughtDetail) }
       : { label: 'Nova misao', icon: newIcon, onPress: () => setCreateOpen(true) };
+  } else if (isArea && activeStartupId) {
+    // Tap čvora već otvara stranicu (node:open), pa je primarna akcija samo kreiranje.
+    primaryAction = { label: 'Nova stranica', icon: newIcon, onPress: () => setCreateOpen(true) };
   } else {
     primaryAction = undefined;
   }
@@ -236,6 +259,16 @@ export default function CanvasScreen() {
             }}
           />
         </>
+      ) : null}
+
+      {isArea && activeStartupId ? (
+        <PageCreateSheet
+          open={createOpen}
+          startupId={activeStartupId}
+          areaId={id as Id<'startupAreas'>}
+          parentPageId={null}
+          onClose={() => setCreateOpen(false)}
+        />
       ) : null}
     </View>
   );

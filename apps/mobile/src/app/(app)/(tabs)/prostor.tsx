@@ -13,7 +13,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   BackHandler,
   FlatList,
   Pressable,
@@ -113,6 +112,14 @@ export default function ProstorScreen() {
     [router],
   );
 
+  // Canvas oblasti (WebView embed) — resolver na backendu razreši scope iz areaId.
+  const openAreaCanvas = useCallback(
+    (areaId: Id<'startupAreas'>) => {
+      router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'area', id: areaId } });
+    },
+    [router],
+  );
+
   // „Nazad" kroz hijerarhiju preko `pageBackRoute`: nivo naviše — roditeljska
   // stranica, inače koren oblasti; sa korena oblasti nazad na listu oblasti.
   const goBack = useCallback(() => {
@@ -172,7 +179,7 @@ export default function ProstorScreen() {
         onJump={jumpTo}
         rightSlot={
           top.kind === 'area' ? (
-            <ViewModeToggle colors={colors} />
+            <ViewModeToggle colors={colors} onOpenCanvas={() => openAreaCanvas(top.areaId)} />
           ) : (
             <Pressable
               accessibilityRole="button"
@@ -573,8 +580,14 @@ function DeepHeader({
   );
 }
 
-/** Prekidač Lista / Canvas — Canvas je onemogućen do Faze 4 (docs/mobile §5). */
-function ViewModeToggle({ colors }: { colors: ColorTokens }) {
+/** Prekidač Lista / Canvas — Canvas otvara WebView embed kanvasa oblasti (§9.3). */
+function ViewModeToggle({
+  colors,
+  onOpenCanvas,
+}: {
+  colors: ColorTokens;
+  onOpenCanvas: () => void;
+}) {
   return (
     <View accessibilityRole="tablist" style={[styles.toggle, { backgroundColor: colors.muted }]}>
       <View
@@ -591,12 +604,12 @@ function ViewModeToggle({ colors }: { colors: ColorTokens }) {
       </View>
       <Pressable
         accessibilityRole="tab"
-        accessibilityLabel="Canvas prikaz — uskoro"
-        accessibilityState={{ selected: false, disabled: true }}
-        onPress={() => Alert.alert('Canvas', 'Canvas prikaz oblasti stiže u Fazi 4.')}
+        accessibilityLabel="Canvas prikaz oblasti"
+        accessibilityState={{ selected: false }}
+        onPress={onOpenCanvas}
         style={styles.toggleSeg}>
-        <LayoutGrid size={15} color={colors.mutedForeground} />
-        <Text style={[styles.toggleText, { color: colors.mutedForeground }]}>Canvas</Text>
+        <LayoutGrid size={15} color={colors.foreground} />
+        <Text style={[styles.toggleText, { color: colors.foreground }]}>Canvas</Text>
       </Pressable>
     </View>
   );

@@ -188,6 +188,17 @@ const viewportValidator = v.object({
   zoom: v.number(),
   persisted: v.boolean(),
 });
+/** Oblik canvas payload-a — deljen između `getCanvas` i resolvera po jednom id-u. */
+const canvasPayloadValidator = v.object({
+  pages: v.array(canvasPageValidator),
+  edges: v.array(visibleEdgeValidator),
+  relations: v.array(visibleEdgeValidator),
+  checkpointEdges: v.array(visibleCheckpointEdgeValidator),
+  ghosts: v.array(ghostValidator),
+  viewport: viewportValidator,
+  truncated: v.boolean(),
+  scope: scopeValidator,
+});
 const moveResultValidator = v.object({
   nestingStatus: v.union(v.literal("none"), v.literal("pending")),
   requestId: v.union(v.id("pageNestingRequests"), v.null()),
@@ -1499,16 +1510,7 @@ export const getCanvas = query({
     areaId: v.id("startupAreas"),
     rootPageId: rootPageIdValidator,
   },
-  returns: v.object({
-    pages: v.array(canvasPageValidator),
-    edges: v.array(visibleEdgeValidator),
-    relations: v.array(visibleEdgeValidator),
-    checkpointEdges: v.array(visibleCheckpointEdgeValidator),
-    ghosts: v.array(ghostValidator),
-    viewport: viewportValidator,
-    truncated: v.boolean(),
-    scope: scopeValidator,
-  }),
+  returns: canvasPayloadValidator,
   handler: async (ctx, args) => {
     const { profile, startup } = await requireStartupMember(ctx, args.startupId);
     const { area, root } = await requireScope(
@@ -1517,7 +1519,47 @@ export const getCanvas = query({
       args.areaId,
       args.rootPageId,
     );
-    const rawPages = await ctx.db
+    return await assembleCanvas(ctx, {
+      startupId: args.startupId,
+      areaId: args.areaId,
+      rootPageId: args.rootPageId,
+      profile,
+      startup,
+      area,
+      root,
+    });
+  },
+});
+
+type CanvasMember = Awaited<ReturnType<typeof requireStartupMember>>;
+type CanvasScope = Awaited<ReturnType<typeof requireScope>>;
+
+/**
+ * Sklapa canvas payload (stranice, ivice, relacije, checkpoint-ivice, ghosts,
+ * viewport, scope) iz već razrešenog scope-a. Izdvojeno iz `getCanvas` da ga dele i
+ * resolveri po jednom id-u (`getAreaCanvasByArea`/`getPageCanvasByPage`) — oni sami
+ * urade `requireStartupMember` + `requireScope`, pa pozovu ovo. Lokalni `args` čuva
+ * isti oblik kao ranije da telo (ispod) ostane nepromenjeno.
+ */
+async function assembleCanvas(
+  ctx: ReadCtx,
+  params: {
+    startupId: Id<"startups">;
+    areaId: Id<"startupAreas">;
+    rootPageId: CanvasRoot;
+    profile: CanvasMember["profile"];
+    startup: CanvasMember["startup"];
+    area: CanvasScope["area"];
+    root: CanvasScope["root"];
+  },
+) {
+  const { profile, startup, area, root } = params;
+  const args = {
+    startupId: params.startupId,
+    areaId: params.areaId,
+    rootPageId: params.rootPageId,
+  };
+  const rawPages = await ctx.db
       .query("pages")
       .withIndex(
         "by_startup_area_parent_active_position",
@@ -1862,6 +1904,68 @@ export const getCanvas = query({
         },
       },
     };
+}
+
+/**
+ * Resolver za embed: iz jednog `areaId` (koji mobilni prosleđuje kroz URL) razreši
+ * pun scope i vrati canvas oblasti (`rootPageId: null`). `ctx.db.get` zaobilazi
+ * proveru pristupa, ali ništa se ne vraća pre `requireStartupMember` — ne-član koji
+ * pošalje tuđi `areaId` dobije grešku članstva; `requireScope` dodatno potvrđuje da
+ * oblast pripada startup-u. Bez curenja podataka.
+ */
+export const getAreaCanvasByArea = query({
+  args: { areaId: v.id("startupAreas") },
+  returns: canvasPayloadValidator,
+  handler: async (ctx, args) => {
+    const area = await ctx.db.get("startupAreas", args.areaId);
+    if (area === null) throw new Error("Oblast ne postoji.");
+    const { profile, startup } = await requireStartupMember(ctx, area.startupId);
+    const { area: scopedArea, root } = await requireScope(
+      ctx,
+      area.startupId,
+      args.areaId,
+      null,
+    );
+    return await assembleCanvas(ctx, {
+      startupId: area.startupId,
+      areaId: args.areaId,
+      rootPageId: null,
+      profile,
+      startup,
+      area: scopedArea,
+      root,
+    });
+  },
+});
+
+/**
+ * Resolver za embed: iz jednog `pageId` razreši pun scope (startupId + areaId iz
+ * dokumenta stranice) i vrati canvas te stranice (`rootPageId: pageId`). Ista
+ * authz priča kao gore — vidi komentar na `getAreaCanvasByArea`; `requireScope`
+ * (preko `requireStrictVisiblePage`) potvrđuje da je stranica vidljiva u startup-u.
+ */
+export const getPageCanvasByPage = query({
+  args: { pageId: v.id("pages") },
+  returns: canvasPayloadValidator,
+  handler: async (ctx, args) => {
+    const page = await ctx.db.get("pages", args.pageId);
+    if (page === null) throw new Error("Stranica ne postoji.");
+    const { profile, startup } = await requireStartupMember(ctx, page.startupId);
+    const { area, root } = await requireScope(
+      ctx,
+      page.startupId,
+      page.areaId,
+      args.pageId,
+    );
+    return await assembleCanvas(ctx, {
+      startupId: page.startupId,
+      areaId: page.areaId,
+      rootPageId: args.pageId,
+      profile,
+      startup,
+      area,
+      root,
+    });
   },
 });
 

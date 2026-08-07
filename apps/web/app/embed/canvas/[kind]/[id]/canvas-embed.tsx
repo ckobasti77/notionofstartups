@@ -193,12 +193,15 @@ function CanvasInner({
   if (kind === "thoughts") {
     return <ThoughtsFlow startupId={id as Id<"startups">} colorMode={colorMode} />;
   }
-  // area/page: dohvat podataka još nije povezan u embed (vidi NOCNI-LOG).
+  if (kind === "area") {
+    return <AreaFlow areaId={id as Id<"startupAreas">} colorMode={colorMode} />;
+  }
+  // page: dohvat podataka još nije povezan u embed (vidi NOCNI-LOG).
   return (
     <Center>
       <span className="font-medium">Ovaj kanvas ({kind}) još nije povezan u embed.</span>
       <span className="mt-1 block text-sm text-muted-foreground">
-        Kanvasi ideja i misli rade; ostali stižu naknadno.
+        Kanvasi ideja, misli i oblasti rade; kanvas stranice stiže naknadno.
       </span>
     </Center>
   );
@@ -475,6 +478,90 @@ function ThoughtsFlow({
       colorMode={colorMode}
       ariaLabel="Kanvas misli"
       emptyLabel="Prazan kanvas misli."
+    />
+  );
+}
+
+/** Payload je isti za oblast i stranicu (`canvasPayloadValidator`) — jedan render put. */
+type PageCanvasData = FunctionReturnType<typeof api.areasV2.getAreaCanvasByArea>;
+
+/** Detalj page-čvora koji embed šalje native ljusci (na mobilnom otvara ekran stranice). */
+type PageNodeDetail = {
+  _id: Id<"pages">;
+  title: string;
+  kind: string;
+};
+
+/**
+ * Zajednički prikaz za kanvas oblasti i stranice — payload je identičan, razlikuje se
+ * samo upit (resolver po `areaId` vs `pageId`) i prazna poruka. Pozicije stranica su
+ * već izračunate na serveru (placement ili grid fallback), pa se koriste direktno.
+ * Checkpoint-ivice se namerno preskaču: povezuju checkpoint pod-čvorove koje ovaj
+ * pregledni embed ne crta (§5.2 — mobilni canvas je pregled/navigacija).
+ */
+function PageCanvasView({
+  data,
+  colorMode,
+  ariaLabel,
+  emptyLabel,
+}: {
+  data: PageCanvasData;
+  colorMode: ThemeMode;
+  ariaLabel: string;
+  emptyLabel: string;
+}) {
+  const { nodes, edges, detailById } = useMemo(() => {
+    const detailById = new Map<string, unknown>(
+      data.pages.map((page) => [
+        page._id as string,
+        { _id: page._id, title: page.title, kind: page.kind } satisfies PageNodeDetail,
+      ]),
+    );
+    return {
+      nodes: data.pages.map((page) => ({
+        id: page._id,
+        position: { x: page.x, y: page.y },
+        data: { label: (page.title || "Stranica").trim().slice(0, 80) || "Stranica" },
+        className: "embed-node",
+      })) as Node[],
+      // Canvas ivice + relacije stranica dele isti oblik (source/target po id-u stranice).
+      edges: [...data.edges, ...data.relations].map((edge) => ({
+        id: edge._id,
+        source: edge.source,
+        target: edge.target,
+      })) as Edge[],
+      detailById,
+    };
+  }, [data]);
+
+  return (
+    <EmbedFlow
+      nodes={nodes}
+      edges={edges}
+      detailById={detailById}
+      colorMode={colorMode}
+      ariaLabel={ariaLabel}
+      emptyLabel={emptyLabel}
+    />
+  );
+}
+
+/** Kanvas oblasti u embed-u — resolver po `areaId` (`rootPageId: null`). */
+function AreaFlow({
+  areaId,
+  colorMode,
+}: {
+  areaId: Id<"startupAreas">;
+  colorMode: ThemeMode;
+}) {
+  const data = useQuery(api.areasV2.getAreaCanvasByArea, { areaId });
+  if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
+  return (
+    <PageCanvasView
+      data={data}
+      colorMode={colorMode}
+      ariaLabel="Kanvas oblasti"
+      emptyLabel="Prazan kanvas oblasti."
     />
   );
 }
