@@ -40,6 +40,34 @@ function postNative(message: Record<string, unknown>) {
 const AUTH_TIMEOUT_MS = 10_000;
 
 /**
+ * Srpske a11y poruke za `ReactFlow` (čitač ekrana). Kao u desktop kanvasima, const se
+ * namerno duplira po fajlu (nije deljen). Generičke („čvor") — isti `EmbedFlow` crta
+ * sve četiri vrste kanvasa, pa se prosleđuje uz konkretan `aria-label` po vrsti.
+ */
+const SERBIAN_ARIA_LABELS = {
+  "node.a11yDescription.default":
+    "Pritisni Enter ili Space da izabereš čvor. Strelicama ga pomeraš.",
+  "node.a11yDescription.keyboardDisabled": "Ovaj čvor se ne može pomerati tastaturom.",
+  "node.a11yDescription.ariaLiveMessage": ({
+    direction,
+    x,
+    y,
+  }: {
+    direction: string;
+    x: number;
+    y: number;
+  }) => `Čvor je pomeren ${direction}. Nova pozicija je ${Math.round(x)}, ${Math.round(y)}.`,
+  "edge.a11yDescription.default": "Pritisni Enter ili Space da izabereš vezu.",
+  "controls.ariaLabel": "Kontrole kanvasa",
+  "controls.zoomIn.ariaLabel": "Uvećaj prikaz",
+  "controls.zoomOut.ariaLabel": "Umanji prikaz",
+  "controls.fitView.ariaLabel": "Prikaži sve",
+  "controls.interactive.ariaLabel": "Uključi ili isključi interakciju",
+  "minimap.ariaLabel": "Minimapa",
+  "handle.ariaLabel": "Tačka za povezivanje",
+} as const;
+
+/**
  * Chrome-less embed kanvasa za mobilni `WebView` (W4.2, §5.2). Token NE stiže kroz
  * URL — embed se učita bez njega, javi `ready`, pa native pošalje `{type:"auth",
  * token}`. Tek na prvi token pravi se `ConvexReactClient`; svaki sledeći token
@@ -222,12 +250,16 @@ function EmbedFlow({
   emptyLabel: string;
 }) {
   return (
-    <div className="fixed inset-0 bg-background" role="application" aria-label={ariaLabel}>
+    // `role="application"` + ime idu na sam `<ReactFlow>` (koji ga i tako postavlja i
+    // prima fokus/tastaturu), ne na omotač — inače dupli `role="application"` bez imena.
+    <div className="fixed inset-0 bg-background">
       <EmbedStyles />
       <ReactFlow
         nodes={nodes}
         edges={edges}
         colorMode={colorMode}
+        aria-label={ariaLabel}
+        ariaLabelConfig={SERBIAN_ARIA_LABELS}
         fitView
         minZoom={0.15}
         maxZoom={2}
@@ -461,7 +493,13 @@ function ThoughtsFlow({
     };
   }, [nodeResults, edgeResults]);
 
-  if (nodeStatus === "LoadingFirstPage") return <Center>Učitavanje kanvasa…</Center>;
+  // Renderuj tek kad su i čvorovi i ivice do kraja učitani. `listNodes`/`listEdges`
+  // pagira po `updatedAt` (ne po hijerarhiji), pa roditelj ugnježdene misli nije
+  // garantovano stigao pre deteta — prerani render bi čvor privremeno crtao na
+  // relativnoj poziciji, a ivice bez oba kraja. Auto-load do iscrpljenja je brz.
+  if (nodeStatus !== "Exhausted" || edgeStatus !== "Exhausted") {
+    return <Center>Učitavanje kanvasa…</Center>;
+  }
 
   return (
     <EmbedFlow
@@ -489,8 +527,15 @@ type PageNodeDetail = {
  * Zajednički prikaz za kanvas oblasti i stranice — payload je identičan, razlikuje se
  * samo upit (resolver po `areaId` vs `pageId`) i prazna poruka. Pozicije stranica su
  * već izračunate na serveru (placement ili grid fallback), pa se koriste direktno.
- * Checkpoint-ivice se namerno preskaču: povezuju checkpoint pod-čvorove koje ovaj
- * pregledni embed ne crta (§5.2 — mobilni canvas je pregled/navigacija).
+ *
+ * NAMERNO IZOSTAVLJENO iz preglednog embeda (§5.2 — mobilni canvas je pregled/
+ * navigacija/dodavanje, ne moderacija ni preuređivanje; izuzeci se zapisuju):
+ * - `checkpointEdges` — vezuju checkpoint pod-čvorove koje embed ne crta.
+ * - `ghosts` — stranice koje čekaju nesting-odobrenje; na mobilnom se odobravaju kroz
+ *   ekran „Odobrenja", ne na kanvasu. (Zato prazno stanje gleda samo `pages.length`.)
+ * - `truncated` — baner „nije sve prikazano" se ne prikazuje.
+ * - `label`/`kind` ivica — sve ivice se crtaju jednako (bez teksta veze i bez
+ *   vizuelne razlike canvas/relacija); desktop to ima, embed pojednostavljuje.
  */
 function PageCanvasView({
   data,
