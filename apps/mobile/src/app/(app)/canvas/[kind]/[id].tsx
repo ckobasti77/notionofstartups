@@ -1,17 +1,17 @@
 import { useAuthToken } from '@convex-dev/auth/react';
-import { useQuery } from 'convex/react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft, TriangleAlert } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
+import { ChevronLeft, Maximize2, Plus, TriangleAlert } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
-import { CanvasRail } from '@/components/canvas/canvas-rail';
+import { CanvasRail, type RailAction } from '@/components/canvas/canvas-rail';
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { IdeaNodeSheet, type IdeaDetail } from '@/components/canvas/idea-node-sheet';
+import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
+import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
-import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-url';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
@@ -21,11 +21,15 @@ const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
 
 /**
- * Mobilni canvas (M4.3, §9.3): native header + `WebView` nad embed rutom (korak 4)
- * + native akcioni rail. WebView drži pan/zoom/selekciju; native drži header,
- * rail, detalj čvora (bottom sheet) i kreiranje. Swipe-back je isključen na ovoj
- * ruti (`_layout`: `gestureEnabled:false`) da se ne bije sa horizontalnim pan-om —
- * „nazad" ide kroz dugme u headeru.
+ * Mobilni canvas (M4.3, §9.3): native header + `WebView` nad embed rutom + native
+ * akcioni rail. WebView drži pan/zoom/selekciju; native drži header, rail, detalj
+ * čvora (bottom sheet) i kreiranje. Swipe-back je isključen na ovoj ruti (`_layout`:
+ * `gestureEnabled:false`) da se ne bije sa horizontalnim pan-om — „nazad" ide kroz
+ * dugme u headeru.
+ *
+ * Auth ide kroz `postMessage` most, ne kroz URL: embed javi `ready`, native mu
+ * pošalje token (i osvežava ga na svaku promenu `useAuthToken()`). Detalj čvora
+ * stiže uz `node:open`/`selection` — nema drugog `ideas.list` upita ovde.
  */
 export default function CanvasScreen() {
   const colors = useThemeColors();
@@ -40,28 +44,40 @@ export default function CanvasScreen() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedIdea, setSelectedIdea] = useState<IdeaDetail | null>(null);
-  // Tapnuti čvor čeka dok `ideas.list` ne stigne (tap može preteći podatke).
-  const [pendingNodeId, setPendingNodeId] = useState<string | null>(null);
+  // Otvoreni detalj po vrsti (bottom sheet na `node:open` / „Otvori" akciju).
+  const [openIdea, setOpenIdea] = useState<IdeaDetail | null>(null);
+  const [openThought, setOpenThought] = useState<ThoughtDetail | null>(null);
+  // Selekcija na kanvasu (menja primarnu akciju rail-a). `selectedNode` je detalj
+  // koji embed pošalje uz `selection` kad je izabran baš jedan čvor (oblik zavisi od vrste).
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [selectedNode, setSelectedNode] = useState<unknown>(null);
 
   const isIdeas = kind === 'ideas';
-  // Detalj čvora se razrešava native (isti `ideas.list` koji WebView crta).
-  const ideasData = useQuery(
-    api.ideas.list,
-    isIdeas && id ? { startupId: id as Id<'startups'> } : 'skip',
-  );
+  const isThoughts = kind === 'thoughts';
 
-  const url = token ? embedCanvasUrl({ kind, id, token, theme: scheme }) : null;
+  // URL je stabilan: token više ne ulazi u njega (išao bi u logove), a tema je samo
+  // za prvi paint — dalje promene idu kroz most, pa se WebView ne reloaduje (§5.2).
+  const [initialScheme] = useState(scheme);
+  const url = useMemo(
+    () => embedCanvasUrl({ kind, id, theme: initialScheme }),
+    [kind, id, initialScheme],
+  );
 
   const postToWeb = useCallback((message: Record<string, unknown>) => {
     webRef.current?.postMessage(JSON.stringify(message));
   }, []);
 
-  // Autoritativni kanal teme: pošalji je čim WebView javi `ready`, pa i na svaku
-  // promenu šeme (root ThemeProvider u embed-u inače pobedi query param).
+  // Autoritativni kanal teme: pošalji je na svaku promenu šeme (root ThemeProvider u
+  // embed-u inače pobedi početnu temu iz URL-a). Prva se šalje i na `ready`.
   useEffect(() => {
     postToWeb({ type: 'theme', mode: scheme });
   }, [scheme, postToWeb]);
+
+  // Token u embed ide kroz most, ne kroz URL. Pošalji ga čim postoji i na svaki
+  // refresh (`useAuthToken` vraća nov token) — embed re-autentikuje bez reload-a.
+  useEffect(() => {
+    if (token) postToWeb({ type: 'auth', token });
+  }, [token, postToWeb]);
 
   // Zaštita od zaglavljenog WebView-a (mreža koja nikad ne javi ni load ni error):
   // posle 20s ponudi „pokušaj ponovo" umesto večnog spinera.
@@ -71,41 +87,29 @@ export default function CanvasScreen() {
     return () => clearTimeout(timer);
   }, [loading]);
 
-  // Razreši čvor na čekanju čim `ideas.list` bude tu (ili odustani ako ga nema).
-  useEffect(() => {
-    if (pendingNodeId === null) return;
-    if (!isIdeas) {
-      setPendingNodeId(null);
-      return;
-    }
-    if (!ideasData) return; // sačekaj podatke
-    const node = ideasData.nodes.find((n) => n._id === pendingNodeId);
-    setPendingNodeId(null);
-    if (node) {
-      setSelectedIdea({
-        _id: node._id,
-        title: node.title,
-        text: node.text,
-        upvotes: node.upvotes,
-        downvotes: node.downvotes,
-        userVote: node.userVote,
-        author: node.author,
-      });
-    }
-  }, [pendingNodeId, ideasData, isIdeas]);
-
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let msg: { type?: string; nodeId?: string };
+      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[] };
       try {
         msg = JSON.parse(event.nativeEvent.data);
       } catch {
         return;
       }
-      if (msg.type === 'ready') postToWeb({ type: 'theme', mode: scheme });
-      else if (msg.type === 'node:open' && msg.nodeId) setPendingNodeId(msg.nodeId);
+      if (msg.type === 'ready') {
+        // Embed je montiran i čeka podešavanja: pošalji temu i token.
+        postToWeb({ type: 'theme', mode: scheme });
+        if (token) postToWeb({ type: 'auth', token });
+      } else if (msg.type === 'node:open' && msg.node) {
+        // Detalj stiže uz poruku — otvori sheet po vrsti, bez čekanja/upita.
+        if (isIdeas) setOpenIdea(msg.node as IdeaDetail);
+        else if (isThoughts) setOpenThought(msg.node as ThoughtDetail);
+      } else if (msg.type === 'selection') {
+        const ids = msg.ids ?? [];
+        setSelectedNodeIds(ids);
+        setSelectedNode(ids.length === 1 ? msg.node ?? null : null);
+      }
     },
-    [postToWeb, scheme],
+    [postToWeb, scheme, token, isIdeas, isThoughts],
   );
 
   const reload = () => {
@@ -113,6 +117,24 @@ export default function CanvasScreen() {
     setLoading(true);
     webRef.current?.reload();
   };
+
+  // Izabran baš jedan čvor → „Otvori …" (otvara detalj tog čvora); inače „Novo …".
+  // area/page dobijaju svoju primarnu akciju u Slice 2/3.
+  const hasSingleSelection = selectedNode !== null && selectedNodeIds.length === 1;
+  const openIcon = <Maximize2 size={18} color={colors.primaryForeground} />;
+  const newIcon = <Plus size={18} color={colors.primaryForeground} />;
+  let primaryAction: RailAction | undefined;
+  if (isIdeas) {
+    primaryAction = hasSingleSelection
+      ? { label: 'Otvori ideju', icon: openIcon, onPress: () => setOpenIdea(selectedNode as IdeaDetail) }
+      : { label: 'Nova ideja', icon: newIcon, onPress: () => setCreateOpen(true) };
+  } else if (isThoughts) {
+    primaryAction = hasSingleSelection
+      ? { label: 'Otvori misao', icon: openIcon, onPress: () => setOpenThought(selectedNode as ThoughtDetail) }
+      : { label: 'Nova misao', icon: newIcon, onPress: () => setCreateOpen(true) };
+  } else {
+    primaryAction = undefined;
+  }
 
   if (!KINDS.includes(kind)) {
     return <Fallback title="Nepoznat canvas" message={`Vrsta „${kind}" ne postoji.`} colors={colors} onBack={() => router.back()} />;
@@ -176,8 +198,7 @@ export default function CanvasScreen() {
         onZoomIn={() => postToWeb({ type: 'zoom', direction: 'in' })}
         onZoomOut={() => postToWeb({ type: 'zoom', direction: 'out' })}
         onFit={() => postToWeb({ type: 'fit' })}
-        onCreate={isIdeas ? () => setCreateOpen(true) : undefined}
-        createLabel="Nova ideja"
+        primaryAction={primaryAction}
       />
 
       {isIdeas ? (
@@ -188,9 +209,31 @@ export default function CanvasScreen() {
             onClose={() => setCreateOpen(false)}
           />
           <IdeaNodeSheet
-            idea={selectedIdea}
+            idea={openIdea}
             startupId={id as Id<'startups'>}
-            onClose={() => setSelectedIdea(null)}
+            onClose={() => {
+              // Na zatvaranje detalja centriraj taj čvor u grafu (§5.2, `focus`).
+              if (openIdea) postToWeb({ type: 'focus', nodeId: openIdea._id });
+              setOpenIdea(null);
+            }}
+          />
+        </>
+      ) : null}
+
+      {isThoughts ? (
+        <>
+          <ThoughtCreateSheet
+            open={createOpen}
+            startupId={id as Id<'startups'>}
+            onClose={() => setCreateOpen(false)}
+          />
+          <ThoughtNodeSheet
+            thought={openThought}
+            onClose={() => {
+              // Na zatvaranje detalja centriraj taj čvor u grafu (§5.2, `focus`).
+              if (openThought) postToWeb({ type: 'focus', nodeId: openThought._id });
+              setOpenThought(null);
+            }}
           />
         </>
       ) : null}
@@ -246,6 +289,31 @@ function Fallback({
         icon={<TriangleAlert size={40} color={colors.mutedForeground} />}
         title={title}
         description={message}
+      />
+    </View>
+  );
+}
+
+/**
+ * Expo-router error boundary za canvas rutu (kao u `ideje.tsx`) — hvata greške u
+ * renderu ekrana i nudi „Pokušaj ponovo" umesto pada cele navigacije.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <CanvasError message={error.message} onRetry={retry} />;
+}
+
+function CanvasError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const colors = useThemeColors();
+  const router = useRouter();
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Header title="Canvas" onBack={() => router.back()} colors={colors} />
+      <EmptyState
+        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        title="Canvas se ne može učitati"
+        description={message || 'Došlo je do greške pri učitavanju kanvasa.'}
+        actionLabel="Pokušaj ponovo"
+        onAction={onRetry}
       />
     </View>
   );

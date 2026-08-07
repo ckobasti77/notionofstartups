@@ -95,6 +95,16 @@ export default function ViseScreen() {
     return item.badge;
   };
 
+  // „Misli" vodi na canvas misli (privatne po vlasniku). Ruta je dinamička i traži
+  // aktivan startup, pa se ne može upisati kao statični `route` u MENU (kao ideje.tsx).
+  const openThoughts = () => {
+    if (!activeStartupId) return;
+    router.push({
+      pathname: '/canvas/[kind]/[id]',
+      params: { kind: 'thoughts', id: activeStartupId },
+    });
+  };
+
   return (
     <TabScreen title="Više">
       <ScrollView contentContainerStyle={styles.content}>
@@ -144,7 +154,8 @@ export default function ViseScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
                   onPress={() => {
-                    if (item.route) router.push(item.route);
+                    if (item.label === 'Misli') openThoughts();
+                    else if (item.route) router.push(item.route);
                   }}
                   style={({ pressed }) => [
                     styles.row,
