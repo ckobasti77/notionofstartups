@@ -1,6 +1,6 @@
 import { useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, TriangleAlert } from 'lucide-react-native';
+import { ChevronLeft, LayoutGrid, TriangleAlert } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -37,9 +37,17 @@ export default function StranicaScreen() {
     );
   }
 
+  const openCanvas = () =>
+    router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'page', id: pageId } });
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PageHeader title={page.title} onBack={() => router.back()} colors={colors} />
+      <PageHeader
+        title={page.title}
+        onBack={() => router.back()}
+        onOpenCanvas={openCanvas}
+        colors={colors}
+      />
       <PageContent
         pageId={pageId}
         kind={page.kind}
@@ -78,10 +86,12 @@ function PageContent({
 function PageHeader({
   title,
   onBack,
+  onOpenCanvas,
   colors,
 }: {
   title: string;
   onBack: () => void;
+  onOpenCanvas?: () => void;
   colors: ColorTokens;
 }) {
   const insets = useSafeAreaInsets();
@@ -105,6 +115,15 @@ function PageHeader({
       <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
         {title}
       </Text>
+      {onOpenCanvas ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Canvas stranice"
+          onPress={onOpenCanvas}
+          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
+          <LayoutGrid size={20} color={colors.foreground} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }

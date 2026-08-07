@@ -196,15 +196,8 @@ function CanvasInner({
   if (kind === "area") {
     return <AreaFlow areaId={id as Id<"startupAreas">} colorMode={colorMode} />;
   }
-  // page: dohvat podataka još nije povezan u embed (vidi NOCNI-LOG).
-  return (
-    <Center>
-      <span className="font-medium">Ovaj kanvas ({kind}) još nije povezan u embed.</span>
-      <span className="mt-1 block text-sm text-muted-foreground">
-        Kanvasi ideja, misli i oblasti rade; kanvas stranice stiže naknadno.
-      </span>
-    </Center>
-  );
+  // Preostaje "page" (page.tsx validira `kind`, pa su sve četiri vrste pokrivene).
+  return <PageFlow pageId={id as Id<"pages">} colorMode={colorMode} />;
 }
 
 /**
@@ -562,6 +555,26 @@ function AreaFlow({
       colorMode={colorMode}
       ariaLabel="Kanvas oblasti"
       emptyLabel="Prazan kanvas oblasti."
+    />
+  );
+}
+
+/** Kanvas stranice u embed-u — resolver po `pageId` (`rootPageId: pageId`). */
+function PageFlow({
+  pageId,
+  colorMode,
+}: {
+  pageId: Id<"pages">;
+  colorMode: ThemeMode;
+}) {
+  const data = useQuery(api.areasV2.getPageCanvasByPage, { pageId });
+  if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
+  return (
+    <PageCanvasView
+      data={data}
+      colorMode={colorMode}
+      ariaLabel="Kanvas stranice"
+      emptyLabel="Prazan kanvas stranice."
     />
   );
 }

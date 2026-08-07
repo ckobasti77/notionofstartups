@@ -1,4 +1,5 @@
 import { useAuthToken } from '@convex-dev/auth/react';
+import { useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { ChevronLeft, Maximize2, Plus, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +15,7 @@ import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { useActiveStartup } from '@/context/active-startup';
+import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-url';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
@@ -68,6 +70,13 @@ export default function CanvasScreen() {
       router.push({ pathname: '/stranica/[id]', params: { id: pageId } });
     },
     [router],
+  );
+
+  // „Nova podstranica" na kanvasu stranice traži areaId roditelja — URL nosi samo
+  // pageId, pa se dohvata iz dokumenta stranice (isti upit koji ekran stranice koristi).
+  const parentPage = useQuery(
+    api.pages.get,
+    isPage ? { pageId: id as Id<'pages'> } : 'skip',
   );
 
   // URL je stabilan: token više ne ulazi u njega (išao bi u logove), a tema je samo
@@ -155,6 +164,8 @@ export default function CanvasScreen() {
   } else if (isArea && activeStartupId) {
     // Tap čvora već otvara stranicu (node:open), pa je primarna akcija samo kreiranje.
     primaryAction = { label: 'Nova stranica', icon: newIcon, onPress: () => setCreateOpen(true) };
+  } else if (isPage && activeStartupId && parentPage) {
+    primaryAction = { label: 'Nova podstranica', icon: newIcon, onPress: () => setCreateOpen(true) };
   } else {
     primaryAction = undefined;
   }
@@ -267,6 +278,16 @@ export default function CanvasScreen() {
           startupId={activeStartupId}
           areaId={id as Id<'startupAreas'>}
           parentPageId={null}
+          onClose={() => setCreateOpen(false)}
+        />
+      ) : null}
+
+      {isPage && activeStartupId && parentPage ? (
+        <PageCreateSheet
+          open={createOpen}
+          startupId={activeStartupId}
+          areaId={parentPage.areaId}
+          parentPageId={id as Id<'pages'>}
           onClose={() => setCreateOpen(false)}
         />
       ) : null}
