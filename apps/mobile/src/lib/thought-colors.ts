@@ -31,3 +31,13 @@ export const THOUGHT_SWATCH: Record<ThoughtColor, string> = {
   amber: '#f59e0b',
   rose: '#f43f5e',
 };
+
+/** Srpski nazivi boja — za `accessibilityLabel` (čitač ekrana), ne sirovi tip. */
+export const THOUGHT_COLOR_LABEL: Record<ThoughtColor, string> = {
+  neutral: 'Neutralna',
+  violet: 'Ljubičasta',
+  blue: 'Plava',
+  green: 'Zelena',
+  amber: 'Žuta',
+  rose: 'Roze',
+};

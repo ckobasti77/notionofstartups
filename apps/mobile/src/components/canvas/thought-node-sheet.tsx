@@ -17,7 +17,12 @@ import { Button } from '@/components/ui/button';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
-import { THOUGHT_COLORS, THOUGHT_SWATCH, type ThoughtColor } from '@/lib/thought-colors';
+import {
+  THOUGHT_COLOR_LABEL,
+  THOUGHT_COLORS,
+  THOUGHT_SWATCH,
+  type ThoughtColor,
+} from '@/lib/thought-colors';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -195,7 +200,7 @@ export function ColorRow({
           <Pressable
             key={option}
             accessibilityRole="button"
-            accessibilityLabel={`Boja: ${option}`}
+            accessibilityLabel={`Boja: ${THOUGHT_COLOR_LABEL[option]}`}
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
             onPress={() => onChange(option)}

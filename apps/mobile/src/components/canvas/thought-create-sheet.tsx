@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -99,32 +100,37 @@ export function ThoughtCreateSheet({
             styles.sheet,
             { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insets.bottom + 12 },
           ]}>
-          <Text style={[styles.heading, { color: colors.foreground }]}>Nova misao</Text>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            autoFocus
-            maxLength={MAX_TITLE}
-            placeholder="Naslov"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
-          />
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            multiline
-            maxLength={MAX_TEXT}
-            placeholder="Tekst (opciono)"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[
-              styles.input,
-              styles.multiline,
-              { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
-            ]}
-          />
-          <ColorRow value={color} onChange={setColor} disabled={busy} colors={colors} />
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled">
+            <Text style={[styles.heading, { color: colors.foreground }]}>Nova misao</Text>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              autoFocus
+              maxLength={MAX_TITLE}
+              placeholder="Naslov"
+              placeholderTextColor={colors.mutedForeground}
+              selectionColor={colors.primary}
+              style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
+            />
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              multiline
+              maxLength={MAX_TEXT}
+              placeholder="Tekst (opciono)"
+              placeholderTextColor={colors.mutedForeground}
+              selectionColor={colors.primary}
+              style={[
+                styles.input,
+                styles.multiline,
+                { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+              ]}
+            />
+            <ColorRow value={color} onChange={setColor} disabled={busy} colors={colors} />
+          </ScrollView>
           <View style={styles.actions}>
             <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
             <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
@@ -154,7 +160,15 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 16,
     paddingHorizontal: 20,
+    // Ograniči visinu i skroluj sadržaj: na niskom ekranu sa tastaturom sve stane.
+    maxHeight: '85%',
+  },
+  scroll: {
+    flexGrow: 0,
+  },
+  content: {
     gap: 10,
+    paddingBottom: 4,
   },
   heading: {
     fontSize: 18,
@@ -176,7 +190,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 2,
+    paddingTop: 12,
   },
   flexBtn: {
     flex: 1,
