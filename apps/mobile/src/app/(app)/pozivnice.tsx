@@ -50,9 +50,11 @@ function inviteStatus(invite: Invite, now: number): { label: string; variant: Ba
 export default function PozivniceScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
   const [now] = useState(() => Date.now());
   const [createOpen, setCreateOpen] = useState(false);
+  const [revokingId, setRevokingId] = useState<Id<'invites'> | null>(null);
 
   const invites = useQuery(
     api.invites.list,
@@ -67,10 +69,13 @@ export default function PozivniceScreen() {
         text: 'Opozovi',
         style: 'destructive',
         onPress: async () => {
+          setRevokingId(inviteId);
           try {
             await revoke({ inviteId });
           } catch (error) {
             Alert.alert('Greška', accessErrorMessage(error, 'Pozivnica nije opozvana.'));
+          } finally {
+            setRevokingId(null);
           }
         },
       },
@@ -106,10 +111,13 @@ export default function PozivniceScreen() {
           onAction={() => setCreateOpen(true)}
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}>
           {(invites ?? []).map((invite) => {
             const status = inviteStatus(invite, now);
             const canRevoke = invite.revokedAt === null && invite.claimedAt === null;
+            const revoking = revokingId === invite._id;
             return (
               <View
                 key={invite._id}
@@ -131,13 +139,20 @@ export default function PozivniceScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
+                    accessibilityState={{ disabled: revokingId !== null }}
+                    disabled={revokingId !== null}
                     onPress={() => confirmRevoke(invite._id, invite.email)}
                     style={({ pressed }) => [
                       styles.revokeBtn,
                       { borderColor: colors.border },
                       pressed && { backgroundColor: colors.muted },
+                      revokingId !== null && { opacity: 0.5 },
                     ]}>
-                    <Text style={[styles.revokeLabel, { color: colors.destructive }]}>Opozovi</Text>
+                    {revoking ? (
+                      <ActivityIndicator size="small" color={colors.destructive} />
+                    ) : (
+                      <Text style={[styles.revokeLabel, { color: colors.destructive }]}>Opozovi</Text>
+                    )}
                   </Pressable>
                 ) : null}
               </View>
@@ -318,7 +333,6 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 8,
-    paddingBottom: 32,
   },
   row: {
     flexDirection: 'row',

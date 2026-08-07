@@ -31,6 +31,7 @@ type IdeaItem = {
 export default function IdejeScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
 
   const ideas = useQuery(
@@ -72,7 +73,9 @@ export default function IdejeScreen() {
           onAction={openCanvas}
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}>
           {(ideas?.nodes ?? []).map((node) => (
             <IdeaRow key={node._id} idea={node} startupId={activeStartupId} colors={colors} />
           ))}
@@ -280,7 +283,6 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 10,
-    paddingBottom: 32,
   },
   row: {
     flexDirection: 'row',

@@ -19,6 +19,7 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/
 export default function ClanoviScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
 
   const members = useQuery(
@@ -48,7 +49,9 @@ export default function ClanoviScreen() {
           description="Ovaj startup još nema aktivnih članova."
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}>
           {(members ?? []).map((member) => (
             <View
               key={member.membershipId}
@@ -138,7 +141,6 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 8,
-    paddingBottom: 32,
   },
   row: {
     flexDirection: 'row',
