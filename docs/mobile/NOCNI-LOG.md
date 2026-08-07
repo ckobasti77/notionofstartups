@@ -271,6 +271,11 @@ Preskočeno (pošteno):
 - **Kopiranje koda pozivnice** — `expo-clipboard` nije instaliran; kod se pokazuje
   u Alert-u da ga admin prepiše. Dodavanje clipboard-a je sitan naknadni korak.
 
+Pregled (`rn-review`): 1 blokada + 1 nalog popravljeni (zaseban commit) —
+per-invite busy lock na „Opozovi" (spinner, bez duplog opoziva) i `insets.bottom`
+na liste ideje/clanovi/pozivnice. Ostalo (npr. `clanovi` dostupan ne-adminu
+direktnim linkom) je svesna odluka: lista članova nije osetljiv podatak.
+
 `tsc --noEmit` (apps/mobile): **0**
 `npm run check` (root): **0**
 
