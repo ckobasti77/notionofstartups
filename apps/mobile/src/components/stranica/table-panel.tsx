@@ -1,14 +1,17 @@
 import { usePaginatedQuery, useMutation, useQuery } from 'convex/react';
-import { Columns3, Plus, Table2 } from 'lucide-react-native';
+import { Columns3, Plus, Table2, Upload } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { CellEditSheet, ColumnEditSheet } from '@/components/stranica/cell-edit-sheet';
+import { TableImportSheet } from '@/components/stranica/table-import-sheet';
+import { Button } from '@/components/ui/button';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -40,6 +43,7 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
 
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editingColumn, setEditingColumn] = useState<EditingColumn | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const setCells = useMutation(api.pageTables.setCells);
@@ -59,6 +63,9 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
 
   const columns = meta.columns as Column[];
   const canEditStructure = meta.canEditStructure;
+  // Klijentske provere limita (ogledalo `lib/validators.ts`); server ostaje autoritet.
+  const atColumnLimit = columns.length >= MAX_TABLE_COLUMNS;
+  const atRowLimit = meta.rowCount >= MAX_TABLE_ROWS;
 
   async function run(action: () => Promise<unknown>, fallback: string) {
     setBusy(true);
@@ -99,18 +106,29 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
 
   if (columns.length === 0) {
     return (
-      <>
+      <View style={styles.flex}>
         <EmptyState
           icon={<Table2 size={40} color={colors.mutedForeground} />}
           title="Tabela nema kolona"
           description={
             canEditStructure
-              ? 'Dodaj prvu kolonu da bi tabela mogla da primi podatke.'
+              ? 'Dodaj prvu kolonu ili uvezi Excel/CSV da bi tabela primila podatke.'
               : 'Autor kartice još nije dodao kolone.'
           }
           actionLabel={canEditStructure ? 'Dodaj kolonu' : undefined}
           onAction={canEditStructure ? onAddColumn : undefined}
         />
+        {canEditStructure ? (
+          <View style={[styles.importBar, { paddingBottom: insets.bottom + 16 }]}>
+            <Button
+              label="Uvezi Excel/CSV"
+              variant="secondary"
+              icon={<Upload size={18} color={colors.secondaryForeground} />}
+              onPress={() => setImportOpen(true)}
+              disabled={busy}
+            />
+          </View>
+        ) : null}
         <ColumnEditSheet
           open={editingColumn !== null}
           label={editingColumn?.label ?? ''}
@@ -125,7 +143,13 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
           onRemove={() => editingColumn && confirmDeleteColumn(editingColumn.columnId)}
           onClose={() => setEditingColumn(null)}
         />
-      </>
+        <TableImportSheet
+          pageId={pageId}
+          open={importOpen}
+          existingRowCount={meta.rowCount}
+          onClose={() => setImportOpen(false)}
+        />
+      </View>
     );
   }
 
@@ -139,17 +163,34 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
             icon={<Columns3 size={16} color={colors.foreground} />}
             label="Kolona"
             onPress={onAddColumn}
-            disabled={busy}
+            disabled={busy || atColumnLimit}
             colors={colors}
           />
           <ToolbarButton
             icon={<Plus size={16} color={colors.foreground} />}
             label="Red"
             onPress={onAddRow}
+            disabled={busy || atRowLimit}
+            colors={colors}
+          />
+          <ToolbarButton
+            icon={<Upload size={16} color={colors.foreground} />}
+            label="Uvezi"
+            onPress={() => setImportOpen(true)}
             disabled={busy}
             colors={colors}
           />
         </View>
+      ) : null}
+      {canEditStructure && (atColumnLimit || atRowLimit) ? (
+        <Text style={[styles.limitCaption, { color: colors.mutedForeground }]}>
+          {[
+            atColumnLimit ? `Dostignut limit: ${MAX_TABLE_COLUMNS} kolone.` : null,
+            atRowLimit ? `Dostignut limit: ${MAX_TABLE_ROWS} redova.` : null,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        </Text>
       ) : null}
 
       <ScrollView
@@ -236,11 +277,12 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
                 accessibilityRole="button"
                 accessibilityLabel="Dodaj prvi red"
                 onPress={onAddRow}
-                disabled={busy}
+                disabled={busy || atRowLimit}
                 style={({ pressed }) => [
                   styles.addFirstRow,
                   { borderColor: colors.border },
                   pressed && { backgroundColor: colors.muted },
+                  atRowLimit && { opacity: 0.5 },
                 ]}>
                 <Plus size={16} color={colors.foreground} />
                 <Text style={[styles.addFirstLabel, { color: colors.foreground }]}>Dodaj red</Text>
@@ -297,6 +339,12 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
         }
         onRemove={() => editingColumn && confirmDeleteColumn(editingColumn.columnId)}
         onClose={() => setEditingColumn(null)}
+      />
+      <TableImportSheet
+        pageId={pageId}
+        open={importOpen}
+        existingRowCount={meta.rowCount}
+        onClose={() => setImportOpen(false)}
       />
     </View>
   );
@@ -417,6 +465,16 @@ const styles = StyleSheet.create({
   toolbarLabel: {
     fontSize: 16,
     fontWeight: fontWeight.medium,
+  },
+  limitCaption: {
+    // Objašnjava zašto je dugme onemogućeno — puna veličina osnovnog teksta.
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  importBar: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
   },
   scrollContent: {},
   tableRow: {

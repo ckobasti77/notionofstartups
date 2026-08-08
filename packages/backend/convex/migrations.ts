@@ -4,6 +4,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { insertContribution } from "./lib/collaboration";
+import { nodeSearchText } from "./lib/pages";
 import { MAX_TASK_ASSIGNEES } from "./lib/validators";
 
 const migrations = new Migrations<DataModel>(components.migrations, {
@@ -399,6 +400,77 @@ export const runChatBackfill = migrations.runner([
   internal.migrations.backfillChatChannels,
   internal.migrations.backfillChatReads,
 ]);
+
+/**
+ * Backfill `searchText` (denormalizovan title+text) za ideje i misli nastale pre
+ * uvođenja full-text pretrage. Widen→migrate→narrow: polje je trenutno opciono, a
+ * posle ovog backfill-a se sužava na obavezno. Idempotentno — preskače redove koji
+ * već imaju `searchText`. Koristi isti `nodeSearchText` kao upisne mutacije, pa se
+ * indeks i podaci ne razlaze.
+ */
+export const backfillIdeaSearchText = migrations.define({
+  table: "ideaNodes",
+  migrateOne: async (ctx, node) => {
+    if (node.searchText !== undefined) return;
+    await ctx.db.patch("ideaNodes", node._id, {
+      searchText: nodeSearchText(node.title, node.text),
+    });
+  },
+});
+
+export const backfillThoughtSearchText = migrations.define({
+  table: "thoughtNodes",
+  migrateOne: async (ctx, node) => {
+    if (node.searchText !== undefined) return;
+    await ctx.db.patch("thoughtNodes", node._id, {
+      searchText: nodeSearchText(node.title, node.text),
+    });
+  },
+});
+
+/**
+ * Oba node backfill-a jednom komandom, pa provera:
+ *
+ *   npx convex run migrations:runSearchTextBackfill
+ *   npx convex run migrations:verifySearchTextBackfill
+ *
+ * Tek kada je `remaining` 0 sme da se deployuje narrow (searchText → obavezan).
+ */
+export const runSearchTextBackfill = migrations.runner([
+  internal.migrations.backfillIdeaSearchText,
+  internal.migrations.backfillThoughtSearchText,
+]);
+
+export const verifySearchTextBackfill = internalQuery({
+  args: {},
+  returns: v.object({
+    scanned: v.object({ ideas: v.number(), thoughts: v.number() }),
+    remaining: v.object({ ideas: v.number(), thoughts: v.number() }),
+    complete: v.boolean(),
+    note: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx) => {
+    const [ideas, thoughts] = await Promise.all([
+      ctx.db.query("ideaNodes").take(1000),
+      ctx.db.query("thoughtNodes").take(1000),
+    ]);
+    const ideasRemaining = ideas.filter(
+      (node) => node.searchText === undefined,
+    ).length;
+    const thoughtsRemaining = thoughts.filter(
+      (node) => node.searchText === undefined,
+    ).length;
+    const truncated = ideas.length === 1000 || thoughts.length === 1000;
+    return {
+      scanned: { ideas: ideas.length, thoughts: thoughts.length },
+      remaining: { ideas: ideasRemaining, thoughts: thoughtsRemaining },
+      complete: ideasRemaining === 0 && thoughtsRemaining === 0,
+      note: truncated
+        ? "Skenirano najviše 1000 redova po tabeli — ako je limit dostignut, pokreni ponovo posle backfill-a."
+        : null,
+    };
+  },
+});
 
 export const verifyContributionBackfill = internalQuery({
   args: {},

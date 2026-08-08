@@ -12,6 +12,13 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
 /**
+ * Gornja granica čitanja članova. `listMembers` nema paginaciju na mobilnom, pa
+ * kad se vrati tačno ovoliko stavki — verovatno ima još; to se kaže pošteno
+ * umesto tihog odsecanja (rn-review).
+ */
+const MEMBERS_LIMIT = 50;
+
+/**
  * Članovi tima (M4.4, admin). Ulaz je skriven u tabu „Više" ako korisnik nije
  * admin. Podaci iz `startups.listMembers` (dozvoljen svakom članu; admin gejt je
  * na ulazu). Read-only pregled — dodavanje ide kroz pozivnice.
@@ -24,10 +31,11 @@ export default function ClanoviScreen() {
 
   const members = useQuery(
     api.startups.listMembers,
-    activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
+    activeStartupId ? { startupId: activeStartupId, limit: MEMBERS_LIMIT } : 'skip',
   );
 
   const loading = activeStartupId !== null && members === undefined;
+  const capped = members !== undefined && members.length === MEMBERS_LIMIT;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -67,6 +75,11 @@ export default function ClanoviScreen() {
               </View>
             </View>
           ))}
+          {capped ? (
+            <Text style={[styles.cappedNote, { color: colors.mutedForeground }]}>
+              Prikazano prvih {MEMBERS_LIMIT}.
+            </Text>
+          ) : null}
         </ScrollView>
       )}
     </View>
@@ -160,6 +173,11 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   email: {
-    fontSize: 14,
+    fontSize: 16,
+  },
+  cappedNote: {
+    fontSize: 16,
+    textAlign: 'center',
+    paddingVertical: 8,
   },
 });

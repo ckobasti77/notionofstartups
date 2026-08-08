@@ -33,6 +33,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Izuzetak: mobilni .env.example je bezvredan šablon (samo prazni ključevi) i mora
+# da se prati — bez njega na novoj mašini niko ne zna da EXPO_PUBLIC_WEB_URL postoji,
+# a bez njega kanvas WebView ne radi. Negacija cilja SAMO .example, ne .env.local.
+!apps/mobile/.env.example
 
 # vercel
 .vercel

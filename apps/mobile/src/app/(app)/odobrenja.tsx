@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   kicker: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   who: {
-    fontSize: 14,
+    fontSize: 16,
   },
   meta: {
     fontSize: 16,

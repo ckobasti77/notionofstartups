@@ -69,6 +69,10 @@ export const getMeta = query({
     revision: v.number(),
     canEditStructure: v.boolean(),
     canEditCells: v.boolean(),
+    // Denormalizovani broj aktivnih redova (`syncTableSummary` ga održava). Klijent
+    // ga koristi da ugasi „Dodaj red" i da odbije uvoz PRE upisa; server ostaje
+    // konačni autoritet (recount na upisu). Legacy tabela bez polja → 0.
+    rowCount: v.number(),
   }),
   handler: async (ctx, args) => {
     const { page, profile } = await requireTablePage(ctx, args.pageId);
@@ -79,6 +83,7 @@ export const getMeta = query({
       canEditStructure: page.createdByProfileId === profile._id,
       // Vrednosti ćelija menja svaki aktivan član; strukturu samo autor.
       canEditCells: true,
+      rowCount: page.tableRowCount ?? 0,
     };
   },
 });

@@ -441,8 +441,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   description: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
   },
   pickArea: {
     paddingVertical: 12,
@@ -459,10 +459,10 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   summary: {
-    fontSize: 14,
+    fontSize: 16,
   },
   truncateNote: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: fontWeight.medium,
   },
   toggleRow: {
@@ -488,13 +488,13 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   previewHeader: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: fontWeight.semibold,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   previewCell: {
-    fontSize: 13,
+    fontSize: 16,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -505,7 +505,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   progress: {
-    fontSize: 13,
+    fontSize: 16,
     fontVariant: ['tabular-nums'],
   },
   actions: {

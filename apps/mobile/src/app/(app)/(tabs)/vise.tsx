@@ -40,6 +40,8 @@ type MenuItem = {
   route?: AppRoute;
   /** Vidljiva samo administratorima (`profile.role === 'admin'`). */
   adminOnly?: boolean;
+  /** Još nema ekran — prikazuje se prigušeno i nedodirljivo, sa oznakom „uskoro". */
+  soon?: boolean;
 };
 
 const MENU: MenuItem[][] = [
@@ -53,7 +55,7 @@ const MENU: MenuItem[][] = [
   [
     { icon: Users, label: 'Članovi tima', route: '/clanovi', adminOnly: true },
     { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
-    { icon: Settings, label: 'Podešavanja' },
+    { icon: Settings, label: 'Podešavanja', soon: true },
     { icon: Bell, label: 'Obaveštenja i zvuci', route: '/podesavanja-obavestenja' },
   ],
 ];
@@ -148,6 +150,28 @@ export default function ViseScreen() {
             {group.map((item, itemIndex) => {
               const Icon = item.icon;
               const badge = badgeFor(item);
+              const topBorder =
+                itemIndex > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border };
+
+              // Stavka bez ekrana: nedodirljiva (View, ne Pressable), prigušena,
+              // bez chevron-a, sa oznakom „uskoro" — da izgleda tačno onako kako se
+              // ponaša (rn-review: mrtva stavka u meniju).
+              if (item.soon) {
+                return (
+                  <View
+                    key={item.label}
+                    accessibilityRole="text"
+                    accessibilityLabel={`${item.label} — uskoro, nedostupno`}
+                    style={[styles.row, topBorder, styles.rowDisabled]}>
+                    <Icon size={20} color={colors.mutedForeground} />
+                    <Text style={[styles.rowLabel, { color: colors.mutedForeground }]}>{item.label}</Text>
+                    <View style={[styles.soonPill, { backgroundColor: colors.muted }]}>
+                      <Text style={[styles.soonText, { color: colors.mutedForeground }]}>uskoro</Text>
+                    </View>
+                  </View>
+                );
+              }
+
               return (
                 <Pressable
                   key={item.label}
@@ -159,7 +183,7 @@ export default function ViseScreen() {
                   }}
                   style={({ pressed }) => [
                     styles.row,
-                    itemIndex > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                    topBorder,
                     pressed && { backgroundColor: colors.muted },
                   ]}>
                   <Icon size={20} color={colors.foreground} />
@@ -238,7 +262,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   segmentLabel: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: fontWeight.medium,
   },
   menuCard: {
@@ -254,10 +278,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  rowDisabled: {
+    opacity: 0.5,
+  },
   rowLabel: {
     flex: 1,
     fontSize: 16,
     fontWeight: fontWeight.medium,
+  },
+  soonPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+  },
+  soonText: {
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   signOut: {
     marginTop: 4,
@@ -273,7 +311,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   spikeLabel: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: fontWeight.medium,
   },
 });

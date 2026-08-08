@@ -1,7 +1,8 @@
 import { useAuthToken } from '@convex-dev/auth/react';
 import { useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, Maximize2, Plus, TriangleAlert } from 'lucide-react-native';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { ChevronLeft, Maximize2, Minimize2, Plus, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +25,10 @@ import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
 const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
 
+// Konstantni WebView prop — van komponente da ne bude nov niz na svaki render
+// (isti razlog kao memoizovan `source` niže: promena reference reloaduje stranicu).
+const ORIGIN_WHITELIST = ['*'];
+
 /**
  * Mobilni canvas (M4.3, §9.3): native header + `WebView` nad embed rutom + native
  * akcioni rail. WebView drži pan/zoom/selekciju; native drži header, rail, detalj
@@ -31,9 +36,12 @@ const webBase = process.env.EXPO_PUBLIC_WEB_URL;
  * `gestureEnabled:false`) da se ne bije sa horizontalnim pan-om — „nazad" ide kroz
  * dugme u headeru.
  *
- * Auth ide kroz `postMessage` most, ne kroz URL: embed javi `ready`, native mu
- * pošalje token (i osvežava ga na svaku promenu `useAuthToken()`). Detalj čvora
- * stiže uz `node:open`/`selection` — nema drugog `ideas.list` upita ovde.
+ * Auth NE ide kroz URL ni kroz `postMessage` handshake: token se injektuje u web
+ * kontekst (`window.__DEVOTION_AUTH__`) preko `injectedJavaScriptBeforeContentLoaded`
+ * PRE učitavanja stranice, pa ga embed pročita sinhrono na mount-u (nema trke sa
+ * startom mosta — vidi §5.2 i ZA-POPRAVKU Z2). Most ostaje samo za nekritično
+ * osvežavanje tokena i žive kontrole. Detalj čvora stiže uz `node:open`/`selection`
+ * — nema drugog `ideas.list` upita ovde.
  */
 export default function CanvasScreen() {
   const colors = useThemeColors();
@@ -56,6 +64,25 @@ export default function CanvasScreen() {
   // koji embed pošalje uz `selection` kad je izabran baš jedan čvor (oblik zavisi od vrste).
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<unknown>(null);
+  // Landscape daje više prostora grafu (maketa §9.3, dugme [⛶]). Rotacija je samo
+  // za ovaj ekran — na izlazak se OBAVEZNO vraća portret (cleanup ispod).
+  const [landscape, setLandscape] = useState(false);
+
+  const toggleOrientation = useCallback(async () => {
+    const next = landscape
+      ? ScreenOrientation.OrientationLock.PORTRAIT_UP
+      : ScreenOrientation.OrientationLock.LANDSCAPE;
+    await ScreenOrientation.lockAsync(next);
+    setLandscape((prev) => !prev);
+  }, [landscape]);
+
+  // Vrati portret kad se napusti ekran (unmount) — da drugi ekrani, koji su svi
+  // portret-only, ne ostanu zaključani u landscape-u ako se izađe iz landscape moda.
+  useEffect(() => {
+    return () => {
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, []);
 
   const isIdeas = kind === 'ideas';
   const isThoughts = kind === 'thoughts';
@@ -87,18 +114,54 @@ export default function CanvasScreen() {
     [kind, id, initialScheme],
   );
 
+  // Zamrzni PRVI ne-null token (mutacija ref-a u renderu je sankcionisan React obrazac
+  // za lazy-init: idempotentno, StrictMode-safe). Injektovani prop se pravi iz OVOGA, ne
+  // iz živog `token`-a: refresh menja `token` (i može trenutno da blesne na null), a
+  // injektovani prop MORA da ostane stabilan — svaka promena reference reloaduje WebView.
+  const initialTokenRef = useRef<string | null>(null);
+  if (initialTokenRef.current === null && token) initialTokenRef.current = token;
+  const initialToken = initialTokenRef.current;
+
+  // MORA da bude memoizovan. `react-native-webview` na svaku promenu reference `source`
+  // ponovo učitava stranicu. Inline `source={{ uri: url }}` pravi nov objekat na svaki
+  // render, a `onLoadEnd` menja `loading` state → render → nov `source` → reload →
+  // beskonačna petlja učitavanja (handshake nikad ne stigne do kraja). Ne vraćaj na inline.
+  const source = useMemo(() => (url ? { uri: url } : undefined), [url]);
+
+  // Token ide u embed kroz injekciju PRE učitavanja stranice (`window.__DEVOTION_AUTH__`),
+  // ne kroz `postMessage` — nema trke sa startom mosta. `JSON.stringify` bezbedno kotira
+  // vrednost; `; true;` na kraju da WKWebView ne loguje upozorenje o povratnoj vrednosti.
+  // Isto memoizovano i iz ZAMRZNUTIH vrednosti kao `source`: promena reference bi
+  // reloadovala WebView. `injectedJavaScriptBeforeContentLoaded` se izvršava SAMO pri
+  // učitavanju — zato WebView ne sme da montira dok je ovo `undefined` (guard niže).
+  const injectedAuth = useMemo(
+    () =>
+      initialToken
+        ? `window.__DEVOTION_AUTH__ = ${JSON.stringify({ token: initialToken, theme: initialScheme })}; true;`
+        : undefined,
+    [initialToken, initialScheme],
+  );
+  // Isti razlog za `style`: inline objekat bi bio nova referenca na svaki render.
+  const webViewStyle = useMemo(
+    () => ({ backgroundColor: colors.background }),
+    [colors.background],
+  );
+
   const postToWeb = useCallback((message: Record<string, unknown>) => {
+    if (__DEV__) console.log('[canvas] → poslato:', message.type);
     webRef.current?.postMessage(JSON.stringify(message));
   }, []);
 
-  // Autoritativni kanal teme: pošalji je na svaku promenu šeme (root ThemeProvider u
-  // embed-u inače pobedi početnu temu iz URL-a). Prva se šalje i na `ready`.
+  // Autoritativni kanal za ŽIVU promenu teme: inicijalna tema stiže kroz injekciju, a
+  // svaka kasnija promena šeme ide kroz most (root ThemeProvider u embed-u inače pobedi).
   useEffect(() => {
     postToWeb({ type: 'theme', mode: scheme });
   }, [scheme, postToWeb]);
 
-  // Token u embed ide kroz most, ne kroz URL. Pošalji ga čim postoji i na svaki
-  // refresh (`useAuthToken` vraća nov token) — embed re-autentikuje bez reload-a.
+  // Osvežavanje tokena je NEKRITIČAN put: inicijalni token je već ušao kroz injekciju
+  // pre učitavanja. Na promenu tokena best-effort pošalji `auth` kroz most (bez intervala,
+  // bez ack-a) — embed re-autentikuje u mestu bez reload-a. Ako poruka promaši (most još
+  // nije spreman), embed i dalje radi sa injektovanim tokenom; sledeći refresh stiže.
   useEffect(() => {
     if (token) postToWeb({ type: 'auth', token });
   }, [token, postToWeb]);
@@ -113,17 +176,16 @@ export default function CanvasScreen() {
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[] };
+      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[]; message?: string };
       try {
         msg = JSON.parse(event.nativeEvent.data);
       } catch {
         return;
       }
-      if (msg.type === 'ready') {
-        // Embed je montiran i čeka podešavanja: pošalji temu i token.
-        postToWeb({ type: 'theme', mode: scheme });
-        if (token) postToWeb({ type: 'auth', token });
-      } else if (msg.type === 'node:open' && msg.node) {
+      if (__DEV__) {
+        console.log('[canvas] ← primljeno:', msg.type);
+      }
+      if (msg.type === 'node:open' && msg.node) {
         // Detalj stiže uz poruku — otvori sheet po vrsti, bez čekanja/upita.
         if (isIdeas) setOpenIdea(msg.node as IdeaDetail);
         else if (isThoughts) setOpenThought(msg.node as ThoughtDetail);
@@ -138,7 +200,7 @@ export default function CanvasScreen() {
         setSelectedNode(ids.length === 1 ? msg.node ?? null : null);
       }
     },
-    [postToWeb, scheme, token, isIdeas, isThoughts, isPageKind, openPage],
+    [isIdeas, isThoughts, isPageKind, openPage],
   );
 
   const reload = () => {
@@ -173,7 +235,11 @@ export default function CanvasScreen() {
   if (!KINDS.includes(kind)) {
     return <Fallback title="Nepoznat canvas" message={`Vrsta „${kind}" ne postoji.`} colors={colors} onBack={() => router.back()} />;
   }
-  if (!token) {
+  // Gejt na ZAMRZNUTI token, ne na živi `token`: WebView sme da montira tek kad
+  // `injectedAuth` ima pravi token (injekcija se izvršava samo pri učitavanju — bez tokena
+  // se stranica ne bi oporavila). Živi `token` koji blesne na null tokom refresh-a ovako
+  // ne unmount-uje/reloaduje WebView.
+  if (!initialToken) {
     return <Fallback title="Potrebna prijava" message="Sesija nije aktivna." colors={colors} onBack={() => router.back()} />;
   }
   if (!webBase || !url) {
@@ -189,24 +255,53 @@ export default function CanvasScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title={canvasKindLabel(kind)} onBack={() => router.back()} colors={colors} />
+      <Header
+        title={canvasKindLabel(kind)}
+        onBack={() => router.back()}
+        colors={colors}
+        right={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={landscape ? 'Vrati u uspravan prikaz' : 'Rotiraj u položeni prikaz'}
+            accessibilityState={{ selected: landscape }}
+            onPress={() => void toggleOrientation()}
+            style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
+            {landscape ? (
+              <Minimize2 size={22} color={colors.foreground} />
+            ) : (
+              <Maximize2 size={22} color={colors.foreground} />
+            )}
+          </Pressable>
+        }
+      />
 
       <View style={styles.webWrap}>
         <WebView
           ref={webRef}
-          source={{ uri: url }}
-          originWhitelist={['*']}
+          source={source}
+          // Token je u web kontekstu pre nego što se stranica učita (§5.2). MORA da bude
+          // memoizovan iz istog razloga kao `source` — promena reference reloaduje WebView.
+          injectedJavaScriptBeforeContentLoaded={injectedAuth}
+          originWhitelist={ORIGIN_WHITELIST}
           javaScriptEnabled
           domStorageEnabled
           onMessage={onMessage}
-          onLoadEnd={() => setLoading(false)}
+          onLoadEnd={() => {
+            setLoading(false);
+            // Best-effort one-shot: čim je stranica učitana, embed-ov `message` listener je
+            // sigurno zakačen, pa mu pošalji najsvežiji token (zatvara uzak prozor ako se
+            // token osvežio tokom učitavanja). Injekcija je već isporučila inicijalni token,
+            // pa ovo nije kritično; običan `postMessage` — ne dira `source`/`injectedAuth`,
+            // ne može da reloaduje. `!failed` guard sprečava lažni log kad učitavanje padne.
+            if (token && !failed) postToWeb({ type: 'auth', token });
+          }}
           onError={(e) => setFailed(e.nativeEvent.description || 'Učitavanje nije uspelo.')}
           onHttpError={(e) => setFailed(`Greška ${e.nativeEvent.statusCode}.`)}
           // Ostani na našem web origin-u — embed ne sme da odluta na drugi sajt.
           onShouldStartLoadWithRequest={(request) =>
             request.url.startsWith(webBase) || request.url === url || request.url.startsWith('about:')
           }
-          style={{ backgroundColor: colors.background }}
+          style={webViewStyle}
         />
 
         {loading && !failed ? (
@@ -299,17 +394,27 @@ function Header({
   title,
   onBack,
   colors,
+  right,
 }: {
   title: string;
   onBack: () => void;
   colors: ColorTokens;
+  right?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View
       style={[
         styles.header,
-        { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
+        {
+          paddingTop: insets.top + 6,
+          // Bočni insetovi: canvas ekran može da rotira u landscape, gde bezbedna
+          // zona ide levo/desno — „Nazad" i naslov ne smeju pod zarez.
+          paddingLeft: insets.left + 6,
+          paddingRight: insets.right + 6,
+          backgroundColor: colors.background,
+          borderBottomColor: colors.border,
+        },
       ]}>
       <Pressable
         accessibilityRole="button"
@@ -321,6 +426,7 @@ function Header({
       <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
         {title}
       </Text>
+      {right ?? null}
     </View>
   );
 }
@@ -379,7 +485,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 6,
+    // Bočni padding dolazi inline sa safe-area insetovima (landscape).
     paddingBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },

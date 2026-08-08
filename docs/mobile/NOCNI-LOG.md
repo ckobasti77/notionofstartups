@@ -280,3 +280,56 @@ direktnim linkom) je svesna odluka: lista članova nije osetljiv podatak.
 `npm run check` (root): **0**
 
 ---
+
+## [16:05] PRETRAGA — dovršetak (ideje + misli + poruke, oba klijenta)
+Status: GOTOVO
+Povod: M3.4 pretraga bila nedovršena na oba klijenta, na dva načina. Mobilni imao
+3 grupe (bez ideja/misli), web samo `search.pages` (bez poruka, iako
+`chat.searchMessages` postoji) — kršilo paritet koji je uslov projekta.
+
+Backend (`packages/backend/convex/`):
+- `schema.ts`: `searchText` (denormalizovan title+text) + `search_ideas` i
+  `search_thoughts` indeksi na `ideaNodes`/`thoughtNodes`. **AUTHZ: misli su
+  PRIVATNE → `search_thoughts` filterFields uključuje `ownerProfileId`; ideje su
+  startup-wide (dovoljno `startupId`).** Odluka: opcija A (denormalizacija) radi
+  pariteta sa `pages` (pogodak i po naslovu). Widen-migrate-narrow.
+- `lib/pages.ts`: `nodeSearchText(title, text)` (paralela `pageSearchText`).
+- `search.ts`: nova `ideasAndThoughts` query — `returns` validator, `requireStartupMember`,
+  `.withSearchIndex`, thoughts `.eq("ownerProfileId", profile._id)`.
+- 6 upisnih mesta održava `searchText` (ideas.create/update, thoughts.createNode/
+  updateNode/duplicateNodes, thoughts.convertToIdeas).
+- `migrations.ts`: `backfillIdea/ThoughtSearchText` + `runSearchTextBackfill` +
+  `verifySearchTextBackfill`. Pokrenuto na dev: remaining 0, complete.
+- Narrow je usput pukao `listNodes` return validaciju → `thoughtNodeDocumentValidator`
+  dobio `searchText`. Uhvatio vitest.
+
+Mobilni (`pretraga.tsx`):
+- Grupe „Ideje" (Lightbulb) i „Misli" (Brain) preko novog `NodeRow`; redosled
+  Stranice→Zadaci→Ideje→Misli→Poruke.
+- Nav na nivou sekcije (nema deep-linka do čvora): ideja → `/ideje`, misao →
+  `/canvas/thoughts/<startupId>`.
+
+Web (`search-dialog.tsx` + `workspace-shell.tsx`):
+- Ravna lista → 5 grupa; dodati `chat.searchMessages` + `search.ideasAndThoughts`.
+- `onNavigate(WorkspaceRoute)` prop → `navigateRoute` (ideje/misli/poruke); stranice/
+  zadaci ostaju na `onOpenPage`.
+- Error boundary oko rezultata (Convex `useQuery` baca naviše) + a11y (aria-hidden
+  ikone, role=status spiner, aria-label input, `<h3>`/`<ul>`/`<li>`).
+
+Preskočeno (pošteno):
+- **Deep-link do čvora/poruke** — nijedan klijent nema (ruta prima startupId, čvor se
+  bira samo unutar WebView-a); nav ostaje na nivou sekcije (dogovoreno sa Jovanom).
+- **Mobilni „Misli" tap** sleti na thoughts embed placeholder — embed je ideas-only
+  (zaseban gap, nije menjano ovde).
+- **Browser smoke test pretrage** — workspace je iza login-a (kredencijali se ne
+  unose); funkcija dokazana kroz `search.test.ts` + web build.
+
+Provera:
+- `/convex-authz`: 0 nalaza (misli owner-scoped na indeksu i u upitu).
+- `parity-check`: pun paritet (5 grupa, isti redosled, debounce 300, min 2, iste 3 query).
+- `rn-review` + `web-review`: nalazi popravljeni (mob: a11y label imenuje odredište,
+  2 reda kad nema naslova; web: error stanje + a11y + semantika liste).
+- `search.test.ts`: 5/5 (uklj. „član ne vidi tuđe misli"). Ceo backend: **317/317**.
+- `tsc` (backend + mobilni): **0**. `npm run check` (web lint+build): **0**.
+
+---

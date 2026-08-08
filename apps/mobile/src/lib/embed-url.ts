@@ -1,8 +1,10 @@
 /**
  * Gradi URL embed canvas rute (`apps/web/app/embed/canvas/[kind]/[id]`) za mobilni
- * `WebView` (M4.3). Auth ide tokenom u query parametru — tako nalaže §5.2
- * („Autentikacija tokenom iz query parametra"). Token je osetljiv: WebView učitava
- * isključivo naš web origin, ali svejedno ne loguj ovaj URL.
+ * `WebView` (M4.3, §5.2). Auth NE ide kroz URL — token bi završio u web access
+ * logovima i WebView istoriji. Umesto toga: embed se učita bez tokena, javi `ready`
+ * preko `postMessage` mosta, a native mu pošalje `{type:"auth", token}` (i osvežava
+ * ga na svaku promenu). URL nosi samo `theme` (nije osetljiv), i to za prvi paint —
+ * dalje promene teme idu takođe kroz most, pa URL ostaje stabilan.
  *
  * Web bazu daje `EXPO_PUBLIC_WEB_URL` (vidi `.env.example`). Bez nje vraća `null`,
  * pa ekran prikaže jasnu grešku umesto belog WebView-a.
@@ -14,12 +16,11 @@ const webBase = process.env.EXPO_PUBLIC_WEB_URL;
 export function embedCanvasUrl(opts: {
   kind: CanvasKind;
   id: string;
-  token: string;
   theme: 'light' | 'dark';
 }): string | null {
   if (!webBase) return null;
   const base = webBase.replace(/\/+$/, '');
-  const query = `token=${encodeURIComponent(opts.token)}&theme=${opts.theme}`;
+  const query = `theme=${opts.theme}`;
   return `${base}/embed/canvas/${encodeURIComponent(opts.kind)}/${encodeURIComponent(opts.id)}?${query}`;
 }
 

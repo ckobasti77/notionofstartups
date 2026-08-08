@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from 'convex/react';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { ChevronLeft, Mail, Plus, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
@@ -198,10 +199,22 @@ function CreateInviteSheet({
       const result = await create({ startupId, email: clean });
       setEmail('');
       onClose();
-      // Kod se vidi samo sada (server čuva hash) — admin ga podeli ručno.
+      // Kod se vidi samo sada (server čuva hash) — admin ga podeli ručno. „Kopiraj
+      // kod" ga stavlja u privremenu memoriju da ga ne mora prepisivati (rn-review).
       Alert.alert(
         'Pozivnica kreirana',
         `Kod za ${result.email}:\n\n${result.code}\n\nPošalji ga osobi koju pozivaš — vidi se samo sada.`,
+        [
+          {
+            text: 'Kopiraj kod',
+            onPress: () => {
+              void Clipboard.setStringAsync(result.code).then(() =>
+                Alert.alert('Kopirano', 'Kod pozivnice je kopiran u privremenu memoriju.'),
+              );
+            },
+          },
+          { text: 'U redu', style: 'cancel' },
+        ],
       );
     } catch (error) {
       Alert.alert('Greška', accessErrorMessage(error, 'Pozivnica nije kreirana.'));
@@ -357,7 +370,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   meta: {
-    fontSize: 13,
+    fontSize: 16,
   },
   revokeBtn: {
     minHeight: MIN_TOUCH_TARGET,
@@ -368,7 +381,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   revokeLabel: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.semibold,
   },
   backdrop: {

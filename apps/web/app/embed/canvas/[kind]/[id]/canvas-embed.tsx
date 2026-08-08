@@ -12,7 +12,7 @@ import {
 } from "@xyflow/react";
 import { ConvexProvider, ConvexReactClient, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -29,15 +29,14 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
  * `frame-ancestors 'none'`, pa embed i tako ne sme u iframe — jedini podržani
  * kontekst je RN WebView. Protokol: `docs/mobile/00-PLAN.md` §5.2.
  */
-function postNative(message: Record<string, unknown>) {
-  if (typeof window === "undefined") return;
+function postNative(message: Record<string, unknown>): boolean {
+  if (typeof window === "undefined") return false;
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } })
     .ReactNativeWebView;
-  bridge?.postMessage(JSON.stringify(message));
+  if (!bridge) return false;
+  bridge.postMessage(JSON.stringify(message));
+  return true;
 }
-
-/** Koliko čekamo prvu `auth` poruku pre nego što odustanemo (umesto večnog spinera). */
-const AUTH_TIMEOUT_MS = 10_000;
 
 /**
  * Srpske a11y poruke za `ReactFlow` (čitač ekrana). Kao u desktop kanvasima, const se
@@ -68,30 +67,71 @@ const SERBIAN_ARIA_LABELS = {
 } as const;
 
 /**
- * Chrome-less embed kanvasa za mobilni `WebView` (W4.2, §5.2). Token NE stiže kroz
- * URL — embed se učita bez njega, javi `ready`, pa native pošalje `{type:"auth",
- * token}`. Tek na prvi token pravi se `ConvexReactClient`; svaki sledeći token
- * (refresh) samo ponovo pozove `setAuth` koji čita iz `tokenRef`, pa se klijent NE
- * pravi iznova — socket, subscription i ReactFlow pan/zoom preživljavaju. Ovaj
- * `ConvexProvider` zaseni onaj iz root layout-a (cookie-auth) za ceo podstablo.
+ * `useLayoutEffect` na serveru ne radi (i baca upozorenje); na klijentu trči posle
+ * commit-a a PRE paint-a, pa bootstrap prebaci stanje bez vidljivog frejma. Za razliku
+ * od lazy `useState` initializer-a (koji trči i na serveru i tokom hidracije, pa vraća
+ * različit rezultat → hydration mismatch), efekat ne trči na serveru ni tokom hidracije:
+ * SSR i prvi klijentski render oba pokažu `boot`, a stanje se prebaci tek posle commit-a.
  */
-export function CanvasEmbed({
-  kind,
-  id,
-  theme,
-}: {
-  kind: CanvasKind;
-  id: string;
-  theme: ThemeMode;
-}) {
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/** Oblik `window.__DEVOTION_AUTH__` koji native injektuje pre učitavanja stranice. */
+type DevotionAuth = { token?: string; theme?: string };
+
+/**
+ * Chrome-less embed kanvasa za mobilni `WebView` (W4.2, §5.2). Token NE stiže kroz URL
+ * ni kroz `postMessage` handshake: native ga injektuje u `window.__DEVOTION_AUTH__` preko
+ * `injectedJavaScriptBeforeContentLoaded` PRE učitavanja stranice, pa ga čitamo sinhrono
+ * na mount-u (nema trke sa startom mosta — pet rundi debagovanja handshake-a; §5.2 i
+ * ZA-POPRAVKU Z2). Na prvi token pravi se `ConvexReactClient`; svaki sledeći token (refresh
+ * kroz most) samo ponovo pozove `setAuth` iz `tokenRef`, pa se klijent NE pravi iznova —
+ * socket, subscription i ReactFlow pan/zoom preživljavaju. Ovaj `ConvexProvider` zaseni onaj
+ * iz root layout-a (cookie-auth) za ceo podstablo. Otvoreno u običnom browseru (nema
+ * injekcije) → jasna poruka, ne spiner.
+ */
+export function CanvasEmbed({ kind, id }: { kind: CanvasKind; id: string }) {
+  // "boot": čita se injekcija (najviše jedan commit); "app": klijent spreman;
+  // "no-app": nema injekcije (običan browser) — terminalno, bez spinera i bez timeout-a.
+  const [status, setStatus] = useState<"boot" | "app" | "no-app">("boot");
   const [client, setClient] = useState<ConvexReactClient | null>(null);
-  const [authTimedOut, setAuthTimedOut] = useState(false);
-  // Token živi u ref-u da ga `setAuth` čita bez prestvaranja klijenta.
+  // Token živi u ref-u da ga `setAuth` čita bez prestvaranja klijenta; tema iz injekcije
+  // je samo inicijalna (dalje promene idu kroz `theme` most poruku). Tema je state (ne
+  // ref) jer se čita u renderu — eslint `react-hooks/refs` zabranjuje `ref.current` tamo.
   const tokenRef = useRef<string | null>(null);
   const clientRef = useRef<ConvexReactClient | null>(null);
+  const [initialTheme, setInitialTheme] = useState<ThemeMode>("light");
 
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     if (!convexUrl) return;
+    const auth = (window as unknown as { __DEVOTION_AUTH__?: DevotionAuth }).__DEVOTION_AUTH__;
+    if (!auth?.token) {
+      // Nema injekcije → stranica je otvorena van Devotion aplikacije.
+      setStatus("no-app");
+      return;
+    }
+    tokenRef.current = auth.token;
+    setInitialTheme(auth.theme === "dark" ? "dark" : "light");
+    const c = new ConvexReactClient(convexUrl);
+    void c.setAuth(async () => tokenRef.current ?? "");
+    clientRef.current = c;
+    setClient(c);
+    setStatus("app");
+    // Zatvaranje je UPARENO sa kreiranjem u istom efektu: React Strict Mode (dev, podrazumevano
+    // uključen u App Router-u) izvrši efekat dvaput (setup→cleanup→setup). Da cleanup zatvara
+    // klijent iz odvojenog efekta, prvi napravljeni klijent bi ostao otvoren (curenje socket-a),
+    // a drugi efekat bi zatvorio pogrešnu instancu. Uparivanje garantuje da se svaki napravljeni
+    // klijent i zatvori — i u Strict Mode-u i na stvarni unmount.
+    return () => {
+      void c.close();
+      if (clientRef.current === c) clientRef.current = null;
+    };
+  }, []);
+
+  // Osvežavanje tokena (§5.2, nekritičan put): native na promenu tokena pošalje
+  // `{type:"auth"}` kroz most. Re-auth u mestu (isti klijent, čita iz `tokenRef`) — bez
+  // pravljenja novog klijenta, pa socket/subscription/pan-zoom preživljavaju. iOS
+  // isporučuje preko `window`, Android preko `document`.
+  useEffect(() => {
     const handle = (raw: unknown) => {
       if (typeof raw !== "string") return;
       let msg: { type?: string; token?: string };
@@ -102,59 +142,34 @@ export function CanvasEmbed({
       }
       if (msg.type !== "auth" || !msg.token) return;
       tokenRef.current = msg.token;
-      if (clientRef.current) {
-        // Refresh: re-auth u mestu (isti klijent), token se čita iz ref-a.
-        void clientRef.current.setAuth(async () => tokenRef.current ?? "");
-      } else {
-        const c = new ConvexReactClient(convexUrl);
-        void c.setAuth(async () => tokenRef.current ?? "");
-        clientRef.current = c;
-        // Namerno: ako auth stigne i posle isteka (spora mreža), oporavi se u kanvas
-        // umesto da ostane zaglavljen na grešci. Retke i kratke zakasnele isporuke ne
-        // treba da trajno „zaključaju" ekran.
-        setAuthTimedOut(false);
-        setClient(c);
-      }
+      void clientRef.current?.setAuth(async () => tokenRef.current ?? "");
     };
-    // iOS isporučuje preko `window`, Android preko `document`.
     const onWindow = (e: MessageEvent) => handle(e.data);
     const onDocument = (e: Event) => handle((e as MessageEvent).data);
     window.addEventListener("message", onWindow);
     document.addEventListener("message", onDocument);
-    postNative({ type: "ready", kind });
-    const timer = window.setTimeout(() => {
-      if (!clientRef.current) setAuthTimedOut(true);
-    }, AUTH_TIMEOUT_MS);
     return () => {
       window.removeEventListener("message", onWindow);
       document.removeEventListener("message", onDocument);
-      window.clearTimeout(timer);
-    };
-  }, [kind]);
-
-  // Zatvori klijent (i njegov socket) samo na unmount — ne na promenu tokena.
-  useEffect(() => {
-    return () => {
-      void clientRef.current?.close();
     };
   }, []);
 
   if (!convexUrl) {
     return <Center role="alert">Konfiguracija nije potpuna (NEXT_PUBLIC_CONVEX_URL).</Center>;
   }
-  if (authTimedOut && !client) {
-    return (
-      <Center role="alert">Autentikacija nije stigla. Zatvori kanvas i pokušaj ponovo.</Center>
-    );
+  if (status === "no-app") {
+    return <Center role="alert">Ovaj prikaz radi samo u Devotion aplikaciji.</Center>;
   }
-  if (!client) {
-    return <Center>Povezivanje…</Center>;
+  if (status === "boot" || !client) {
+    // Neutralni placeholder (boja pozadine), NAMERNO ne spiner: injekcija se čita sinhrono
+    // u layout efektu, pa ovo stanje ne stigne da se naslika (nula paint frejmova).
+    return <div className="fixed inset-0 bg-background" />;
   }
 
   return (
     <ConvexProvider client={client}>
       <ReactFlowProvider>
-        <CanvasInner kind={kind} id={id} initialTheme={theme} />
+        <CanvasInner kind={kind} id={id} initialTheme={initialTheme} />
       </ReactFlowProvider>
     </ConvexProvider>
   );
@@ -176,14 +191,14 @@ function CanvasInner({
     const apply = () => document.documentElement.classList.toggle("dark", colorMode === "dark");
     apply();
     // Root layout `ThemeProvider` primeni svoju (system/localStorage) temu u mount
-    // efektu — a roditeljski efekti idu POSLE dečjih, pa bi pregazio naš `?theme=`.
-    // rAF re-asserta posle commit-a da tema iz query-ja / native poruke pobedi.
+    // efektu — a roditeljski efekti idu POSLE dečjih, pa bi pregazio našu temu.
+    // rAF re-asserta posle commit-a da tema iz injekcije / native poruke pobedi.
     const raf = requestAnimationFrame(apply);
     return () => cancelAnimationFrame(raf);
   }, [colorMode]);
 
   // Prijem view-poruka iz native ljuske (protokol §5.2: theme/focus/zoom/fit).
-  // `auth`/`ready` handshake je iznad, u `CanvasEmbed`; oba listenera koegzistiraju
+  // Refresh tokena (`auth`) sluša poseban listener u `CanvasEmbed`; oba koegzistiraju
   // i svaki ignoriše tuđe tipove. iOS isporučuje preko `window`, Android `document`.
   useEffect(() => {
     const handle = (raw: unknown) => {

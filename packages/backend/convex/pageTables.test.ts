@@ -93,6 +93,7 @@ describe("tabela kao vrsta oblačića", () => {
     const { meta, rows } = await readAll();
 
     expect(meta.columns).toHaveLength(1);
+    expect(meta.rowCount).toBe(1);
     expect(rows).toHaveLength(1);
     expect(
       await t.run((ctx) => ctx.db.get("pages", pageId)),
@@ -115,6 +116,7 @@ describe("tabela kao vrsta oblačića", () => {
       "Kolona 2",
       "Iznos",
     ]);
+    expect(meta.rowCount).toBe(2);
     expect(rows).toHaveLength(2);
     expect(
       await t.run((ctx) => ctx.db.get("pages", pageId)),

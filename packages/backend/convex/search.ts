@@ -72,3 +72,75 @@ export const pages = query({
     return result;
   },
 });
+
+const nodeSearchResultValidator = v.object({
+  _id: v.union(v.id("ideaNodes"), v.id("thoughtNodes")),
+  title: v.union(v.string(), v.null()),
+  text: v.string(),
+  startupId: v.id("startups"),
+});
+const NODE_TEXT_SNIPPET = 280;
+
+/**
+ * Full-text pretraga ideja i misli u jednom startupu. Dve tabele — dva indeksa —
+ * ali jedan poziv, jer ih klijent prikazuje kao dve grupe uporedo.
+ *
+ * AUTHZ: ideje su zajedničke (ideas.list filtrira samo po startupId), a misli su
+ * PRIVATNE po vlasniku (thoughts.listNodes .eq ownerProfileId). Zato upit nad
+ * `thoughtNodes` MORA da .eq-uje `ownerProfileId` na profil pozivaoca — u
+ * suprotnom bi pretraga vraćala tuđe privatne misli. Poruke se ovde ne diraju:
+ * web zove postojeći `chat.searchMessages`, koji ima svoj kanal-level authz.
+ */
+export const ideasAndThoughts = query({
+  args: {
+    startupId: v.id("startups"),
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    ideas: v.array(nodeSearchResultValidator),
+    thoughts: v.array(nodeSearchResultValidator),
+  }),
+  handler: async (ctx, args) => {
+    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const searchTerm = args.query.trim().slice(0, 200);
+    if (searchTerm.length < 2) return { ideas: [], thoughts: [] };
+    const limit = boundedLimit(args.limit, 20, 50);
+
+    const ideaMatches = await ctx.db
+      .query("ideaNodes")
+      .withSearchIndex("search_ideas", (q) =>
+        q
+          .search("searchText", searchTerm)
+          .eq("startupId", args.startupId)
+          .eq("archivedAt", null),
+      )
+      .take(limit);
+
+    const thoughtMatches = await ctx.db
+      .query("thoughtNodes")
+      .withSearchIndex("search_thoughts", (q) =>
+        q
+          .search("searchText", searchTerm)
+          .eq("ownerProfileId", profile._id) // ← privatnost misli
+          .eq("startupId", args.startupId)
+          .eq("archivedAt", null),
+      )
+      .take(limit);
+
+    return {
+      ideas: ideaMatches.map((node) => ({
+        _id: node._id,
+        title: node.title,
+        text: node.text.slice(0, NODE_TEXT_SNIPPET),
+        startupId: node.startupId,
+      })),
+      thoughts: thoughtMatches.map((node) => ({
+        _id: node._id,
+        title: node.title,
+        text: node.text.slice(0, NODE_TEXT_SNIPPET),
+        startupId: node.startupId,
+      })),
+    };
+  },
+});

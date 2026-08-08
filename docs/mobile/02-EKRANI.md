@@ -409,7 +409,26 @@ tako se editovanje sadržaja radi native, a samo layout ostaje u WebView-u.
 
 - **Pregled:** horizontalno skrolovanje sa zamrznutom prvom kolonom
 - **Editovanje ćelije:** tap → bottom sheet, ne inline
-- **Uvoz iz Excela:** zadržano, preko `expo-document-picker` + `read-excel-file`
+- **Uvoz iz Excela:** zadržano, preko `expo-document-picker` + `xlsx` (SheetJS).
+  `read-excel-file` (koji koristi web) traži DOM `File` / Node `Buffer` — ničeg od
+  toga nema u React Native, pa se na mobilnom parsira `xlsx`-om iz base64
+  (`expo-file-system`). Tok: izbor fajla → parsiranje → **pregled** (koliko redova ×
+  kolona nastaje, koja su zaglavlja) → tek na potvrdu upis kroz `pageTables.importRows`.
+  Limiti (64 kolone / 5.000 redova) se proveravaju pre upisa.
+
+### 9.5 Prilozi (fajlovi)
+
+`pageFiles` — upload iz galerije, kamere i sistemskog birača dokumenata; slika i
+PDF se pregledaju u aplikaciji, ostalo kroz sistemski otvarač.
+
+- **Galerija i dokumenti:** `expo-image-picker` / `expo-document-picker`.
+- **Kamera:** koristi se `expo-image-picker` (`launchCameraAsync`), **ne**
+  `expo-camera` kako je prvobitna specifikacija predviđala. `launchCameraAsync`
+  otvara sistemsku kameru za jedan snimak i vraća ga spreman za upload — bez
+  custom preview sloja i lifecycle-a koje `expo-camera` nosi. Lakše i dovoljno za
+  „uslikaj prilog".
+  **Posledica:** snimanje **videa** iz aplikacije nije moguće (samo fotografija);
+  video se i dalje može priložiti iz galerije.
 
 ---
 

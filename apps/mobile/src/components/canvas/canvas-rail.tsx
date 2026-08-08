@@ -1,4 +1,4 @@
-import { Crosshair, Plus, ZoomIn, ZoomOut } from 'lucide-react-native';
+import { Crosshair, ZoomIn, ZoomOut } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -6,23 +6,32 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
 /**
+ * Kontekstualna primarna akcija rail-a: bez selekcije je „Nova ideja", a kad je na
+ * kanvasu izabran jedan čvor postaje „Otvori ideju" (§5.2). Ekran odlučuje koja je
+ * — rail samo crta. Ikonu daje ekran (ima boje), pa je ovde `ReactNode`.
+ */
+export type RailAction = {
+  label: string;
+  icon: React.ReactNode;
+  onPress: () => void;
+};
+
+/**
  * Native akcioni rail ispod WebView-a (M4.3, §9.3). Zoom i centriranje idu kao
- * `postMessage` u WebView (koji drži pan/zoom); „Nova ideja" je native akcija.
+ * `postMessage` u WebView (koji drži pan/zoom); primarna akcija je native.
  * Gore desno na dnu radi ergonomije palca.
  */
 export function CanvasRail({
   onZoomIn,
   onZoomOut,
   onFit,
-  onCreate,
-  createLabel,
+  primaryAction,
 }: {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
-  /** Bez ove akcije se dugme za kreiranje ne prikazuje (vrste bez native create-a). */
-  onCreate?: () => void;
-  createLabel: string;
+  /** Bez ove akcije se primarno dugme ne prikazuje (vrste bez native akcije). */
+  primaryAction?: RailAction;
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -30,7 +39,15 @@ export function CanvasRail({
     <View
       style={[
         styles.rail,
-        { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: insets.bottom + 8 },
+        {
+          backgroundColor: colors.background,
+          borderTopColor: colors.border,
+          paddingBottom: insets.bottom + 8,
+          // Bočni insetovi za landscape (canvas ekran može da rotira): u položenom
+          // prikazu bezbedna zona ide levo/desno pa ikonice ne smeju pod zarez.
+          paddingLeft: insets.left + 12,
+          paddingRight: insets.right + 12,
+        },
       ]}>
       <View style={styles.group}>
         <RailIcon label="Umanji" onPress={onZoomOut} colors={colors}>
@@ -44,18 +61,22 @@ export function CanvasRail({
         </RailIcon>
       </View>
 
-      {onCreate ? (
+      {primaryAction ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={createLabel}
-          onPress={onCreate}
+          accessibilityLabel={primaryAction.label}
+          onPress={primaryAction.onPress}
           style={({ pressed }) => [
             styles.createBtn,
             { backgroundColor: colors.primary },
             pressed && { opacity: 0.85 },
           ]}>
-          <Plus size={18} color={colors.primaryForeground} />
-          <Text style={[styles.createLabel, { color: colors.primaryForeground }]}>{createLabel}</Text>
+          {primaryAction.icon}
+          <Text
+            numberOfLines={1}
+            style={[styles.createLabel, { color: colors.primaryForeground }]}>
+            {primaryAction.label}
+          </Text>
         </Pressable>
       ) : null}
     </View>
@@ -94,7 +115,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    paddingHorizontal: 12,
+    // Bočni padding dolazi inline sa safe-area insetovima (landscape) — vidi rail.
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
   },

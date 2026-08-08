@@ -1,12 +1,16 @@
 import { Image } from 'expo-image';
 import * as WebBrowser from 'expo-web-browser';
 import { ExternalLink, X } from 'lucide-react-native';
+import { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET } from '@/theme/tokens';
+
+// Konstantni WebView prop — van komponente da ne bude nov niz na svaki render.
+const ORIGIN_WHITELIST = ['*'];
 
 export type PreviewFile = {
   name: string;
@@ -22,6 +26,13 @@ export type PreviewFile = {
 export function FilePreview({ file, onClose }: { file: PreviewFile | null; onClose: () => void }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+
+  // Memoizovan `source` — nova referenca reloaduje WebView (npr. na promenu teme
+  // dok je pregled otvoren). Isti razlog kao na canvas ekranu; ne vraćaj na inline.
+  const pdfSource = useMemo(
+    () => (file ? { uri: file.url } : undefined),
+    [file],
+  );
 
   return (
     <Modal visible={file !== null} animationType="slide" onRequestClose={onClose}>
@@ -64,9 +75,9 @@ export function FilePreview({ file, onClose }: { file: PreviewFile | null; onClo
           />
         ) : file?.kind === 'pdf' ? (
           <WebView
-            source={{ uri: file.url }}
+            source={pdfSource}
             style={styles.web}
-            originWhitelist={['*']}
+            originWhitelist={ORIGIN_WHITELIST}
             startInLoadingState
           />
         ) : null}

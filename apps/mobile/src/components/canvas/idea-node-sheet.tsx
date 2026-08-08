@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   author: {
-    fontSize: 14,
+    fontSize: 16,
   },
   votes: {
     flexDirection: 'row',

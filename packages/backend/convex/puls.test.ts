@@ -440,6 +440,7 @@ describe("getWeekly", () => {
           authorProfileId: owner.profileId,
           title,
           text: title,
+          searchText: `${title}\n${title}`,
           x: 0,
           y: 0,
           color: "violet",

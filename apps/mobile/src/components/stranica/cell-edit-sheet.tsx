@@ -11,13 +11,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/button';
+import { MAX_TABLE_CELL_LENGTH, MAX_TABLE_LABEL_LENGTH } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
-
-// Ogledalo `packages/backend/convex/lib/validators.ts` — vrednosti se ovde
-// mirror-uju (kao u `lib/task-meta.ts`) da RN bundle ne uvlači server modul.
-export const MAX_TABLE_CELL_LENGTH = 2_000;
-export const MAX_TABLE_LABEL_LENGTH = 120;
 
 /**
  * Bottom sheet za izmenu jedne ćelije (spec §9.4: „tap na ćeliju → sheet za
@@ -252,7 +248,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   label: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -276,7 +272,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
   },
   counter: {
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'right',
   },
   actions: {

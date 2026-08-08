@@ -13,6 +13,7 @@ import {
   prepareWorkspacePage,
   validateWorkspacePageTarget,
 } from "./lib/page_creation";
+import { nodeSearchText } from "./lib/pages";
 import {
   cleanRequiredText,
   pageKindValidator,
@@ -62,6 +63,12 @@ const thoughtNodeDocumentValidator = v.object({
   ownerProfileId: v.id("profiles"),
   title: v.union(v.string(), v.null()),
   text: v.string(),
+  // Deo dokumenta otkako je uvedena pretraga (search_thoughts); vlasnički su
+  // ionako scope-ovani, pa denormalizovani blob ne curi van vlasnika.
+  // EXPAND faza: opcionalno da listNodes/getConnectedGroup ne pukne return
+  // validaciju na starim redovima pre backfill-a. Narrow → v.string() zajedno sa
+  // schema.ts (vidi docs/mobile/ZA-POPRAVKU.md).
+  searchText: v.optional(v.string()),
   x: v.number(),
   y: v.number(),
   width: v.optional(v.number()),
@@ -426,6 +433,7 @@ export const createNode = mutation({
       ownerProfileId: profile._id,
       title,
       text,
+      searchText: nodeSearchText(title, text),
       x,
       y,
       color: args.color,
@@ -475,6 +483,7 @@ export const updateNode = mutation({
     await ctx.db.patch("thoughtNodes", node._id, {
       title,
       text,
+      searchText: nodeSearchText(title, text),
       color,
       isParent,
       updatedAt: Date.now(),
@@ -651,6 +660,7 @@ export const duplicateNodes = mutation({
           ownerProfileId: profile._id,
           title: node.title,
           text: node.text,
+          searchText: nodeSearchText(node.title, node.text),
           x: node.x + offsetX,
           y: node.y + offsetY,
           width: node.width,
@@ -1341,6 +1351,7 @@ export const convertToIdeas = mutation({
         authorProfileId: profile._id,
         title: node.title ?? defaultThoughtTitle(node),
         text: node.text,
+        searchText: nodeSearchText(node.title ?? defaultThoughtTitle(node), node.text),
         x: node.x,
         y: node.y,
         color: node.color,

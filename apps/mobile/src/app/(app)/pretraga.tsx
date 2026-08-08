@@ -1,9 +1,20 @@
 import { useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, MessageSquareText, Search, TriangleAlert, X } from 'lucide-react-native';
+import {
+  Brain,
+  ChevronLeft,
+  Lightbulb,
+  MessageSquareText,
+  Search,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,12 +37,13 @@ const DEBOUNCE_MS = 300;
 
 /**
  * Pretraga preko celog ekrana (spec §M3.4). Otvara se iz ikonice u `AppHeader`.
- * Izvori: `search.pages` (grupe „Zadaci" i „Stranice" po `kind`) i
- * `chat.searchMessages` (grupa „Poruke"). Debounce na unosu, autofokus, dva
- * prazna stanja (pre kucanja / bez rezultata).
+ * Pet grupa: „Stranice" i „Zadaci" iz `search.pages` (po `kind`), „Ideje" i
+ * „Misli" iz `search.ideasAndThoughts`, „Poruke" iz `chat.searchMessages`.
+ * Debounce na unosu, autofokus, dva prazna stanja (pre kucanja / bez rezultata).
  *
- * Ideje i misli namerno nisu ovde: `ideaNodes`/`thoughtNodes` nemaju search
- * indeks, a ovaj korak ne sme da dira backend (vidi NOCNI-LOG).
+ * Navigacija je na nivou sekcije (nema deep-linka do čvora): ideja → lista
+ * `/ideje`, misao → kanvas misli. Napomena: embed misli još nije povezan, pa tap
+ * na misao trenutno sleti na „nije povezan" placeholder (vidi NOCNI-LOG).
  */
 export default function PretragaScreen() {
   const colors = useThemeColors();
@@ -41,6 +53,9 @@ export default function PretragaScreen() {
 
   const [text, setText] = useState('');
   const [debounced, setDebounced] = useState('');
+  // Visina headera (sa poljem za pretragu) — offset za `KeyboardAvoidingView`,
+  // pošto KAV pokriva samo telo ispod headera (isti obrazac kao `razgovor`).
+  const [headerHeight, setHeaderHeight] = useState(0);
   const trimmed = text.trim();
 
   useEffect(() => {
@@ -58,6 +73,10 @@ export default function PretragaScreen() {
     api.chat.searchMessages,
     ready ? { startupId: activeStartupId, term: debounced } : 'skip',
   );
+  const nodes = useQuery(
+    api.search.ideasAndThoughts,
+    ready ? { query: debounced, startupId: activeStartupId, limit: 30 } : 'skip',
+  );
 
   const { tasks, otherPages } = useMemo(() => {
     const list = pages ?? [];
@@ -67,12 +86,16 @@ export default function PretragaScreen() {
     };
   }, [pages]);
   const msgs = messages ?? [];
+  const ideas = nodes?.ideas ?? [];
+  const thoughts = nodes?.thoughts ?? [];
 
   // Dok debounce traje (`ready` još false) ili upiti stižu → spiner. Bez ovoga
   // bi se između kucanja i rezultata nakratko video „Nema rezultata".
   // (Grana se čita tek kad je `trimmed >= MIN_CHARS`, pa prazan unos ide na prompt.)
-  const loading = !ready || pages === undefined || messages === undefined;
-  const total = tasks.length + otherPages.length + msgs.length;
+  const loading =
+    !ready || pages === undefined || messages === undefined || nodes === undefined;
+  const total =
+    otherPages.length + tasks.length + ideas.length + thoughts.length + msgs.length;
 
   const openPage = (id: Id<'pages'>, kind: PageKind) => {
     if (kind === 'task') router.push({ pathname: '/zadatak/[id]', params: { id } });
@@ -80,10 +103,21 @@ export default function PretragaScreen() {
   };
   const openChannel = (id: Id<'chatChannels'>) =>
     router.push({ pathname: '/razgovor/[id]', params: { id } });
+  // Nema deep-linka do čvora (ruta prima startupId, ne node id): ideja vodi na
+  // native listu ideja, misao na kanvas misli (embed misli je još placeholder).
+  const openIdeas = () => router.push({ pathname: '/ideje' });
+  const openThoughts = () => {
+    if (activeStartupId === null) return;
+    router.push({
+      pathname: '/canvas/[kind]/[id]',
+      params: { kind: 'thoughts', id: activeStartupId },
+    });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
         style={[
           styles.header,
           { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
@@ -102,7 +136,7 @@ export default function PretragaScreen() {
             onChangeText={setText}
             autoFocus
             accessibilityLabel="Polje za pretragu"
-            placeholder="Pretraži beleške, zadatke, poruke…"
+            placeholder="Pretraži beleške, zadatke, ideje…"
             placeholderTextColor={colors.mutedForeground}
             selectionColor={colors.primary}
             returnKeyType="search"
@@ -120,11 +154,18 @@ export default function PretragaScreen() {
         </View>
       </View>
 
-      {trimmed.length < MIN_CHARS ? (
+      <KeyboardAvoidingView
+        style={styles.body}
+        // Telo se skuplja kad se tastatura otvori, pa poslednji rezultati ostaju
+        // iznad nje. `padding` na oba OS-a: Expo SDK 57 edge-to-edge razbija
+        // Android `adjustResize` (isto kao `razgovor`); offset je visina headera.
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
+        {trimmed.length < MIN_CHARS ? (
         <EmptyState
           icon={<Search size={40} color={colors.mutedForeground} />}
           title="Pronađi ono što ti treba"
-          description="Unesi bar dva slova. Pretražujemo stranice, zadatke i poruke ovog startupa."
+          description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, misli i poruke ovog startupa."
         />
       ) : activeStartupId === null ? (
         // Bez izabranog startupa pretraga nema opseg — jasna poruka umesto
@@ -148,10 +189,14 @@ export default function PretragaScreen() {
         <ScrollView
           contentContainerStyle={[styles.results, { paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          // iOS: uvuci sadržaj iznad tastature da poslednji rezultati ne ostanu
-          // skriveni dok se kuca (Android rešava adjustResize).
-          automaticallyAdjustKeyboardInsets>
+          keyboardDismissMode="on-drag">
+          {otherPages.length > 0 ? (
+            <Section title="Stranice" colors={colors}>
+              {otherPages.map((p) => (
+                <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
+              ))}
+            </Section>
+          ) : null}
           {tasks.length > 0 ? (
             <Section title="Zadaci" colors={colors}>
               {tasks.map((p) => (
@@ -159,10 +204,33 @@ export default function PretragaScreen() {
               ))}
             </Section>
           ) : null}
-          {otherPages.length > 0 ? (
-            <Section title="Stranice" colors={colors}>
-              {otherPages.map((p) => (
-                <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
+          {ideas.length > 0 ? (
+            <Section title="Ideje" colors={colors}>
+              {ideas.map((n) => (
+                <NodeRow
+                  key={n._id}
+                  node={n}
+                  tint={colors.warning}
+                  icon={Lightbulb}
+                  openHint="otvori listu ideja"
+                  colors={colors}
+                  onPress={openIdeas}
+                />
+              ))}
+            </Section>
+          ) : null}
+          {thoughts.length > 0 ? (
+            <Section title="Misli" colors={colors}>
+              {thoughts.map((n) => (
+                <NodeRow
+                  key={n._id}
+                  node={n}
+                  tint={colors.primary}
+                  icon={Brain}
+                  openHint="otvori kanvas misli"
+                  colors={colors}
+                  onPress={openThoughts}
+                />
               ))}
             </Section>
           ) : null}
@@ -175,6 +243,7 @@ export default function PretragaScreen() {
           ) : null}
         </ScrollView>
       )}
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -269,6 +338,51 @@ function MessageRow({
   );
 }
 
+function NodeRow({
+  node,
+  tint,
+  icon: Icon,
+  openHint,
+  colors,
+  onPress,
+}: {
+  node: { title: string | null; text: string };
+  tint: string;
+  icon: LucideIcon;
+  // Tap ne vodi do čvora nego do sekcije — label imenuje ODREDIŠTE (kao
+  // MessageRow: „Otvori razgovor …"), da ekran-čitač ne obeća deep-link.
+  openHint: string;
+  colors: ColorTokens;
+  onPress: () => void;
+}) {
+  const title = node.title?.trim();
+  const body = node.text.trim();
+  // Naslov je opcion — kad ga nema, tekst čvora nosi primarni red (2 reda kao
+  // MessageRow, jer je tada sadržaj a ne kratak naslov).
+  const primary = title || body || 'Bez naslova';
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${primary} — ${openHint}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
+      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+        <Icon size={18} color={tint} />
+      </View>
+      <View style={styles.rowBody}>
+        <Text numberOfLines={title ? 1 : 2} style={[styles.rowTitle, { color: colors.foreground }]}>
+          {primary}
+        </Text>
+        {title && body ? (
+          <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
+            {body}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <PretragaError message={error.message} onRetry={retry} />;
 }
@@ -302,6 +416,7 @@ function PretragaError({ message, onRetry }: { message: string; onRetry: () => v
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  body: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     flexDirection: 'row',
@@ -353,7 +468,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -385,6 +500,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   rowSub: {
-    fontSize: 13,
+    fontSize: 16,
   },
 });

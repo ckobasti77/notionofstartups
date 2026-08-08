@@ -18,20 +18,26 @@ import {
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+// Limiti se čitaju iz kanonskog izvora (isti brojevi na serveru i oba klijenta).
+import {
+  MAX_TABLE_COLUMNS as MAX_COLUMNS,
+  MAX_TABLE_IMPORT_BATCH as IMPORT_BATCH,
+  MAX_TABLE_ROWS as MAX_ROWS,
+} from "@/convex/lib/validators";
 import { normalizeTableMatrix } from "@/lib/csv";
 import { readTableFile } from "@/lib/table-file";
 
-const MAX_COLUMNS = 64;
-const MAX_ROWS = 5_000;
-const IMPORT_BATCH = 200;
 const PREVIEW_ROWS = 6;
 
 export function TableImportDialog({
   pageId,
+  existingRowCount,
   open,
   onOpenChange,
 }: {
   pageId: Id<"pages">;
+  /** Aktivni redovi u tabeli — za proveru „dopuni" prekoračenja pre upisa. */
+  existingRowCount: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -57,13 +63,29 @@ export function TableImportDialog({
     setBusy(true);
     try {
       const rows = await readTableFile(file);
+      // Kolone se mere na SIROVOJ širini (pre nego što `normalizeTableMatrix` iseče
+      // na 64) — inače bi se višak preko limita tiho izgubio, bez poruke.
+      const sourceColumns = rows.reduce((widest, row) => {
+        let lastFilled = 0;
+        for (let index = 0; index < row.length; index += 1) {
+          if ((row[index] ?? "").trim() !== "") lastFilled = index + 1;
+        }
+        return Math.max(widest, lastFilled);
+      }, 0);
+      if (sourceColumns > MAX_COLUMNS) {
+        toast.error(`Fajl ima ${sourceColumns} kolona; granica je ${MAX_COLUMNS}.`);
+        reset();
+        return;
+      }
       const normalized = normalizeTableMatrix(rows, MAX_COLUMNS);
       if (normalized.length === 0) {
         toast.error("U fajlu nema podataka za uvoz.");
         reset();
         return;
       }
-      if (normalized.length > MAX_ROWS) {
+      // Zaglavlje se skida tek u `runImport`, pa se ovde dopušta jedan red slack-a;
+      // tačan zbir (uz „dopuni") proverava autoritativna provera pre upisa niže.
+      if (normalized.length > MAX_ROWS + 1) {
         toast.error(
           `Fajl ima ${normalized.length} redova; granica je ${MAX_ROWS}.`,
         );
@@ -91,6 +113,14 @@ export function TableImportDialog({
     const columns =
       header ??
       Array.from({ length: matrix[0].length }, (_, index) => `Kolona ${index + 1}`);
+
+    // „Dopuni" dodaje na postojeće — zbir se proverava PRE upisa (server bi inače
+    // odbio tek na sredini serija). „Zameni" briše postojeće, pa važi samo fajl.
+    const projectedRows = replace ? dataRows.length : existingRowCount + dataRows.length;
+    if (projectedRows > MAX_ROWS) {
+      toast.error(`Uvoz bi napravio ${projectedRows} redova; granica je ${MAX_ROWS}.`);
+      return;
+    }
 
     setBusy(true);
     setProgress({ done: 0, total: dataRows.length });

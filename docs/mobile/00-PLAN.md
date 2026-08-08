@@ -164,17 +164,44 @@ canvasu, a canvasa imaš tri (thoughts, ideas, area/page).
 - `app/rail-preview/`
 
 Iz njih se izvodi `/embed/canvas/[kind]/[id]` — ista komponenta, bez sidebara,
-bez chrome-a, sa `?token=` autentikacijom i touch-friendly kontrolama.
+bez chrome-a i touch-friendly kontrolama.
 
 Mobilni ekran je onda: native header + WebView + native akcioni rail na dnu.
-Komunikacija ide preko `postMessage`:
+Komunikacija ide preko `postMessage`.
+
+**Auth ne ide kroz URL ni kroz `postMessage` handshake.** Token bi u query stringu
+završio u web access logovima i WebView istoriji, a `ready`→`auth`→`authed` handshake se
+pokazao nepouzdanim (pet rundi debagovanja): most `window.ReactNativeWebView` se ubacuje
+asinhrono, pa prvi `ready`/`auth` promaše pre nego što je embed-ov `message` listener
+zakačen, a retry intervali samo zatrpaju log. Umesto toga native **injektuje token pre
+učitavanja stranice** preko `injectedJavaScriptBeforeContentLoaded`:
 
 ```
-WebView → native:  { type: "node:open", nodeId }   → otvara native detalj
-WebView → native:  { type: "selection", ids }      → menja akcioni rail
-native → WebView:  { type: "theme", mode: "dark" }
-native → WebView:  { type: "focus", nodeId }
+window.__DEVOTION_AUTH__ = { token, theme }
 ```
+
+Embed to pročita **sinhrono na mount-u** (SSR-safe `useLayoutEffect`) i odmah napravi
+Convex klijent — bez `ready`, bez `authed`, bez timeout-a. Injekcija se izvršava pre svih
+skripti stranice (WKUserScript / `evaluateJavascript`), pa nema trke. Otvoreno u običnom
+browseru (nema injekcije) → jasna poruka „radi samo u aplikaciji", ne spiner. Token se
+osvežava kroz most (`{type:"auth"}`) — **nekritičan** put; embed re-autentikuje u mestu
+(bez rebuild-a klijenta, pa subscription i pan/zoom ostaju). Detalji: ZA-POPRAVKU Z2.
+
+Preko mosta ostaju samo žive poruke (handshake tipovi `ready`/`authed` više ne postoje):
+
+```
+injekcija (native → web, pre učitavanja):  window.__DEVOTION_AUTH__ = { token, theme }
+WebView → native:  { type: "node:open", nodeId, node }  → otvara native detalj (node = podaci čvora)
+WebView → native:  { type: "selection", ids, node? }    → menja akcioni rail (node kad je izabran 1)
+native → WebView:  { type: "auth",  token }              → osvežavanje tokena (nekritično)
+native → WebView:  { type: "theme", mode: "dark" }       → živa promena šeme
+native → WebView:  { type: "focus", nodeId }             → centriraj čvor (na zatvaranje detalja)
+native → WebView:  { type: "zoom",  direction }          → rail: uvećaj/umanji
+native → WebView:  { type: "fit" }                       → rail: centriraj sve
+```
+
+`node:open` nosi i podatke čvora, pa native ne mora da radi drugi `ideas.list`
+upit; `selection` sa jednim čvorom pretvara primarno dugme rail-a u „Otvori ideju".
 
 Dobijaš pun canvas na telefonu za ~1 nedelju umesto za mesec i po. Linear, Figma
 i Notion rade istu stvar za svoje najteže poglede.

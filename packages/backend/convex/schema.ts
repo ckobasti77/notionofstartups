@@ -135,6 +135,11 @@ export default defineSchema({
     ownerProfileId: v.id("profiles"),
     title: v.union(v.string(), v.null()),
     text: v.string(),
+    // Denormalizovan title+text za full-text pretragu (search_thoughts). Održava se
+    // na svakom upisu preko nodeSearchText (ideas/thoughts mutacije + backfill).
+    // EXPAND faza: opcionalno dok backfill ne popuni stare redove. Narrow (→ v.string())
+    // tek kada verifySearchTextBackfill vrati remaining 0 — vidi docs/mobile/ZA-POPRAVKU.md.
+    searchText: v.optional(v.string()),
     x: v.number(),
     y: v.number(),
     width: v.optional(v.number()),
@@ -159,7 +164,15 @@ export default defineSchema({
     .index("by_parentThoughtId_and_archivedAt", [
       "parentThoughtId",
       "archivedAt",
-    ]),
+    ])
+    // AUTHZ: misli su PRIVATNE po vlasniku — thoughts.listNodes filtrira po
+    // .eq("ownerProfileId", profile._id). Zato ownerProfileId MORA biti
+    // filterField i upit ga MORA .eq-ovati; filter samo po startupId bi curio
+    // tuđe privatne misli iz istog startupa. Provereno: search.ideasAndThoughts.
+    .searchIndex("search_thoughts", {
+      searchField: "searchText",
+      filterFields: ["ownerProfileId", "startupId", "archivedAt"],
+    }),
 
   thoughtEdges: defineTable({
     startupId: v.id("startups"),
@@ -590,6 +603,11 @@ export default defineSchema({
     authorProfileId: v.id("profiles"),
     title: v.union(v.string(), v.null()),
     text: v.string(),
+    // Denormalizovan title+text za full-text pretragu (search_ideas). Održava se
+    // na svakom upisu preko nodeSearchText (ideas/thoughts mutacije + backfill).
+    // EXPAND faza: opcionalno dok backfill ne popuni stare redove. Narrow (→ v.string())
+    // tek kada verifySearchTextBackfill vrati remaining 0 — vidi docs/mobile/ZA-POPRAVKU.md.
+    searchText: v.optional(v.string()),
     x: v.number(),
     y: v.number(),
     width: v.optional(v.number()),
@@ -613,7 +631,13 @@ export default defineSchema({
     .index("by_parentIdeaId_and_archivedAt", [
       "parentIdeaId",
       "archivedAt",
-    ]),
+    ])
+    // Ideje su zajedničke celoj ekipi (ideas.list filtrira samo po startupId),
+    // pa je filter po startupId dovoljan — za razliku od misli.
+    .searchIndex("search_ideas", {
+      searchField: "searchText",
+      filterFields: ["startupId", "archivedAt"],
+    }),
 
   ideaVotes: defineTable({
     startupId: v.id("startups"),

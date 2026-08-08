@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react-native';
 import { Pressable, StyleSheet } from 'react-native';
 
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius } from '@/theme/tokens';
+import { radius, SHADOW_COLOR } from '@/theme/tokens';
 
 const SIZE = 56;
 
@@ -18,7 +18,7 @@ export function QuickAddFab({ onPress }: { onPress: () => void }) {
         styles.fab,
         {
           backgroundColor: colors.primary,
-          shadowColor: '#000',
+          shadowColor: SHADOW_COLOR,
           opacity: pressed ? 0.9 : 1,
         },
       ]}>

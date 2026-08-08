@@ -18,6 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TableImportDialog } from "@/components/workspace/tables/table-import-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+// Limiti iz kanonskog izvora — isti brojevi kao na serveru i mobilnom.
+import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from "@/convex/lib/validators";
 import { cn } from "@/lib/utils";
 
 type CellAddress = {
@@ -85,6 +87,9 @@ export function PageTablePanel({
 
   const columns = meta.columns;
   const canEditCells = meta.canEditCells;
+  // Klijentske provere limita (server ostaje autoritet). `rowCount` dolazi iz getMeta.
+  const atColumnLimit = columns.length >= MAX_TABLE_COLUMNS;
+  const atRowLimit = meta.rowCount >= MAX_TABLE_ROWS;
 
   async function commitCell(address: CellAddress, value: string) {
     if (busyRef.current) return;
@@ -113,7 +118,8 @@ export function PageTablePanel({
           <Table2 className="size-4 text-primary" aria-hidden="true" />
           Tabela
           <span className="rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground">
-            {rows.length} × {columns.length}
+            {/* Ukupan broj (denormalizovani rowCount), ne samo učitane strane. */}
+            {Math.max(meta.rowCount, rows.length)} × {columns.length}
           </span>
         </h3>
         {meta.canEditStructure ? (
@@ -293,6 +299,17 @@ export function PageTablePanel({
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
                             <DropdownMenuItem
+                              disabled={atRowLimit}
+                              aria-label={
+                                atRowLimit
+                                  ? `Dodaj red ispod — dostignut limit od ${MAX_TABLE_ROWS} redova`
+                                  : undefined
+                              }
+                              title={
+                                atRowLimit
+                                  ? `Tabela može imati najviše ${MAX_TABLE_ROWS} redova.`
+                                  : undefined
+                              }
                               onSelect={() =>
                                 void addRow({
                                   pageId,
@@ -390,9 +407,21 @@ export function PageTablePanel({
         {meta.canEditStructure ? (
           <button
             type="button"
-            className="grid w-10 shrink-0 place-items-center rounded-xl border border-dashed border-border/70 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
-            aria-label="Dodaj kolonu"
-            title="Dodaj kolonu"
+            disabled={atColumnLimit}
+            className={cn(
+              "grid w-10 shrink-0 place-items-center rounded-xl border border-dashed border-border/70 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary",
+              "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+            )}
+            aria-label={
+              atColumnLimit
+                ? `Dostignut limit od ${MAX_TABLE_COLUMNS} kolona`
+                : "Dodaj kolonu"
+            }
+            title={
+              atColumnLimit
+                ? `Tabela može imati najviše ${MAX_TABLE_COLUMNS} kolona.`
+                : "Dodaj kolonu"
+            }
             onClick={() =>
               void addColumn({ pageId }).catch((error) =>
                 toast.error(
@@ -409,9 +438,19 @@ export function PageTablePanel({
       {meta.canEditStructure ? (
         <button
           type="button"
-          className="grid h-10 w-full place-items-center rounded-xl border border-dashed border-border/70 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
-          aria-label="Dodaj red"
-          title="Dodaj red"
+          disabled={atRowLimit}
+          className={cn(
+            "grid h-10 w-full place-items-center rounded-xl border border-dashed border-border/70 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary",
+            "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+          )}
+          aria-label={
+            atRowLimit ? `Dostignut limit od ${MAX_TABLE_ROWS} redova` : "Dodaj red"
+          }
+          title={
+            atRowLimit
+              ? `Tabela može imati najviše ${MAX_TABLE_ROWS} redova.`
+              : "Dodaj red"
+          }
           onClick={() =>
             void addRow({ pageId }).catch((error) =>
               toast.error(
@@ -440,6 +479,7 @@ export function PageTablePanel({
 
       <TableImportDialog
         pageId={pageId}
+        existingRowCount={meta.rowCount}
         open={importOpen}
         onOpenChange={setImportOpen}
       />

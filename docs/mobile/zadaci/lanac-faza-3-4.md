@@ -61,7 +61,11 @@ Pročitaj `docs/mobile/02-EKRANI.md` sekciju 9.4, `packages/backend/convex/pageT
 - Slike i PDF u aplikaciji, ostalo kroz sistemski otvarač
 - Brisanje uz potvrdu
 
-**Izuzetak:** uvoz Excela ostaje web-only. Komentar u kodu sa razlogom.
+**Ispravka:** ranija verzija ovog lanca je rekla da uvoz Excela ostaje web-only —
+to je protivrečilo `02-EKRANI.md` §9.4, koji je merodavan i traži uvoz i na
+mobilnom. Uvoz je implementiran na mobilnom preko `xlsx` (SheetJS) + `expo-file-system`
+(ne `read-excel-file`, koji na RN ne radi). Detalji su u §9.4 i u
+`apps/mobile/src/lib/table-import.ts`.
 
 ---
 

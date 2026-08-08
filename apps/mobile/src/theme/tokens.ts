@@ -177,6 +177,13 @@ export const space = {
 /** Minimalna dodirna meta (iOS smernica; važi i za Android). */
 export const MIN_TOUCH_TARGET = 44;
 
+/**
+ * Boja senke (iOS `shadow*`). Senka je uvek crna u obe teme — Android je crta
+ * kroz `elevation` (bez boje), pa je konstanta, ne token po temi. Ovde da se
+ * `#000` ne bi hardkodovao po komponentama.
+ */
+export const SHADOW_COLOR = '#000000';
+
 export type ThemeName = 'light' | 'dark';
 
 export const themes: Record<ThemeName, ColorTokens> = {

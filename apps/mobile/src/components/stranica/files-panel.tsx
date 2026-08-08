@@ -27,7 +27,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, SHADOW_COLOR, type ColorTokens } from '@/theme/tokens';
 
 type FileCategory = 'image' | 'video' | 'pdf' | 'audio' | 'sheet' | 'document';
 
@@ -115,6 +115,12 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
       Alert.alert('Dozvola', 'Pristup kameri je odbijen.');
       return;
     }
+    // Namerno `expo-image-picker`, ne `expo-camera` (spec je tražio `expo-camera`):
+    // `launchCameraAsync` otvara sistemsku kameru za jedan snimak i vraća ga
+    // spremnog za upload — bez custom preview sloja, dozvola i lifecycle-a koje
+    // `expo-camera` nosi. Lakše i dovoljno za „uslikaj prilog".
+    // Posledica: snimanje VIDEA iz aplikacije nije moguće (samo foto); video se i
+    // dalje može priložiti iz galerije.
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (result.canceled) return;
     const asset = result.assets[0];
@@ -361,7 +367,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   sub: {
-    fontSize: 13,
+    fontSize: 16,
   },
   deleteBtn: {
     width: MIN_TOUCH_TARGET,
@@ -379,7 +385,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: SHADOW_COLOR,
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },

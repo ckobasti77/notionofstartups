@@ -15,7 +15,7 @@ import {
   validateWorkspacePageTarget,
   workspaceCanvasPreview,
 } from "./lib/page_creation";
-import { pageSearchText } from "./lib/pages";
+import { nodeSearchText, pageSearchText } from "./lib/pages";
 import { reconcileTaskAssignees } from "./lib/task_assignees";
 import {
   cleanRequiredText,
@@ -320,6 +320,7 @@ export const create = mutation({
       authorProfileId: profile._id,
       title: cleanedTitle,
       text: cleanedText,
+      searchText: nodeSearchText(cleanedTitle, cleanedText),
       x: args.x ?? Math.round((Math.random() - 0.5) * 300),
       y: args.y ?? Math.round((Math.random() - 0.5) * 300),
       color: args.color ?? "violet",
@@ -549,6 +550,7 @@ export const update = mutation({
     await ctx.db.patch(args.ideaId, {
       title,
       text,
+      searchText: nodeSearchText(title, text),
       color: args.color,
       updatedAt: Date.now(),
     });

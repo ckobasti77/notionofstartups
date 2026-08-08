@@ -98,6 +98,16 @@ export function pageSearchText(title: string, content: string) {
   return `${title}\n${content}`.slice(0, 16_000);
 }
 
+/**
+ * Denormalizovan tekst za full-text pretragu čvorova ideja i misli. Naslov im je
+ * `string | null`, pa se null tretira kao prazan. Isti izvor istine mora da se
+ * koristi i na upisu (ideas/thoughts mutacije) i u backfill migraciji, da indeks
+ * i podaci nikad ne razlaze. Paralela `pageSearchText` za `pages`.
+ */
+export function nodeSearchText(title: string | null, text: string) {
+  return `${title ?? ""}\n${text}`.slice(0, 16_000);
+}
+
 export function pageTaskSortAt(dueDate: number | null, updatedAt: number) {
   return dueDate ?? 8_000_000_000_000_000 - updatedAt;
 }

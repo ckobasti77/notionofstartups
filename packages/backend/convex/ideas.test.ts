@@ -112,6 +112,7 @@ async function seedIdeasConversionWorkspace() {
         authorProfileId: author.profileId,
         title,
         text,
+        searchText: `${title}\n${text}`,
         x: 0,
         y: 0,
         color: "violet",

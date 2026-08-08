@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   rowAuthor: {
-    fontSize: 13,
+    fontSize: 16,
     marginTop: 2,
   },
   voteCol: {
@@ -324,7 +324,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   pillCount: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
