@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { getAvailableCanvasPosition } from "../canvasPlacement";
 import { recordActivity } from "./activity";
 import { requireProfileInStartup } from "./auth";
 import { insertContribution } from "./collaboration";
@@ -264,13 +265,32 @@ export async function insertWorkspacePage(
     content: args.page.content,
     updatedAt: args.now,
   });
+  // Ne-preklapajuća pozicija umesto tvrdo kodiranog (0,0): bez ovoga se SVAKA
+  // stranica napravljena sa kanvasa slaže na koordinatni početak i „nestane" pod
+  // prethodnima. Web `areasV2.createPage` posle ovoga upiše svoju poziciju
+  // (upsertPlacement), pa tu ostaje merodavna; direktni pozivaoci
+  // (`pages.create` — mobilni kanvas, `thoughts` konverzija) dobijaju baš ovu.
+  // Ako je kanvas prepun za auto-raspored, degradiraj na (0,0) umesto pada.
+  let placementX = 0;
+  let placementY = 0;
+  try {
+    const available = await getAvailableCanvasPosition(ctx, {
+      startupId: args.target.startupId,
+      areaId: args.target.areaId,
+      rootPageId: args.target.parentPageId,
+    });
+    placementX = available.x;
+    placementY = available.y;
+  } catch {
+    // Kanvas ima previše stavki za automatski raspored — zadrži (0,0).
+  }
   await ctx.db.insert("pageCanvasPlacements", {
     startupId: args.target.startupId,
     areaId: args.target.areaId,
     rootPageId: args.target.parentPageId,
     pageId,
-    x: 0,
-    y: 0,
+    x: placementX,
+    y: placementY,
     updatedByProfileId: args.actorProfileId,
     createdAt: args.now,
     updatedAt: args.now,

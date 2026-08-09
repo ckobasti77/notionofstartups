@@ -7,6 +7,10 @@ import {
   DEFAULT_CANVAS_NODE_HEIGHT,
   DEFAULT_CANVAS_NODE_WIDTH,
   findAvailableCanvasPosition,
+  getAvailableCanvasPosition,
+  getPlacement,
+  MAX_CANVAS_PAGES,
+  type CanvasRoot,
 } from "./canvasPlacement";
 import { recordActivity } from "./lib/activity";
 import {
@@ -70,7 +74,6 @@ import {
   validateTaskDueDate,
 } from "./lib/validators";
 
-const MAX_CANVAS_PAGES = 200;
 const MAX_CANVAS_EDGES = 400;
 const MAX_RELATIONS_PER_AREA = 400;
 const MAX_RELATION_CANDIDATES = 100;
@@ -89,7 +92,6 @@ const MAX_NESTING_INBOX_ITEMS = 100;
 const MAX_LEGACY_AREA_EDGE_ROWS = 1_000;
 
 type ReadCtx = QueryCtx | MutationCtx;
-type CanvasRoot = Id<"pages"> | null;
 
 const rootPageIdValidator = v.union(v.id("pages"), v.null());
 const nestingStatusValidator = v.union(
@@ -347,94 +349,6 @@ async function getPageBody(ctx: ReadCtx, pageId: Id<"pages">) {
     .query("pageBodies")
     .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
     .unique();
-}
-
-async function getPlacement(ctx: ReadCtx, pageId: Id<"pages">) {
-  return await ctx.db
-    .query("pageCanvasPlacements")
-    .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-    .unique();
-}
-
-async function getAvailableCanvasPosition(
-  ctx: ReadCtx,
-  args: {
-    startupId: Id<"startups">;
-    areaId: Id<"startupAreas">;
-    rootPageId: CanvasRoot;
-    excludePageId?: Id<"pages">;
-    excludeRequestId?: Id<"pageNestingRequests">;
-    width?: number;
-    height?: number;
-  },
-) {
-  const rootPageId = args.rootPageId;
-  const [placements, pendingRequests] = await Promise.all([
-    ctx.db
-      .query("pageCanvasPlacements")
-      .withIndex(
-        "by_startupId_and_areaId_and_rootPageId",
-        (q) =>
-          q
-            .eq("startupId", args.startupId)
-            .eq("areaId", args.areaId)
-            .eq("rootPageId", rootPageId),
-      )
-      .take(MAX_CANVAS_PAGES + 1),
-    rootPageId === null
-      ? Promise.resolve([])
-      : ctx.db
-          .query("pageNestingRequests")
-          .withIndex(
-            "by_targetParentPageId_and_status_and_createdAt",
-            (q) =>
-              q
-                .eq("targetParentPageId", rootPageId)
-                .eq("status", "pending"),
-          )
-          .take(MAX_CANVAS_PAGES + 1),
-  ]);
-  if (
-    placements.length > MAX_CANVAS_PAGES ||
-    pendingRequests.length > MAX_CANVAS_PAGES
-  ) {
-    throw new Error("Kanvas ima previše stavki za automatski raspored.");
-  }
-  const pendingPlacements = await Promise.all(
-    pendingRequests.map((request) => getPlacement(ctx, request.childPageId)),
-  );
-
-  return findAvailableCanvasPosition(
-    [
-      ...placements
-        .filter((placement) => placement.pageId !== args.excludePageId)
-        .map((placement) => ({
-          x: placement.x,
-          y: placement.y,
-          width: placement.width,
-          height: placement.height,
-        })),
-      ...pendingRequests.flatMap((request, index) => {
-        if (
-          request._id === args.excludeRequestId ||
-          request.startupId !== args.startupId ||
-          request.areaId !== args.areaId ||
-          request.proposedX === undefined ||
-          request.proposedY === undefined
-        ) {
-          return [];
-        }
-        const placement = pendingPlacements[index];
-        return [{
-          x: request.proposedX,
-          y: request.proposedY,
-          width: placement?.width,
-          height: placement?.height,
-        }];
-      }),
-    ],
-    { width: args.width, height: args.height },
-  );
 }
 
 async function upsertPlacement(
