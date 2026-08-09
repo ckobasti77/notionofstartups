@@ -231,3 +231,106 @@ nova funkcija, nijedna izmena šeme. Editor koristi postojeći `areasV2.updatePa
 - Izvršavanje: prošlo
 - `npm run check`: **prolazi**
 - `npm test`: prolazi
+- Commit: `d4789a1`
+- Dirnuto fajlova: 21
+
+---
+
+### Revizija: Faza 4 — ekrani koji fale
+
+Sve sedam tačaka je obrađeno: šest native, sedma (`workspace-history`) odbijena i
+zapisana kao izuzetak, što prompt izričito dozvoljava. Dva pravila iz podnožja
+prompta su prekršena: dva nova zaglavlja su sklopljena ručno umesto kroz `Row`, a
+pet novih akcija ima tekst na 14px.
+
+**Provereno:** `npm run check` prolazi (izlaz 0), `npx tsc --noEmit -p apps/mobile/tsconfig.json`
+prolazi (izlaz 0). Ništa nije pokrenuto na uređaju ni emulatoru.
+
+#### 1. Tačka po tačka
+
+| Tačka | Ocena | Dokaz |
+|---|---|---|
+| 1. `home-view` → početni pregled | **URAĐENO** | `components/danas/day-summary.tsx:28-117` (pozdrav + 3 brojača sa skeletom), render `danas.tsx:365-370`, brojači `danas.tsx:187-203`. Odluka („proširuje se Danas, ne pravi se nov ekran") je obrazložena u telu commita `aadc176` i u `02-EKRANI.md:146-160` sa tabelom gde je koji deo `home-view` otišao. `command-center-view` je već pokriven tabom Danas iz Faze 2. |
+| 2. `area-briefing-dock` → brifing oblasti | **URAĐENO** | `components/prostor/area-briefing-section.tsx:40-195`, ulaz `prostor.tsx:175-176`. Čita `areasV2.getAreaCanvasByArea → scope.briefing`, upisuje `areasV2.updateAreaBody` sa `expectedRevision` (`:106-111`) — isti model kao web (`area-briefing-dock.tsx:46`). Snima na blur (`:165`) i dugmetom (`:185-192`), read-only grana za ne-kreatora (`:130-147`), limit 20.000 se poklapa sa `areasV2.ts:89`. |
+| 3. `workload-strip` → opterećenje tima | **URAĐENO** | `components/danas/workload-strip.tsx:34-114`, render `danas.tsx:329-337`. Brojači se računaju iz svih otvorenih zadataka (`danas.tsx:121-166`), filter samo u segmentu „Pregled" (`:188-198`), reset na promenu startupa (`:206-208`), prazno stanje sa „Prikaži sve" (`:341-348`). Traka je van skrola liste, kako doc i tvrdi. Ponašanje se poklapa sa web `workload-strip.tsx:49-79`. |
+| 4. `page-relations` → veze između stranica | **URAĐENO** | `components/stranica/relations-section.tsx:34-217`; ulaz na stranici `stranica/[id].tsx:93-98`, na zadatku `zadatak/[id].tsx:257-264`. Otvaranje druge strane `:158-164`, brisanje/glasanje po serverskim dozvolama `:70-103` (`areasV2.deleteRelation` / `collaboration.requestDeletion` sa `page_relation`). Pravljenje veze nije duplirano — `PageActionsSheet` je dobio `initialView` (`page-actions-sheet.tsx:35,60-80`) i otvara se pravo na koraku `relate`. |
+| 5. `workspace-history` → istorija kretanja | **URAĐENO (izuzetak)** | `02-EKRANI.md:602-637` — nov §13 sa tri razloga (nema `keydown` okidača, nema proizvođača jer canvasi na mobilnom nisu za preuređivanje, stek nije trajan) i onim što mobilni radi umesto toga. Prompt dozvoljava ovaj ishod. Tvrdnje su tačne: `workspace-history.tsx` je zaista undo/redo stek na `window.addEventListener("keydown")`, ne istorija navigacije. |
+| 6. `profile-dialog` → profil | **URAĐENO** | `app/(app)/profil.tsx:44-285`; ruta `_layout.tsx:49-50`, ulazi `vise.tsx:58` i `app-header.tsx:99-101` (avatar u zaglavlju je dotad bio mrtvo dugme sa praznim `onPress`). Galerija + kamera `:126-160`, upload `:101-124` (`storage.generateAvatarUploadUrl` → `setAvatar`), uklanjanje slike `:162-178`, ime `:88-99`, email/uloga kroz `Row` `:264-275`. |
+| 7. `idea-discussion-dialog` → diskusija na ideji | **URAĐENO** | `app/(app)/ideja/[id].tsx:40-150` + `components/ideja/contribution-thread.tsx:41-335`. Sve mutacije koje web koristi osim `restoreOwnContribution` (svesno izostavljen jer nema toast-undo — `02-EKRANI.md:511-512`). Moderacija `:235-252`, status po tekstu `:193-197`, uređivanje `:200-225`, brisanje/glasanje `:102-135`. Dva ulaza: `ideje.tsx:120` i `idea-node-sheet.tsx:103`. |
+| Bez nove backend funkcije | **POŠTOVANO** | `git diff 90008a4..HEAD -- packages/backend` je prazan — ni `_generated`. Dva nedostajuća podatka su zapisana u `ZA-POPRAVKU.md:181` (agregatni brojači za „Napredak %") i `:205` (jeftin upit za brifing). |
+
+#### 2. Napravljeno a nije traženo
+
+- `components/ideja/vote-buttons.tsx` (137 linija) — dugmad za glasanje izvučena iz
+  `ideje.tsx` i `idea-node-sheet.tsx`; te dve kopije su obrisane (−54 i −44 linije).
+  Neto je manje koda, ali refaktor nije bio u promptu.
+- Kartica ideje u listi je postala tapljiva (`ideje.tsx:118-127`) — obrnuta odluka iz
+  ranije faze („kartica je namerno nedodirljiva jer nema ekrana detalja"), sada
+  ispravna jer ekran postoji.
+- Dugme „Diskusija" u sheet-u čvora na canvasu (`idea-node-sheet.tsx:97-115`).
+- `initialView` u `PageActionsSheet` + `useEffect` reset koraka na svako otvaranje
+  (`page-actions-sheet.tsx:76-80`).
+- Red „Uloga" na profilu (`profil.tsx:270-275`) — web `profile-dialog` ga nema.
+- `ErrorBoundary` na oba nova ekrana (`profil.tsx:319-338`, `ideja/[id].tsx:186-205`).
+
+#### 3. Nedovršeno (placeholderi, TODO, `return null`)
+
+Nema ničega. Nijedan `TODO`/`FIXME`, nijedna prazna komponenta, nijedan stub u
+diffu. Jedini `return null` je `danas.tsx:188` (brojači dok zadaci stižu) — čuvar
+za skeleton, ne stub. Jedini `placeholder` je prop `TextInput`-a
+(`contribution-thread.tsx:300`).
+
+#### 4. Pravilo „svaki novi red kroz `components/ui/row.tsx`"
+
+**Dva kršenja**, oba istog oblika koji je već prijavljen u reviziji Faze 3
+(`subpages-section.tsx`) — dodirno zaglavlje kolapsibilne sekcije sklopljeno ručno:
+
+- `area-briefing-section.tsx:52-66` (stil `:201-207`) — strelica + ikonica + naslov.
+- `relations-section.tsx:112-132` (stil `:223-229`) — isto, plus pilula sa brojem.
+
+`Row` pokriva oba oblika bez izmene: `leading` (strelica), `icon`, `title`,
+`value` (pilula), `showChevron={false}` — `row.tsx:24,29,43,49`.
+
+Ostale nove `flexDirection:'row'` pojave nisu redovi liste: čipovi trake
+(`workload-strip.tsx:185`), kolone brojača (`day-summary.tsx:132`), par dugmadi
+(`profil.tsx:391`, `contribution-thread.tsx:418`), zaglavlja ekrana
+(`profil.tsx:352`, `ideja/[id].tsx:219`), glava kartice doprinosa
+(`contribution-thread.tsx:382`), omotač reda veze (`relations-section.tsx:251`,
+`Row` + dugme za uklanjanje). Tamo gde red liste zaista postoji, `Row` je
+upotrebljen: `relations-section.tsx:151`, `profil.tsx:264,270`.
+
+#### 5. Pravilo „tekst min 16px osim meta"
+
+Prekršeno na akcijama, ne na meta tekstu. `Button size="sm"` renderuje label na
+**14px** (`ui/button.tsx:47`), a novi kod ga koristi za prave akcije:
+„Sačuvaj brifing" (`area-briefing-section.tsx:188`), „Iz galerije" / „Slikaj"
+(`profil.tsx:204,211`), „Otkaži" / „Sačuvaj" / „Objavi" / „Učitaj još"
+(`contribution-thread.tsx:214,219,290,308,317`).
+
+Objašnjenja u telu teksta su na 13px (`text.meta`), što je ivica pravila:
+`profil.tsx:277-280` (dva reda proze o emailu i ulozi), `:251`, `ideja/[id].tsx:142-144`,
+`area-briefing-section.tsx:142-144`. Web na istim mestima koristi `text-xs`, pa je
+paritet zadržan — ali „osim meta" ovo ne pokriva.
+
+#### 6. Ostale primedbe
+
+- **Uvodna kartica se ne vidi kad nema zadataka.** `DaySummary` je unutar grane sa
+  listom (`danas.tsx:365`), a prazan dan ide u `EmptyState` (`:349-357`) — pozdrav i
+  brojači `0/0/0` tada nestanu. Web `home-view` zaglavlje uvek stoji.
+- **„Spisak tima" iz `home-view` nije pun pandan.** Tabela u `02-EKRANI.md:154`
+  upućuje na „Više → Članovi", a ta stavka je `adminOnly: true` (`vise.tsx:59`) — običan
+  član tim vidi samo kroz traku opterećenja (ime + avatar, bez emaila i „Admin" oznake).
+- **Tim veći od 50 ljudi tiho gubi brojače.** `startups.listMembers` se zove sa
+  `limit: 50` (`danas.tsx:83`), a zadatak dodeljen članu van tog spiska se odbacuje
+  (`danas.tsx:150-153`) — ne uđe ni u jedan čip, pa ni u „Nedodeljeno". Web ima isti
+  limit, ali mobilni na osnovu njega još i računa.
+- **`members` je sada stalna pretplata** na tabu Danas (ranije samo kad se otvori meni
+  akcije, `danas.tsx:−226`). Obrazloženo u komentaru, ali je to nova pretplata na
+  najčešće otvaranom ekranu.
+- **Naslov veze bez razlikovanja duplikata.** Web `page-relations.tsx:324`
+  (`occurrenceLabel`) razlikuje dve veze istog naslova; mobilni ne.
+- Dok `startups.get` stiže, veza iz druge oblasti se ispisuje kao „druga oblast"
+  (`relations-section.tsx:68`) — kozmetički, ispravi se sam.
+- `profil.tsx:330` koristi `colors.destructive`, ostatak fajla `colors.danger` —
+  nedoslednost u tokenima (oba postoje).
+- Trajanje: nije mereno u ovoj reviziji.
