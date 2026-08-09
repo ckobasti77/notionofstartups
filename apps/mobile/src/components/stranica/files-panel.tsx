@@ -12,22 +12,26 @@ import {
   ImagePlus,
   Paperclip,
   Plus,
-  Sheet,
+  // Ikonica tabele; alias jer `Sheet` je i naš bottom-sheet primitiv.
+  Sheet as SheetIcon,
   Trash2,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilePreview, type PreviewFile } from '@/components/stranica/file-preview';
 import { FAB } from '@/components/ui/fab';
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -38,7 +42,7 @@ const CATEGORY_META: Record<FileCategory, { icon: LucideIcon; label: string }> =
   video: { icon: FileVideo, label: 'Video' },
   pdf: { icon: FileText, label: 'PDF' },
   audio: { icon: FileAudio, label: 'Audio' },
-  sheet: { icon: Sheet, label: 'Tabela' },
+  sheet: { icon: SheetIcon, label: 'Tabela' },
   document: { icon: FileIcon, label: 'Dokument' },
 };
 
@@ -178,10 +182,13 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   }
 
   if (files === undefined) {
+    // Oblik reda priloga: ikonica vrste 40 + naziv + veličina.
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje priloga" />
-      </View>
+      <SkeletonList
+        count={4}
+        style={styles.list}
+        item={(index) => <SkeletonRow index={index} leading="square" subtitle />}
+      />
     );
   }
 
@@ -240,7 +247,10 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
           icon={Plus}
           accessibilityLabel="Dodaj prilog"
           busy={uploading}
-          onPress={() => setMenuOpen(true)}
+          onPress={() => {
+            haptics.tap();
+            setMenuOpen(true);
+          }}
           style={{ bottom: insets.bottom + 16 }}
         />
       ) : null}
@@ -248,7 +258,6 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
       <AddMenu
         open={menuOpen}
         colors={colors}
-        insetBottom={insets.bottom}
         onLibrary={pickFromLibrary}
         onCamera={pickFromCamera}
         onDocument={pickDocument}
@@ -263,7 +272,6 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
 function AddMenu({
   open,
   colors,
-  insetBottom,
   onLibrary,
   onCamera,
   onDocument,
@@ -271,51 +279,42 @@ function AddMenu({
 }: {
   open: boolean;
   colors: ColorTokens;
-  insetBottom: number;
   onLibrary: () => void;
   onCamera: () => void;
   onDocument: () => void;
   onClose: () => void;
 }) {
+  const pick = (action: () => void) => () => {
+    haptics.tap();
+    action();
+  };
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
+    // Tri reda bez skrola — prevlačenje hvata ceo sheet.
+    <Sheet visible={open} onClose={onClose} dragAnywhere>
+      <Row
+        icon={<ImagePlus size={22} color={colors.foreground} />}
+        title="Iz galerije"
+        onPress={pick(onLibrary)}
+        showChevron={false}
       />
-      <View
-        style={[
-          styles.menu,
-          { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insetBottom + 12 },
-        ]}>
-        <Row
-          icon={<ImagePlus size={22} color={colors.foreground} />}
-          title="Iz galerije"
-          onPress={onLibrary}
-          showChevron={false}
-        />
-        <Row
-          icon={<Camera size={22} color={colors.foreground} />}
-          title="Slikaj kamerom"
-          onPress={onCamera}
-          showChevron={false}
-        />
-        <Row
-          icon={<FileIcon size={22} color={colors.foreground} />}
-          title="Iz dokumenata"
-          onPress={onDocument}
-          showChevron={false}
-        />
-      </View>
-    </Modal>
+      <Row
+        icon={<Camera size={22} color={colors.foreground} />}
+        title="Slikaj kamerom"
+        onPress={pick(onCamera)}
+        showChevron={false}
+      />
+      <Row
+        icon={<FileIcon size={22} color={colors.foreground} />}
+        title="Iz dokumenata"
+        onPress={pick(onDocument)}
+        showChevron={false}
+      />
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: {
     padding: 16,
     paddingTop: 8,
@@ -352,24 +351,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 4,
     borderRadius: radius.control,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
-    paddingHorizontal: 12,
   },
 });

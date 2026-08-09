@@ -13,10 +13,13 @@ import {
 } from 'react-native';
 
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindMeta } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
@@ -64,7 +67,10 @@ export function SubpagesSection({
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         accessibilityLabel={`Podstranice${countLabel ? `, ${countLabel}` : ''}`}
-        onPress={() => setExpanded((v) => !v)}
+        onPress={() => {
+          haptics.select();
+          setExpanded((v) => !v);
+        }}
         style={({ pressed }) => [styles.header, pressed && { backgroundColor: colors.muted }]}>
         {expanded ? (
           <ChevronDown size={18} color={colors.mutedForeground} />
@@ -81,6 +87,18 @@ export function SubpagesSection({
 
       {expanded ? (
         <View style={styles.body}>
+          {/* Dok prva strana stiže: redovi u obliku podstranica, pa crossfade. */}
+          <LoadingSwap
+            loading={loading}
+            fill={false}
+            skeleton={
+              <SkeletonList
+                count={3}
+                style={styles.list}
+                item={(index) => <SkeletonRow index={index} leading="icon" />}
+              />
+            }>
+          {loading ? null : (
           <ScrollView
             style={{ maxHeight: Math.round(windowHeight * 0.42) }}
             nestedScrollEnabled
@@ -112,6 +130,8 @@ export function SubpagesSection({
               );
             })}
           </ScrollView>
+          )}
+          </LoadingSwap>
 
           {status === 'LoadingMore' ? (
             <View style={styles.more}>
@@ -134,7 +154,10 @@ export function SubpagesSection({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Nova podstranica"
-            onPress={() => setCreateOpen(true)}
+            onPress={() => {
+              haptics.tap();
+              setCreateOpen(true);
+            }}
             style={({ pressed }) => [
               styles.addBtn,
               { borderColor: colors.border },

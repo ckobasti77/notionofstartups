@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 
 import { ActiveStartupProvider } from '@/context/active-startup';
+import { useStackAnimation } from '@/hooks/use-stack-animation';
 import { usePushRegistration } from '@/lib/notifications/register';
 import { useNotificationTargetNavigation } from '@/lib/notifications/use-notification-target';
 
@@ -12,12 +13,13 @@ import { useNotificationTargetNavigation } from '@/lib/notifications/use-notific
 export default function AppLayout() {
   // Tek po prijavi: registruj uređaj za push i (na Androidu) napravi kanale.
   usePushRegistration();
+  const screenOptions = useStackAnimation();
 
   return (
     <ActiveStartupProvider>
       {/* Otvara zapamćeni cilj obaveštenja — mora unutar ActiveStartupProvider-a. */}
       <NotificationTargetNavigator />
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={screenOptions}>
         <Stack.Screen name="(tabs)" />
         {/* Canvas (WebView) — swipe-back isključen da se ne bije sa horizontalnim
             pan-om WebView-a (§9.3); „nazad" je dugme u zaglavlju. */}

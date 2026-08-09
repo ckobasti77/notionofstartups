@@ -1,12 +1,13 @@
 import { ChevronRight, Pencil, X } from 'lucide-react-native';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Sheet } from '@/components/ui/sheet';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, text } from '@/theme/tokens';
+import { fontWeight, text } from '@/theme/tokens';
 
 const MAX_INSTRUCTIONS = 20_000; // ogledalo `MAX_TASK_INSTRUCTIONS_LENGTH`
 
@@ -25,18 +26,19 @@ export function InstructionsSection({
   onSave: (text: string | null) => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const text = instructions?.trim() ?? '';
   const [expanded, setExpanded] = useState(text.length > 0);
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState('');
 
   const openEditor = () => {
+    haptics.tap();
     setDraft(text);
     setEditOpen(true);
   };
   const save = () => {
     const next = draft.trim();
+    haptics.success();
     onSave(next.length > 0 ? next : null);
     setEditOpen(false);
   };
@@ -80,56 +82,34 @@ export function InstructionsSection({
         )
       ) : null}
 
-      <Modal
+      <Sheet
         visible={editOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditOpen(false)}>
-        <Pressable
-          accessibilityLabel="Zatvori"
-          style={styles.backdrop}
-          onPress={() => setEditOpen(false)}
+        onClose={() => setEditOpen(false)}
+        avoidKeyboard
+        style={styles.sheet}>
+        <View style={styles.sheetHeader}>
+          <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Instrukcije</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Zatvori"
+            onPress={() => setEditOpen(false)}
+            hitSlop={8}
+            style={styles.sheetClose}>
+            <X size={20} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
+        <Input
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Opiši šta treba uraditi…"
+          multiline
+          autoFocus
+          maxLength={MAX_INSTRUCTIONS}
+          style={styles.input}
+          accessibilityLabel="Tekst instrukcija"
         />
-        <KeyboardAvoidingView
-          // `padding` na oba: Expo SDK 57 edge-to-edge (Android) razbija OS
-          // `adjustResize` (isto kao quick-add-sheet / razgovor).
-          behavior="padding"
-          style={styles.kav}
-          pointerEvents="box-none">
-          <View
-            style={[
-              styles.sheet,
-              {
-                backgroundColor: colors.popover,
-                borderColor: colors.border,
-                paddingBottom: insets.bottom + 12,
-              },
-            ]}>
-            <View style={styles.sheetHeader}>
-              <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Instrukcije</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Zatvori"
-                onPress={() => setEditOpen(false)}
-                hitSlop={8}
-                style={styles.sheetClose}>
-                <X size={20} color={colors.mutedForeground} />
-              </Pressable>
-            </View>
-            <Input
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Opiši šta treba uraditi…"
-              multiline
-              autoFocus
-              maxLength={MAX_INSTRUCTIONS}
-              style={styles.input}
-              accessibilityLabel="Tekst instrukcija"
-            />
-            <Button label="Sačuvaj" onPress={save} fullWidth style={styles.save} />
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        <Button label="Sačuvaj" onPress={save} fullWidth style={styles.save} />
+      </Sheet>
     </View>
   );
 }
@@ -166,23 +146,7 @@ const styles = StyleSheet.create({
   empty: {
     ...text.body,
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  kav: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
     paddingHorizontal: 20,
   },
   sheetHeader: {

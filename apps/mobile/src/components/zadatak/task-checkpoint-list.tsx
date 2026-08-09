@@ -1,12 +1,14 @@
 import { useMutation, useQuery } from 'convex/react';
-import * as Haptics from 'expo-haptics';
 import { Check, Circle, ListChecks, Lock, Pencil, Plus, Trash2, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { MAX_TASK_CHECKPOINTS } from '@/lib/task-meta';
 import type { TaskCheckpoint } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -55,11 +57,15 @@ export function TaskCheckpointList({
   const [editingId, setEditingId] = useState<Id<'taskCheckpoints'> | null>(null);
   const [editingText, setEditingText] = useState('');
 
-  const notifyError = (error: unknown) =>
+  const notifyError = (error: unknown) => {
+    haptics.error();
     Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+  };
 
   const toggle = (item: TaskCheckpoint) => {
-    void Haptics.selectionAsync();
+    // Prekidač je optimističan (vidi `withOptimisticUpdate` gore), pa je i haptika
+    // odmah — potvrda servera ne dodaje drugi signal, samo greška.
+    haptics.select();
     void setCompleted({ checkpointId: item._id, completed: !item.completed }).catch(notifyError);
   };
 
@@ -67,8 +73,10 @@ export function TaskCheckpointList({
     const text = draft.trim();
     if (!text || creating || (checkpoints && checkpoints.length >= MAX_TASK_CHECKPOINTS)) return;
     setCreating(true);
+    haptics.tap();
     try {
       await create({ taskPageId, text });
+      haptics.success();
       setDraft('');
     } catch (error) {
       notifyError(error);
@@ -83,26 +91,42 @@ export function TaskCheckpointList({
       setEditingId(null);
       return;
     }
-    void updateText({ checkpointId: item._id, text }).catch(notifyError);
+    void updateText({ checkpointId: item._id, text })
+      .then(() => haptics.success())
+      .catch(notifyError);
     setEditingId(null);
   };
 
   const remove = (item: TaskCheckpoint) => {
+    haptics.warning();
     Alert.alert('Obriši checkpoint', `„${item.text}"`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Obriši',
         style: 'destructive',
-        onPress: () => void archiveOwn({ checkpointId: item._id }).catch(notifyError),
+        onPress: () =>
+          void archiveOwn({ checkpointId: item._id })
+            .then(() => haptics.success())
+            .catch(notifyError),
       },
     ]);
   };
 
   if (checkpoints === undefined) {
+    // Oblik liste: zaglavlje sa brojačem, pa tri reda sa kvadratićem i tekstom.
     return (
       <View style={styles.section}>
         <SectionHeader completed={0} total={0} colors={colors} />
-        <View style={[styles.loadingRow, { backgroundColor: colors.muted }]} />
+        <SkeletonList
+          count={3}
+          gap={8}
+          item={(index) => (
+            <View style={styles.skeletonRow}>
+              <Skeleton width={22} height={22} borderRadius={radius.sm} />
+              <Skeleton width={index % 2 === 0 ? '62%' : '48%'} height={15} />
+            </View>
+          )}
+        />
       </View>
     );
   }
@@ -333,10 +357,11 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: radius.full,
   },
-  loadingRow: {
-    height: 44,
-    borderRadius: radius.lg,
-    opacity: 0.6,
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: MIN_TOUCH_TARGET,
   },
   addRow: {
     flexDirection: 'row',

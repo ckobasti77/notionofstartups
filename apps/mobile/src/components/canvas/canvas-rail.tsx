@@ -2,6 +2,7 @@ import { Crosshair, ZoomIn, ZoomOut } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -65,7 +66,10 @@ export function CanvasRail({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={primaryAction.label}
-          onPress={primaryAction.onPress}
+          onPress={() => {
+            haptics.tap();
+            primaryAction.onPress();
+          }}
           style={({ pressed }) => [
             styles.createBtn,
             { backgroundColor: colors.primary },
@@ -98,7 +102,11 @@ function RailIcon({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      onPress={onPress}
+      // Zoom/centriranje su podešavanje pogleda, ne akcija — najtiši signal.
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.railIcon,
         { borderColor: colors.border },

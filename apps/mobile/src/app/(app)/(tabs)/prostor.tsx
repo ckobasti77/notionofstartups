@@ -27,13 +27,18 @@ import { AreaBriefingSection } from '@/components/prostor/area-briefing-section'
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
 import { IconButton } from '@/components/ui/icon-button';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Doc, Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import { formatActivityTime, formatDayHeading } from '@/lib/activity';
+import { haptics } from '@/lib/haptics';
 import { startOfLocalDay } from '@/lib/deadline';
 import {
   pageKindColor,
@@ -106,11 +111,13 @@ export default function ProstorScreen() {
   }, [activeStartupId]);
 
   const openArea = useCallback((area: Doc<'startupAreas'>) => {
+    haptics.tap();
     setFrames([{ areaId: area._id, label: area.label }]);
   }, []);
 
   const openLeaf = useCallback(
     (page: PageItem) => {
+      haptics.tap();
       if (page.kind === 'task') {
         router.push({ pathname: '/zadatak/[id]', params: { id: page._id } });
       } else {
@@ -123,6 +130,7 @@ export default function ProstorScreen() {
   // Canvas oblasti (WebView embed) — resolver na backendu razreši scope iz areaId.
   const openAreaCanvas = useCallback(
     (areaId: Id<'startupAreas'>) => {
+      haptics.tap();
       router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'area', id: areaId } });
     },
     [router],
@@ -223,12 +231,11 @@ function Level1({
   }, [counts]);
 
   const loading = startupId === null || startup === undefined;
+  const refreshControl = useListRefresh();
 
   return (
     <TabScreen title="Prostor">
-      {loading ? (
-        <Level1Skeleton colors={colors} />
-      ) : startup.areas.length === 0 ? (
+      {!loading && startup.areas.length === 0 ? (
         <EmptyState
           icon={<FolderOpen size={40} color={colors.mutedForeground} />}
           title="Još nema oblasti"
@@ -237,49 +244,61 @@ function Level1({
           onAction={() => setCreateAreaOpen(true)}
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={styles.level1Content}
-          showsVerticalScrollIndicator={false}>
-          <View style={styles.areaList}>
-            {startup.areas.map((area) => (
-              <AreaRow
-                key={area._id}
-                area={area}
-                count={countByArea.get(area._id)}
-                countsLoaded={counts !== undefined}
-                colors={colors}
-                onPress={() => onOpenArea(area)}
-              />
-            ))}
-            {/* Nova oblast stoji uz listu oblasti — isti ulaz kao web „Nova oblast". */}
-            <Row
-              title="Nova oblast"
-              onPress={() => setCreateAreaOpen(true)}
-              showChevron={false}
-              style={[styles.addAreaRow, { borderColor: colors.border }]}
-              icon={<Plus size={20} color={colors.mutedForeground} />}
-            />
-          </View>
+        <LoadingSwap loading={loading} skeleton={<Level1Skeleton />}>
+          {startup === undefined ? null : (
+            <ScrollView
+              contentContainerStyle={styles.level1Content}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              <StaggerGroup>
+                <View style={styles.areaList}>
+                  {startup.areas.map((area, index) => (
+                    <StaggerItem key={area._id} index={index}>
+                      <AreaRow
+                        area={area}
+                        count={countByArea.get(area._id)}
+                        countsLoaded={counts !== undefined}
+                        colors={colors}
+                        onPress={() => onOpenArea(area)}
+                      />
+                    </StaggerItem>
+                  ))}
+                  {/* Nova oblast stoji uz listu oblasti — isti ulaz kao web „Nova oblast". */}
+                  <Row
+                    title="Nova oblast"
+                    onPress={() => {
+                      haptics.tap();
+                      setCreateAreaOpen(true);
+                    }}
+                    showChevron={false}
+                    style={[styles.addAreaRow, { borderColor: colors.border }]}
+                    icon={<Plus size={20} color={colors.mutedForeground} />}
+                  />
+                </View>
 
-          {recent && recent.length > 0 ? (
-            <View style={styles.recentSection}>
-              <Text
-                accessibilityRole="header"
-                style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-                Nedavno
-              </Text>
-              {recent.map((page) => (
-                <RecentRow
-                  key={page._id}
-                  page={page}
-                  now={now}
-                  colors={colors}
-                  onPress={() => onOpenLeaf(page)}
-                />
-              ))}
-            </View>
-          ) : null}
-        </ScrollView>
+                {recent && recent.length > 0 ? (
+                  <View style={styles.recentSection}>
+                    <Text
+                      accessibilityRole="header"
+                      style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+                      Nedavno
+                    </Text>
+                    {recent.map((page, index) => (
+                      <StaggerItem key={page._id} index={startup.areas.length + index}>
+                        <RecentRow
+                          page={page}
+                          now={now}
+                          colors={colors}
+                          onPress={() => onOpenLeaf(page)}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </View>
+                ) : null}
+              </StaggerGroup>
+            </ScrollView>
+          )}
+        </LoadingSwap>
       )}
 
       {startupId ? (
@@ -425,49 +444,57 @@ function PageLevel({
     });
   }, []);
   const childCounts = useChildCounts(startupId, areaId, results);
+  const refreshControl = useListRefresh();
 
-  if (startupId === null || status === 'LoadingFirstPage') {
-    return <PageListSkeleton />;
-  }
+  const loading = startupId === null || status === 'LoadingFirstPage';
 
-  if (results.length === 0) {
+  if (!loading && results.length === 0) {
     return <PageLevelEmpty colors={colors} />;
   }
 
   return (
-    <FlatList
-      data={results}
-      keyExtractor={(item) => item._id}
-      renderItem={({ item }) => (
-        <PageBranch
-          page={item}
-          depth={0}
-          startupId={startupId}
-          areaId={areaId}
-          now={now}
-          childCount={childCounts.get(item._id)}
-          expandedIds={expandedIds}
-          onToggle={toggle}
-          onOpen={onOpenLeaf}
+    <LoadingSwap loading={loading} skeleton={<PageListSkeleton />}>
+      {startupId === null || loading ? null : (
+        <FlatList
+          data={results}
+          keyExtractor={(item) => item._id}
+          renderItem={({ item, index }) => (
+            <StaggerItem index={index}>
+              <PageBranch
+                page={item}
+                depth={0}
+                startupId={startupId}
+                areaId={areaId}
+                now={now}
+                childCount={childCounts.get(item._id)}
+                expandedIds={expandedIds}
+                onToggle={toggle}
+                onOpen={onOpenLeaf}
+              />
+            </StaggerItem>
+          )}
+          ItemSeparatorComponent={() => (
+            <View style={[styles.sep, { backgroundColor: colors.border }]} />
+          )}
+          onEndReachedThreshold={0.5}
+          onEndReached={() => {
+            if (status === 'CanLoadMore') loadMore(50);
+          }}
+          ListFooterComponent={
+            status === 'LoadingMore' ? (
+              <View style={styles.footer}>
+                <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje" />
+              </View>
+            ) : (
+              <View style={styles.footerSpacer} />
+            )
+          }
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
         />
       )}
-      ItemSeparatorComponent={() => <View style={[styles.sep, { backgroundColor: colors.border }]} />}
-      onEndReachedThreshold={0.5}
-      onEndReached={() => {
-        if (status === 'CanLoadMore') loadMore(50);
-      }}
-      ListFooterComponent={
-        status === 'LoadingMore' ? (
-          <View style={styles.footer}>
-            <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje" />
-          </View>
-        ) : (
-          <View style={styles.footerSpacer} />
-        )
-      }
-      contentContainerStyle={styles.listContent}
-      showsVerticalScrollIndicator={false}
-    />
+    </LoadingSwap>
   );
 }
 
@@ -662,7 +689,10 @@ function PageRow({
             accessibilityLabel={
               expanded ? `Sakrij podstranice: ${page.title}` : `Prikaži podstranice: ${page.title}`
             }
-            onPress={onToggle}
+            onPress={() => {
+              haptics.select();
+              onToggle();
+            }}
             hitSlop={6}
             style={({ pressed }) => [
               styles.twisty,
@@ -723,37 +753,44 @@ function PageLevelEmpty({ colors }: { colors: ColorTokens }) {
 
 /* ── Skeletoni ─────────────────────────────────────────────────────────── */
 
-function Level1Skeleton({ colors }: { colors: ColorTokens }) {
+/** Oblik kartice oblasti: ikonica-čip 40 + naziv + brojač stranica desno. */
+function Level1Skeleton() {
+  const colors = useThemeColors();
   return (
     <View style={styles.level1Content} accessibilityLabel="Učitavanje oblasti">
-      <View style={styles.areaList}>
-        {[0, 1, 2, 3].map((item) => (
-          <View
-            key={item}
-            style={[styles.areaRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <SkeletonList
+        count={4}
+        gap={4}
+        item={() => (
+          <View style={[styles.areaRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Skeleton width={40} height={40} borderRadius={radius.md} />
             <Skeleton width="45%" height={16} />
             <View style={styles.grow} />
             <Skeleton width={26} height={20} borderRadius={radius.full} />
           </View>
-        ))}
-      </View>
+        )}
+      />
     </View>
   );
 }
 
+/** Oblik reda stabla: ikonica vrste 36 + naslov + meta linija. */
 function PageListSkeleton() {
   return (
     <View style={[styles.listContent, styles.skeletonList]} accessibilityLabel="Učitavanje stranica">
-      {[0, 1, 2, 3, 4].map((item) => (
-        <View key={item} style={styles.skeletonRow}>
-          <Skeleton width={36} height={36} borderRadius={radius.md} />
-          <View style={styles.skeletonBody}>
-            <Skeleton width="70%" height={15} />
-            <Skeleton width="40%" height={12} />
+      <SkeletonList
+        count={5}
+        gap={16}
+        item={(index) => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={36} height={36} borderRadius={radius.md} />
+            <View style={styles.skeletonBody}>
+              <Skeleton width={index % 2 === 0 ? '70%' : '55%'} height={15} />
+              <Skeleton width="40%" height={12} />
+            </View>
           </View>
-        </View>
-      ))}
+        )}
+      />
     </View>
   );
 }
@@ -919,7 +956,6 @@ const styles = StyleSheet.create({
   /* Skeletoni */
   skeletonList: {
     paddingTop: 12,
-    gap: 16,
   },
   skeletonRow: {
     flexDirection: 'row',

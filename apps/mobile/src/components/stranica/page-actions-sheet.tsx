@@ -8,22 +8,14 @@ import {
   Scissors,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindLabel, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { areaColor } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -70,7 +62,6 @@ export function PageActionsSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const [view, setView] = useState<SheetView>(initialView);
 
   // Svako otvaranje kreće od zadatog koraka — stari korak iz prošlog otvaranja ne
@@ -115,11 +106,14 @@ export function PageActionsSheet({
   const runAction = async (targetId: string, action: () => Promise<string | null>) => {
     if (busyId !== null) return;
     setBusyId(targetId);
+    haptics.tap();
     try {
       const note = await action();
+      haptics.success();
       if (note) Alert.alert('Gotovo', note);
       close();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Radnja nije izvršena.'));
     } finally {
       setBusyId(null);
@@ -165,6 +159,8 @@ export function PageActionsSheet({
 
   const detach = () => {
     if (busyId !== null) return;
+    // Destruktivno po strukturi stabla — upozorenje pre potvrde, ne posle.
+    haptics.warning();
     Alert.alert(
       'Izdvojiti stranicu?',
       `„${page.title || 'Stranica bez naslova'}" se odvaja od roditelja i vraća u koren oblasti.`,
@@ -189,15 +185,8 @@ export function PageActionsSheet({
   const areaById = new Map((startup?.areas ?? []).map((area) => [area._id, area.label]));
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={close}
-      />
-      <SafeSheet insetBottom={insets.bottom}>
-        {view === 'menu' ? (
+    <Sheet visible={open} onClose={close} style={styles.sheet}>
+      {view === 'menu' ? (
           <>
             <Text
               accessibilityRole="header"
@@ -324,31 +313,7 @@ export function PageActionsSheet({
             </ScrollView>
           </>
         )}
-      </SafeSheet>
-    </Modal>
-  );
-}
-
-function SafeSheet({
-  insetBottom,
-  children,
-}: {
-  insetBottom: number;
-  children: React.ReactNode;
-}) {
-  const colors = useThemeColors();
-  return (
-    <View
-      style={[
-        styles.sheet,
-        {
-          backgroundColor: colors.popover,
-          borderColor: colors.border,
-          paddingBottom: insetBottom + 12,
-        },
-      ]}>
-      {children}
-    </View>
+    </Sheet>
   );
 }
 
@@ -417,24 +382,7 @@ function Loading({ label }: { label: string }) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '82%',
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 12,
   },
   heading: {

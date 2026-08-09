@@ -1,14 +1,7 @@
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { OptionChip } from '@/components/ui/option-chip';
+import { Sheet } from '@/components/ui/sheet';
 import {
   AssigneePickerList,
   assigneeCountLabel,
@@ -90,7 +83,6 @@ export function TaskActionsSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
 
   const assigneeIds = assignees.map((a) => a.profileId);
   const assignedIds = new Set(assigneeIds);
@@ -105,18 +97,8 @@ export function TaskActionsSheet({
   };
 
   return (
-    <Modal visible={task !== null} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Zatvori" style={styles.backdrop} onPress={onClose} />
-      <View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: insets.bottom + 12,
-          },
-        ]}>
-        {task ? (
+    <Sheet visible={task !== null} onClose={onClose}>
+      {task ? (
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
@@ -207,9 +189,8 @@ export function TaskActionsSheet({
               </>
             )}
           </ScrollView>
-        ) : null}
-      </View>
-    </Modal>
+      ) : null}
+    </Sheet>
   );
 }
 
@@ -234,25 +215,6 @@ function Section({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '82%',
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
-  },
   scroll: {
     flexGrow: 0,
   },

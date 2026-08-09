@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -102,7 +103,12 @@ export function ScreenHeader({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Nazad"
-            onPress={onBack}
+            // Haptika je u primitivu: „nazad" svuda oseća isto (i kad je gest, i
+            // kad je dugme).
+            onPress={() => {
+              haptics.tap();
+              onBack();
+            }}
             style={({ pressed }) => [
               styles.back,
               pressed && { backgroundColor: colors.muted },

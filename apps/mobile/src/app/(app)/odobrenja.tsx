@@ -2,17 +2,23 @@ import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { FolderTree, Lightbulb, ShieldCheck, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Button, type ButtonVariant } from '@/components/ui/button';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonCard, SkeletonList } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -178,23 +184,30 @@ export default function OdobrenjaScreen() {
     activeStartupId !== null &&
     (overview === undefined || nestingInbox === undefined || members === undefined);
 
+  const refreshControl = useListRefresh();
+
   const act = (key: string, action: { run: () => Promise<unknown>; confirm?: string }) => {
     const go = async () => {
       setBusyKey(key);
       try {
         await action.run();
+        haptics.success();
       } catch (error) {
+        haptics.error();
         Alert.alert('Greška', accessErrorMessage(error, 'Radnja nije uspela.'));
       } finally {
         setBusyKey(null);
       }
     };
     if (action.confirm) {
+      // Radnja koja traži potvrdu je nepovratna — upozorenje pre dijaloga.
+      haptics.warning();
       Alert.alert('Potvrda', action.confirm, [
         { text: 'Otkaži', style: 'cancel' },
         { text: 'Nastavi', style: 'destructive', onPress: () => void go() },
       ]);
     } else {
+      haptics.tap();
       void go();
     }
   };
@@ -222,33 +235,64 @@ export default function OdobrenjaScreen() {
           title="Izaberi startup"
           description="Odobrenja se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje odobrenja" />
-        </View>
-      ) : items.length === 0 ? (
+      ) : !loading && items.length === 0 ? (
         <EmptyState
           icon={<ShieldCheck size={40} color={colors.success} />}
           title="Sve je čisto"
           description="Nema zahteva koji čekaju tvoju odluku."
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-          showsVerticalScrollIndicator={false}>
-          {items.map((item) => (
-            <ApprovalCard
-              key={item.key}
-              item={item}
-              busy={busyKey === item.key}
-              onPrimary={() => act(item.key, item.primary)}
-              onSecondary={() => act(item.key, item.secondary)}
-              colors={colors}
-            />
-          ))}
-        </ScrollView>
+        <LoadingSwap loading={loading} skeleton={<ApprovalsSkeleton />}>
+          {loading ? null : (
+            <ScrollView
+              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              <StaggerGroup>
+                {items.map((item, index) => (
+                  <StaggerItem key={item.key} index={index}>
+                    <ApprovalCard
+                      item={item}
+                      busy={busyKey === item.key}
+                      onPrimary={() => act(item.key, item.primary)}
+                      onSecondary={() => act(item.key, item.secondary)}
+                      colors={colors}
+                    />
+                  </StaggerItem>
+                ))}
+              </StaggerGroup>
+            </ScrollView>
+          )}
+        </LoadingSwap>
       )}
     </View>
+  );
+}
+
+/** Oblik `ApprovalCard`: ikonica-čip, kicker + naslov + meta, pa dva dugmeta. */
+function ApprovalsSkeleton() {
+  return (
+    <SkeletonList
+      count={3}
+      gap={8}
+      style={styles.list}
+      item={(index) => (
+        <SkeletonCard style={styles.card}>
+          <View style={styles.cardHead}>
+            <Skeleton width={32} height={32} borderRadius={radius.control} />
+            <View style={styles.cardHeadText}>
+              <Skeleton width="42%" height={12} />
+              <Skeleton width={index % 2 === 0 ? '78%' : '64%'} height={16} />
+              <Skeleton width="50%" height={12} />
+            </View>
+          </View>
+          <View style={styles.actions}>
+            <Skeleton style={styles.flexBtn} height={48} borderRadius={radius.control} />
+            <Skeleton style={styles.flexBtn} height={48} borderRadius={radius.control} />
+          </View>
+        </SkeletonCard>
+      )}
+    />
   );
 }
 
@@ -330,7 +374,6 @@ function OdobrenjaError({ message, onRetry }: { message: string; onRetry: () => 
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   headerPill: {
     marginRight: 6,
   },

@@ -18,6 +18,7 @@ import { usePendingInvite } from '@/context/pending-invite';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 
 type Mode = 'signIn' | 'signUp';
 
@@ -50,6 +51,7 @@ export default function SignInScreen() {
   async function handleSubmit() {
     setPendingSubmit(true);
     setError(null);
+    haptics.tap();
 
     // Kod za registraciju: pozivnica (deep link) ili osnivački kod (bootstrap).
     const codeForSignup = inviteCode ?? (needsBootstrap ? bootstrapCode.trim() : undefined);
@@ -72,7 +74,9 @@ export default function SignInScreen() {
         ...(codeForSignup ? { inviteCode: codeForSignup } : {}),
       });
       // Uspeh: gate u root `_layout.tsx` reaktivno prebacuje ekran. Bez navigacije.
+      haptics.success();
     } catch (caught) {
+      haptics.error();
       setError(
         accessErrorMessage(caught, 'Prijava nije uspela. Proveri podatke i pokušaj ponovo.'),
       );
@@ -207,6 +211,7 @@ export default function SignInScreen() {
                 {mode === 'signIn' && canCreateAccount ? (
                   <Pressable
                     onPress={() => {
+                      haptics.select();
                       setMode('signUp');
                       setError(null);
                     }}>
@@ -217,6 +222,7 @@ export default function SignInScreen() {
                 ) : mode === 'signUp' ? (
                   <Pressable
                     onPress={() => {
+                      haptics.select();
                       setMode('signIn');
                       setError(null);
                     }}>

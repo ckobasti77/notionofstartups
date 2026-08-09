@@ -6,11 +6,11 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import * as Haptics from 'expo-haptics';
 import { Clock, Reply } from 'lucide-react-native';
 
 import { MessageAttachment } from '@/components/chat/message-attachment';
 import { Avatar } from '@/components/ui/avatar';
+import { haptics } from '@/lib/haptics';
 import {
   formatMessageTime,
   isOptimisticId,
@@ -59,9 +59,7 @@ export function MessageBubble({
   const sending = isOptimisticId(message._id);
 
   const fireReply = () => onReply(message);
-  const fireHaptic = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
+  const fireHaptic = () => haptics.threshold();
 
   // Svajp-desno-za-odgovor. `activeOffsetX` traži horizontalni pomak (ne krade
   // tap/long-press), `failOffsetY` prepušta vertikalni skrol listi, a ivični
@@ -148,7 +146,7 @@ export function MessageBubble({
             <Pressable
               accessibilityRole="text"
               onLongPress={() => {
-                void Haptics.selectionAsync();
+                haptics.select();
                 onLongPress(message);
               }}
               delayLongPress={280}

@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Sheet } from '@/components/ui/sheet';
+import { haptics } from '@/lib/haptics';
 import { areaColor } from '@/lib/task-meta';
 import type { StartupArea } from '@/lib/tasks';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -36,7 +29,6 @@ export function QuickAddSheet({
   onCreate: (title: string, areaId: Id<'startupAreas'>) => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('');
   const [areaId, setAreaId] = useState<Id<'startupAreas'> | null>(null);
 
@@ -50,116 +42,85 @@ export function QuickAddSheet({
   const canSubmit = title.trim().length > 0 && areaId !== null && !submitting;
   const submit = () => {
     if (title.trim().length === 0 || areaId === null) return;
+    haptics.tap();
     onCreate(title.trim(), areaId);
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Zatvori" style={styles.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView
-        // `padding` na oba: Expo SDK 57 edge-to-edge (Android) razbija OS
-        // `adjustResize`, pa se oslanjamo na JS keyboard evente (isto kao
-        // `razgovor/[id].tsx`). Sheet je pri dnu, pa offset nije potreban.
-        behavior="padding"
-        style={styles.avoider}
-        pointerEvents="box-none">
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: colors.popover,
-              borderColor: colors.border,
-              paddingBottom: insets.bottom + 12,
-            },
-          ]}>
-          <Text style={[styles.heading, { color: colors.foreground }]}>Novi zadatak</Text>
+    <Sheet visible={visible} onClose={onClose} avoidKeyboard style={styles.sheet}>
+      <Text style={[styles.heading, { color: colors.foreground }]}>Novi zadatak</Text>
 
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Šta treba uraditi?"
-            placeholderTextColor={colors.mutedForeground}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={submit}
-            style={[
-              styles.input,
-              { color: colors.foreground, backgroundColor: colors.secondary, borderColor: colors.border },
-            ]}
-          />
+      <TextInput
+        value={title}
+        onChangeText={setTitle}
+        placeholder="Šta treba uraditi?"
+        placeholderTextColor={colors.mutedForeground}
+        autoFocus
+        returnKeyType="done"
+        onSubmitEditing={submit}
+        style={[
+          styles.input,
+          { color: colors.foreground, backgroundColor: colors.secondary, borderColor: colors.border },
+        ]}
+      />
 
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Oblast</Text>
-          {areas.length === 0 ? (
-            <Text style={[styles.emptyAreas, { color: colors.mutedForeground }]}>
-              Ovaj startup još nema oblasti — dodaj ih pre kreiranja zadatka.
-            </Text>
-          ) : null}
-          <View style={styles.chips}>
-            {areas.map((area) => {
-              const active = area._id === areaId;
-              return (
-                <Pressable
-                  key={area._id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={area.label}
-                  onPress={() => setAreaId(area._id)}
-                  style={({ pressed }) => [
-                    styles.chip,
-                    {
-                      backgroundColor: active ? colors.accent : colors.secondary,
-                      borderColor: active ? colors.primary : 'transparent',
-                      opacity: pressed ? 0.85 : 1,
-                    },
-                  ]}>
-                  <View style={[styles.chipDot, { backgroundColor: areaColor(colors, area.key) }]} />
-                  <Text
-                    style={[
-                      styles.chipLabel,
-                      { color: active ? colors.accentForeground : colors.foreground },
-                    ]}>
-                    {area.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      <Text style={[styles.label, { color: colors.mutedForeground }]}>Oblast</Text>
+      {areas.length === 0 ? (
+        <Text style={[styles.emptyAreas, { color: colors.mutedForeground }]}>
+          Ovaj startup još nema oblasti — dodaj ih pre kreiranja zadatka.
+        </Text>
+      ) : null}
+      <View style={styles.chips}>
+        {areas.map((area) => {
+          const active = area._id === areaId;
+          return (
+            <Pressable
+              key={area._id}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={area.label}
+              onPress={() => {
+                haptics.select();
+                setAreaId(area._id);
+              }}
+              style={({ pressed }) => [
+                styles.chip,
+                {
+                  backgroundColor: active ? colors.accent : colors.secondary,
+                  borderColor: active ? colors.primary : 'transparent',
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}>
+              <View style={[styles.chipDot, { backgroundColor: areaColor(colors, area.key) }]} />
+              <Text
+                style={[
+                  styles.chipLabel,
+                  { color: active ? colors.accentForeground : colors.foreground },
+                ]}>
+                {area.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
-          <View style={styles.actions}>
-            <Button label="Otkaži" variant="ghost" size="md" onPress={onClose} style={styles.actionBtn} />
-            <Button
-              label="Dodaj"
-              size="md"
-              loading={submitting}
-              disabled={!canSubmit}
-              onPress={submit}
-              style={styles.actionBtn}
-            />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      <View style={styles.actions}>
+        <Button label="Otkaži" variant="ghost" size="md" onPress={onClose} style={styles.actionBtn} />
+        <Button
+          label="Dodaj"
+          size="md"
+          loading={submitting}
+          disabled={!canSubmit}
+          onPress={submit}
+          style={styles.actionBtn}
+        />
+      </View>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  avoider: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
     gap: 12,
   },

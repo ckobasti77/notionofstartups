@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-r
 import { Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -18,10 +17,13 @@ import { EmptyState } from '@/components/empty-state';
 import { ContributionThread } from '@/components/ideja/contribution-thread';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonCard, SkeletonList, SkeletonMessage } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, text } from '@/theme/tokens';
 
@@ -57,9 +59,12 @@ export default function IdejaScreen() {
   const castVote = async (voteType: 'up' | 'down') => {
     if (!activeStartupId || voting) return;
     setVoting(true);
+    haptics.tap();
     try {
       await vote({ startupId: activeStartupId, ideaId, voteType });
+      haptics.success();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Glas nije zabeležen.'));
     } finally {
       setVoting(false);
@@ -83,9 +88,7 @@ export default function IdejaScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Ideja" onBack={() => router.back()} />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje ideje" />
-        </View>
+        <IdeaSkeleton />
       </View>
     );
   }
@@ -150,6 +153,24 @@ export default function IdejaScreen() {
 }
 
 
+/** Oblik ekrana ideje: kartica (naslov, tekst, autor, glasovi), pa nit diskusije. */
+function IdeaSkeleton() {
+  const colors = useThemeColors();
+  return (
+    <View style={styles.content} accessibilityLabel="Učitavanje ideje">
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.surface }]}>
+        <Skeleton width="62%" height={20} />
+        <Skeleton width="100%" height={14} />
+        <Skeleton width="78%" height={14} />
+        <Skeleton width="30%" height={12} />
+        <Skeleton width={140} height={36} borderRadius={radius.control} />
+      </SkeletonCard>
+      <Skeleton width="35%" height={20} />
+      <SkeletonList count={3} item={(index) => <SkeletonMessage index={index} />} />
+    </View>
+  );
+}
+
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <IdejaError message={error.message} onRetry={retry} />;
 }
@@ -177,11 +198,6 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     padding: 16,

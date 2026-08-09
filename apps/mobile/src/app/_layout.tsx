@@ -7,6 +7,8 @@ import {
 } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { FullScreenLoader } from '@/components/full-screen-loader';
@@ -14,6 +16,7 @@ import { PendingInviteProvider } from '@/context/pending-invite';
 import { PendingTargetProvider } from '@/context/pending-target';
 import { useNotificationTapCapture } from '@/lib/notifications/use-notification-target';
 import { useAuthGate } from '@/hooks/use-auth-gate';
+import { useStackAnimation } from '@/hooks/use-stack-animation';
 import { ThemeProvider, useAppTheme } from '@/theme/theme-provider';
 import { AUTH_STORAGE_NAMESPACE, convex, secureStorage } from '@/lib/convex';
 
@@ -26,6 +29,7 @@ SplashScreen.preventAutoHideAsync();
  */
 function RootNavigator() {
   const status = useAuthGate();
+  const screenOptions = useStackAnimation();
 
   // Dok se token čita iz SecureStore-a i profil učitava — samo loader, inače
   // treperi ekran prijave na startu.
@@ -34,7 +38,7 @@ function RootNavigator() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={screenOptions}>
       {/* Uvek dostupan koren `/`; sam preusmerava po auth stanju (index.tsx). */}
       <Stack.Screen name="index" />
       <Stack.Protected guard={status === 'unauthenticated'}>
@@ -72,17 +76,28 @@ function ThemedApp() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <ConvexAuthProvider
-        client={convex}
-        storage={secureStorage}
-        storageNamespace={AUTH_STORAGE_NAMESPACE}>
-        <PendingInviteProvider>
-          <PendingTargetProvider>
-            <ThemedApp />
-          </PendingTargetProvider>
-        </PendingInviteProvider>
-      </ConvexAuthProvider>
-    </ThemeProvider>
+    // Jedan gesture root za celu aplikaciju — svajp na kartici zadatka, prevlačenje
+    // sheet-a i swipe-back rade samo unutar njega. (Sheet u `Modal`-u je zaseban
+    // view root na Androidu i nosi sopstveni — vidi `ui/sheet.tsx`.)
+    <GestureHandlerRootView style={styles.root}>
+      <ThemeProvider>
+        <ConvexAuthProvider
+          client={convex}
+          storage={secureStorage}
+          storageNamespace={AUTH_STORAGE_NAMESPACE}>
+          <PendingInviteProvider>
+            <PendingTargetProvider>
+              <ThemedApp />
+            </PendingTargetProvider>
+          </PendingInviteProvider>
+        </ConvexAuthProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

@@ -6,10 +6,10 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
-import * as Haptics from 'expo-haptics';
 import { Mic, Send, Trash2 } from 'lucide-react-native';
 
 import { formatVoiceDuration } from '@/lib/chat';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 
@@ -45,6 +45,7 @@ export function VoiceRecorder({
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
+        haptics.warning();
         Alert.alert('Mikrofon', 'Pristup mikrofonu je odbijen.');
         return;
       }
@@ -55,8 +56,9 @@ export function VoiceRecorder({
       setElapsed(0);
       setRecording(true);
       onActiveChange(true);
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      haptics.tap();
     } catch {
+      haptics.error();
       Alert.alert('Greška', 'Snimanje nije počelo.');
     }
   }
@@ -103,7 +105,11 @@ export function VoiceRecorder({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Otkaži snimanje"
-        onPress={() => void finish(false)}
+        // Bacanje snimka je destruktivno — snimak se ne vraća.
+        onPress={() => {
+          haptics.warning();
+          void finish(false);
+        }}
         style={({ pressed }) => [
           styles.iconBtn,
           pressed && { backgroundColor: colors.muted },
@@ -113,7 +119,10 @@ export function VoiceRecorder({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Pošalji glasovnu poruku"
-        onPress={() => void finish(true)}
+        onPress={() => {
+          haptics.tap();
+          void finish(true);
+        }}
         style={[styles.sendBtn, { backgroundColor: colors.primary }]}>
         <Send size={18} color={colors.primaryForeground} />
       </Pressable>

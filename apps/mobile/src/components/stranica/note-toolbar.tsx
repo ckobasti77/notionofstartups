@@ -21,6 +21,7 @@ import {
 import { useEffect, useState } from 'react';
 import { Keyboard, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -270,7 +271,12 @@ function ToolbarIconButton({
       accessibilityLabel={button.label}
       accessibilityState={{ selected: active, disabled }}
       disabled={disabled}
-      onPress={button.onPress}
+      // Formatiranje je izbor stila, ne akcija sa posledicom — najtiši signal, i
+      // dovoljno tih da ne smeta pri brzom nizanju dugmadi u toolbaru.
+      onPress={() => {
+        haptics.select();
+        button.onPress();
+      }}
       style={({ pressed }) => [
         styles.button,
         active && { backgroundColor: colors.accent },

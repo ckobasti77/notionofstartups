@@ -3,7 +3,6 @@ import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { CalendarX2, ChevronDown, ChevronRight, ListTodo } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
@@ -19,10 +18,14 @@ import {
 import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import {
   bucketTasksForToday,
   classifyDeadline,
@@ -30,6 +33,7 @@ import {
   TODAY_SECTION_ORDER,
   type TodaySection,
 } from '@/lib/deadline';
+import { haptics } from '@/lib/haptics';
 import type { TaskPriority, TaskStatus } from '@/lib/task-meta';
 import {
   TODAY_SEGMENTS,
@@ -232,10 +236,14 @@ export default function DanasScreen() {
   const setAssignees = useMutation(api.taskAssignees.setAssignees);
   const createPage = useMutation(api.pages.create);
 
-  const notifyError = (error: unknown) =>
+  const refreshControl = useListRefresh();
+
+  const notifyError = (error: unknown) => {
+    haptics.error();
     Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+  };
   const run = (promise: Promise<unknown>) => {
-    void promise.catch(notifyError);
+    void promise.then(() => haptics.success()).catch(notifyError);
   };
 
   const canChangeStatusFor = (task: CommandCenterTask) =>
@@ -292,19 +300,20 @@ export default function DanasScreen() {
     }
   };
 
-  const renderTask = (task: CommandCenterTask) => (
-    <TaskCard
-      key={task._id}
-      task={task}
-      areaLabel={areaById.get(task.areaId)?.label ?? 'Bez oblasti'}
-      assignees={assigneesOf(task._id)}
-      now={now}
-      canDone={canChangeStatusFor(task)}
-      onDone={() => markDone(task)}
-      onOpen={() => router.push({ pathname: '/zadatak/[id]', params: { id: task._id } })}
-      onMenu={() => openMenu(task, false)}
-      onQuickStatus={() => openMenu(task, true)}
-    />
+  const renderTask = (task: CommandCenterTask, index: number) => (
+    <StaggerItem key={task._id} index={index}>
+      <TaskCard
+        task={task}
+        areaLabel={areaById.get(task.areaId)?.label ?? 'Bez oblasti'}
+        assignees={assigneesOf(task._id)}
+        now={now}
+        canDone={canChangeStatusFor(task)}
+        onDone={() => markDone(task)}
+        onOpen={() => router.push({ pathname: '/zadatak/[id]', params: { id: task._id } })}
+        onMenu={() => openMenu(task, false)}
+        onQuickStatus={() => openMenu(task, true)}
+      />
+    </StaggerItem>
   );
 
   const loading =
@@ -322,7 +331,7 @@ export default function DanasScreen() {
       title="Danas"
       // Segment je deo zaglavlja: jedan blok gore umesto treće trake ispod njega.
       below={<SegmentedControl options={TODAY_SEGMENTS} value={segment} onChange={setSegment} />}>
-      <GestureHandlerRootView style={styles.root}>
+      <View style={styles.root}>
         {/* Traka opterećenja je FILTER, pa stoji van skrola liste: kad filter isprazni
             listu, dugme za gašenje filtera mora ostati na ekranu. */}
         {segment === 'overview' && startupReady ? (
@@ -335,9 +344,7 @@ export default function DanasScreen() {
           />
         ) : null}
 
-        {loading ? (
-          <LoadingList />
-        ) : allEmpty && memberFilter !== null ? (
+        {allEmpty && memberFilter !== null ? (
           <EmptyState
             icon={<ListTodo size={40} color={colors.mutedForeground} />}
             title="Za izabranog člana nema otvorenih zadataka."
@@ -358,40 +365,59 @@ export default function DanasScreen() {
             onAction={() => setQuickAddOpen(true)}
           />
         ) : (
-          <ScrollView
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}>
-            <DaySummary
-              firstName={firstName}
-              startupName={startup?.name ?? null}
-              counts={summaryCounts}
-              segmentLabel={segmentLabel}
-            />
-            {TODAY_SECTION_ORDER.map((key) => {
-              const items = buckets[key];
-              if (items.length === 0) return null;
-              const isBlocked = key === 'blocked';
-              const open = !isBlocked || blockedOpen;
-              const danger = key === 'overdue';
-              return (
-                <View key={key} style={styles.section}>
-                  <SectionHeader
-                    label={SECTION_LABEL[key]}
-                    count={items.length}
-                    danger={danger}
-                    collapsible={isBlocked}
-                    open={open}
-                    onToggle={() => setBlockedOpen((value) => !value)}
-                    colors={colors}
-                  />
-                  {open ? <View style={styles.cards}>{items.map(renderTask)}</View> : null}
-                </View>
-              );
-            })}
-          </ScrollView>
+          <LoadingSwap loading={loading} skeleton={<LoadingList />}>
+            {buckets === undefined ? null : (
+              <ScrollView
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+                refreshControl={refreshControl}>
+                <DaySummary
+                  firstName={firstName}
+                  startupName={startup?.name ?? null}
+                  counts={summaryCounts}
+                  segmentLabel={segmentLabel}
+                />
+                {/* Promena segmenta ili filtera je NOVO punjenje liste — `resetKey`
+                    restartuje stagger da se to i vidi. */}
+                <StaggerGroup resetKey={`${segment}:${memberFilter ?? 'all'}`}>
+                  {TODAY_SECTION_ORDER.map((key) => {
+                    const items = buckets[key];
+                    if (items.length === 0) return null;
+                    const isBlocked = key === 'blocked';
+                    const open = !isBlocked || blockedOpen;
+                    const danger = key === 'overdue';
+                    return (
+                      <View key={key} style={styles.section}>
+                        <SectionHeader
+                          label={SECTION_LABEL[key]}
+                          count={items.length}
+                          danger={danger}
+                          collapsible={isBlocked}
+                          open={open}
+                          onToggle={() => {
+                            haptics.select();
+                            setBlockedOpen((value) => !value);
+                          }}
+                          colors={colors}
+                        />
+                        {open ? <View style={styles.cards}>{items.map(renderTask)}</View> : null}
+                      </View>
+                    );
+                  })}
+                </StaggerGroup>
+              </ScrollView>
+            )}
+          </LoadingSwap>
         )}
 
-        {startupReady ? <QuickAddFab onPress={() => setQuickAddOpen(true)} /> : null}
+        {startupReady ? (
+          <QuickAddFab
+            onPress={() => {
+              haptics.tap();
+              setQuickAddOpen(true);
+            }}
+          />
+        ) : null}
 
         <TaskActionsSheet
           task={menuTask}
@@ -417,7 +443,7 @@ export default function DanasScreen() {
           onClose={() => setQuickAddOpen(false)}
           onCreate={createTask}
         />
-      </GestureHandlerRootView>
+      </View>
     </TabScreen>
   );
 }
@@ -485,22 +511,19 @@ function SectionHeader({
   );
 }
 
+/**
+ * Skeleton u obliku onoga što stiže: pozdrav dana, pa naslov sekcije, pa kartice
+ * zadatka sa istim merama kao `TaskCard` — prelaz je zato čist crossfade.
+ */
 function LoadingList() {
-  const colors = useThemeColors();
   return (
     <View style={styles.listContent}>
-      <Skeleton width="40%" height={16} style={styles.skeletonHeader} />
-      {[0, 1, 2].map((item) => (
-        <View
-          key={item}
-          style={[styles.skeletonCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.skeletonBody}>
-            <Skeleton width="70%" height={16} />
-            <Skeleton width="45%" height={13} />
-          </View>
-          <Skeleton width={26} height={26} borderRadius={radius.full} />
-        </View>
-      ))}
+      <View style={styles.skeletonSummary}>
+        <Skeleton width="55%" height={20} />
+        <Skeleton width="35%" height={13} />
+      </View>
+      <Skeleton width="30%" height={13} style={styles.skeletonHeader} />
+      <SkeletonList count={3} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
     </View>
   );
 }
@@ -571,21 +594,10 @@ const styles = StyleSheet.create({
   cards: {
     gap: 10,
   },
+  skeletonSummary: {
+    gap: 8,
+  },
   skeletonHeader: {
     marginBottom: 4,
-  },
-  skeletonCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    minHeight: 64,
-  },
-  skeletonBody: {
-    flex: 1,
-    gap: 8,
   },
 });

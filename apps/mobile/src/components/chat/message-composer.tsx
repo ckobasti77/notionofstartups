@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -29,8 +28,10 @@ import {
 import { MentionAutocomplete } from '@/components/chat/mention-autocomplete';
 import { VoiceRecorder, type RecordedVoice } from '@/components/chat/voice-recorder';
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import {
   OPTIMISTIC_ID_PREFIX,
   resolveMentions,
@@ -201,12 +202,17 @@ export function MessageComposer({
     const body = draft.trim();
     if (!body) return;
 
+    // Slanje je primarna akcija ovog ekrana — haptika ide ODMAH, ne po potvrdi
+    // servera: poruka se optimistički već pojavila u listi.
+    haptics.tap();
+
     if (editing) {
       try {
         await editMessage({ messageId: editing._id, body });
         setDraft('');
         onCancelEdit();
       } catch (error) {
+        haptics.error();
         Alert.alert('Greška', errorMessage(error, 'Izmena nije sačuvana.'));
       }
       return;
@@ -220,6 +226,7 @@ export function MessageComposer({
       await send({ channelId: channel._id, body, mentions, replyToMessageId: replyId });
       onSent();
     } catch (error) {
+      haptics.error();
       setDraft(body);
       Alert.alert('Greška', errorMessage(error, 'Poruka nije poslata.'));
     }
@@ -257,9 +264,11 @@ export function MessageComposer({
         voiceDurationMs: input.voiceDurationMs,
         replyToMessageId: replyId,
       });
+      haptics.success();
       onCancelReply();
       onSent();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', errorMessage(error, 'Prilog nije poslat.'));
     } finally {
       setUploading(false);
@@ -273,6 +282,7 @@ export function MessageComposer({
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
+        haptics.warning();
         Alert.alert(
           'Dozvola',
           fromCamera ? 'Pristup kameri je odbijen.' : 'Pristup galeriji je odbijen.',
@@ -293,6 +303,7 @@ export function MessageComposer({
         kind: 'file',
       });
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', errorMessage(error, 'Slika nije poslata.'));
     }
   }
@@ -312,6 +323,7 @@ export function MessageComposer({
         kind: 'file',
       });
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', errorMessage(error, 'Fajl nije poslat.'));
     }
   }
@@ -367,7 +379,10 @@ export function MessageComposer({
             accessibilityRole="button"
             accessibilityLabel="Priloži"
             disabled={uploading}
-            onPress={() => setAttachOpen(true)}
+            onPress={() => {
+              haptics.tap();
+              setAttachOpen(true);
+            }}
             style={({ pressed }) => [
               styles.iconBtn,
               pressed && { backgroundColor: colors.muted },
@@ -420,7 +435,6 @@ export function MessageComposer({
       <AttachMenu
         visible={attachOpen}
         colors={colors}
-        bottomInset={insets.bottom}
         onClose={() => setAttachOpen(false)}
         onGallery={() => void pickImage(false)}
         onCamera={() => void pickImage(true)}
@@ -465,7 +479,6 @@ function ComposerBanner({
 function AttachMenu({
   visible,
   colors,
-  bottomInset,
   onClose,
   onGallery,
   onCamera,
@@ -473,7 +486,6 @@ function AttachMenu({
 }: {
   visible: boolean;
   colors: ColorTokens;
-  bottomInset: number;
   onClose: () => void;
   onGallery: () => void;
   onCamera: () => void;
@@ -485,28 +497,21 @@ function AttachMenu({
     { key: 'file', label: 'Fajl', icon: <FileUp size={20} color={colors.foreground} />, onPress: onFile },
   ];
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} accessibilityLabel="Zatvori" onPress={onClose} />
-      <View
-        style={[
-          styles.attachSheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: bottomInset + 12,
-          },
-        ]}>
-        {options.map((option) => (
-          <Row
-            key={option.key}
-            icon={option.icon}
-            title={option.label}
-            onPress={option.onPress}
-            showChevron={false}
-          />
-        ))}
-      </View>
-    </Modal>
+    // Tri reda bez skrola — prevlačenje hvata ceo sheet.
+    <Sheet visible={visible} onClose={onClose} dragAnywhere>
+      {options.map((option) => (
+        <Row
+          key={option.key}
+          icon={option.icon}
+          title={option.label}
+          onPress={() => {
+            haptics.tap();
+            option.onPress();
+          }}
+          showChevron={false}
+        />
+      ))}
+    </Sheet>
   );
 }
 
@@ -565,23 +570,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  attachSheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 8,
   },
 });

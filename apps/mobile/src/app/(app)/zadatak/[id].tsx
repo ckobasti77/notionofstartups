@@ -11,7 +11,6 @@ import {
 } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -20,7 +19,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AssigneeStack } from '@/components/danas/assignee-stack';
@@ -38,9 +36,11 @@ import { IconButton } from '@/components/ui/icon-button';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonCard, SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import {
   formatShortDate,
   statusColor,
@@ -89,19 +89,19 @@ export default function ZadatakScreen() {
   const leave = useMutation(api.taskAssignees.leave);
   const setAssignees = useMutation(api.taskAssignees.setAssignees);
 
-  const notifyError = (error: unknown) =>
+  const notifyError = (error: unknown) => {
+    haptics.error();
     Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+  };
   const run = (promise: Promise<unknown>) => {
-    void promise.catch(notifyError);
+    void promise.then(() => haptics.success()).catch(notifyError);
   };
 
   if (page === undefined || profile === undefined) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Zadatak" onBack={() => router.back()} />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
+        <TaskSkeleton />
       </View>
     );
   }
@@ -147,7 +147,7 @@ export default function ZadatakScreen() {
     run(updateMetadata({ pageId, instructions: text }));
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <View style={styles.container}>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Visina zaglavlja je offset za `KeyboardAvoidingView` — meri se ovde,
             jer `ScreenHeader` sam uračunava safe-area i menja visinu po uređaju. */}
@@ -309,12 +309,41 @@ export default function ZadatakScreen() {
           onClose={() => setActionsView(null)}
         />
       </View>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
 function Divider({ colors }: { colors: ColorTokens }) {
   return <View style={[styles.divider, { backgroundColor: colors.border }]} />;
+}
+
+/**
+ * Skeleton u obliku detalja zadatka: kartica meta-redova (status/prioritet/rok/
+ * izvršioci), pa blok instrukcija i lista podzadataka — iste mere kao pravi ekran,
+ * pa dolazak podataka ne pomera raspored.
+ */
+function TaskSkeleton() {
+  const colors = useThemeColors();
+  return (
+    <View style={styles.content} accessibilityLabel="Učitavanje zadatka">
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
+        <SkeletonList
+          count={4}
+          item={(index) => <SkeletonRow index={index} leading="icon" trailing="value" />}
+        />
+      </SkeletonCard>
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
+        <Skeleton width="35%" height={16} />
+        <Skeleton width="100%" height={14} />
+        <Skeleton width="72%" height={14} />
+      </SkeletonCard>
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
+        <Skeleton width="42%" height={16} />
+        <Skeleton width="88%" height={14} />
+        <Skeleton width="64%" height={14} />
+      </SkeletonCard>
+    </View>
+  );
 }
 
 /**
@@ -348,11 +377,6 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     padding: 16,

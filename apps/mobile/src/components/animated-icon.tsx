@@ -5,12 +5,15 @@ import { Dimensions, StyleSheet, View } from 'react-native';
 import Animated, { Easing, Keyframe } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
 
 export function AnimatedSplashOverlay() {
   const [animate, setAnimate] = useState(false);
   const [visible, setVisible] = useState(true);
+  const reduced = useReducedMotion();
 
   if (!visible) return null;
 
@@ -35,7 +38,8 @@ export function AnimatedSplashOverlay() {
 
   const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
 
-  return animate ? (
+  // „Smanji pokret": splash se ne rastapa nego se skloni čim je OS splash sakriven.
+  return animate && !reduced ? (
     <Animated.View
       entering={splashKeyframe.duration(DURATION).withCallback((finished) => {
         'worklet';
@@ -50,7 +54,8 @@ export function AnimatedSplashOverlay() {
     <View
       onLayout={() => {
         SplashScreen.hideAsync().finally(() => {
-          setAnimate(true);
+          if (reduced) setVisible(false);
+          else setAnimate(true);
         });
       }}
       style={styles.splashOverlay}>

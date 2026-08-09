@@ -20,12 +20,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
+import { StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import {
   formatActivityTime,
   groupActivitiesByDay,
@@ -73,47 +77,57 @@ export default function AktivnostScreen() {
 
   const loadingFirst = activeStartupId === null || status === 'LoadingFirstPage';
   const sections = groupActivitiesByDay(results, now);
+  const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
 
-      {loadingFirst ? (
-        <ActivitySkeleton colors={colors} />
-      ) : results.length === 0 ? (
+      {!loadingFirst && results.length === 0 ? (
         <EmptyState
           icon={<Activity size={40} color={colors.mutedForeground} />}
           title="Još nema aktivnosti"
           description="Kreiranje stranice, zadatka ili poziva pojaviće se ovde."
         />
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => <ActivityRow item={item} colors={colors} />}
-          renderSectionHeader={({ section }) => (
-            <SectionHeader
-              title={section.title}
-              style={[styles.dayHeader, { backgroundColor: colors.background }]}
+        <LoadingSwap loading={loadingFirst} skeleton={<ActivitySkeleton />}>
+          {loadingFirst ? null : (
+            <SectionList
+              sections={sections}
+              keyExtractor={(item) => item._id}
+              // `index` je po sekciji, pa je stagger po danu — što je i tačno:
+              // dan je vizuelna celina.
+              renderItem={({ item, index }) => (
+                <StaggerItem index={index}>
+                  <ActivityRow item={item} colors={colors} />
+                </StaggerItem>
+              )}
+              renderSectionHeader={({ section }) => (
+                <SectionHeader
+                  title={section.title}
+                  style={[styles.dayHeader, { backgroundColor: colors.background }]}
+                />
+              )}
+              stickySectionHeadersEnabled
+              onEndReachedThreshold={0.5}
+              onEndReached={() => {
+                if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
+              }}
+              ListFooterComponent={
+                status === 'LoadingMore' ? (
+                  <View style={styles.footer}>
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                ) : (
+                  <View style={styles.footerSpacer} />
+                )
+              }
+              contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + space[6] }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}
             />
           )}
-          stickySectionHeadersEnabled
-          onEndReachedThreshold={0.5}
-          onEndReached={() => {
-            if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
-          }}
-          ListFooterComponent={
-            status === 'LoadingMore' ? (
-              <View style={styles.footer}>
-                <ActivityIndicator color={colors.primary} />
-              </View>
-            ) : (
-              <View style={styles.footerSpacer} />
-            )
-          }
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + space[6] }]}
-          showsVerticalScrollIndicator={false}
-        />
+        </LoadingSwap>
       )}
     </View>
   );
@@ -141,20 +155,25 @@ function ActivityRow({ item, colors }: { item: ActivityItem; colors: ColorTokens
   );
 }
 
-function ActivitySkeleton({ colors }: { colors: ColorTokens }) {
+/** Oblik `ActivityRow`: zaglavlje dana, pa ikonica-čip + dva reda teksta + avatar. */
+function ActivitySkeleton() {
   return (
     <View style={styles.skeleton} accessibilityLabel="Učitavanje aktivnosti">
       <Skeleton width="30%" height={14} style={styles.skeletonHead} />
-      {[0, 1, 2, 3, 4].map((item) => (
-        <View key={item} style={styles.skeletonRow}>
-          <Skeleton width={32} height={32} borderRadius={radius.md} />
-          <View style={styles.skeletonBody}>
-            <Skeleton width="75%" height={15} />
-            <Skeleton width="45%" height={12} />
+      <SkeletonList
+        count={5}
+        gap={space[4]}
+        item={(index) => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={32} height={32} borderRadius={radius.md} />
+            <View style={styles.skeletonBody}>
+              <Skeleton width={index % 2 === 0 ? '75%' : '62%'} height={15} />
+              <Skeleton width="45%" height={12} />
+            </View>
+            <Skeleton width={28} height={28} borderRadius={radius.full} />
           </View>
-          <Skeleton width={28} height={28} borderRadius={radius.full} />
-        </View>
-      ))}
+        )}
+      />
     </View>
   );
 }
@@ -215,7 +234,6 @@ const styles = StyleSheet.create({
   skeleton: {
     paddingHorizontal: space[4],
     paddingTop: space[4],
-    gap: space[4],
   },
   skeletonHead: {
     marginBottom: space[1],

@@ -11,9 +11,11 @@ import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Row } from '@/components/ui/row';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindLabel, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
@@ -73,6 +75,7 @@ export function RelationsSection({
     direct: boolean,
   ) => {
     if (busyId !== null) return;
+    haptics.warning();
     Alert.alert(
       direct ? 'Ukloniti vezu?' : 'Zatražiti uklanjanje veze?',
       direct
@@ -90,11 +93,13 @@ export function RelationsSection({
               : requestDeletion({ target: { kind: 'page_relation', id: relationId } });
             void action
               .then(() => {
+                haptics.success();
                 if (!direct) Alert.alert('Poslato', 'Zahtev za uklanjanje veze čeka glasanje tima.');
               })
-              .catch((error: unknown) =>
-                Alert.alert('Greška', accessErrorMessage(error, 'Veza nije uklonjena.')),
-              )
+              .catch((error: unknown) => {
+                haptics.error();
+                Alert.alert('Greška', accessErrorMessage(error, 'Veza nije uklonjena.'));
+              })
               .finally(() => setBusyId(null));
           },
         },
@@ -113,7 +118,10 @@ export function RelationsSection({
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         accessibilityLabel={`Povezane stavke${count === null ? '' : `, ${count}`}`}
-        onPress={() => setExpanded((value) => !value)}
+        onPress={() => {
+          haptics.select();
+          setExpanded((value) => !value);
+        }}
         style={({ pressed }) => [styles.header, pressed && { backgroundColor: colors.muted }]}>
         {expanded ? (
           <ChevronDown size={18} color={colors.mutedForeground} />
@@ -133,7 +141,13 @@ export function RelationsSection({
 
       {expanded ? (
         <View style={styles.body}>
-          {count === 0 ? (
+          {count === null ? (
+            // Oblik reda veze: ikonica vrste + naslov + oblast.
+            <SkeletonList
+              count={2}
+              item={(index) => <SkeletonRow index={index} leading="icon" subtitle />}
+            />
+          ) : count === 0 ? (
             <Text style={[styles.empty, { color: colors.mutedForeground }]}>
               Još nema povezanih stavki. Poveži stranicu da kontekst i izvršenje ostanu
               zajedno.

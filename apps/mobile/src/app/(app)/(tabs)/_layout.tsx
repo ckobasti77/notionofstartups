@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { Bell, FolderClosed, House, MessageCircle, Menu, type LucideIcon } from 'lucide-react-native';
 import type { ColorValue } from 'react-native';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight } from '@/theme/tokens';
 
@@ -29,6 +30,8 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      // Promena taba je izbor, ne akcija — najtiši haptički signal, jednom po tabu.
+      screenListeners={{ tabPress: () => haptics.select() }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,

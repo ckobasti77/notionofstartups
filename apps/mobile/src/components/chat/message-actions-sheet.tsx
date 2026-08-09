@@ -1,7 +1,8 @@
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Pencil, Reply, Trash2 } from 'lucide-react-native';
 
+import { Sheet } from '@/components/ui/sheet';
+import { haptics } from '@/lib/haptics';
 import { QUICK_REACTIONS, type ChatMessage } from '@/lib/chat';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -33,7 +34,6 @@ export function MessageActionsSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
 
   const isOwn = message !== null && message.authorProfileId === currentProfileId;
   const canEdit =
@@ -43,67 +43,52 @@ export function MessageActionsSheet({
     Date.now() - message.createdAt < EDIT_WINDOW_MS;
   const canDelete = isOwn;
 
+  // Sheet nema unutrašnji skrol, pa se prevlači bilo gde po njemu — ne samo po ručki.
   return (
-    <Modal
-      visible={message !== null}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}>
-      <Pressable
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
-      />
-      <View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: insets.bottom + 12,
-          },
-        ]}>
-        <View style={[styles.reactions, { borderBottomColor: colors.border }]}>
-          {QUICK_REACTIONS.map((emoji) => (
-            <Pressable
-              key={emoji}
-              accessibilityRole="button"
-              accessibilityLabel={`Reaguj sa ${emoji}`}
-              onPress={() => onReact(emoji)}
-              style={({ pressed }) => [
-                styles.reaction,
-                pressed && { backgroundColor: colors.muted },
-              ]}>
-              <Text style={styles.emoji}>{emoji}</Text>
-            </Pressable>
-          ))}
-        </View>
+    <Sheet visible={message !== null} onClose={onClose} dragAnywhere>
+      <View style={[styles.reactions, { borderBottomColor: colors.border }]}>
+        {QUICK_REACTIONS.map((emoji) => (
+          <Pressable
+            key={emoji}
+            accessibilityRole="button"
+            accessibilityLabel={`Reaguj sa ${emoji}`}
+            onPress={() => {
+              haptics.tap();
+              onReact(emoji);
+            }}
+            style={({ pressed }) => [
+              styles.reaction,
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <Text style={styles.emoji}>{emoji}</Text>
+          </Pressable>
+        ))}
+      </View>
 
+      <ActionRow
+        icon={<Reply size={20} color={colors.foreground} />}
+        label="Odgovori"
+        onPress={onReply}
+        colors={colors}
+      />
+      {canEdit ? (
         <ActionRow
-          icon={<Reply size={20} color={colors.foreground} />}
-          label="Odgovori"
-          onPress={onReply}
+          icon={<Pencil size={20} color={colors.foreground} />}
+          label="Izmeni"
+          onPress={onEdit}
           colors={colors}
         />
-        {canEdit ? (
-          <ActionRow
-            icon={<Pencil size={20} color={colors.foreground} />}
-            label="Izmeni"
-            onPress={onEdit}
-            colors={colors}
-          />
-        ) : null}
-        {canDelete ? (
-          <ActionRow
-            icon={<Trash2 size={20} color={colors.destructive} />}
-            label="Obriši"
-            destructive
-            onPress={onDelete}
-            colors={colors}
-          />
-        ) : null}
-      </View>
-    </Modal>
+      ) : null}
+      {canDelete ? (
+        <ActionRow
+          icon={<Trash2 size={20} color={colors.destructive} />}
+          label="Obriši"
+          destructive
+          onPress={onDelete}
+          colors={colors}
+        />
+      ) : null}
+    </Sheet>
   );
 }
 
@@ -124,7 +109,12 @@ function ActionRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      onPress={onPress}
+      // Brisanje je destruktivno — upozoravajuća haptika, ne obična potvrda dodira.
+      onPress={() => {
+        if (destructive) haptics.warning();
+        else haptics.tap();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.actionRow,
         pressed && { backgroundColor: colors.muted },
@@ -142,24 +132,6 @@ function ActionRow({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 8,
-  },
   reactions: {
     flexDirection: 'row',
     justifyContent: 'space-around',

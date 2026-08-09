@@ -2,7 +2,6 @@ import { useMutation, useQuery } from 'convex/react';
 import { ChevronDown, ChevronRight, NotebookPen } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -13,9 +12,11 @@ import {
 } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -87,9 +88,13 @@ function BriefingBody({
   const [saveState, setSaveState] = useState<SaveState>('idle');
 
   if (canvas === undefined) {
+    // Oblik skupljenog zaglavlja: strelica, naslov, pa kratka meta desno.
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje brifinga" />
+      <View style={styles.loading} accessibilityLabel="Učitavanje brifinga">
+        <Skeleton width={18} height={18} />
+        <Skeleton width={92} height={16} />
+        <View style={styles.loadingSpacer} />
+        <Skeleton width={54} height={14} />
       </View>
     );
   }
@@ -102,6 +107,7 @@ function BriefingBody({
     if (!briefing.canEdit || !dirty || saveState === 'saving') return;
     const snapshot = value;
     setSaveState('saving');
+    haptics.tap();
     try {
       await updateAreaBody({
         startupId: canvas.scope.startupId,
@@ -109,10 +115,12 @@ function BriefingBody({
         content: snapshot,
         expectedRevision: briefing.revision,
       });
+      haptics.success();
       // Nazad na praćenje servera: upravo sačuvan tekst je sad i serverski.
       setDraft(null);
       setSaveState('idle');
     } catch (error) {
+      haptics.error();
       setSaveState('error');
       Alert.alert('Brifing nije sačuvan', accessErrorMessage(error, 'Pokušaj ponovo.'));
     }
@@ -211,8 +219,14 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   loading: {
-    paddingVertical: 20,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: 16,
+  },
+  loadingSpacer: {
+    flex: 1,
   },
   body: {
     paddingHorizontal: 16,

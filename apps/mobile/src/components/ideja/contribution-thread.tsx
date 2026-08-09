@@ -7,9 +7,11 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonCard, SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { noteHtmlToText } from '@/lib/note-content';
 import { formatShortDate } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -67,15 +69,19 @@ export function ContributionThread({
   const [editingText, setEditingText] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const fail = (error: unknown, fallback: string) =>
+  const fail = (error: unknown, fallback: string) => {
+    haptics.error();
     Alert.alert('Greška', accessErrorMessage(error, fallback));
+  };
 
   const submit = async () => {
     const content = draft.trim();
     if (!content || busyId !== null) return;
     setBusyId('new');
+    haptics.tap();
     try {
       await addContribution({ target, content });
+      haptics.success();
       setDraft('');
       setComposerOpen(false);
     } catch (error) {
@@ -89,8 +95,10 @@ export function ContributionThread({
     const content = editingText.trim();
     if (!content || busyId !== null) return;
     setBusyId(contributionId);
+    haptics.tap();
     try {
       await updateContribution({ contributionId, content });
+      haptics.success();
       setEditingId(null);
     } catch (error) {
       fail(error, 'Tekst nije sačuvan.');
@@ -105,6 +113,7 @@ export function ContributionThread({
     author: string,
   ) => {
     if (busyId !== null) return;
+    haptics.warning();
     Alert.alert(
       direct ? 'Obrisati svoj tekst?' : 'Zatražiti brisanje?',
       direct
@@ -122,6 +131,7 @@ export function ContributionThread({
               : requestDeletion({ target: { kind: 'contribution', id: contributionId } });
             void action
               .then(() => {
+                haptics.success();
                 if (!direct) {
                   Alert.alert('Poslato', 'Zahtev za brisanje čeka glasanje tima.');
                 }
@@ -140,7 +150,11 @@ export function ContributionThread({
   ) => {
     if (busyId !== null) return;
     setBusyId(contributionId);
+    // Odbijanje tuđeg teksta je destruktivna odluka; odobravanje je obična akcija.
+    if (decision === 'reject') haptics.warning();
+    else haptics.tap();
     void moderate({ contributionId, decision })
+      .then(() => haptics.success())
       .catch((error: unknown) =>
         fail(error, decision === 'approve' ? 'Tekst nije odobren.' : 'Tekst nije odbijen.'),
       )
@@ -148,11 +162,26 @@ export function ContributionThread({
   };
 
   if (status === 'LoadingFirstPage') {
+    // Oblik kartice doprinosa: avatar 32 + ime/meta, pa dve linije teksta.
     return (
       <View style={styles.wrap} accessibilityLabel="Učitavanje diskusije">
-        {[0, 1].map((item) => (
-          <Skeleton key={item} height={72} borderRadius={radius.card} />
-        ))}
+        <SkeletonList
+          count={2}
+          gap={10}
+          item={(index) => (
+            <SkeletonCard style={[styles.card, { backgroundColor: colors.surface }]}>
+              <View style={styles.cardHead}>
+                <Skeleton width={32} height={32} borderRadius={radius.pill} />
+                <View style={styles.cardHeadText}>
+                  <Skeleton width="42%" height={14} />
+                  <Skeleton width="28%" height={12} />
+                </View>
+              </View>
+              <Skeleton width="100%" height={14} />
+              <Skeleton width={index === 0 ? '72%' : '54%'} height={14} />
+            </SkeletonCard>
+          )}
+        />
       </View>
     );
   }

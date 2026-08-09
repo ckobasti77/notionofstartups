@@ -8,9 +8,12 @@ import { EmptyState } from '@/components/empty-state';
 import { CellEditSheet, ColumnEditSheet } from '@/components/stranica/cell-edit-sheet';
 import { TableImportSheet } from '@/components/stranica/table-import-sheet';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
@@ -54,11 +57,7 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
   const removeColumn = useMutation(api.pageTables.removeColumn);
 
   if (meta === undefined || status === 'LoadingFirstPage') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje tabele" />
-      </View>
-    );
+    return <TableSkeleton />;
   }
 
   const columns = meta.columns as Column[];
@@ -71,9 +70,11 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
     setBusy(true);
     try {
       await action();
+      haptics.success();
       setEditingCell(null);
       setEditingColumn(null);
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, fallback));
     } finally {
       setBusy(false);
@@ -443,9 +444,51 @@ function ToolbarButton({
   );
 }
 
+/**
+ * Oblik tabele: traka alatki, red zaglavlja i redovi ćelija — istih visina kao
+ * prava tabela (`HEADER_HEIGHT` / `ROW_HEIGHT`), pa prelaz ne pomera ništa.
+ */
+function TableSkeleton() {
+  const colors = useThemeColors();
+  return (
+    <View style={styles.flex} accessibilityLabel="Učitavanje tabele">
+      <View style={[styles.toolbar, { borderBottomColor: colors.border }]}>
+        <Skeleton width={110} height={40} borderRadius={radius.control} />
+        <Skeleton width={92} height={40} borderRadius={radius.control} />
+      </View>
+      <View style={styles.skeletonHeaderRow}>
+        <Skeleton width={COL_WIDTH - 24} height={14} />
+        <Skeleton width={COL_WIDTH - 48} height={14} />
+      </View>
+      <SkeletonList
+        count={6}
+        item={() => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={COL_WIDTH - 32} height={14} />
+            <Skeleton width={COL_WIDTH - 60} height={14} />
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  skeletonHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+    height: HEADER_HEIGHT,
+    paddingHorizontal: 12,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+    height: ROW_HEIGHT,
+    paddingHorizontal: 12,
+  },
   toolbar: {
     flexDirection: 'row',
     gap: 8,

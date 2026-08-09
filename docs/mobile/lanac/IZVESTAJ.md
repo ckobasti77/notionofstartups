@@ -501,3 +501,11 @@ dvostruko ograničenje (50 roditelja, cap 9), postojeći indeks
 `by_areaId_and_parentPageId_and_archivedAt_and_position` (`schema.ts:277`).
 Ali zadatak je bio čist redizajn i nije tražio nove podatke — broj podstranica
 je bio odluka faze, ne zahtev.
+- Trajanje: 69 min
+
+## Faza 6 — pokret
+
+- Start: 2026-08-09T12:24:44+02:00
+- Izvršavanje: prošlo
+- `npm run check`: **prolazi**
+- `npm test`: prolazi

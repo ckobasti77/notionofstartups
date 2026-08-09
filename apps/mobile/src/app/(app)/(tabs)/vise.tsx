@@ -28,6 +28,7 @@ import { Card } from '@/components/ui/card';
 import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import { haptics } from '@/lib/haptics';
 import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
@@ -104,6 +105,7 @@ export default function ViseScreen() {
   // aktivan startup, pa se ne može upisati kao statični `route` u MENU (kao ideje.tsx).
   const openThoughts = () => {
     if (!activeStartupId) return;
+    haptics.tap();
     router.push({
       pathname: '/canvas/[kind]/[id]',
       params: { kind: 'thoughts', id: activeStartupId },
@@ -125,7 +127,10 @@ export default function ViseScreen() {
                   key={option.value}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  onPress={() => setPreference(option.value)}
+                  onPress={() => {
+                    if (!active) haptics.select();
+                    setPreference(option.value);
+                  }}
                   style={[
                     styles.segment,
                     active && { backgroundColor: colors.card, borderColor: colors.border },
@@ -183,8 +188,14 @@ export default function ViseScreen() {
                   title={item.label}
                   value={badge ? <Badge label={badge} variant="destructive" /> : undefined}
                   onPress={() => {
-                    if (item.label === 'Misli') openThoughts();
-                    else if (item.route) router.push(item.route);
+                    if (item.label === 'Misli') {
+                      openThoughts();
+                      return;
+                    }
+                    if (item.route) {
+                      haptics.tap();
+                      router.push(item.route);
+                    }
                   }}
                   accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
                   style={topBorder || undefined}
@@ -238,7 +249,9 @@ export default function ViseScreen() {
         <Button
           label="Odjavi se"
           variant="ghost"
+          // Odjava izbacuje iz aplikacije — upozoravajuća haptika, ne obična potvrda.
           onPress={() => {
+            haptics.warning();
             void signOut();
           }}
           style={styles.signOut}

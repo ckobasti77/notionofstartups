@@ -1,4 +1,3 @@
-import * as Haptics from 'expo-haptics';
 import { Check, Settings2 } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -13,6 +12,7 @@ import { Pill } from '@/components/ui';
 import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
+import { haptics } from '@/lib/haptics';
 import type { CommandCenterTask, TaskAssignee } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
@@ -53,17 +53,14 @@ export function TaskCard({
   const translateX = useSharedValue(0);
   const triggered = useSharedValue(0); // -1 = meni, 0 = ništa, 1 = gotovo
 
-  const fireHaptic = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
+  // Prelazak praga se oseti odmah (gest je direktna manipulacija); POTVRDA („uspeh")
+  // stiže tek kad mutacija prođe — nju šalje ekran, ne kartica. Odbijen svajp je
+  // jedini slučaj koji kartica sama zaključi, pa ga sama i signalizira.
+  const fireHaptic = () => haptics.threshold();
   const handleEnd = (direction: number) => {
     if (direction === 1) {
-      if (canDone) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onDone();
-      } else {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      }
+      if (canDone) onDone();
+      else haptics.warning();
     } else if (direction === -1) {
       onMenu();
     }
@@ -128,9 +125,12 @@ export function TaskCard({
             accessibilityRole="button"
             accessibilityLabel={task.title}
             accessibilityHint="Dodirni za detalj zadatka, dugi pritisak za brzi status"
-            onPress={onOpen}
+            onPress={() => {
+              haptics.tap();
+              onOpen();
+            }}
             onLongPress={() => {
-              void Haptics.selectionAsync();
+              haptics.select();
               onQuickStatus();
             }}
             delayLongPress={300}

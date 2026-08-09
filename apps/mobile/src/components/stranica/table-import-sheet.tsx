@@ -2,23 +2,14 @@ import { useMutation } from 'convex/react';
 import * as DocumentPicker from 'expo-document-picker';
 import { FileSpreadsheet, Upload } from 'lucide-react-native';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import {
   MAX_TABLE_CELL_LENGTH,
   MAX_TABLE_COLUMNS,
@@ -59,7 +50,6 @@ export function TableImportSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const importRows = useMutation(api.pageTables.importRows);
 
   const [matrix, setMatrix] = useState<string[][] | null>(null);
@@ -107,6 +97,7 @@ export function TableImportSheet({
         MAX_TABLE_COLUMNS,
       );
       if (parsed.matrix.length === 0) {
+        haptics.warning();
         Alert.alert('Prazan fajl', 'U fajlu nema podataka za uvoz.');
         reset();
         return;
@@ -115,7 +106,9 @@ export function TableImportSheet({
       setSourceColumns(parsed.columnCount);
       setTruncatedCells(parsed.truncatedCells);
       setFileName(asset.name);
+      haptics.success();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Fajl nije pročitan.'));
       reset();
     } finally {
@@ -149,6 +142,7 @@ export function TableImportSheet({
     if (matrix === null || limitError !== null) return;
     const columns = columnLabels;
 
+    haptics.tap();
     setBusy(true);
     setProgress({ done: 0, total: dataRows.length });
     let committed = 0;
@@ -170,6 +164,7 @@ export function TableImportSheet({
         committed = Math.min((index + 1) * MAX_TABLE_IMPORT_BATCH, dataRows.length);
         setProgress({ done: committed, total: dataRows.length });
       }
+      haptics.success();
       Alert.alert(
         'Uvoz gotov',
         `Uvezeno: ${dataRows.length} ${dataRows.length === 1 ? 'red' : 'redova'}.` +
@@ -177,6 +172,7 @@ export function TableImportSheet({
       );
       close();
     } catch (error) {
+      haptics.error();
       // Uvoz ide u serijama; ako pukne na sredini, deo je već upisan (u „Zameni"
       // režimu je stari sadržaj već obrisan) — to se korisniku kaže, ne prećuti.
       const base = accessErrorMessage(error, 'Uvoz nije uspeo.');
@@ -205,26 +201,11 @@ export function TableImportSheet({
       : null;
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={requestClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={requestClose}
-      />
-      <View style={styles.anchor} pointerEvents="box-none">
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: colors.popover,
-              borderColor: colors.border,
-              paddingBottom: insets.bottom + 12,
-            },
-          ]}>
-          {/* Sadržaj skroluje vertikalno — na niskim ekranima sve stane bez odsecanja;
-              akcije su zakačene ispod skrola da su uvek dohvatljive. */}
-          <ScrollView
+    // Ne prelazi ~88% ekrana; višak sadržaja skroluje unutar `body`.
+    <Sheet visible={open} onClose={requestClose} maxHeight="88%" style={styles.sheet}>
+      {/* Sadržaj skroluje vertikalno — na niskim ekranima sve stane bez odsecanja;
+          akcije su zakačene ispod skrola da su uvek dohvatljive. */}
+      <ScrollView
             style={styles.body}
             contentContainerStyle={styles.bodyContent}
             showsVerticalScrollIndicator={false}>
@@ -322,47 +303,45 @@ export function TableImportSheet({
                 ) : null}
               </>
             )}
-          </ScrollView>
+      </ScrollView>
 
-          <View style={styles.footer}>
-            <View style={styles.actions}>
-              <Button
-                label="Otkaži"
-                variant="ghost"
-                onPress={close}
-                style={styles.flexBtn}
-                disabled={busy}
-              />
-              {matrix !== null ? (
-                <Button
-                  label="Uvezi"
-                  onPress={runImport}
-                  loading={busy}
-                  disabled={limitError !== null}
-                  style={styles.flexBtn}
-                />
-              ) : null}
-            </View>
-            {matrix !== null ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Izaberi drugi fajl"
-                disabled={busy}
-                onPress={pickFile}
-                style={({ pressed }) => [
-                  styles.secondaryLink,
-                  pressed && { backgroundColor: colors.muted },
-                  busy && { opacity: 0.5 },
-                ]}>
-                <Text style={[styles.secondaryLinkLabel, { color: colors.primary }]}>
-                  Izaberi drugi fajl
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
+      <View style={styles.footer}>
+        <View style={styles.actions}>
+          <Button
+            label="Otkaži"
+            variant="ghost"
+            onPress={close}
+            style={styles.flexBtn}
+            disabled={busy}
+          />
+          {matrix !== null ? (
+            <Button
+              label="Uvezi"
+              onPress={runImport}
+              loading={busy}
+              disabled={limitError !== null}
+              style={styles.flexBtn}
+            />
+          ) : null}
         </View>
+        {matrix !== null ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Izaberi drugi fajl"
+            disabled={busy}
+            onPress={pickFile}
+            style={({ pressed }) => [
+              styles.secondaryLink,
+              pressed && { backgroundColor: colors.muted },
+              busy && { opacity: 0.5 },
+            ]}>
+            <Text style={[styles.secondaryLinkLabel, { color: colors.primary }]}>
+              Izaberi drugi fajl
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -388,7 +367,10 @@ function ToggleRow({
       accessibilityState={{ checked: value, disabled }}
       accessibilityLabel={label}
       disabled={disabled}
-      onPress={() => onValueChange(!value)}
+      onPress={() => {
+        haptics.select();
+        onValueChange(!value);
+      }}
       style={styles.toggleRow}>
       <Text style={[styles.toggleLabel, { color: colors.foreground }]}>{label}</Text>
       <View pointerEvents="none">
@@ -404,26 +386,8 @@ function ToggleRow({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  anchor: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
-    // Ne prelazi ~88% ekrana; višak sadržaja skroluje unutar `body`.
-    maxHeight: '88%',
   },
   body: {
     flexShrink: 1,

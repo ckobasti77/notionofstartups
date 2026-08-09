@@ -2,25 +2,18 @@ import { useMutation, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
 import { MessagesSquare, Send, X } from 'lucide-react-native';
 import { useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { porukaWord } from '@/lib/chat';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /**
  * Red diskusije zadatka (docs/mobile/02-EKRANI.md §9.2). Thread se pravi lenjo —
@@ -52,11 +45,14 @@ export function DiscussionLink({
     const body = draft.trim();
     if (!body || sending) return;
     setSending(true);
+    haptics.tap();
     try {
       await sendToAnchor({ startupId, anchorType: 'page', anchorId: pageId, body });
+      haptics.success();
       setDraft('');
       setComposerOpen(false);
     } catch (error) {
+      haptics.error();
       Alert.alert('Poruka nije poslata', error instanceof Error ? error.message : 'Pokušaj ponovo.');
     } finally {
       setSending(false);
@@ -97,42 +93,27 @@ export function DiscussionLink({
         />
       )}
 
-      <Modal
-        visible={composerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setComposerOpen(false)}>
-        <Pressable
-          accessibilityLabel="Zatvori"
-          style={styles.backdrop}
-          onPress={() => setComposerOpen(false)}
-        />
-        <KeyboardAvoidingView
-          // `padding` na oba: Expo SDK 57 edge-to-edge (Android) razbija OS
-          // `adjustResize` (isto kao quick-add-sheet / razgovor).
-          behavior="padding"
-          style={styles.kav}
-          pointerEvents="box-none">
-          <ComposerSheet
-            draft={draft}
-            sending={sending}
-            onChange={setDraft}
-            onClose={() => setComposerOpen(false)}
-            onSend={() => void send()}
-          />
-        </KeyboardAvoidingView>
-      </Modal>
+      <ComposerSheet
+        open={composerOpen}
+        draft={draft}
+        sending={sending}
+        onChange={setDraft}
+        onClose={() => setComposerOpen(false)}
+        onSend={() => void send()}
+      />
     </>
   );
 }
 
 function ComposerSheet({
+  open,
   draft,
   sending,
   onChange,
   onClose,
   onSend,
 }: {
+  open: boolean;
   draft: string;
   sending: boolean;
   onChange: (value: string) => void;
@@ -140,19 +121,10 @@ function ComposerSheet({
   onSend: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const canSend = Boolean(draft.trim()) && !sending;
 
   return (
-    <View
-      style={[
-        styles.sheet,
-        {
-          backgroundColor: colors.popover,
-          borderColor: colors.border,
-          paddingBottom: insets.bottom + 12,
-        },
-      ]}>
+    <Sheet visible={open} onClose={onClose} avoidKeyboard style={styles.sheet}>
       <View style={styles.sheetHeader}>
         <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Prva poruka</Text>
         <Pressable
@@ -186,7 +158,7 @@ function ComposerSheet({
           <Send size={18} color={colors.primaryForeground} />
         </Pressable>
       </View>
-    </View>
+    </Sheet>
   );
 }
 
@@ -208,23 +180,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  kav: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
     paddingHorizontal: 20,
   },
   sheetHeader: {

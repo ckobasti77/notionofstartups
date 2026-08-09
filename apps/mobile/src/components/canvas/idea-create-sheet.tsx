@@ -1,22 +1,13 @@
 import { useMutation } from 'convex/react';
 import { useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius } from '@/theme/tokens';
 
@@ -39,7 +30,6 @@ export function IdeaCreateSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const create = useMutation(api.ideas.create);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
@@ -56,15 +46,19 @@ export function IdeaCreateSheet({
     // `ideas.create` traži OBA polja (`cleanRequiredText` baca na prazan string), pa se
     // ovde proverava isto — ranije je sheet puštao samo naslov i mutacija je pucala.
     if (!cleanTitle || !cleanText) {
+      haptics.warning();
       Alert.alert('Nepotpuna ideja', 'Unesi i naslov i opis.');
       return;
     }
     setBusy(true);
+    haptics.tap();
     try {
       await create({ startupId, title: cleanTitle, text: cleanText });
+      haptics.success();
       reset();
       onClose();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Ideja nije kreirana.'));
     } finally {
       setBusy(false);
@@ -72,82 +66,51 @@ export function IdeaCreateSheet({
   };
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
-      />
-      <KeyboardAvoidingView behavior="padding" style={styles.avoider} pointerEvents="box-none">
-        <View
+    // Visina je ograničena i sadržaj skroluje: na niskom ekranu (i u landscape-u,
+    // koji canvas ekran podržava) sa otvorenom tastaturom dugmad inače ostanu van
+    // vidljivog dela.
+    <Sheet visible={open} onClose={onClose} avoidKeyboard maxHeight="85%" style={styles.sheet}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
+        <Text style={[styles.heading, { color: colors.foreground }]}>Nova ideja</Text>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          autoFocus
+          maxLength={MAX_TITLE}
+          placeholder="Naslov"
+          placeholderTextColor={colors.mutedForeground}
+          selectionColor={colors.primary}
+          style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
+        />
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          multiline
+          maxLength={MAX_TEXT}
+          placeholder="Opis"
+          placeholderTextColor={colors.mutedForeground}
+          selectionColor={colors.primary}
           style={[
-            styles.sheet,
-            { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insets.bottom + 12 },
-          ]}>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled">
-            <Text style={[styles.heading, { color: colors.foreground }]}>Nova ideja</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              autoFocus
-              maxLength={MAX_TITLE}
-              placeholder="Naslov"
-              placeholderTextColor={colors.mutedForeground}
-              selectionColor={colors.primary}
-              style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
-            />
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              multiline
-              maxLength={MAX_TEXT}
-              placeholder="Opis"
-              placeholderTextColor={colors.mutedForeground}
-              selectionColor={colors.primary}
-              style={[
-                styles.input,
-                styles.multiline,
-                { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
-              ]}
-            />
-            <View style={styles.actions}>
-              <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
-              <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
-            </View>
-          </ScrollView>
+            styles.input,
+            styles.multiline,
+            { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+          ]}
+        />
+        <View style={styles.actions}>
+          <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
+          <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      </ScrollView>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  avoider: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
-    // Ograniči visinu i skroluj sadržaj: na niskom ekranu (i u landscape-u, koji canvas
-    // ekran podržava) sa otvorenom tastaturom dugmad inače ostanu van vidljivog dela.
-    // Isti obrazac kao `thought-create-sheet.tsx` i `page-create-sheet.tsx`.
-    maxHeight: '85%',
   },
   scroll: {
     flexGrow: 0,

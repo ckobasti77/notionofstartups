@@ -1,22 +1,12 @@
 import { useMutation, useQuery } from 'convex/react';
 import { ChevronDown, ChevronRight, FileText, ListTodo, Users } from 'lucide-react-native';
 import { useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { OptionChip } from '@/components/ui/option-chip';
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import {
   AssigneePickerSheet,
   assigneeCountLabel,
@@ -28,6 +18,7 @@ import {
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import {
   dueDateInDays,
   priorityColor,
@@ -86,7 +77,6 @@ export function PageCreateSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const create = useMutation(api.pages.create);
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<PageKind>('note');
@@ -129,10 +119,12 @@ export function PageCreateSheet({
   const submit = async () => {
     const cleanTitle = title.trim();
     if (!cleanTitle) {
+      haptics.warning();
       Alert.alert('Prazan naslov', 'Unesi naslov stranice.');
       return;
     }
     setBusy(true);
+    haptics.tap();
     try {
       const cleanInstructions = instructions.trim();
       await create({
@@ -154,9 +146,11 @@ export function PageCreateSheet({
             }
           : {}),
       });
+      haptics.success();
       reset();
       closeAll();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Stranica nije kreirana.'));
     } finally {
       setBusy(false);
@@ -176,23 +170,14 @@ export function PageCreateSheet({
     .join(' · ');
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={closeAll}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={closeAll}
-      />
-      <KeyboardAvoidingView behavior="padding" style={styles.avoider} pointerEvents="box-none">
-        <View
-          style={[
-            styles.sheet,
-            { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insets.bottom + 12 },
-          ]}>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled">
+    // Izbor izvršilaca je BRAT, ne dete: ugnježdeni `Modal` na Androidu proguta
+    // `onRequestClose`, pa bi sistemsko „nazad" zatvorilo pogrešan sloj.
+    <>
+      <Sheet visible={open} onClose={closeAll} avoidKeyboard maxHeight="85%" style={styles.sheet}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled">
             <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
               {parentPageId === null ? 'Nova stranica' : 'Nova podstranica'}
             </Text>
@@ -330,13 +315,12 @@ export function PageCreateSheet({
                 ) : null}
               </>
             ) : null}
-          </ScrollView>
-          <View style={styles.actions}>
-            <Button label="Otkaži" variant="ghost" onPress={closeAll} disabled={busy} style={styles.flexBtn} />
-            <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
-          </View>
+        </ScrollView>
+        <View style={styles.actions}>
+          <Button label="Otkaži" variant="ghost" onPress={closeAll} disabled={busy} style={styles.flexBtn} />
+          <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
         </View>
-      </KeyboardAvoidingView>
+      </Sheet>
 
       <AssigneePickerSheet
         open={assigneesOpen}
@@ -345,7 +329,7 @@ export function PageCreateSheet({
         onChange={setAssigneeIds}
         onClose={() => setAssigneesOpen(false)}
       />
-    </Modal>
+    </>
   );
 }
 
@@ -402,26 +386,8 @@ function KindSegment({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  avoider: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
-    // Ograniči visinu i skroluj sadržaj: na niskom ekranu sa tastaturom sve stane.
-    maxHeight: '85%',
   },
   scroll: {
     flexGrow: 0,

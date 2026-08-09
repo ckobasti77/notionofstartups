@@ -6,17 +6,23 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { haptics } from '@/lib/haptics';
 
 export function Collapsible({ children, title }: PropsWithChildren & { title: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const theme = useTheme();
+  const reduced = useReducedMotion();
 
   return (
     <ThemedView>
       <Pressable
         style={({ pressed }) => [styles.heading, pressed && styles.pressedHeading]}
-        onPress={() => setIsOpen((value) => !value)}>
+        onPress={() => {
+          haptics.select();
+          setIsOpen((value) => !value);
+        }}>
         <ThemedView type="backgroundElement" style={styles.button}>
           <SymbolView
             name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
@@ -30,7 +36,8 @@ export function Collapsible({ children, title }: PropsWithChildren & { title: st
         <ThemedText type="small">{title}</ThemedText>
       </Pressable>
       {isOpen && (
-        <Animated.View entering={FadeIn.duration(200)}>
+        // „Smanji pokret" gasi ulaz — sadržaj se prosto pojavi.
+        <Animated.View entering={reduced ? undefined : FadeIn.duration(200)}>
           <ThemedView type="backgroundElement" style={styles.content}>
             {children}
           </ThemedView>

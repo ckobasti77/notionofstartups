@@ -11,6 +11,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StartupSwitcher, type SwitcherStartup } from '@/components/startup-switcher';
 import { useActiveStartup } from '@/context/active-startup';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET } from '@/theme/tokens';
 
@@ -68,19 +69,30 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
         title={title}
         onBack={onBack}
         eyebrow={loadingStartups ? <Skeleton width={110} height={13} /> : activeName}
-        onEyebrowPress={() => setSwitcherOpen(true)}
+        onEyebrowPress={() => {
+          haptics.tap();
+          setSwitcherOpen(true);
+        }}
         eyebrowAccessibilityLabel={`Startup: ${activeName}. Otvori nalog i prebacivanje.`}
         below={below}
         actions={
           <>
             {actions}
-            <IconButton accessibilityLabel="Pretraga" onPress={() => router.push('/pretraga')}>
+            <IconButton
+              accessibilityLabel="Pretraga"
+              onPress={() => {
+                haptics.tap();
+                router.push('/pretraga');
+              }}>
               <Search size={22} color={colors.foreground} />
             </IconButton>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Nalog i startupi. Trenutni startup: ${activeName}.`}
-              onPress={() => setSwitcherOpen(true)}
+              onPress={() => {
+                haptics.tap();
+                setSwitcherOpen(true);
+              }}
               style={({ pressed }) => [styles.avatarButton, pressed && styles.pressed]}>
               <Avatar name={profile?.displayName} uri={profile?.avatarUrl ?? null} size={32} />
             </Pressable>

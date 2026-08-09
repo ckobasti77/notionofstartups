@@ -3,7 +3,7 @@ import type { FunctionReturnType } from 'convex/server';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
@@ -14,8 +14,11 @@ import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonParagraph, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { pageKindLabel, pageKindMeta } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
 import type { ColorTokens } from '@/theme/tokens';
@@ -41,15 +44,15 @@ export default function StranicaScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Stranica" onBack={() => router.back()} />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje" />
-        </View>
+        <PageSkeleton />
       </View>
     );
   }
 
-  const openCanvas = () =>
+  const openCanvas = () => {
+    haptics.tap();
     router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'page', id: pageId } });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -63,7 +66,12 @@ export default function StranicaScreen() {
             <IconButton accessibilityLabel="Canvas stranice" onPress={openCanvas}>
               <LayoutGrid size={20} color={colors.foreground} />
             </IconButton>
-            <IconButton accessibilityLabel="Akcije stranice" onPress={() => setActionsView('menu')}>
+            <IconButton
+              accessibilityLabel="Akcije stranice"
+              onPress={() => {
+                haptics.tap();
+                setActionsView('menu');
+              }}>
               <Ellipsis size={20} color={colors.foreground} />
             </IconButton>
           </>
@@ -133,6 +141,23 @@ function PageContent({
 }
 
 /**
+ * Oblik ekrana stranice: dva sklopiva reda („Podstranice", „Povezane stavke"), pa
+ * naslov beleške i blok teksta — najčešći `kind` je `note`.
+ */
+function PageSkeleton() {
+  return (
+    <View style={styles.skeleton} accessibilityLabel="Učitavanje stranice">
+      <SkeletonRow leading="icon" trailing="chevron" />
+      <SkeletonRow index={1} leading="icon" trailing="chevron" />
+      <View style={styles.skeletonBody}>
+        <Skeleton width="68%" height={24} />
+        <SkeletonParagraph lines={6} />
+      </View>
+    </View>
+  );
+}
+
+/**
  * Zadatak ima svoj ekran (`zadatak/[id]`) i ovde ne bi trebalo da stigne. Ako
  * ipak stigne (stara duboka veza, notifikacija iz prethodne verzije), bolje je
  * jasna poruka nego prazan ekran.
@@ -189,9 +214,12 @@ const styles = StyleSheet.create({
   kindContent: {
     flex: 1,
   },
-  center: {
+  skeleton: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  skeletonBody: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 16,
   },
 });

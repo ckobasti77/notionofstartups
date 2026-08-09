@@ -11,7 +11,6 @@ import {
 } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -23,12 +22,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text as textStyles, type ColorTokens } from '@/theme/tokens';
@@ -99,16 +103,23 @@ export default function PretragaScreen() {
     otherPages.length + tasks.length + ideas.length + thoughts.length + msgs.length;
 
   const openPage = (id: Id<'pages'>, kind: PageKind) => {
+    haptics.tap();
     if (kind === 'task') router.push({ pathname: '/zadatak/[id]', params: { id } });
     else router.push({ pathname: '/stranica/[id]', params: { id } });
   };
-  const openChannel = (id: Id<'chatChannels'>) =>
+  const openChannel = (id: Id<'chatChannels'>) => {
+    haptics.tap();
     router.push({ pathname: '/razgovor/[id]', params: { id } });
+  };
   // Nema deep-linka do čvora (ruta prima startupId, ne node id): ideja vodi na
   // native listu ideja, misao na kanvas misli (embed misli je još placeholder).
-  const openIdeas = () => router.push({ pathname: '/ideje' });
+  const openIdeas = () => {
+    haptics.tap();
+    router.push({ pathname: '/ideje' });
+  };
   const openThoughts = () => {
     if (activeStartupId === null) return;
+    haptics.tap();
     router.push({
       pathname: '/canvas/[kind]/[id]',
       params: { kind: 'thoughts', id: activeStartupId },
@@ -171,73 +182,90 @@ export default function PretragaScreen() {
           title="Izaberi startup"
           description="Pretraga radi u okviru jednog startupa. Izaberi ga iz zaglavlja pa pokušaj ponovo."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Pretražujem" />
-        </View>
-      ) : total === 0 ? (
+      ) : !loading && total === 0 ? (
         <EmptyState
           icon={<Search size={40} color={colors.mutedForeground} />}
           title="Nema rezultata"
           description={`Ništa ne odgovara upitu „${trimmed}". Probaj kraći izraz.`}
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.results, { paddingBottom: insets.bottom + 24 }]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag">
-          {otherPages.length > 0 ? (
-            <Section title="Stranice" count={otherPages.length}>
-              {otherPages.map((p) => (
-                <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
-              ))}
-            </Section>
-          ) : null}
-          {tasks.length > 0 ? (
-            <Section title="Zadaci" count={tasks.length}>
-              {tasks.map((p) => (
-                <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
-              ))}
-            </Section>
-          ) : null}
-          {ideas.length > 0 ? (
-            <Section title="Ideje" count={ideas.length}>
-              {ideas.map((n) => (
-                <NodeRow
-                  key={n._id}
-                  node={n}
-                  tint={colors.warning}
-                  icon={Lightbulb}
-                  openHint="otvori listu ideja"
-                  colors={colors}
-                  onPress={openIdeas}
-                />
-              ))}
-            </Section>
-          ) : null}
-          {thoughts.length > 0 ? (
-            <Section title="Misli" count={thoughts.length}>
-              {thoughts.map((n) => (
-                <NodeRow
-                  key={n._id}
-                  node={n}
-                  tint={colors.primary}
-                  icon={Brain}
-                  openHint="otvori kanvas misli"
-                  colors={colors}
-                  onPress={openThoughts}
-                />
-              ))}
-            </Section>
-          ) : null}
-          {msgs.length > 0 ? (
-            <Section title="Poruke" count={msgs.length}>
-              {msgs.map((m) => (
-                <MessageRow key={m._id} message={m} colors={colors} onPress={() => openChannel(m.channelId)} />
-              ))}
-            </Section>
-          ) : null}
-        </ScrollView>
+        // Bez pull-to-refresh: rezultati zavise od upita u polju, ne od vremena —
+        // povlačenje nadole ovde služi zatvaranju tastature (`keyboardDismissMode`).
+        <LoadingSwap loading={loading} skeleton={<SearchSkeleton />}>
+          {loading ? null : (
+            <ScrollView
+              contentContainerStyle={[styles.results, { paddingBottom: insets.bottom + 24 }]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag">
+              {/* Svaki novi upit je novo punjenje liste. */}
+              <StaggerGroup resetKey={debounced}>
+                {otherPages.length > 0 ? (
+                  <Section title="Stranice" count={otherPages.length}>
+                    {otherPages.map((p, index) => (
+                      <StaggerItem key={p._id} index={index}>
+                        <PageRow page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {tasks.length > 0 ? (
+                  <Section title="Zadaci" count={tasks.length}>
+                    {tasks.map((p, index) => (
+                      <StaggerItem key={p._id} index={index}>
+                        <PageRow page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {ideas.length > 0 ? (
+                  <Section title="Ideje" count={ideas.length}>
+                    {ideas.map((n, index) => (
+                      <StaggerItem key={n._id} index={index}>
+                        <NodeRow
+                          node={n}
+                          tint={colors.warning}
+                          icon={Lightbulb}
+                          openHint="otvori listu ideja"
+                          colors={colors}
+                          onPress={openIdeas}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {thoughts.length > 0 ? (
+                  <Section title="Misli" count={thoughts.length}>
+                    {thoughts.map((n, index) => (
+                      <StaggerItem key={n._id} index={index}>
+                        <NodeRow
+                          node={n}
+                          tint={colors.primary}
+                          icon={Brain}
+                          openHint="otvori kanvas misli"
+                          colors={colors}
+                          onPress={openThoughts}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {msgs.length > 0 ? (
+                  <Section title="Poruke" count={msgs.length}>
+                    {msgs.map((m, index) => (
+                      <StaggerItem key={m._id} index={index}>
+                        <MessageRow
+                          message={m}
+                          colors={colors}
+                          onPress={() => openChannel(m.channelId)}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+              </StaggerGroup>
+            </ScrollView>
+          )}
+        </LoadingSwap>
       )}
       </KeyboardAvoidingView>
     </View>
@@ -251,6 +279,28 @@ type PageResult = {
   area: { label: string } | null;
   startup: { name: string } | null;
 };
+
+/** Oblik rezultata: naslov sekcije, pa redovi sa ikonicom-čipom i dve linije. */
+function SearchSkeleton() {
+  return (
+    <View style={styles.results} accessibilityLabel="Pretražujem">
+      <Skeleton width="28%" height={13} style={styles.skeletonHeader} />
+      <SkeletonList
+        count={6}
+        gap={12}
+        item={(index) => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={32} height={32} borderRadius={radius.control} />
+            <View style={styles.skeletonBody}>
+              <Skeleton width={index % 2 === 0 ? '66%' : '52%'} height={15} />
+              <Skeleton width="40%" height={12} />
+            </View>
+          </View>
+        )}
+      />
+    </View>
+  );
+}
 
 function Section({
   title,
@@ -388,7 +438,6 @@ function PretragaError({ message, onRetry }: { message: string; onRetry: () => v
 const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -431,5 +480,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  skeletonHeader: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  skeletonBody: {
+    flex: 1,
+    gap: 8,
   },
 });

@@ -1,22 +1,13 @@
 import { useMutation } from 'convex/react';
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import {
   THOUGHT_COLOR_LABEL,
   THOUGHT_COLORS,
@@ -54,7 +45,6 @@ export function ThoughtNodeSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const updateNode = useMutation(api.thoughts.updateNode);
   const archiveNodes = useMutation(api.thoughts.archiveNodes);
 
@@ -76,10 +66,12 @@ export function ThoughtNodeSheet({
     if (!thought) return;
     const cleanTitle = title.trim();
     if (!cleanTitle) {
+      haptics.warning();
       Alert.alert('Prazan naslov', 'Misao mora imati naslov.');
       return;
     }
     setBusy(true);
+    haptics.tap();
     try {
       await updateNode({
         nodeId: thought._id,
@@ -87,8 +79,10 @@ export function ThoughtNodeSheet({
         text: text.trim(),
         color,
       });
+      haptics.success();
       onClose();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Misao nije sačuvana.'));
     } finally {
       setBusy(false);
@@ -97,6 +91,7 @@ export function ThoughtNodeSheet({
 
   const remove = () => {
     if (!thought) return;
+    haptics.warning();
     Alert.alert('Obriši misao', 'Ova misao će biti uklonjena sa kanvasa.', [
       { text: 'Otkaži', style: 'cancel' },
       {
@@ -106,8 +101,10 @@ export function ThoughtNodeSheet({
           setBusy(true);
           try {
             await archiveNodes({ nodeIds: [thought._id] });
+            haptics.success();
             onClose();
           } catch (error) {
+            haptics.error();
             Alert.alert('Greška', accessErrorMessage(error, 'Misao nije obrisana.'));
           } finally {
             setBusy(false);
@@ -118,65 +115,56 @@ export function ThoughtNodeSheet({
   };
 
   return (
-    <Modal visible={thought !== null} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
-      />
-      <KeyboardAvoidingView behavior="padding" style={styles.avoider} pointerEvents="box-none">
-        <View
+    <Sheet
+      visible={thought !== null}
+      onClose={onClose}
+      avoidKeyboard
+      maxHeight="85%"
+      style={styles.sheet}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
+        <Text style={[styles.heading, { color: colors.foreground }]}>Misao</Text>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          maxLength={MAX_TITLE}
+          placeholder="Naslov"
+          placeholderTextColor={colors.mutedForeground}
+          selectionColor={colors.primary}
+          editable={!busy}
+          style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
+        />
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          multiline
+          maxLength={MAX_TEXT}
+          placeholder="Tekst (opciono)"
+          placeholderTextColor={colors.mutedForeground}
+          selectionColor={colors.primary}
+          editable={!busy}
           style={[
-            styles.sheet,
-            { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insets.bottom + 12 },
-          ]}>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled">
-            <Text style={[styles.heading, { color: colors.foreground }]}>Misao</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              maxLength={MAX_TITLE}
-              placeholder="Naslov"
-              placeholderTextColor={colors.mutedForeground}
-              selectionColor={colors.primary}
-              editable={!busy}
-              style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
-            />
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              multiline
-              maxLength={MAX_TEXT}
-              placeholder="Tekst (opciono)"
-              placeholderTextColor={colors.mutedForeground}
-              selectionColor={colors.primary}
-              editable={!busy}
-              style={[
-                styles.input,
-                styles.multiline,
-                { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
-              ]}
-            />
-            <ColorRow value={color} onChange={setColor} disabled={busy} colors={colors} />
-          </ScrollView>
+            styles.input,
+            styles.multiline,
+            { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+          ]}
+        />
+        <ColorRow value={color} onChange={setColor} disabled={busy} colors={colors} />
+      </ScrollView>
 
-          <View style={styles.actions}>
-            <Button
-              label="Obriši"
-              variant="ghost"
-              onPress={remove}
-              disabled={busy}
-              style={styles.flexBtn}
-            />
-            <Button label="Sačuvaj" onPress={() => void save()} loading={busy} style={styles.flexBtn} />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      <View style={styles.actions}>
+        <Button
+          label="Obriši"
+          variant="ghost"
+          onPress={remove}
+          disabled={busy}
+          style={styles.flexBtn}
+        />
+        <Button label="Sačuvaj" onPress={() => void save()} loading={busy} style={styles.flexBtn} />
+      </View>
+    </Sheet>
   );
 }
 
@@ -203,7 +191,10 @@ export function ColorRow({
             accessibilityLabel={`Boja: ${THOUGHT_COLOR_LABEL[option]}`}
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
-            onPress={() => onChange(option)}
+            onPress={() => {
+              haptics.select();
+              onChange(option);
+            }}
             style={styles.swatchHit}>
             <View
               style={[
@@ -223,25 +214,8 @@ export function ColorRow({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  avoider: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
-    maxHeight: '85%',
   },
   scroll: {
     flexGrow: 0,

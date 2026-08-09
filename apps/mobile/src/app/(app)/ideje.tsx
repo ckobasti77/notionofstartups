@@ -2,18 +2,23 @@ import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { LayoutGrid, Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
 import { Avatar } from '@/components/ui/avatar';
 import { IconButton } from '@/components/ui/icon-button';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { SkeletonIdeaCard, SkeletonList } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -55,11 +60,13 @@ export default function IdejeScreen() {
 
   const openCanvas = () => {
     if (!activeStartupId) return;
+    haptics.tap();
     router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'ideas', id: activeStartupId } });
   };
 
   const loading = activeStartupId !== null && ideas === undefined;
   const count = ideas?.nodes.length ?? 0;
+  const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -81,10 +88,6 @@ export default function IdejeScreen() {
           title="Izaberi startup"
           description="Ideje se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje ideja" />
-        </View>
       ) : ideas && ideas.nodes.length === 0 ? (
         <EmptyState
           icon={<Lightbulb size={40} color={colors.mutedForeground} />}
@@ -94,13 +97,31 @@ export default function IdejeScreen() {
           onAction={openCanvas}
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-          showsVerticalScrollIndicator={false}>
-          {(ideas?.nodes ?? []).map((node) => (
-            <IdeaRow key={node._id} idea={node} startupId={activeStartupId} colors={colors} />
-          ))}
-        </ScrollView>
+        <LoadingSwap
+          loading={loading}
+          skeleton={
+            <SkeletonList
+              count={4}
+              gap={8}
+              style={styles.list}
+              item={(index) => <SkeletonIdeaCard index={index} />}
+            />
+          }>
+          {ideas ? (
+            <ScrollView
+              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              <StaggerGroup>
+                {ideas.nodes.map((node, index) => (
+                  <StaggerItem key={node._id} index={index}>
+                    <IdeaRow idea={node} startupId={activeStartupId} colors={colors} />
+                  </StaggerItem>
+                ))}
+              </StaggerGroup>
+            </ScrollView>
+          ) : null}
+        </LoadingSwap>
       )}
     </View>
   );
@@ -121,9 +142,12 @@ function IdeaRow({
 
   const cast = async (voteType: 'up' | 'down') => {
     setBusy(true);
+    haptics.tap();
     try {
       await vote({ startupId, ideaId: idea._id, voteType });
+      haptics.success();
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Glas nije zabeležen.'));
     } finally {
       setBusy(false);
@@ -139,7 +163,10 @@ function IdeaRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Otvori ideju: ${title}`}
-      onPress={() => router.push({ pathname: '/ideja/[id]', params: { id: idea._id } })}
+      onPress={() => {
+        haptics.tap();
+        router.push({ pathname: '/ideja/[id]', params: { id: idea._id } });
+      }}
       style={({ pressed }) => [
         styles.row,
         { backgroundColor: colors.card, borderColor: colors.border },
@@ -199,7 +226,6 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   grow: { flex: 1 },
   list: {
     padding: 16,

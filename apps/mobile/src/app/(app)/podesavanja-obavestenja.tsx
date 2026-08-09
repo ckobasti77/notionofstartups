@@ -7,23 +7,17 @@ import {
   Smartphone,
 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery } from 'convex/react';
 
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { Sheet } from '@/components/ui/sheet';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { haptics } from '@/lib/haptics';
 import type { ChannelBase } from '@/convex/lib/notificationChannels';
 import type { NotificationType } from '@/convex/lib/notifications';
 import {
@@ -84,13 +78,20 @@ export default function NotificationSettingsScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
-      {settings === undefined ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : (
-        <SettingsForm initial={settings} colors={colors} bottomInset={insets.bottom} />
-      )}
+      {/* Skeleton je u obliku forme koja stiže: naslov grupe pa redovi sa prekidačem. */}
+      <LoadingSwap
+        loading={settings === undefined}
+        skeleton={
+          <SkeletonList
+            count={6}
+            style={styles.content}
+            item={(index) => <SkeletonRow index={index} subtitle trailing="value" />}
+          />
+        }>
+        {settings ? (
+          <SettingsForm initial={settings} colors={colors} bottomInset={insets.bottom} />
+        ) : null}
+      </LoadingSwap>
     </View>
   );
 }
@@ -131,6 +132,7 @@ function SettingsForm({
         quietHoursEnd: next.quietHoursEnd,
       });
     } catch (error) {
+      haptics.error();
       // Vrati na server-stanje da UI ne laže o onome što je zaista sačuvano.
       setMutedTypes(initial.mutedTypes);
       setQuietStart(initial.quietHoursStart);
@@ -143,12 +145,14 @@ function SettingsForm({
   }
 
   function onToggleRow(row: SettingsRow, enabled: boolean) {
+    haptics.select();
     const next = toggleRow(row, mutedTypes, enabled);
     setMutedTypes(next);
     void persist({ mutedTypes: next, quietHoursStart: quietStart, quietHoursEnd: quietEnd });
   }
 
   function onToggleQuiet(enabled: boolean) {
+    haptics.select();
     const nextStart = enabled ? quietStart ?? DEFAULT_QUIET_START : null;
     const nextEnd = enabled ? quietEnd ?? DEFAULT_QUIET_END : null;
     setQuietStart(nextStart);
@@ -279,7 +283,6 @@ function SettingsForm({
         label={picker === 'start' ? 'Od kada' : 'Do kada'}
         value={(picker === 'start' ? quietStart : quietEnd) ?? DEFAULT_QUIET_START}
         colors={colors}
-        bottomInset={bottomInset}
         onChange={onPickTime}
         onClose={() => setPicker(null)}
       />
@@ -380,7 +383,6 @@ function TimePickerSheet({
   label,
   value,
   colors,
-  bottomInset,
   onChange,
   onClose,
 }: {
@@ -388,7 +390,6 @@ function TimePickerSheet({
   label: string;
   value: number;
   colors: ColorTokens;
-  bottomInset: number;
   onChange: (minutes: number) => void;
   onClose: () => void;
 }) {
@@ -396,57 +397,44 @@ function TimePickerSheet({
   const selectedMinute = value % 60;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={styles.backdrop}
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        onPress={onClose}
-      />
-      <View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: bottomInset + space[3],
-          },
-        ]}>
-        <Text style={[styles.sheetTitle, { color: colors.mutedForeground }]}>{label}</Text>
-        <View style={styles.pickerColumns}>
-          <PickerColumn
-            data={HOURS}
-            selected={selectedHour}
-            colors={colors}
-            format={pad}
-            unit="Sat"
-            active={visible}
-            onSelect={(hour) => onChange(hour * 60 + selectedMinute)}
-          />
-          <Text style={[styles.pickerColon, { color: colors.foreground }]}>:</Text>
-          <PickerColumn
-            data={MINUTES}
-            selected={selectedMinute}
-            colors={colors}
-            format={pad}
-            unit="Minut"
-            active={visible}
-            onSelect={(minute) => onChange(selectedHour * 60 + minute)}
-          />
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Gotovo"
-          onPress={onClose}
-          style={({ pressed }) => [
-            styles.doneBtn,
-            { backgroundColor: colors.primary },
-            pressed && { opacity: 0.85 },
-          ]}>
-          <Text style={[styles.doneLabel, { color: colors.primaryForeground }]}>Gotovo</Text>
-        </Pressable>
+    <Sheet visible={visible} onClose={onClose} style={styles.sheet}>
+      <Text style={[styles.sheetTitle, { color: colors.mutedForeground }]}>{label}</Text>
+      <View style={styles.pickerColumns}>
+        <PickerColumn
+          data={HOURS}
+          selected={selectedHour}
+          colors={colors}
+          format={pad}
+          unit="Sat"
+          active={visible}
+          onSelect={(hour) => onChange(hour * 60 + selectedMinute)}
+        />
+        <Text style={[styles.pickerColon, { color: colors.foreground }]}>:</Text>
+        <PickerColumn
+          data={MINUTES}
+          selected={selectedMinute}
+          colors={colors}
+          format={pad}
+          unit="Minut"
+          active={visible}
+          onSelect={(minute) => onChange(selectedHour * 60 + minute)}
+        />
       </View>
-    </Modal>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Gotovo"
+        onPress={() => {
+          haptics.tap();
+          onClose();
+        }}
+        style={({ pressed }) => [
+          styles.doneBtn,
+          { backgroundColor: colors.primary },
+          pressed && { opacity: 0.85 },
+        ]}>
+        <Text style={[styles.doneLabel, { color: colors.primaryForeground }]}>Gotovo</Text>
+      </Pressable>
+    </Sheet>
   );
 }
 
@@ -524,11 +512,6 @@ function PickerColumn({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     padding: space[4],
@@ -623,23 +606,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: space[4],
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: space[3],
     paddingHorizontal: space[4],
   },
   sheetTitle: {

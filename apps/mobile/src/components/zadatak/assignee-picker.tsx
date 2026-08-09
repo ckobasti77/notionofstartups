@@ -1,22 +1,16 @@
 import { Check } from 'lucide-react-native';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { MAX_TASK_ASSIGNEES } from '@/lib/task-meta';
 import type { StartupMember } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /**
  * Izbor izvršilaca zadatka — JEDNA implementacija granice `MAX_TASK_ASSIGNEES`
@@ -65,9 +59,13 @@ export function AssigneePickerList({
     const next = new Set(selected);
     if (next.has(profileId)) next.delete(profileId);
     else {
-      if (next.size >= MAX_TASK_ASSIGNEES) return; // klijentska brana pre server errora
+      if (next.size >= MAX_TASK_ASSIGNEES) {
+        haptics.warning(); // odbijeno: granica je dostignuta
+        return; // klijentska brana pre server errora
+      }
       next.add(profileId);
     }
+    haptics.select();
     onChange([...next]);
   };
 
@@ -122,58 +120,31 @@ export function AssigneePickerSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const hint = assigneeLimitHint(selectedIds.length);
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
+    <Sheet visible={open} onClose={onClose} maxHeight="80%" style={styles.sheet}>
+      <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
+        {assigneeCountLabel(selectedIds.length)}
+      </Text>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <AssigneePickerList members={members} selectedIds={selectedIds} onChange={onChange} />
+      </ScrollView>
+      {hint ? <Text style={[styles.hint, { color: colors.mutedForeground }]}>{hint}</Text> : null}
+      <Button
+        label="Gotovo"
+        onPress={() => {
+          haptics.tap();
+          onClose();
+        }}
+        style={styles.done}
       />
-      <View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: insets.bottom + 12,
-          },
-        ]}>
-        <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
-          {assigneeCountLabel(selectedIds.length)}
-        </Text>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          <AssigneePickerList members={members} selectedIds={selectedIds} onChange={onChange} />
-        </ScrollView>
-        {hint ? <Text style={[styles.hint, { color: colors.mutedForeground }]}>{hint}</Text> : null}
-        <Button label="Gotovo" onPress={onClose} style={styles.done} />
-      </View>
-    </Modal>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '80%',
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
     gap: 8,
   },

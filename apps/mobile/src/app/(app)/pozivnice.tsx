@@ -6,8 +6,6 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,13 +19,19 @@ import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill, type PillTone } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { Sheet } from '@/components/ui/sheet';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -66,8 +70,10 @@ export default function PozivniceScreen() {
     activeStartupId ? { startupId: activeStartupId } : 'skip',
   );
   const revoke = useMutation(api.invites.revoke);
+  const refreshControl = useListRefresh();
 
   const confirmRevoke = (inviteId: Id<'invites'>, email: string) => {
+    haptics.warning();
     Alert.alert('Opozovi pozivnicu', `Pozivnica za ${email} više neće važiti.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
@@ -77,7 +83,9 @@ export default function PozivniceScreen() {
           setRevokingId(inviteId);
           try {
             await revoke({ inviteId });
+            haptics.success();
           } catch (error) {
+            haptics.error();
             Alert.alert('Greška', accessErrorMessage(error, 'Pozivnica nije opozvana.'));
           } finally {
             setRevokingId(null);
@@ -96,7 +104,12 @@ export default function PozivniceScreen() {
         onBack={() => router.back()}
         actions={
           activeStartupId ? (
-            <IconButton accessibilityLabel="Nova pozivnica" onPress={() => setCreateOpen(true)}>
+            <IconButton
+              accessibilityLabel="Nova pozivnica"
+              onPress={() => {
+                haptics.tap();
+                setCreateOpen(true);
+              }}>
               <Plus size={24} color={colors.foreground} />
             </IconButton>
           ) : undefined
@@ -108,10 +121,6 @@ export default function PozivniceScreen() {
           title="Izaberi startup"
           description="Pozivnice se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje pozivnica" />
-        </View>
       ) : invites && invites.length === 0 ? (
         <EmptyState
           icon={<Mail size={40} color={colors.mutedForeground} />}
@@ -121,63 +130,82 @@ export default function PozivniceScreen() {
           onAction={() => setCreateOpen(true)}
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-          showsVerticalScrollIndicator={false}>
-          {(invites ?? []).map((invite) => {
-            const status = inviteStatus(invite, now);
-            const canRevoke = invite.revokedAt === null && invite.claimedAt === null;
-            const revoking = revokingId === invite._id;
-            return (
-              // Red nije dodirljiv (nema `onPress`) — `Row` ga renderuje kao View, pa
-              // je „Opozovi" u `value` slotu samostalno dugme, a ne ugnježdeni tap.
-              <Row
-                key={invite._id}
-                title={invite.email}
-                accessibilityLabel={`Pozivnica za ${invite.email}, ${status.label}${
-                  invite.claimedBy ? `, prihvatio ${invite.claimedBy.displayName}` : ''
-                }`}
-                showChevron={false}
-                style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-                // Ko je prihvatio dobija inicijale, ne golo ime — isti jezik kao
-                // svugde gde se prikazuje osoba.
-                icon={<Avatar name={invite.claimedBy?.displayName ?? invite.email} size={36} />}
-                subtitle={
-                  <View style={styles.metaRow}>
-                    <Pill label={status.label} tone={status.tone} />
-                    {invite.claimedBy ? (
-                      <Text numberOfLines={1} style={[styles.meta, { color: colors.mutedForeground }]}>
-                        {invite.claimedBy.displayName}
-                      </Text>
-                    ) : null}
-                  </View>
-                }
-                value={
-                  canRevoke ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
-                      accessibilityState={{ disabled: revokingId !== null }}
-                      disabled={revokingId !== null}
-                      onPress={() => confirmRevoke(invite._id, invite.email)}
-                      style={({ pressed }) => [
-                        styles.revokeBtn,
-                        { borderColor: colors.border },
-                        pressed && { backgroundColor: colors.muted },
-                        revokingId !== null && { opacity: 0.5 },
-                      ]}>
-                      {revoking ? (
-                        <ActivityIndicator size="small" color={colors.destructive} />
-                      ) : (
-                        <Text style={[styles.revokeLabel, { color: colors.destructive }]}>Opozovi</Text>
-                      )}
-                    </Pressable>
-                  ) : undefined
-                }
-              />
-            );
-          })}
-        </ScrollView>
+        <LoadingSwap
+          loading={loading}
+          skeleton={
+            <SkeletonList
+              count={4}
+              gap={8}
+              style={styles.list}
+              item={(index) => <SkeletonRow index={index} leading="circle" subtitle trailing="value" />}
+            />
+          }>
+          {invites ? (
+            <ScrollView
+              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              <StaggerGroup>
+                {invites.map((invite, index) => {
+                  const status = inviteStatus(invite, now);
+                  const canRevoke = invite.revokedAt === null && invite.claimedAt === null;
+                  const revoking = revokingId === invite._id;
+                  return (
+                    // Red nije dodirljiv (nema `onPress`) — `Row` ga renderuje kao View, pa
+                    // je „Opozovi" u `value` slotu samostalno dugme, a ne ugnježdeni tap.
+                    <StaggerItem key={invite._id} index={index}>
+                      <Row
+                        title={invite.email}
+                        accessibilityLabel={`Pozivnica za ${invite.email}, ${status.label}${
+                          invite.claimedBy ? `, prihvatio ${invite.claimedBy.displayName}` : ''
+                        }`}
+                        showChevron={false}
+                        style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+                        // Ko je prihvatio dobija inicijale, ne golo ime — isti jezik kao
+                        // svugde gde se prikazuje osoba.
+                        icon={<Avatar name={invite.claimedBy?.displayName ?? invite.email} size={36} />}
+                        subtitle={
+                          <View style={styles.metaRow}>
+                            <Pill label={status.label} tone={status.tone} />
+                            {invite.claimedBy ? (
+                              <Text numberOfLines={1} style={[styles.meta, { color: colors.mutedForeground }]}>
+                                {invite.claimedBy.displayName}
+                              </Text>
+                            ) : null}
+                          </View>
+                        }
+                        value={
+                          canRevoke ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
+                              accessibilityState={{ disabled: revokingId !== null }}
+                              disabled={revokingId !== null}
+                              onPress={() => confirmRevoke(invite._id, invite.email)}
+                              style={({ pressed }) => [
+                                styles.revokeBtn,
+                                { borderColor: colors.border },
+                                pressed && { backgroundColor: colors.muted },
+                                revokingId !== null && { opacity: 0.5 },
+                              ]}>
+                              {revoking ? (
+                                <ActivityIndicator size="small" color={colors.destructive} />
+                              ) : (
+                                <Text style={[styles.revokeLabel, { color: colors.destructive }]}>
+                                  Opozovi
+                                </Text>
+                              )}
+                            </Pressable>
+                          ) : undefined
+                        }
+                      />
+                    </StaggerItem>
+                  );
+                })}
+              </StaggerGroup>
+            </ScrollView>
+          ) : null}
+        </LoadingSwap>
       )}
 
       {activeStartupId ? (
@@ -201,7 +229,6 @@ function CreateInviteSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const create = useMutation(api.invites.create);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -209,12 +236,15 @@ function CreateInviteSheet({
   const submit = async () => {
     const clean = email.trim();
     if (!clean) {
+      haptics.warning();
       Alert.alert('Nedostaje email', 'Unesi email adresu osobe koju pozivaš.');
       return;
     }
     setBusy(true);
+    haptics.tap();
     try {
       const result = await create({ startupId, email: clean });
+      haptics.success();
       setEmail('');
       onClose();
       // Kod se vidi samo sada (server čuva hash) — admin ga podeli ručno. „Kopiraj
@@ -235,6 +265,7 @@ function CreateInviteSheet({
         ],
       );
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Pozivnica nije kreirana.'));
     } finally {
       setBusy(false);
@@ -242,38 +273,24 @@ function CreateInviteSheet({
   };
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
+    <Sheet visible={open} onClose={onClose} avoidKeyboard style={styles.sheet}>
+      <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Nova pozivnica</Text>
+      <TextInput
+        value={email}
+        onChangeText={setEmail}
+        autoFocus
+        autoCapitalize="none"
+        keyboardType="email-address"
+        placeholder="email@primer.com"
+        placeholderTextColor={colors.mutedForeground}
+        selectionColor={colors.primary}
+        style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
       />
-      <KeyboardAvoidingView behavior="padding" style={styles.avoider} pointerEvents="box-none">
-        <View
-          style={[
-            styles.sheet,
-            { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insets.bottom + 12 },
-          ]}>
-          <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Nova pozivnica</Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            autoFocus
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholder="email@primer.com"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
-          />
-          <View style={styles.actions}>
-            <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
-            <Button label="Pozovi" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      <View style={styles.actions}>
+        <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
+        <Button label="Pozovi" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
+      </View>
+    </Sheet>
   );
 }
 
@@ -300,7 +317,6 @@ function PozivniceError({ message, onRetry }: { message: string; onRetry: () => 
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: {
     padding: 16,
     paddingTop: 8,
@@ -334,23 +350,7 @@ const styles = StyleSheet.create({
     ...text.body,
     fontWeight: fontWeight.semibold,
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  avoider: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
     gap: 10,
   },

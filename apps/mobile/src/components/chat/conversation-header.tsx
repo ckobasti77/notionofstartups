@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Alert,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -24,8 +23,10 @@ import {
 
 import { Avatar } from '@/components/ui/avatar';
 import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import { channelDisplayName, type ChatChannel } from '@/lib/chat';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -137,47 +138,35 @@ export function ConversationHeader({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Opcije razgovora"
-        onPress={() => setMenuOpen(true)}
+        onPress={() => {
+          haptics.tap();
+          setMenuOpen(true);
+        }}
         style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
         <MoreVertical size={22} color={colors.foreground} />
       </Pressable>
 
-      <Modal
-        visible={menuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuOpen(false)}>
-        <Pressable
-          style={styles.backdrop}
-          accessibilityLabel="Zatvori"
-          onPress={() => setMenuOpen(false)}
-        />
-        <View
-          style={[
-            styles.menu,
-            {
-              backgroundColor: colors.popover,
-              borderColor: colors.border,
-              paddingBottom: insets.bottom + 12,
-            },
-          ]}>
-          <Text style={[styles.menuTitle, { color: colors.mutedForeground }]}>Obaveštenja</Text>
-          {LEVELS.map(({ level, label, Icon }) => {
-            const active = activeLevel === level;
-            return (
-              <Row
-                key={level}
-                icon={<Icon size={20} color={colors.foreground} />}
-                title={label}
-                value={active ? <Check size={18} color={colors.primary} /> : undefined}
-                onPress={() => void changeLevel(level)}
-                showChevron={false}
-                accessibilityLabel={active ? `${label}, izabrano` : label}
-              />
-            );
-          })}
-        </View>
-      </Modal>
+      {/* Meni nema unutrašnji skrol — prevlači se bilo gde po njemu. */}
+      <Sheet visible={menuOpen} onClose={() => setMenuOpen(false)} dragAnywhere>
+        <Text style={[styles.menuTitle, { color: colors.mutedForeground }]}>Obaveštenja</Text>
+        {LEVELS.map(({ level, label, Icon }) => {
+          const active = activeLevel === level;
+          return (
+            <Row
+              key={level}
+              icon={<Icon size={20} color={colors.foreground} />}
+              title={label}
+              value={active ? <Check size={18} color={colors.primary} /> : undefined}
+              onPress={() => {
+                haptics.select();
+                void changeLevel(level);
+              }}
+              showChevron={false}
+              accessibilityLabel={active ? `${label}, izabrano` : label}
+            />
+          );
+        })}
+      </Sheet>
     </View>
   );
 }
@@ -240,24 +229,6 @@ const styles = StyleSheet.create({
   subtitle: {
     ...text.meta,
     fontWeight: fontWeight.regular,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
   },
   menuTitle: {
     ...text.meta,

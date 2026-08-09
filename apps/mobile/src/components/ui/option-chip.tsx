@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 
@@ -27,7 +28,11 @@ export function OptionChip({ label, dotColor, active, disabled, onPress }: Optio
       accessibilityState={{ selected: active, disabled }}
       accessibilityLabel={label}
       disabled={disabled}
-      onPress={onPress}
+      // Haptika je u primitivu: izbor opcije svuda znači isto (tiši signal od akcije).
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.chip,
         {

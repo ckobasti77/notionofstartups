@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  Animated,
-  StyleSheet,
-  type DimensionValue,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { useEffect } from 'react';
+import { StyleSheet, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  makeMutable,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius } from '@/theme/tokens';
 
@@ -19,41 +21,57 @@ export type SkeletonProps = {
 };
 
 /**
+ * JEDAN puls za sve skeletone na ekranu. Zašto deljena vrednost, a ne petlja po
+ * komponenti: skeletona u jednoj listi ima i po dvadeset, a kad im se petlje
+ * razdvoje po fazi lista počne da svetluca kao novogodišnja lampica. Ovako svi
+ * dišu u istom ritmu i UI nit vrti tačno jednu animaciju.
+ */
+const pulse = makeMutable(1);
+let subscribers = 0;
+
+function startPulse() {
+  pulse.value = withRepeat(
+    withTiming(0.45, { duration: 700, easing: Easing.inOut(Easing.quad) }),
+    -1,
+    true,
+  );
+}
+
+function stopPulse() {
+  cancelAnimation(pulse);
+  pulse.value = 0.7;
+}
+
+function useSkeletonPulse(reduced: boolean) {
+  useEffect(() => {
+    if (reduced) {
+      stopPulse();
+      return;
+    }
+    subscribers += 1;
+    if (subscribers === 1) startPulse();
+    return () => {
+      subscribers -= 1;
+      if (subscribers === 0) stopPulse();
+    };
+  }, [reduced]);
+}
+
+/**
  * Placeholder dok podaci stižu (Convex `undefined` stanje). Blago pulsira, osim
- * ako je uključeno „smanji pokret" — tada je statičan (docs/mobile/02-EKRANI.md,
- * sekcija 11). Koristi RN `Animated` (bez worklet-a) radi pouzdanosti.
+ * kad je uključeno „smanji pokret" — tada je statičan (docs/mobile/02-EKRANI.md
+ * §11).
+ *
+ * Sam pravougaonik nije skeleton — skeleton je OBLIK sadržaja koji stiže. Gotovi
+ * oblici (red, kartica zadatka, mehur poruke…) su u `ui/skeletons.tsx`; ovo je
+ * cigla od koje se oni prave.
  */
 export function Skeleton({ width = '100%', height = 16, borderRadius, style }: SkeletonProps) {
   const colors = useThemeColors();
-  const opacity = useRef(new Animated.Value(0.5)).current;
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const reduced = useReducedMotion();
+  useSkeletonPulse(reduced);
 
-  useEffect(() => {
-    let mounted = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((value) => {
-      if (mounted) setReduceMotion(value);
-    });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => {
-      mounted = false;
-      sub.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (reduceMotion) {
-      opacity.setValue(0.7);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.5, duration: 700, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity, reduceMotion]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
   return (
     <Animated.View
@@ -66,8 +84,8 @@ export function Skeleton({ width = '100%', height = 16, borderRadius, style }: S
           height,
           borderRadius: borderRadius ?? radius.md,
           backgroundColor: colors.muted,
-          opacity,
         },
+        pulseStyle,
         style,
       ]}
     />

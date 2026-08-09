@@ -22,9 +22,12 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -62,9 +65,7 @@ export default function ProfilScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Moj profil" onBack={() => router.back()} />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje profila" />
-        </View>
+        <ProfilSkeleton />
       </View>
     );
   }
@@ -89,10 +90,13 @@ export default function ProfilScreen() {
   const saveName = async () => {
     if (!nameDirty || savingName) return;
     setSavingName(true);
+    haptics.tap();
     try {
       await updateCurrent({ displayName: trimmed });
+      haptics.success();
       setDraftName(null);
     } catch (error) {
+      haptics.error();
       Alert.alert('Ime nije sačuvano', accessErrorMessage(error, 'Pokušaj ponovo.'));
     } finally {
       setSavingName(false);
@@ -117,7 +121,9 @@ export default function ProfilScreen() {
       if (!response.ok) throw new Error('Slika nije otpremljena.');
       const payload = (await response.json()) as { storageId: Id<'_storage'> };
       await setAvatar({ storageId: payload.storageId, token: upload.token });
+      haptics.success();
     } catch (error) {
+      haptics.error();
       Alert.alert('Slika nije sačuvana', accessErrorMessage(error, 'Pokušaj ponovo.'));
     } finally {
       setBusyAvatar(false);
@@ -161,6 +167,7 @@ export default function ProfilScreen() {
   };
 
   const confirmRemoveAvatar = () => {
+    haptics.warning();
     Alert.alert('Ukloniti profilnu sliku?', 'Tim će te ponovo videti po inicijalima.', [
       { text: 'Otkaži', style: 'cancel' },
       {
@@ -169,9 +176,11 @@ export default function ProfilScreen() {
         onPress: () => {
           setBusyAvatar(true);
           void removeAvatar({})
-            .catch((error: unknown) =>
-              Alert.alert('Greška', accessErrorMessage(error, 'Slika nije uklonjena.')),
-            )
+            .then(() => haptics.success())
+            .catch((error: unknown) => {
+              haptics.error();
+              Alert.alert('Greška', accessErrorMessage(error, 'Slika nije uklonjena.'));
+            })
             .finally(() => setBusyAvatar(false));
         },
       },
@@ -286,6 +295,28 @@ export default function ProfilScreen() {
 }
 
 
+/** Oblik profila: avatar 88 sa hintom, polje za ime, dugme, pa kartica sa dva reda. */
+function ProfilSkeleton() {
+  const colors = useThemeColors();
+  return (
+    <View style={styles.content} accessibilityLabel="Učitavanje profila">
+      <View style={styles.avatarBlock}>
+        <Skeleton width={88} height={88} borderRadius={radius.pill} />
+        <Skeleton width={180} height={12} />
+      </View>
+      <View style={styles.field}>
+        <Skeleton width="45%" height={12} />
+        <Skeleton width="100%" height={48} borderRadius={radius.control} />
+        <Skeleton width="70%" height={12} />
+      </View>
+      <Skeleton width="100%" height={48} borderRadius={radius.control} />
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <SkeletonList count={2} item={(index) => <SkeletonRow index={index} trailing="value" />} />
+      </View>
+    </View>
+  );
+}
+
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <ProfilError message={error.message} onRetry={retry} />;
 }
@@ -313,11 +344,6 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     padding: 16,

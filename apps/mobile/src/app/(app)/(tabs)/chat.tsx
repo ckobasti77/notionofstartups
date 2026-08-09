@@ -1,7 +1,7 @@
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { MessageSquare, MessageSquareX, SquarePen } from 'lucide-react-native';
 import { useState } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
+import { FlatList, StyleSheet } from 'react-native';
 import { useQuery } from 'convex/react';
 
 import { ConversationRow } from '@/components/chat/conversation-row';
@@ -9,18 +9,21 @@ import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
 import { IconButton } from '@/components/ui/icon-button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import {
   channelsForSegment,
   CHAT_SEGMENTS,
   type ChatChannel,
   type ChatSegmentId,
 } from '@/lib/chat';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius } from '@/theme/tokens';
 
 /**
  * Tab „Chat" — kanali, direktne poruke i praćeni threadovi
@@ -46,6 +49,7 @@ export default function ChatScreen() {
         : followedThreads;
 
   const openConversation = (channelId: Id<'chatChannels'>) => {
+    haptics.tap();
     router.push({ pathname: '/razgovor/[id]', params: { id: channelId } });
   };
 
@@ -83,24 +87,9 @@ function ConversationList({
   onOpen: (channelId: Id<'chatChannels'>) => void;
 }) {
   const colors = useThemeColors();
+  const refreshControl = useListRefresh();
 
-  if (channels === undefined) {
-    return (
-      <View style={styles.skeletonList}>
-        {[0, 1, 2, 3, 4, 5].map((item) => (
-          <View key={item} style={styles.skeletonRow}>
-            <Skeleton width={44} height={44} borderRadius={radius.lg} />
-            <View style={styles.skeletonBody}>
-              <Skeleton width="55%" height={16} />
-              <Skeleton width="80%" height={13} />
-            </View>
-          </View>
-        ))}
-      </View>
-    );
-  }
-
-  if (channels.length === 0) {
+  if (channels !== undefined && channels.length === 0) {
     return (
       <EmptyState
         icon={<MessageSquare size={40} color={colors.mutedForeground} />}
@@ -111,15 +100,34 @@ function ConversationList({
   }
 
   return (
-    <FlatList
-      data={channels}
-      keyExtractor={(channel) => channel._id}
-      renderItem={({ item }) => (
-        <ConversationRow channel={item} onPress={() => onOpen(item._id)} />
-      )}
-      contentContainerStyle={styles.listContent}
-      keyboardShouldPersistTaps="handled"
-    />
+    <LoadingSwap
+      loading={channels === undefined}
+      // Isti oblik kao `ConversationRow`: kvadratni avatar 44 + ime + pregled poruke.
+      skeleton={
+        <SkeletonList
+          count={6}
+          style={styles.skeletonList}
+          item={(index) => <SkeletonRow index={index} leading="square" subtitle trailing="value" />}
+        />
+      }>
+      {channels ? (
+        <FlatList
+          data={channels}
+          keyExtractor={(channel) => channel._id}
+          // `FlatList` montira redove lenjo, pa `StaggerItem` sam prestaje da
+          // animira posle prvog punjenja (vidi `ui/stagger.tsx`) — nema fade-a
+          // usred skrola.
+          renderItem={({ item, index }) => (
+            <StaggerItem index={index}>
+              <ConversationRow channel={item} onPress={() => onOpen(item._id)} />
+            </StaggerItem>
+          )}
+          contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={refreshControl}
+        />
+      ) : null}
+    </LoadingSwap>
   );
 }
 
@@ -167,17 +175,5 @@ const styles = StyleSheet.create({
   },
   skeletonList: {
     paddingTop: 6,
-  },
-  skeletonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 64,
-  },
-  skeletonBody: {
-    flex: 1,
-    gap: 8,
   },
 });

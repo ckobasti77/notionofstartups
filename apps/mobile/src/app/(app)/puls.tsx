@@ -27,12 +27,15 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
+import { haptics } from '@/lib/haptics';
 import {
   addWeeks,
   formatDaysStanding,
@@ -91,6 +94,8 @@ export default function PulsScreen() {
   const currentWeek = isCurrentWeek(weekStart, now);
   const isFirstWeek = data !== undefined && weekStart <= data.startupCreatedAt;
   const canGoBack = data === undefined || weekEnd > data.startupCreatedAt;
+  const loading = activeStartupId === null || data === undefined;
+  const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -102,7 +107,8 @@ export default function PulsScreen() {
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space[8] }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}>
         <WeekNav
           colors={colors}
           currentWeek={currentWeek}
@@ -113,26 +119,28 @@ export default function PulsScreen() {
           onToday={() => goToWeek(localWeekStart())}
         />
 
-        {activeStartupId === null || data === undefined ? (
-          <PulsSkeleton colors={colors} />
-        ) : (
-          <>
-            <SummaryGrid data={data} colors={colors} hideTrend={isFirstWeek} />
-            <StuckSection tasks={data.stuckTasks} now={now} colors={colors} />
-            <AreasSection areas={data.areas} colors={colors} />
-            <MembersSection
-              members={data.members}
-              unassigned={data.unassigned}
-              colors={colors}
-            />
-            <IdeasSection ideas={data.ideas} colors={colors} hideTrend={isFirstWeek} />
-            {data.truncated ? (
-              <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
-                Prikaz je približan — nedelja ima izuzetno mnogo podataka.
-              </Text>
-            ) : null}
-          </>
-        )}
+        {/* `fill={false}`: zamena stoji USRED skrola (ispod navigacije nedelje), pa
+            mora da bude visoka koliko sam sadržaj, ne koliko ekran. */}
+        <LoadingSwap loading={loading} fill={false} skeleton={<PulsSkeleton />}>
+          {data === undefined ? null : (
+            <View style={styles.sections}>
+              <SummaryGrid data={data} colors={colors} hideTrend={isFirstWeek} />
+              <StuckSection tasks={data.stuckTasks} now={now} colors={colors} />
+              <AreasSection areas={data.areas} colors={colors} />
+              <MembersSection
+                members={data.members}
+                unassigned={data.unassigned}
+                colors={colors}
+              />
+              <IdeasSection ideas={data.ideas} colors={colors} hideTrend={isFirstWeek} />
+              {data.truncated ? (
+                <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
+                  Prikaz je približan — nedelja ima izuzetno mnogo podataka.
+                </Text>
+              ) : null}
+            </View>
+          )}
+        </LoadingSwap>
       </ScrollView>
     </View>
   );
@@ -210,7 +218,10 @@ function NavButton({
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
-      onPress={onPress}
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.navButton,
         { borderColor: colors.border },
@@ -714,7 +725,8 @@ function EmptyCard({ colors, text }: { colors: ColorTokens; text: string }) {
   );
 }
 
-function PulsSkeleton({ colors }: { colors: ColorTokens }) {
+/** Oblik Pulsa: 2×2 mreža brojača, pa naslov sekcije i dve kartice. */
+function PulsSkeleton() {
   return (
     <View style={styles.skeleton} accessibilityLabel="Učitavanje Pulsa">
       <View style={styles.gridRow}>
@@ -763,6 +775,11 @@ const styles = StyleSheet.create({
   content: {
     padding: space[4],
     paddingTop: space[2],
+    gap: space[5],
+  },
+  // Sekcije Pulsa nose isti razmak koji je ranije davao `content.gap`, pošto ih
+  // sada `LoadingSwap` obuhvata kao jedno dete.
+  sections: {
     gap: space[5],
   },
   // Week navigacija

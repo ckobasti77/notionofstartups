@@ -1,16 +1,20 @@
 import { useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { TriangleAlert, Users } from 'lucide-react-native';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, text } from '@/theme/tokens';
 
@@ -50,6 +54,7 @@ export default function ClanoviScreen() {
   const loading = activeStartupId !== null && members === undefined;
   const capped = members !== undefined && members.length === MEMBERS_LIMIT;
   const count = members?.length ?? 0;
+  const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -64,10 +69,6 @@ export default function ClanoviScreen() {
           title="Izaberi startup"
           description="Članovi se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje članova" />
-        </View>
       ) : members && members.length === 0 ? (
         <EmptyState
           icon={<Users size={40} color={colors.mutedForeground} />}
@@ -75,49 +76,71 @@ export default function ClanoviScreen() {
           description="Ovaj startup još nema aktivnih članova."
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-          showsVerticalScrollIndicator={false}>
-          {/* Jedna kartica sa vlas-linijama umesto niza odvojenih kartica — ista
-              informacija na osetno manje piksela. */}
-          <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {(members ?? []).map((member, index) => (
-              <Row
-                key={member.membershipId}
-                style={[
-                  styles.row,
-                  index > 0 && {
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderTopColor: colors.border,
-                  },
-                ]}
-                icon={
-                  <Avatar
-                    name={member.profile.displayName}
-                    uri={member.profile.avatarUrl}
-                    size={36}
-                  />
-                }
-                title={member.profile.displayName}
-                subtitle={member.profile.email}
-                showChevron={false}
-                accessibilityLabel={`${member.profile.displayName}, ${member.profile.email}${
-                  member.profile.role === 'admin' ? ', administrator' : ''
-                }`}
-                value={
-                  member.profile.role === 'admin' ? (
-                    <Pill label="Admin" tone="accent" />
-                  ) : undefined
-                }
-              />
-            ))}
-          </View>
-          {capped ? (
-            <Text style={[styles.cappedNote, { color: colors.mutedForeground }]}>
-              Prikazano prvih {MEMBERS_LIMIT}.
-            </Text>
+        <LoadingSwap
+          loading={loading}
+          // Ista kartica sa vlas-linijama: avatar 36 + ime + email.
+          skeleton={
+            <View style={styles.list}>
+              <View
+                style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <SkeletonList
+                  count={5}
+                  item={(index) => <SkeletonRow index={index} leading="circle" subtitle />}
+                />
+              </View>
+            </View>
+          }>
+          {members ? (
+            <ScrollView
+              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              {/* Jedna kartica sa vlas-linijama umesto niza odvojenih kartica — ista
+                  informacija na osetno manje piksela. */}
+              <View
+                style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <StaggerGroup>
+                  {members.map((member, index) => (
+                    <StaggerItem key={member.membershipId} index={index}>
+                      <Row
+                        style={[
+                          styles.row,
+                          index > 0 && {
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                            borderTopColor: colors.border,
+                          },
+                        ]}
+                        icon={
+                          <Avatar
+                            name={member.profile.displayName}
+                            uri={member.profile.avatarUrl}
+                            size={36}
+                          />
+                        }
+                        title={member.profile.displayName}
+                        subtitle={member.profile.email}
+                        showChevron={false}
+                        accessibilityLabel={`${member.profile.displayName}, ${member.profile.email}${
+                          member.profile.role === 'admin' ? ', administrator' : ''
+                        }`}
+                        value={
+                          member.profile.role === 'admin' ? (
+                            <Pill label="Admin" tone="accent" />
+                          ) : undefined
+                        }
+                      />
+                    </StaggerItem>
+                  ))}
+                </StaggerGroup>
+              </View>
+              {capped ? (
+                <Text style={[styles.cappedNote, { color: colors.mutedForeground }]}>
+                  Prikazano prvih {MEMBERS_LIMIT}.
+                </Text>
+              ) : null}
+            </ScrollView>
           ) : null}
-        </ScrollView>
+        </LoadingSwap>
       )}
     </View>
   );
@@ -146,7 +169,6 @@ function ClanoviError({ message, onRetry }: { message: string; onRetry: () => vo
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: {
     padding: 16,
     paddingTop: 8,
