@@ -3,19 +3,28 @@
 import {
   Background,
   BackgroundVariant,
-  Controls,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
   useReactFlow,
+  useStoreApi,
   type Edge,
-  type Node,
 } from "@xyflow/react";
 import { ConvexProvider, ConvexReactClient, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { pageKindLabel } from "@/lib/page-kinds";
+
+import {
+  EMBED_NODE_HEIGHT,
+  EMBED_NODE_TYPE,
+  EMBED_NODE_TYPES,
+  EMBED_NODE_WIDTH,
+  type EmbedFlowNode,
+} from "./embed-node";
 
 /** Vrste kanvasa iz `docs/mobile/00-PLAN.md` §5.2. */
 export type CanvasKind = "thoughts" | "ideas" | "area" | "page";
@@ -77,6 +86,17 @@ const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : use
 
 /** Oblik `window.__DEVOTION_AUTH__` koji native injektuje pre učitavanja stranice. */
 type DevotionAuth = { token?: string; theme?: string };
+
+/**
+ * Trajanje animacija kamere (fit/focus/zoom) uz poštovanje `prefers-reduced-motion` —
+ * isti obrazac kao `area-canvas-view.tsx` i `thoughts-canvas-view.tsx`. Čita se pri
+ * svakoj akciji (ne jednom na mount-u) jer korisnik može da promeni sistemsku postavku
+ * dok je kanvas otvoren.
+ */
+function motionDuration(ms: number): number {
+  if (typeof window === "undefined") return 0;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : ms;
+}
 
 /**
  * Chrome-less embed kanvasa za mobilni `WebView` (W4.2, §5.2). Token NE stiže kroz URL
@@ -212,12 +232,12 @@ function CanvasInner({
       if (msg.type === "theme" && (msg.mode === "light" || msg.mode === "dark")) {
         setColorMode(msg.mode);
       } else if (msg.type === "focus" && msg.nodeId) {
-        void fitView({ nodes: [{ id: msg.nodeId }], duration: 500, maxZoom: 1.4 });
+        void fitView({ nodes: [{ id: msg.nodeId }], duration: motionDuration(500), maxZoom: 1.4 });
       } else if (msg.type === "fit") {
-        void fitView({ duration: 400 });
+        void fitView({ duration: motionDuration(400) });
       } else if (msg.type === "zoom") {
-        if (msg.direction === "out") void zoomOut({ duration: 200 });
-        else void zoomIn({ duration: 200 });
+        if (msg.direction === "out") void zoomOut({ duration: motionDuration(200) });
+        else void zoomIn({ duration: motionDuration(200) });
       }
     };
     const onWindow = (e: MessageEvent) => handle(e.data);
@@ -257,25 +277,87 @@ function EmbedFlow({
   ariaLabel,
   emptyLabel,
 }: {
-  nodes: Node[];
+  nodes: EmbedFlowNode[];
   edges: Edge[];
   detailById: Map<string, unknown>;
   colorMode: ThemeMode;
   ariaLabel: string;
   emptyLabel: string;
 }) {
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const storeApi = useStoreApi();
+  const didFitRef = useRef(false);
+
+  // Handleri MORAJU da budu memoizovani: xyflow ih drži u store-u i ponovo registruje
+  // kad im se promeni referenca, pa bi inline strelica to radila na svaki render.
+  const handleNodeClick = useCallback(
+    (event: React.MouseEvent, node: EmbedFlowNode) => {
+      // Ghost (čeka odobrenje) se ne otvara — odobrava se kroz ekran „Odobrenja".
+      if (node.data.ghost) return;
+      // Ctrl/Cmd/Shift-klik je multi-selekcija (spoljna tastatura uz WebView) — tada se
+      // detalj NE otvara. Isti guard kao desktop kanvasi (`ideas-canvas-view.tsx`).
+      if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+      postNative({ type: "node:open", nodeId: node.id, node: detailById.get(node.id) });
+    },
+    [detailById],
+  );
+  const handleSelectionChange = useCallback(
+    ({ nodes: selected }: { nodes: EmbedFlowNode[] }) => {
+      const ids = selected.map((n) => n.id);
+      // Detalj šaljemo samo kad je izabran baš jedan čvor — native rail tada
+      // dobija primarnu akciju za taj čvor (§5.2).
+      postNative({
+        type: "selection",
+        ids,
+        node: ids.length === 1 ? detailById.get(ids[0]) : undefined,
+      });
+    },
+    [detailById],
+  );
+
+  // Determinističan prvi fit: `fitView` prop se oslanja na to da su čvorovi izmereni,
+  // pa ga ovde dopunjujemo jednokratnim imperativnim uklapanjem čim xyflow javi da
+  // jesu. Ref (ne state) da kasnije osvežavanje podataka ne pregazi korisnikov pan/zoom.
+  useEffect(() => {
+    if (!nodesInitialized || didFitRef.current || nodes.length === 0) return;
+    didFitRef.current = true;
+    void fitView({ padding: 0.2, maxZoom: 1.2, duration: motionDuration(300) });
+  }, [nodesInitialized, nodes.length, fitView]);
+
+  // PRIVREMENA DIJAGNOSTIKA (samo dev): jednom javi native logu da li su čvorovi
+  // stigli do xyflow store-a i do DOM-a. Briše se čim se uzrok praznog grafa potvrdi.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const timer = setTimeout(() => {
+      const state = storeApi.getState();
+      postNative({
+        type: "debug",
+        nodesLen: nodes.length,
+        storeNodeCount: state.nodeLookup.size,
+        domNodeCount: document.querySelectorAll(".react-flow__node").length,
+        containerW: Math.round(state.width),
+        containerH: Math.round(state.height),
+        transform: state.transform.map((n) => Math.round(n * 100) / 100),
+      });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [nodes.length, storeApi]);
+
   return (
     // `role="application"` + ime idu na sam `<ReactFlow>` (koji ga i tako postavlja i
     // prima fokus/tastaturu), ne na omotač — inače dupli `role="application"` bez imena.
     <div className="fixed inset-0 bg-background">
       <EmbedStyles />
-      <ReactFlow
+      <ReactFlow<EmbedFlowNode, Edge>
         nodes={nodes}
         edges={edges}
+        nodeTypes={EMBED_NODE_TYPES}
         colorMode={colorMode}
         aria-label={ariaLabel}
         ariaLabelConfig={SERBIAN_ARIA_LABELS}
         fitView
+        fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
         minZoom={0.15}
         maxZoom={2}
         nodesDraggable={false}
@@ -286,22 +368,18 @@ function EmbedFlow({
         zoomOnScroll
         panOnScroll={false}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={(_, node) =>
-          postNative({ type: "node:open", nodeId: node.id, node: detailById.get(node.id) })
-        }
-        onSelectionChange={({ nodes: selected }) => {
-          const ids = selected.map((n) => n.id);
-          // Detalj šaljemo samo kad je izabran baš jedan čvor — native rail tada
-          // dobija primarnu akciju za taj čvor (§5.2).
-          postNative({
-            type: "selection",
-            ids,
-            node: ids.length === 1 ? detailById.get(ids[0]) : undefined,
-          });
-        }}
+        onNodeClick={handleNodeClick}
+        onSelectionChange={handleSelectionChange}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={20}
+          size={1}
+          color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
+        />
+        {/* Namerno BEZ `<Controls>`: zoom i centriranje drži native rail preko mosta
+            (§9.3). Dva identična seta kontrola na istom ekranu su se čitala kao rail
+            bez primarne akcije. */}
       </ReactFlow>
       {nodes.length === 0 ? (
         <div
@@ -352,7 +430,7 @@ function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorM
   const { nodes, edges, detailById } = useMemo(() => {
     if (!data)
       return {
-        nodes: [] as Node[],
+        nodes: [] as EmbedFlowNode[],
         edges: [] as Edge[],
         detailById: new Map<string, IdeaNodeDetail>(),
       };
@@ -381,11 +459,21 @@ function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorM
       return { x, y };
     };
     return {
-      nodes: raw.map((node) => ({
+      nodes: raw.map<EmbedFlowNode>((node) => ({
         id: node._id,
+        type: EMBED_NODE_TYPE,
         position: absolute(node),
-        data: { label: (node.title ?? node.text ?? "Ideja").trim().slice(0, 80) || "Ideja" },
-        className: node.isApproved ? "embed-node embed-node--approved" : "embed-node",
+        // Veličina ide i u čvor i u `style` — vidi `embed-node.tsx` (granice za `fitView`
+        // moraju da postoje pre nego što xyflow izmeri DOM).
+        width: node.width ?? EMBED_NODE_WIDTH,
+        height: node.height ?? EMBED_NODE_HEIGHT,
+        style: { width: node.width ?? EMBED_NODE_WIDTH, height: node.height ?? EMBED_NODE_HEIGHT },
+        data: {
+          label: (node.title ?? node.text ?? "Ideja").trim().slice(0, 80) || "Ideja",
+          meta: `${node.upvotes} za · ${node.downvotes} protiv`,
+          accent: node.isApproved,
+        },
+        ariaLabel: `Ideja: ${node.title ?? node.text}`,
       })),
       edges: data.edges.map((edge) => ({
         id: edge._id,
@@ -493,12 +581,19 @@ function ThoughtsFlow({
       return { x, y };
     };
     return {
-      nodes: raw.map((node) => ({
+      nodes: raw.map<EmbedFlowNode>((node) => ({
         id: node._id,
+        type: EMBED_NODE_TYPE,
         position: absolute(node),
-        data: { label: (node.title ?? node.text ?? "Misao").trim().slice(0, 80) || "Misao" },
-        className: "embed-node",
-      })) as Node[],
+        width: node.width ?? EMBED_NODE_WIDTH,
+        height: node.height ?? EMBED_NODE_HEIGHT,
+        style: { width: node.width ?? EMBED_NODE_WIDTH, height: node.height ?? EMBED_NODE_HEIGHT },
+        data: {
+          label: (node.title ?? node.text ?? "Misao").trim().slice(0, 80) || "Misao",
+          meta: node.isParent ? "Roditeljska misao" : undefined,
+        },
+        ariaLabel: `${node.isParent ? "Roditeljska misao" : "Misao"}: ${node.title ?? node.text}`,
+      })),
       edges: edgeResults.map((edge) => ({
         id: edge._id,
         source: edge.nodeAId,
@@ -538,6 +633,11 @@ type PageNodeDetail = {
   kind: string;
 };
 
+// Ghost-ovi ne nose placement dimenzije sa servera (samo x/y), pa dobijaju fiksnu
+// veličinu — usklađenu sa podrazumevanom karticom stranice da se ne izdvajaju oblikom.
+const GHOST_NODE_WIDTH = 288;
+const GHOST_NODE_HEIGHT = 196;
+
 /**
  * Zajednički prikaz za kanvas oblasti i stranice — payload je identičan, razlikuje se
  * samo upit (resolver po `areaId` vs `pageId`) i prazna poruka. Pozicije stranica su
@@ -546,11 +646,15 @@ type PageNodeDetail = {
  * NAMERNO IZOSTAVLJENO iz preglednog embeda (§5.2 — mobilni canvas je pregled/
  * navigacija/dodavanje, ne moderacija ni preuređivanje; izuzeci se zapisuju):
  * - `checkpointEdges` — vezuju checkpoint pod-čvorove koje embed ne crta.
- * - `ghosts` — stranice koje čekaju nesting-odobrenje; na mobilnom se odobravaju kroz
- *   ekran „Odobrenja", ne na kanvasu. (Zato prazno stanje gleda samo `pages.length`.)
  * - `truncated` — baner „nije sve prikazano" se ne prikazuje.
  * - `label`/`kind` ivica — sve ivice se crtaju jednako (bez teksta veze i bez
  *   vizuelne razlike canvas/relacija); desktop to ima, embed pojednostavljuje.
+ *
+ * `ghosts` (stranice koje čekaju nesting-odobrenje) SE crtaju — prigušeno, sa
+ * oznakom „Čeka odobrenje", ne-interaktivno (odobravaju se kroz ekran „Odobrenja",
+ * ne na kanvasu). Ranije su tiho ispuštani, pa je stranica napravljena drugde a
+ * ugnježđena ovamo prosto nestajala; tiho nestajanje je najgori ishod (§5.2). Zato
+ * prazno stanje sada gleda pages + ghosts (oba su u `nodes`).
  */
 function PageCanvasView({
   data,
@@ -570,13 +674,43 @@ function PageCanvasView({
         { _id: page._id, title: page.title, kind: page.kind } satisfies PageNodeDetail,
       ]),
     );
+    // Stranice nose stvarne dimenzije sa servera (placement ili podrazumevane), pa se
+    // koriste one — layout ostaje isti kao na desktopu.
+    const pageNodes = data.pages.map<EmbedFlowNode>((page) => ({
+      id: page._id,
+      type: EMBED_NODE_TYPE,
+      position: { x: page.x, y: page.y },
+      width: page.width,
+      height: page.height,
+      style: { width: page.width, height: page.height },
+      data: {
+        label: (page.title || "Stranica").trim().slice(0, 80) || "Stranica",
+        meta: pageKindLabel(page.kind),
+      },
+      ariaLabel: `${pageKindLabel(page.kind)}: ${page.title}`,
+    }));
+    // Ghost-ovi: stranice koje čekaju nesting-odobrenje. Crtaju se prigušeno i
+    // ne-interaktivno (bez placement dimenzija sa servera, pa fiksne). Id je
+    // prefiksiran (`ghost:`) da se ne sudari sa stvarnim čvorom stranice; nisu u
+    // `detailById`, pa im klik ne šalje `node:open` (native i tako ignoriše bez `node`).
+    const ghostNodes = data.ghosts.map<EmbedFlowNode>((ghost) => ({
+      id: `ghost:${ghost.requestId}`,
+      type: EMBED_NODE_TYPE,
+      position: { x: ghost.x, y: ghost.y },
+      width: GHOST_NODE_WIDTH,
+      height: GHOST_NODE_HEIGHT,
+      style: { width: GHOST_NODE_WIDTH, height: GHOST_NODE_HEIGHT },
+      selectable: false,
+      focusable: false,
+      data: {
+        label: (ghost.title || "Stranica").trim().slice(0, 80) || "Stranica",
+        meta: pageKindLabel(ghost.kind),
+        ghost: true,
+      },
+      ariaLabel: `Čeka odobrenje — ${pageKindLabel(ghost.kind)}: ${ghost.title}`,
+    }));
     return {
-      nodes: data.pages.map((page) => ({
-        id: page._id,
-        position: { x: page.x, y: page.y },
-        data: { label: (page.title || "Stranica").trim().slice(0, 80) || "Stranica" },
-        className: "embed-node",
-      })) as Node[],
+      nodes: [...pageNodes, ...ghostNodes],
       // Canvas ivice + relacije stranica dele isti oblik (source/target po id-u stranice).
       edges: [...data.edges, ...data.relations].map((edge) => ({
         id: edge._id,
@@ -657,13 +791,29 @@ function Center({
   );
 }
 
-/** Krupnije touch mete za ReactFlow kontrole (pan/zoom bez miša). */
+/**
+ * Embed ne uvozi desktop CSS module (`connected-canvas.module.css`), pa ono malo što
+ * xyflow stock tema pogrešno pogodi ide ovde:
+ * - `overflow: visible` da omotač ne seče prsten (`ring`) oko odobrene ideje;
+ * - boja ivica kroz token, umesto xyflow default `#b1b1b7` (pravilo `.claude/rules/web.md`:
+ *   boje samo kroz tokene iz `globals.css`). Boju tačaka pozadine postavlja `<Background>`.
+ */
 function EmbedStyles() {
   return (
     <style>{`
-      .react-flow__controls-button { width: 2.75rem; height: 2.75rem; }
-      .react-flow__controls-button svg { max-width: 1.2rem; max-height: 1.2rem; }
-      .embed-node--approved { box-shadow: 0 0 0 2px var(--primary); }
+      .react-flow__node { overflow: visible; }
+      .react-flow__edge-path {
+        stroke: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+      }
+      /* xyflow stock tema gasi outline na fokusiranom čvoru
+         (\`.react-flow__node.selectable:focus-visible { outline: none }\`), pa tab-ovanje
+         kroz graf ne bi imalo nikakav vidljiv trag dok se ne pritisne Enter. Ista
+         specifičnost + \`--ring\` token kao globalni fokus stil u \`globals.css\`. */
+      .react-flow__node.selectable:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 3px;
+        border-radius: 0.75rem;
+      }
     `}</style>
   );
 }
