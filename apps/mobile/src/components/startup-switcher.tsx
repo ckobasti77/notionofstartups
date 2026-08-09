@@ -1,18 +1,13 @@
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 
 import { Avatar } from '@/components/ui/avatar';
+import { Row } from '@/components/ui/row';
+import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 import type { Id } from '@/convex/_generated/dataModel';
 
 export type SwitcherStartup = {
@@ -32,9 +27,15 @@ export type StartupSwitcherProps = {
   /** Ima još strana za učitavanje. */
   canLoadMore?: boolean;
   onLoadMore?: () => void;
+  /** Nalog prijavljenog korisnika — prvi red sheeta (ulaz u „Moj profil"). */
+  profile?: { displayName: string; avatarUrl: string | null } | null;
+  onOpenProfile?: () => void;
 };
 
-/** Bottom sheet za prebacivanje startupa. Podaci: `startups.listForCurrent`. */
+/**
+ * Sheet iza avatara u zaglavlju: nalog na vrhu, pa prebacivanje startupa.
+ * Podaci: `profiles.getCurrent` i `startups.listForCurrent`.
+ */
 export function StartupSwitcher({
   visible,
   onClose,
@@ -44,6 +45,8 @@ export function StartupSwitcher({
   loading = false,
   canLoadMore = false,
   onLoadMore,
+  profile,
+  onOpenProfile,
 }: StartupSwitcherProps) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -66,14 +69,29 @@ export function StartupSwitcher({
           },
         ]}>
         <View style={[styles.handle, { backgroundColor: colors.border }]} />
-        <Text style={[styles.title, { color: colors.popoverForeground }]}>Prebaci startup</Text>
+
+        {profile && onOpenProfile ? (
+          <Row
+            title={profile.displayName}
+            subtitle="Moj profil"
+            icon={<Avatar name={profile.displayName} uri={profile.avatarUrl} size={40} />}
+            onPress={() => {
+              onClose();
+              onOpenProfile();
+            }}
+            accessibilityLabel={`Moj profil: ${profile.displayName}`}
+            style={styles.sheetRow}
+          />
+        ) : null}
+
+        <SectionHeader title="Startupi" style={styles.sectionHeader} />
 
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           {loading ? (
             <View style={styles.loadingBlock}>
               {[0, 1, 2].map((i) => (
                 <View key={i} style={styles.loadingRow}>
-                  <Skeleton width={40} height={40} borderRadius={radius.full} />
+                  <Skeleton width={40} height={40} borderRadius={radius.pill} />
                   <Skeleton width={160} height={16} />
                 </View>
               ))}
@@ -86,31 +104,21 @@ export function StartupSwitcher({
             startups.map((startup) => {
               const active = startup._id === activeStartupId;
               return (
-                <Pressable
+                <Row
                   key={startup._id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
+                  title={startup.name}
+                  icon={<Avatar name={startup.name} uri={startup.logoUrl} size={40} />}
                   onPress={() => {
                     onSelect(startup._id);
                     onClose();
                   }}
-                  style={({ pressed }) => [
-                    styles.row,
-                    { borderColor: colors.border },
-                    active && { backgroundColor: colors.accent },
-                    pressed && !active && { backgroundColor: colors.muted },
-                  ]}>
-                  <Avatar name={startup.name} uri={startup.logoUrl} size={40} />
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.name,
-                      { color: active ? colors.accentForeground : colors.foreground },
-                    ]}>
-                    {startup.name}
-                  </Text>
-                  {active ? <Check size={20} color={colors.accentForeground} /> : null}
-                </Pressable>
+                  showChevron={false}
+                  value={active ? <Check size={20} color={colors.accentForeground} /> : undefined}
+                  accessibilityLabel={
+                    active ? `${startup.name}, trenutno izabran` : `Prebaci na ${startup.name}`
+                  }
+                  style={[styles.sheetRow, active && { backgroundColor: colors.accent }]}
+                />
               );
             })
           )}
@@ -147,32 +155,34 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius['2xl'],
     borderTopRightRadius: radius['2xl'],
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingTop: 8,
   },
   handle: {
     alignSelf: 'center',
     width: 40,
     height: 4,
-    borderRadius: radius.full,
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: fontWeight.semibold,
+    borderRadius: radius.pill,
     marginBottom: 8,
+  },
+  // Redovi u sheetu: uži horizontalni padding od `Row.base` + zaobljenje.
+  sheetRow: {
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
+  },
+  sectionHeader: {
+    paddingHorizontal: 12,
   },
   list: {
     flexGrow: 0,
   },
   listContent: {
-    gap: 6,
-    paddingVertical: 4,
+    paddingBottom: 4,
   },
   loadingBlock: {
     gap: 12,
     paddingVertical: 8,
+    paddingHorizontal: 12,
   },
   loadingRow: {
     flexDirection: 'row',
@@ -180,22 +190,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   empty: {
-    fontSize: 15,
-    lineHeight: 22,
-    paddingVertical: 16,
-  },
-  row: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    ...text.body,
     paddingHorizontal: 12,
-    borderRadius: radius.lg,
-  },
-  name: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
+    paddingVertical: 16,
   },
   loadMore: {
     minHeight: 44,
@@ -203,7 +200,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadMoreText: {
-    fontSize: 15,
-    fontWeight: fontWeight.semibold,
+    ...text.body,
+    fontWeight: '600',
   },
 });

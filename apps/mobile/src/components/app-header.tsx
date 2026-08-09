@@ -1,25 +1,38 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
 import { usePaginatedQuery, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import { ChevronDown, Search } from 'lucide-react-native';
+import { Search } from 'lucide-react-native';
 
 import { api } from '@/convex/_generated/api';
 import { Avatar } from '@/components/ui/avatar';
+import { IconButton } from '@/components/ui/icon-button';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StartupSwitcher, type SwitcherStartup } from '@/components/startup-switcher';
 import { useActiveStartup } from '@/context/active-startup';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET } from '@/theme/tokens';
+
+export type AppHeaderProps = {
+  /** Naslov ekrana — jedini naslov; nema druge trake iznad. */
+  title: string;
+  /** Akcije specifične za ekran; stoje levo od pretrage i avatara. */
+  actions?: ReactNode;
+  /** Kad je zadat, zaglavlje dobija „nazad" levo od naslova. */
+  onBack?: () => void;
+  /** Red ispod naslova unutar istog zaglavlja (segment, breadcrumb). */
+  below?: ReactNode;
+};
 
 /**
- * Zajednički header za sve tabove: logo, startup switcher (naziv + strelica →
- * bottom sheet iz `startups.listForCurrent`), pretraga i avatar.
+ * JEDNO zaglavlje aplikacije: ime startupa kao `meta` linija, naslov ekrana
+ * `display` levo, pa akcije ekrana, pretraga i avatar desno. Prebacivanje
+ * startupa i „Moj profil" stoje IZA avatara (isti sheet) — ranije je to bila
+ * zasebna traka koja je sa naslovom jela četvrtinu ekrana.
  */
-export function AppHeader() {
+export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { activeStartupId, setActiveStartupId } = useActiveStartup();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -50,58 +63,30 @@ export function AppHeader() {
   }));
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingTop: insets.top + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      {/* Logo */}
-      <View style={[styles.logo, { backgroundColor: colors.primary }]}>
-        <Text style={[styles.logoText, { color: colors.primaryForeground }]}>N</Text>
-      </View>
-
-      {/* Startup switcher */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Startup: ${activeName}. Otvori prebacivanje.`}
-        onPress={() => setSwitcherOpen(true)}
-        style={({ pressed }) => [
-          styles.switcher,
-          pressed && { backgroundColor: colors.muted },
-        ]}>
-        {loadingStartups ? (
-          <Skeleton width={120} height={18} />
-        ) : (
-          <Text numberOfLines={1} style={[styles.switcherText, { color: colors.foreground }]}>
-            {activeName}
-          </Text>
-        )}
-        <ChevronDown size={18} color={colors.mutedForeground} />
-      </Pressable>
-
-      <View style={styles.spacer} />
-
-      {/* Pretraga */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Pretraga"
-        onPress={() => router.push('/pretraga')}
-        style={({ pressed }) => [styles.iconButton, pressed && { backgroundColor: colors.muted }]}>
-        <Search size={22} color={colors.foreground} />
-      </Pressable>
-
-      {/* Avatar / profil */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Moj profil"
-        onPress={() => router.push('/profil')}
-        style={({ pressed }) => [styles.avatarButton, pressed && { opacity: 0.7 }]}>
-        <Avatar name={profile?.displayName} uri={profile?.avatarUrl ?? null} size={32} />
-      </Pressable>
+    <>
+      <ScreenHeader
+        title={title}
+        onBack={onBack}
+        eyebrow={loadingStartups ? <Skeleton width={110} height={13} /> : activeName}
+        onEyebrowPress={() => setSwitcherOpen(true)}
+        eyebrowAccessibilityLabel={`Startup: ${activeName}. Otvori nalog i prebacivanje.`}
+        below={below}
+        actions={
+          <>
+            {actions}
+            <IconButton accessibilityLabel="Pretraga" onPress={() => router.push('/pretraga')}>
+              <Search size={22} color={colors.foreground} />
+            </IconButton>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Nalog i startupi. Trenutni startup: ${activeName}.`}
+              onPress={() => setSwitcherOpen(true)}
+              style={({ pressed }) => [styles.avatarButton, pressed && styles.pressed]}>
+              <Avatar name={profile?.displayName} uri={profile?.avatarUrl ?? null} size={32} />
+            </Pressable>
+          </>
+        }
+      />
 
       <StartupSwitcher
         visible={switcherOpen}
@@ -112,58 +97,21 @@ export function AppHeader() {
         loading={loadingStartups}
         canLoadMore={status === 'CanLoadMore'}
         onLoadMore={() => loadMore(20)}
+        profile={profile ? { displayName: profile.displayName, avatarUrl: profile.avatarUrl } : null}
+        onOpenProfile={() => router.push('/profil')}
       />
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  logo: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
-  },
-  switcher: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    maxWidth: '55%',
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 8,
-    borderRadius: radius.md,
-  },
-  switcherText: {
-    fontSize: 17,
-    fontWeight: fontWeight.semibold,
-  },
-  spacer: {
-    flex: 1,
-  },
-  iconButton: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
   avatarButton: {
     width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  pressed: {
+    opacity: 0.7,
   },
 });

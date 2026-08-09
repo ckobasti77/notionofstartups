@@ -318,12 +318,11 @@ export default function DanasScreen() {
   const startupReady = startup !== undefined && activeStartupId !== null;
 
   return (
-    <TabScreen title="Danas">
+    <TabScreen
+      title="Danas"
+      // Segment je deo zaglavlja: jedan blok gore umesto treće trake ispod njega.
+      below={<SegmentedControl options={TODAY_SEGMENTS} value={segment} onChange={setSegment} />}>
       <GestureHandlerRootView style={styles.root}>
-        <View style={styles.segmentWrap}>
-          <SegmentedControl options={TODAY_SEGMENTS} value={segment} onChange={setSegment} />
-        </View>
-
         {/* Traka opterećenja je FILTER, pa stoji van skrola liste: kad filter isprazni
             listu, dugme za gašenje filtera mora ostati na ekranu. */}
         {segment === 'overview' && startupReady ? (
@@ -529,10 +528,6 @@ function DanasErrorState({ message, onRetry }: { message: string; onRetry: () =>
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  segmentWrap: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
   },
   listContent: {
     paddingHorizontal: 16,

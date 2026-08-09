@@ -18,5 +18,6 @@ export { Input, type InputProps } from './input';
 export { OptionChip, type OptionChipProps } from './option-chip';
 export { Pill, type PillProps, type PillTone } from './pill';
 export { Row, type RowProps, type RowVariant } from './row';
+export { ScreenHeader, type ScreenHeaderProps } from './screen-header';
 export { SectionHeader, type SectionHeaderProps } from './section-header';
 export { Skeleton, type SkeletonProps } from './skeleton';

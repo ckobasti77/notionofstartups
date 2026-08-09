@@ -1,9 +1,8 @@
 import { useRouter } from 'expo-router';
-import { Inbox, Settings } from 'lucide-react-native';
+import { CheckCheck, Inbox, Settings } from 'lucide-react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
-import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { useThemeColors } from '@/theme/theme-provider';
 
@@ -19,7 +18,11 @@ export default function ObavestenjaScreen() {
       title="Obaveštenja"
       actions={
         <>
-          <Button label="Označi sve" variant="ghost" size="sm" onPress={() => {}} />
+          {/* Ikonica umesto tekstualnog dugmeta — naslov „Obaveštenja" je krupan
+              (display) i tekst desno bi ga sabio ispod čitljive širine. */}
+          <IconButton accessibilityLabel="Označi sve kao pročitano" onPress={() => {}}>
+            <CheckCheck size={22} color={colors.foreground} />
+          </IconButton>
           <IconButton
             accessibilityLabel="Obaveštenja i zvuci"
             onPress={() => router.push('/podesavanja-obavestenja')}>

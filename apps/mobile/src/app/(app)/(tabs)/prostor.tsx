@@ -2,16 +2,14 @@ import { usePaginatedQuery, useQuery } from 'convex/react';
 import { useFocusEffect, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   FolderClosed,
   FolderOpen,
   LayoutGrid,
-  LayoutList,
   Plus,
   TriangleAlert,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -22,11 +20,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import { AppHeader } from '@/components/app-header';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
 import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
+import { IconButton } from '@/components/ui/icon-button';
 import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
@@ -126,10 +126,6 @@ export default function ProstorScreen() {
     setFrames((prev) => (prev.length === 0 ? prev : []));
   }, []);
 
-  const jumpTo = useCallback((index: number) => {
-    setFrames((prev) => prev.slice(0, index + 1));
-  }, []);
-
   // Android hardware back: unutar hijerarhije skida nivo; na Nivou 1 pušta default
   // (izlazak iz taba). Vezano na fokus da ne otima back kad tab nije aktivan.
   useFocusEffect(
@@ -163,13 +159,17 @@ export default function ProstorScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <DeepHeader
-        frames={frames}
-        colors={colors}
+      {/* Isto zaglavlje kao Nivo 1, samo sa „nazad" i imenom oblasti kao naslovom —
+          Prostor ide jedan nivo duboko, pa breadcrumb nema šta da nabraja. */}
+      <AppHeader
+        title={top.label}
         onBack={goBack}
-        onJump={jumpTo}
-        rightSlot={
-          <ViewModeToggle colors={colors} onOpenCanvas={() => openAreaCanvas(top.areaId)} />
+        actions={
+          <IconButton
+            accessibilityLabel="Canvas prikaz oblasti"
+            onPress={() => openAreaCanvas(top.areaId)}>
+            <LayoutGrid size={22} color={colors.foreground} />
+          </IconButton>
         }
       />
       {/* Brifing stoji iznad liste, kao dock na vrhu web `area-view`. */}
@@ -645,117 +645,6 @@ function PageLevelEmpty({ colors }: { colors: ColorTokens }) {
   );
 }
 
-/* ── Header za dublje nivoe: nazad + horizontalni breadcrumb + akcija ──── */
-
-function DeepHeader({
-  frames,
-  colors,
-  onBack,
-  onJump,
-  rightSlot,
-}: {
-  frames: Frame[];
-  colors: ColorTokens;
-  onBack: () => void;
-  onJump: (index: number) => void;
-  rightSlot: React.ReactNode;
-}) {
-  const scrollRef = useRef<ScrollView>(null);
-  // Bez `insets.top`: ovo je kontekstualna traka ISPOD stalnog `AppHeader`-a
-  // (roditeljski Stack), koji je već „pojeo" gornji safe-area za sve tabove.
-  return (
-    <View
-      style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.breadcrumbScroll}
-        contentContainerStyle={styles.breadcrumbContent}
-        // Uvek skrolovan na kraj: trenutni (najdublji) nivo je vidljiv na telefonu.
-        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
-        {frames.map((frame, index) => {
-          const label = frame.label;
-          const isLast = index === frames.length - 1;
-          return (
-            <View key={index} style={styles.crumb}>
-              {index > 0 ? (
-                <ChevronRight size={14} color={colors.mutedForeground} style={styles.crumbSep} />
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Idi na ${label}`}
-                disabled={isLast}
-                onPress={() => onJump(index)}
-                style={({ pressed }) => [
-                  styles.crumbButton,
-                  pressed && !isLast && { backgroundColor: colors.muted },
-                ]}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.crumbText,
-                    {
-                      color: isLast ? colors.foreground : colors.mutedForeground,
-                      fontWeight: isLast ? fontWeight.semibold : fontWeight.medium,
-                    },
-                  ]}>
-                  {label}
-                </Text>
-              </Pressable>
-            </View>
-          );
-        })}
-      </ScrollView>
-
-      {rightSlot ? <View style={styles.headerRight}>{rightSlot}</View> : null}
-    </View>
-  );
-}
-
-/** Prekidač Lista / Canvas — Canvas otvara WebView embed kanvasa oblasti (§9.3). */
-function ViewModeToggle({
-  colors,
-  onOpenCanvas,
-}: {
-  colors: ColorTokens;
-  onOpenCanvas: () => void;
-}) {
-  return (
-    <View accessibilityRole="tablist" style={[styles.toggle, { backgroundColor: colors.muted }]}>
-      <View
-        accessibilityRole="tab"
-        accessibilityLabel="Lista prikaz"
-        accessibilityState={{ selected: true }}
-        style={[
-          styles.toggleSeg,
-          styles.toggleSegActive,
-          { backgroundColor: colors.card, borderColor: colors.border },
-        ]}>
-        <LayoutList size={15} color={colors.foreground} />
-        <Text style={[styles.toggleText, { color: colors.foreground }]}>Lista</Text>
-      </View>
-      <Pressable
-        accessibilityRole="tab"
-        accessibilityLabel="Canvas prikaz oblasti"
-        accessibilityState={{ selected: false }}
-        onPress={onOpenCanvas}
-        style={styles.toggleSeg}>
-        <LayoutGrid size={15} color={colors.foreground} />
-        <Text style={[styles.toggleText, { color: colors.foreground }]}>Canvas</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 /* ── Skeletoni ─────────────────────────────────────────────────────────── */
 
 function Level1Skeleton({ colors }: { colors: ColorTokens }) {
@@ -819,71 +708,6 @@ function ProstorErrorState({ message, onRetry }: { message: string; onRetry: () 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  /* Header (dublji nivoi) */
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingTop: 10,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  breadcrumbScroll: {
-    flex: 1,
-  },
-  breadcrumbContent: {
-    alignItems: 'center',
-    paddingRight: 8,
-  },
-  crumb: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  crumbSep: {
-    marginHorizontal: 2,
-  },
-  crumbButton: {
-    minHeight: MIN_TOUCH_TARGET,
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-    borderRadius: radius.sm,
-  },
-  crumbText: {
-    fontSize: 16,
-  },
-  headerRight: {
-    marginLeft: 4,
-  },
-  /* Lista/Canvas prekidač */
-  toggle: {
-    flexDirection: 'row',
-    padding: 3,
-    borderRadius: radius.lg,
-    gap: 3,
-  },
-  toggleSeg: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 10,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'transparent',
-  },
-  toggleSegActive: {},
-  toggleText: {
-    fontSize: 14,
-    fontWeight: fontWeight.semibold,
   },
   /* Nivo 1 */
   level1Content: {

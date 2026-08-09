@@ -61,15 +61,9 @@ export default function ChatScreen() {
           }}>
           <SquarePen size={22} color={colors.foreground} />
         </IconButton>
-      }>
-      <View style={styles.segmentWrap}>
-        <SegmentedControl
-          options={CHAT_SEGMENTS}
-          value={segment}
-          onChange={setSegment}
-        />
-      </View>
-
+      }
+      // Segment je deo zaglavlja: jedan blok gore umesto treće trake ispod njega.
+      below={<SegmentedControl options={CHAT_SEGMENTS} value={segment} onChange={setSegment} />}>
       <ConversationList
         channels={data}
         segment={segment}
@@ -168,10 +162,6 @@ const EMPTY_DESCRIPTION: Record<ChatSegmentId, string> = {
 };
 
 const styles = StyleSheet.create({
-  segmentWrap: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
   listContent: {
     paddingBottom: 16,
   },
