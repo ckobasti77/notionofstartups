@@ -334,3 +334,11 @@ paritet zadržan — ali „osim meta" ovo ne pokriva.
 - `profil.tsx:330` koristi `colors.destructive`, ostatak fajla `colors.danger` —
   nedoslednost u tokenima (oba postoje).
 - Trajanje: nije mereno u ovoj reviziji.
+- Trajanje: 36 min
+
+## Faza 5 — redizajn ekrana
+
+- Start: 2026-08-09T11:15:23+02:00
+- Izvršavanje: prošlo
+- `npm run check`: **prolazi**
+- `npm test`: prolazi
