@@ -213,6 +213,23 @@ breadcrumb koji se skraćuje: `Dev › … › Redizajn`.
 
 Nazad koristi `pageBackRoute` logiku koja već postoji.
 
+### Brifing oblasti — pandan web `area-briefing-dock`
+
+Iznad liste stranica stoji kolapsibilna sekcija **„Brifing oblasti"** (na webu je
+to dock zakucan na vrh `area-view`). Sadržaj i dozvola dolaze iz
+`areasV2.getAreaCanvasByArea` → `scope.briefing`; upis ide kroz
+`areasV2.updateAreaBody` sa istom `expectedRevision` zaštitom od konflikta.
+
+Razlike koje mobilni nameće:
+
+- **Skupljena je podrazumevano**, a telo se montira tek na razvijanje — jedini
+  postojeći upit vraća ceo canvas payload oblasti, što je preskupa pretplata za
+  jedno tekstualno polje. (Jeftin upit je tražen u `ZA-POPRAVKU.md`.)
+- Snima se na izlazak iz polja **i** dugmetom „Sačuvaj brifing" — na telefonu se
+  fokus gubi nevidljivo, pa dugme mora da postoji.
+- Ko ne sme da uređuje (svi osim kreatora startupa) dobija tekst za čitanje, ne
+  zaključano polje.
+
 ---
 
 ## 6. Tab 3 — Chat

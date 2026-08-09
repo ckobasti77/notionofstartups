@@ -202,6 +202,27 @@ web hak sa prvih 100.
 
 ---
 
+## 4. Nema jeftinog upita za brifing oblasti
+
+**Kontekst.** Sadržaj brifinga oblasti (`areaBodies`) se čita jedino kao deo canvas
+payload-a: `areasV2.getCanvas` / `getAreaCanvasByArea` → `scope.briefing`. Payload
+uz to nosi sve stranice oblasti, ivice, placement-e, ghost-ove i viewport.
+
+**Posledica na mobilnom.** `AreaBriefingSection` (tab Prostor) je zato skupljena
+podrazumevano i telo se montira tek na razvijanje — inače bi svaki ulazak u oblast
+otvorio tešku pretplatu zbog jednog tekstualnog polja.
+
+**USLOV za zatvaranje.** Upit `areasV2.getAreaBriefing({ areaId })` koji vraća samo
+`{ content, revision, ownerProfileId, canEdit }` (jedan `areaBodies` red +
+`requireStartupMember`). Kad postoji: prebaciti `AreaBriefingSection` na njega i
+razmisliti o tome da sekcija bude razvijena podrazumevano (brifing je kontekst
+oblasti, korisniji otvoren).
+
+**Ne dodavati backend samo zbog ovoga** dok je jedini potrošač ova sekcija — trenutno
+rešenje radi ispravno, samo je skuplje nego što mora.
+
+---
+
 # Naučene zamke — ne ponavljaj
 
 Ove nisu „čeka se na uslov" — već rešene greške koje se lako vrate. Zapisane da

@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
+import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
 import { Row } from '@/components/ui/row';
@@ -171,6 +172,8 @@ export default function ProstorScreen() {
           <ViewModeToggle colors={colors} onOpenCanvas={() => openAreaCanvas(top.areaId)} />
         }
       />
+      {/* Brifing stoji iznad liste, kao dock na vrhu web `area-view`. */}
+      <AreaBriefingSection key={`brifing:${top.areaId}`} areaId={top.areaId} areaLabel={top.label} />
       <PageLevel
         key={frameKey}
         startupId={activeStartupId}
