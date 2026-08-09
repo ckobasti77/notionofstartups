@@ -1,18 +1,20 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, FolderTree, Lightbulb, ShieldCheck, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react-native';
+import { FolderTree, Lightbulb, ShieldCheck, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Button, type ButtonVariant } from '@/components/ui/button';
+import { Pill } from '@/components/ui/pill';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /** Kratak, čitljiv naziv za tip mete zahteva za brisanje. */
 const TARGET_KIND_LABEL: Record<string, string> = {
@@ -97,7 +99,7 @@ export default function OdobrenjaScreen() {
         kicker: `Brisanje · ${TARGET_KIND_LABEL[req.targetKind] ?? 'Sadržaj'}`,
         title: req.targetTitle,
         who: `Traži: ${memberName(req.requesterProfileId)}`,
-        meta: `Fali još ${remaining} glas${remaining === 1 ? '' : 'a'} ZA za brisanje`,
+        meta: `fali još ${remaining} ZA`,
         primary: {
           label: 'Za brisanje',
           variant: 'destructive',
@@ -199,7 +201,21 @@ export default function OdobrenjaScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Odobrenja" count={items.length} onBack={() => router.back()} colors={colors} />
+      <ScreenHeader
+        title="Odobrenja"
+        onBack={() => router.back()}
+        eyebrow={items.length > 0 ? 'čeka tvoju odluku' : undefined}
+        actions={
+          items.length > 0 ? (
+            <Pill
+              label={String(items.length)}
+              tone="danger"
+              accessibilityLabel={`${items.length} zahteva čeka`}
+              style={styles.headerPill}
+            />
+          ) : undefined
+        }
+      />
       {activeStartupId === null ? (
         <EmptyState
           icon={<ShieldCheck size={40} color={colors.mutedForeground} />}
@@ -254,15 +270,23 @@ function ApprovalCard({
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.cardHead}>
         <View style={[styles.iconChip, { backgroundColor: `${item.tint}22` }]}>
-          <Icon size={20} color={item.tint} />
+          <Icon size={18} color={item.tint} />
         </View>
         <View style={styles.cardHeadText}>
           <Text style={[styles.kicker, { color: item.tint }]}>{item.kicker}</Text>
-          <Text style={[styles.title, { color: colors.foreground }]}>{item.title}</Text>
+          <Text numberOfLines={2} style={[styles.title, { color: colors.foreground }]}>
+            {item.title}
+          </Text>
+          {/* Podnosilac i „koliko još glasova fali" su meta — stoje u istom redu
+              ispod naslova umesto kao dve pune linije teksta. */}
+          <View style={styles.metaRow}>
+            <Text numberOfLines={1} style={[styles.who, { color: colors.mutedForeground }]}>
+              {item.who}
+            </Text>
+            {item.meta ? <Pill label={item.meta} tone="warning" /> : null}
+          </View>
         </View>
       </View>
-      <Text style={[styles.who, { color: colors.mutedForeground }]}>{item.who}</Text>
-      {item.meta ? <Text style={[styles.meta, { color: colors.foreground }]}>{item.meta}</Text> : null}
       <View style={styles.actions}>
         <Button
           label={item.secondary.label}
@@ -283,41 +307,6 @@ function ApprovalCard({
   );
 }
 
-function Header({
-  title,
-  count,
-  onBack,
-  colors,
-}: {
-  title: string;
-  count: number;
-  onBack: () => void;
-  colors: ColorTokens;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>{title}</Text>
-      {count > 0 ? (
-        <View style={[styles.countPill, { backgroundColor: colors.destructive }]}>
-          <Text style={[styles.countText, { color: colors.destructiveForeground }]}>{count}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <OdobrenjaError message={error.message} onRetry={retry} />;
 }
@@ -327,7 +316,7 @@ function OdobrenjaError({ message, onRetry }: { message: string; onRetry: () => 
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Odobrenja" count={0} onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Odobrenja" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Odobrenja se ne mogu učitati"
@@ -342,47 +331,18 @@ function OdobrenjaError({ message, onRetry }: { message: string; onRetry: () => 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
-  countPill: {
-    minWidth: 26,
-    height: 24,
-    paddingHorizontal: 8,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  countText: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
+  headerPill: {
+    marginRight: 6,
   },
   list: {
     padding: 16,
-    gap: 12,
+    paddingTop: 8,
+    gap: 8,
   },
   card: {
-    borderRadius: radius.xl,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
+    padding: 12,
     gap: 10,
   },
   cardHead: {
@@ -391,38 +351,40 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   iconChip: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+    width: 32,
+    height: 32,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardHeadText: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   kicker: {
-    fontSize: 13,
+    ...text.meta,
     fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 17,
-    lineHeight: 22,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
-  who: {
-    fontSize: 16,
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 2,
   },
-  meta: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
+  who: {
+    ...text.meta,
+    flexShrink: 1,
   },
   actions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 2,
+    gap: 8,
   },
   flexBtn: {
     flex: 1,

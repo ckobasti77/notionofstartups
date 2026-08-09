@@ -2,7 +2,6 @@ import { useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   Brain,
-  ChevronLeft,
   Lightbulb,
   MessageSquareText,
   Search,
@@ -18,7 +17,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
@@ -26,12 +24,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { SectionHeader } from '@/components/ui/section-header';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { pageKindColor, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, text as textStyles, type ColorTokens } from '@/theme/tokens';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 300;
@@ -117,42 +117,37 @@ export default function PretragaScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View
-        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-        style={[
-          styles.header,
-          { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-        ]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Nazad"
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-          <ChevronLeft size={24} color={colors.foreground} />
-        </Pressable>
-        <View style={[styles.searchBox, { backgroundColor: colors.muted }]}>
-          <Search size={18} color={colors.mutedForeground} />
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            autoFocus
-            accessibilityLabel="Polje za pretragu"
-            placeholder="Pretraži beleške, zadatke, ideje…"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            returnKeyType="search"
-            style={[styles.input, { color: colors.foreground }]}
-          />
-          {text.length > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Obriši pretragu"
-              onPress={() => setText('')}
-              style={styles.clearBtn}>
-              <X size={18} color={colors.mutedForeground} />
-            </Pressable>
-          ) : null}
-        </View>
+      <View onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+        <ScreenHeader
+          title="Pretraga"
+          onBack={() => router.back()}
+          // Polje je glavna kontrola ekrana — deo je zaglavlja, ne treća traka.
+          below={
+            <View style={[styles.searchBox, { backgroundColor: colors.muted }]}>
+              <Search size={18} color={colors.mutedForeground} />
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                autoFocus
+                accessibilityLabel="Polje za pretragu"
+                placeholder="Beleške, zadaci, ideje, poruke…"
+                placeholderTextColor={colors.mutedForeground}
+                selectionColor={colors.primary}
+                returnKeyType="search"
+                style={[styles.input, { color: colors.foreground }]}
+              />
+              {text.length > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Obriši pretragu"
+                  onPress={() => setText('')}
+                  style={styles.clearBtn}>
+                  <X size={18} color={colors.mutedForeground} />
+                </Pressable>
+              ) : null}
+            </View>
+          }
+        />
       </View>
 
       <KeyboardAvoidingView
@@ -192,21 +187,21 @@ export default function PretragaScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag">
           {otherPages.length > 0 ? (
-            <Section title="Stranice" colors={colors}>
+            <Section title="Stranice" count={otherPages.length}>
               {otherPages.map((p) => (
                 <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
               ))}
             </Section>
           ) : null}
           {tasks.length > 0 ? (
-            <Section title="Zadaci" colors={colors}>
+            <Section title="Zadaci" count={tasks.length}>
               {tasks.map((p) => (
                 <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
               ))}
             </Section>
           ) : null}
           {ideas.length > 0 ? (
-            <Section title="Ideje" colors={colors}>
+            <Section title="Ideje" count={ideas.length}>
               {ideas.map((n) => (
                 <NodeRow
                   key={n._id}
@@ -221,7 +216,7 @@ export default function PretragaScreen() {
             </Section>
           ) : null}
           {thoughts.length > 0 ? (
-            <Section title="Misli" colors={colors}>
+            <Section title="Misli" count={thoughts.length}>
               {thoughts.map((n) => (
                 <NodeRow
                   key={n._id}
@@ -236,7 +231,7 @@ export default function PretragaScreen() {
             </Section>
           ) : null}
           {msgs.length > 0 ? (
-            <Section title="Poruke" colors={colors}>
+            <Section title="Poruke" count={msgs.length}>
               {msgs.map((m) => (
                 <MessageRow key={m._id} message={m} colors={colors} onPress={() => openChannel(m.channelId)} />
               ))}
@@ -259,18 +254,16 @@ type PageResult = {
 
 function Section({
   title,
-  colors,
+  count,
   children,
 }: {
   title: string;
-  colors: ColorTokens;
+  count: number;
   children: React.ReactNode;
 }) {
   return (
     <View style={styles.section}>
-      <Text accessibilityRole="header" style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-        {title}
-      </Text>
+      <SectionHeader title={title} count={count} style={styles.sectionHeader} />
       {children}
     </View>
   );
@@ -378,19 +371,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 function PretragaError({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 6, borderBottomColor: colors.border }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Nazad"
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-          <ChevronLeft size={24} color={colors.foreground} />
-        </Pressable>
-        <Text style={[styles.errorTitle, { color: colors.foreground }]}>Pretraga</Text>
-      </View>
+      <ScreenHeader title="Pretraga" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Pretraga ne radi"
@@ -406,35 +389,18 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
   searchBox: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 12,
-    marginRight: 8,
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
   },
   input: {
     flex: 1,
     height: MIN_TOUCH_TARGET,
-    fontSize: fontSize.base,
+    ...textStyles.body,
     paddingVertical: 0,
   },
   clearBtn: {
@@ -443,39 +409,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
   results: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   section: {
-    marginTop: 12,
     gap: 2,
   },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginLeft: 6,
-    marginBottom: 4,
+  sectionHeader: {
+    marginTop: 4,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     minHeight: 56,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    borderRadius: radius.md,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    borderRadius: radius.control,
   },
   iconChip: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
+    width: 32,
+    height: 32,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from 'convex/react';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, Mail, Plus, TriangleAlert } from 'lucide-react-native';
+import { Mail, Plus, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,15 +18,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
-import { Badge, type BadgeVariant } from '@/components/ui/badge';
+import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
+import { Pill, type PillTone } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 type Invite = {
   _id: Id<'invites'>;
@@ -37,11 +40,11 @@ type Invite = {
   claimedBy: { displayName: string } | null;
 };
 
-function inviteStatus(invite: Invite, now: number): { label: string; variant: BadgeVariant } {
-  if (invite.revokedAt !== null) return { label: 'Opozvana', variant: 'outline' };
-  if (invite.claimedAt !== null) return { label: 'Prihvaćena', variant: 'success' };
-  if (invite.expiresAt <= now) return { label: 'Istekla', variant: 'secondary' };
-  return { label: 'Na čekanju', variant: 'default' };
+function inviteStatus(invite: Invite, now: number): { label: string; tone: PillTone } {
+  if (invite.revokedAt !== null) return { label: 'Opozvana', tone: 'neutral' };
+  if (invite.claimedAt !== null) return { label: 'Prihvaćena', tone: 'success' };
+  if (invite.expiresAt <= now) return { label: 'Istekla', tone: 'warning' };
+  return { label: 'Na čekanju', tone: 'accent' };
 }
 
 /**
@@ -88,11 +91,16 @@ export default function PozivniceScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header
+      <ScreenHeader
         title="Pozivnice"
         onBack={() => router.back()}
-        onNew={activeStartupId ? () => setCreateOpen(true) : undefined}
-        colors={colors}
+        actions={
+          activeStartupId ? (
+            <IconButton accessibilityLabel="Nova pozivnica" onPress={() => setCreateOpen(true)}>
+              <Plus size={24} color={colors.foreground} />
+            </IconButton>
+          ) : undefined
+        }
       />
       {activeStartupId === null ? (
         <EmptyState
@@ -126,14 +134,19 @@ export default function PozivniceScreen() {
               <Row
                 key={invite._id}
                 title={invite.email}
-                accessibilityLabel={`Pozivnica za ${invite.email}, ${status.label}`}
+                accessibilityLabel={`Pozivnica za ${invite.email}, ${status.label}${
+                  invite.claimedBy ? `, prihvatio ${invite.claimedBy.displayName}` : ''
+                }`}
                 showChevron={false}
                 style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+                // Ko je prihvatio dobija inicijale, ne golo ime — isti jezik kao
+                // svugde gde se prikazuje osoba.
+                icon={<Avatar name={invite.claimedBy?.displayName ?? invite.email} size={36} />}
                 subtitle={
                   <View style={styles.metaRow}>
-                    <Badge label={status.label} variant={status.variant} />
+                    <Pill label={status.label} tone={status.tone} />
                     {invite.claimedBy ? (
-                      <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+                      <Text numberOfLines={1} style={[styles.meta, { color: colors.mutedForeground }]}>
                         {invite.claimedBy.displayName}
                       </Text>
                     ) : null}
@@ -264,45 +277,6 @@ function CreateInviteSheet({
   );
 }
 
-function Header({
-  title,
-  onBack,
-  onNew,
-  colors,
-}: {
-  title: string;
-  onBack: () => void;
-  onNew?: () => void;
-  colors: ColorTokens;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>{title}</Text>
-      {onNew ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Nova pozivnica"
-          onPress={onNew}
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-          <Plus size={24} color={colors.foreground} />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <PozivniceError message={error.message} onRetry={retry} />;
 }
@@ -312,7 +286,7 @@ function PozivniceError({ message, onRetry }: { message: string; onRetry: () => 
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Pozivnice" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Pozivnice" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Pozivnice se ne mogu učitati"
@@ -327,58 +301,37 @@ function PozivniceError({ message, onRetry }: { message: string; onRetry: () => 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginLeft: 2,
-  },
   list: {
     padding: 16,
+    paddingTop: 8,
     gap: 8,
   },
   // Kartica pozivnice kao `Row` override (raspored dolazi iz Row.base).
   row: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minHeight: 64,
-    borderRadius: radius.lg,
+    paddingHorizontal: 12,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   metaRow: {
-    marginTop: 4,
+    marginTop: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   meta: {
-    fontSize: 16,
+    ...text.meta,
+    flexShrink: 1,
   },
   revokeBtn: {
     minHeight: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   revokeLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   backdrop: {

@@ -11,6 +11,13 @@ export type AvatarProps = {
   /** URL slike; ako fali ili ne učita, prikazuju se inicijali. */
   uri?: string | null;
   size?: number;
+  /**
+   * Prazno mesto — NEMA osobe (nedodeljen zadatak, „bez zaduženog"). Isečkani
+   * krug bez glifa; namerno NIJE siva ikonica čoveka, jer tu čovek ne postoji.
+   */
+  empty?: boolean;
+  /** Opis za čitač ekrana (podrazumevano `name`, odn. „Nedodeljeno" za `empty`). */
+  accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -39,15 +46,37 @@ function paletteFor(colors: ColorTokens, name?: string | null) {
   return pairs[hash % pairs.length];
 }
 
-export function Avatar({ name, uri, size = 40, style }: AvatarProps) {
+export function Avatar({
+  name,
+  uri,
+  size = 40,
+  empty = false,
+  accessibilityLabel,
+  style,
+}: AvatarProps) {
   const colors = useThemeColors();
   const [failed, setFailed] = useState(false);
-  const showImage = Boolean(uri) && !failed;
+  const showImage = Boolean(uri) && !failed && !empty;
   const pair = paletteFor(colors, name);
+
+  if (empty) {
+    return (
+      <View
+        accessible
+        accessibilityLabel={accessibilityLabel ?? 'Nedodeljeno'}
+        style={[
+          styles.base,
+          styles.empty,
+          { width: size, height: size, borderRadius: radius.pill, borderColor: colors.border },
+          style,
+        ]}
+      />
+    );
+  }
 
   return (
     <View
-      accessibilityLabel={name ?? undefined}
+      accessibilityLabel={accessibilityLabel ?? name ?? undefined}
       style={[
         styles.base,
         {
@@ -81,6 +110,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  empty: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
   },
   initials: {
     fontWeight: fontWeight.semibold,

@@ -305,6 +305,61 @@ export const areaTopLevelCounts = query({
 });
 
 /**
+ * Broj podstranica za zadate roditeljske stranice unutar jedne oblasti. Napaja
+ * meta podatak u redu mobilnog „Prostor" stabla — da se pre razvijanja vidi ima
+ * li šta unutra. Web ekvivalent nije potreban: `page-tree.tsx` decu ionako drži
+ * učitanu u stablu, pa broj vidi bez dodatnog upita.
+ *
+ * Ograničeno dvostruko: najviše `MAX_CHILD_COUNT_PARENTS` roditelja po pozivu i
+ * `CAP + 1` pročitanih redova po roditelju (guidelines zabranjuju
+ * `.collect().length`); preko granice klijent prikaže „9+".
+ */
+const MAX_CHILD_COUNT_PARENTS = 50;
+
+export const childCounts = query({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    parentPageIds: v.array(v.id("pages")),
+  },
+  returns: v.array(
+    v.object({
+      pageId: v.id("pages"),
+      count: v.number(),
+      capped: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    // Oblast se proverava; roditelji se ne moraju — upit ide po `areaId`, pa tuđi
+    // `parentPageId` jednostavno nema redova u ovoj oblasti (nema curenja).
+    await requirePageArea(ctx, args.startupId, args.areaId);
+    const CAP = 9;
+    const ids = args.parentPageIds.slice(0, MAX_CHILD_COUNT_PARENTS);
+    return await Promise.all(
+      ids.map(async (pageId) => {
+        const rows = await ctx.db
+          .query("pages")
+          .withIndex(
+            "by_areaId_and_parentPageId_and_archivedAt_and_position",
+            (q) =>
+              q
+                .eq("areaId", args.areaId)
+                .eq("parentPageId", pageId)
+                .eq("archivedAt", null),
+          )
+          .take(CAP + 1);
+        return {
+          pageId,
+          count: Math.min(rows.length, CAP),
+          capped: rows.length > CAP,
+        };
+      }),
+    );
+  },
+});
+
+/**
  * Poslednje izmenjene (ne-arhivirane) stranice startupa — sekcija „Nedavno" u
  * mobilnom „Prostor" tabu. Sortirano po `updatedAt` opadajuće preko indeksa.
  */

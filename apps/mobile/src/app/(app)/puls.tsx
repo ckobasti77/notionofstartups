@@ -15,7 +15,7 @@ import {
   Plus,
   ThumbsUp,
   TriangleAlert,
-  UserRound,
+  Users,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -44,7 +45,7 @@ import {
 } from '@/lib/puls';
 import { areaColor, statusColor, TASK_STATUS_META, type TaskStatus } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, space, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
 
 type PulsData = FunctionReturnType<typeof api.puls.getWeekly>;
 type StuckTask = PulsData['stuckTasks'][number];
@@ -63,6 +64,7 @@ type Tone = 'success' | 'danger' | 'warn' | 'default';
  */
 export default function PulsScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
 
@@ -92,14 +94,17 @@ export default function PulsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader colors={colors} topInset={insets.top} />
+      <ScreenHeader
+        title="Puls"
+        eyebrow={formatWeekLabel(weekStart, weekEnd)}
+        onBack={() => router.back()}
+      />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space[8] }]}
         showsVerticalScrollIndicator={false}>
         <WeekNav
           colors={colors}
-          label={formatWeekLabel(weekStart, weekEnd)}
           currentWeek={currentWeek}
           canGoBack={canGoBack}
           isFirstWeek={isFirstWeek}
@@ -133,29 +138,12 @@ export default function PulsScreen() {
   );
 }
 
-function ScreenHeader({ colors, topInset }: { colors: ColorTokens; topInset: number }) {
-  const router = useRouter();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: topInset + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={() => router.back()}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>Puls</Text>
-    </View>
-  );
-}
-
+/**
+ * Navigacija kroz nedelje. Sam datum nedelje NIJE ovde — nosi ga `eyebrow`
+ * zaglavlja, pa red ostaje jedna linija: strelice sa strane, stanje u sredini.
+ */
 function WeekNav({
   colors,
-  label,
   currentWeek,
   canGoBack,
   isFirstWeek,
@@ -164,7 +152,6 @@ function WeekNav({
   onToday,
 }: {
   colors: ColorTokens;
-  label: string;
   currentWeek: boolean;
   canGoBack: boolean;
   isFirstWeek: boolean;
@@ -173,26 +160,10 @@ function WeekNav({
   onToday: () => void;
 }) {
   return (
-    <View style={styles.weekNav}>
-      <View style={styles.weekNavRow}>
-        <NavButton
-          colors={colors}
-          label="Prethodna nedelja"
-          disabled={!canGoBack}
-          onPress={onPrev}>
-          <ChevronLeft size={20} color={canGoBack ? colors.foreground : colors.mutedForeground} />
-        </NavButton>
-        <Text style={[styles.weekLabel, { color: colors.foreground }]} numberOfLines={1}>
-          {label}
-        </Text>
-        <NavButton
-          colors={colors}
-          label="Sledeća nedelja"
-          disabled={currentWeek}
-          onPress={onNext}>
-          <ChevronRight size={20} color={currentWeek ? colors.mutedForeground : colors.foreground} />
-        </NavButton>
-      </View>
+    <View style={styles.weekNavRow}>
+      <NavButton colors={colors} label="Prethodna nedelja" disabled={!canGoBack} onPress={onPrev}>
+        <ChevronLeft size={20} color={canGoBack ? colors.foreground : colors.mutedForeground} />
+      </NavButton>
       <View style={styles.weekBadges}>
         {currentWeek ? (
           <Badge label="Tekuća nedelja" variant="secondary" />
@@ -213,6 +184,9 @@ function WeekNav({
         )}
         {isFirstWeek ? <Badge label="Prva nedelja" variant="outline" /> : null}
       </View>
+      <NavButton colors={colors} label="Sledeća nedelja" disabled={currentWeek} onPress={onNext}>
+        <ChevronRight size={20} color={currentWeek ? colors.mutedForeground : colors.foreground} />
+      </NavButton>
     </View>
   );
 }
@@ -558,7 +532,7 @@ function MembersSection({
       </Text>
       {members.length === 0 && !showUnassigned ? (
         <EmptyState
-          icon={<UserRound size={36} color={colors.mutedForeground} />}
+          icon={<Users size={36} color={colors.mutedForeground} />}
           title="Nema zabeleženog rada"
           description="U ovoj nedelji nijedan član nije imao aktivnost na zadacima."
         />
@@ -596,9 +570,7 @@ function MembersSection({
           {showUnassigned ? (
             <View style={[styles.memberCard, { backgroundColor: colors.muted, borderColor: colors.border }]}>
               <View style={styles.memberHead}>
-                <View style={[styles.unassignedIcon, { backgroundColor: colors.secondary }]}>
-                  <UserRound size={18} color={colors.mutedForeground} />
-                </View>
+                <Avatar empty size={34} accessibilityLabel="Bez zaduženog" />
                 <Text style={[styles.memberNameText, { color: colors.foreground }]}>Bez zaduženog</Text>
               </View>
               <View style={styles.chipsRow}>
@@ -766,10 +738,10 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 function PulsErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader colors={colors} topInset={insets.top} />
+      <ScreenHeader title="Puls" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Puls se ne može učitati"
@@ -788,34 +760,12 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
   content: {
     padding: space[4],
-    gap: space[6],
+    paddingTop: space[2],
+    gap: space[5],
   },
   // Week navigacija
-  weekNav: {
-    gap: space[3],
-  },
   weekNavRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -832,14 +782,8 @@ const styles = StyleSheet.create({
   navButtonDisabled: {
     opacity: 0.5,
   },
-  weekLabel: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 15,
-    fontWeight: fontWeight.semibold,
-    fontVariant: ['tabular-nums'],
-  },
   weekBadges: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -853,7 +797,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   todayText: {
-    fontSize: 13,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
   },
   // Sažetak
@@ -879,7 +823,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     flex: 1,
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
   },
   statIcon: {
@@ -890,15 +834,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statValue: {
-    fontSize: 28,
-    fontWeight: fontWeight.bold,
+    ...text.display,
     fontVariant: ['tabular-nums'],
   },
   statFoot: {
     minHeight: 18,
   },
   statDetail: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   trendRow: {
     flexDirection: 'row',
@@ -906,12 +850,13 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   trendValue: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
   trendMuted: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   // Sekcije
   section: {
@@ -921,13 +866,11 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.2,
+    ...text.title,
   },
   sectionSub: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   cards: {
     gap: space[2],
@@ -947,11 +890,11 @@ const styles = StyleSheet.create({
   },
   stuckTitle: {
     flex: 1,
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   stuckStanding: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
@@ -972,11 +915,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: fontWeight.medium,
+    ...text.meta,
   },
   stuckArea: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
     maxWidth: 120,
   },
   // Oblasti
@@ -1010,11 +953,11 @@ const styles = StyleSheet.create({
   },
   areaLabel: {
     flex: 1,
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   areaPercent: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
@@ -1028,7 +971,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   areaCounts: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
     fontVariant: ['tabular-nums'],
   },
   // Članovi
@@ -1047,19 +991,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   memberNameText: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   memberSub: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
     marginTop: 1,
-  },
-  unassignedIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   chipsRow: {
     flexDirection: 'row',
@@ -1074,12 +1012,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   statChipValue: {
-    fontSize: 18,
+    ...text.title,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
   statChipLabel: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
     marginTop: 1,
   },
   // Ideje — red kao `Row` override (raspored i naslov dolaze iz Row.base).
@@ -1092,7 +1031,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   ideaValue: {
-    fontSize: 18,
+    ...text.title,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
@@ -1107,14 +1046,14 @@ const styles = StyleSheet.create({
     padding: space[4],
   },
   emptyText: {
-    fontSize: 15,
+    ...text.body,
     textAlign: 'center',
   },
   skeleton: {
     gap: space[3],
   },
   truncated: {
-    fontSize: 12,
-    lineHeight: 16,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
 });

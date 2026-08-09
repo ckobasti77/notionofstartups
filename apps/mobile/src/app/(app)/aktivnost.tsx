@@ -3,7 +3,6 @@ import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   Activity,
   Building2,
-  ChevronLeft,
   FileText,
   FolderTree,
   Mail,
@@ -16,19 +15,14 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  SectionList,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, SectionList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -38,7 +32,7 @@ import {
   type ActivityItem,
 } from '@/lib/activity';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, space, type ColorTokens } from '@/theme/tokens';
+import { radius, space, type ColorTokens } from '@/theme/tokens';
 
 const PAGE_SIZE = 30;
 
@@ -66,6 +60,7 @@ function actionVisual(action: ActivityItem['action'], colors: ColorTokens): {
  */
 export default function AktivnostScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
   const [now] = useState(() => Date.now());
@@ -81,7 +76,7 @@ export default function AktivnostScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader colors={colors} topInset={insets.top} />
+      <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
 
       {loadingFirst ? (
         <ActivitySkeleton colors={colors} />
@@ -97,13 +92,10 @@ export default function AktivnostScreen() {
           keyExtractor={(item) => item._id}
           renderItem={({ item }) => <ActivityRow item={item} colors={colors} />}
           renderSectionHeader={({ section }) => (
-            <View style={[styles.dayHeader, { backgroundColor: colors.background }]}>
-              <Text
-                accessibilityRole="header"
-                style={[styles.dayHeaderText, { color: colors.mutedForeground }]}>
-                {section.title}
-              </Text>
-            </View>
+            <SectionHeader
+              title={section.title}
+              style={[styles.dayHeader, { backgroundColor: colors.background }]}
+            />
           )}
           stickySectionHeadersEnabled
           onEndReachedThreshold={0.5}
@@ -149,26 +141,6 @@ function ActivityRow({ item, colors }: { item: ActivityItem; colors: ColorTokens
   );
 }
 
-function ScreenHeader({ colors, topInset }: { colors: ColorTokens; topInset: number }) {
-  const router = useRouter();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: topInset + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={() => router.back()}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>Aktivnost</Text>
-    </View>
-  );
-}
-
 function ActivitySkeleton({ colors }: { colors: ColorTokens }) {
   return (
     <View style={styles.skeleton} accessibilityLabel="Učitavanje aktivnosti">
@@ -193,10 +165,10 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 function AktivnostErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader colors={colors} topInset={insets.top} />
+      <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Aktivnost se ne može učitati"
@@ -212,43 +184,16 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
   listContent: {
     paddingHorizontal: space[4],
   },
   dayHeader: {
-    paddingTop: space[4],
-    paddingBottom: space[2],
-  },
-  dayHeaderText: {
-    fontSize: 12,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    paddingTop: space[2],
   },
   row: {
     gap: space[3],
-    minHeight: 60,
-    paddingVertical: space[2],
+    minHeight: 56,
+    paddingVertical: space[1],
     // Horizontalni razmak nosi lista (listContent), pa red poništava podrazumevani
     // paddingHorizontal iz <Row> da se ne dupla uvlačenje.
     paddingHorizontal: 0,

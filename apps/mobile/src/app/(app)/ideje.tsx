@@ -1,18 +1,21 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, LayoutGrid, Lightbulb, TriangleAlert } from 'lucide-react-native';
+import { LayoutGrid, Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { Avatar } from '@/components/ui/avatar';
+import { IconButton } from '@/components/ui/icon-button';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 type IdeaItem = {
   _id: Id<'ideaNodes'>;
@@ -23,6 +26,16 @@ type IdeaItem = {
   userVote: 'up' | 'down' | null;
   author: { displayName: string } | null;
 };
+
+/** Srpska množina za brojač u zaglavlju (isti obrazac kao `tasksWord`). */
+function ideasWord(count: number): string {
+  const absolute = Math.abs(count);
+  const lastDigit = absolute % 10;
+  const lastTwo = absolute % 100;
+  if (lastDigit === 1 && lastTwo !== 11) return 'ideja';
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) return 'ideje';
+  return 'ideja';
+}
 
 /**
  * Ekran „Ideje" (M4.4) — native lista sa glasanjem, plus dugme za canvas prikaz
@@ -46,14 +59,21 @@ export default function IdejeScreen() {
   };
 
   const loading = activeStartupId !== null && ideas === undefined;
+  const count = ideas?.nodes.length ?? 0;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header
+      <ScreenHeader
         title="Ideje"
+        eyebrow={count > 0 ? `${count} ${ideasWord(count)}` : undefined}
         onBack={() => router.back()}
-        onCanvas={activeStartupId ? openCanvas : undefined}
-        colors={colors}
+        actions={
+          activeStartupId ? (
+            <IconButton accessibilityLabel="Canvas prikaz ideja" onPress={openCanvas}>
+              <LayoutGrid size={22} color={colors.foreground} />
+            </IconButton>
+          ) : undefined
+        }
       />
       {activeStartupId === null ? (
         <EmptyState
@@ -111,8 +131,10 @@ function IdeaRow({
   };
 
   const title = (idea.title ?? '').trim() || 'Ideja';
-  // Tap na karticu otvara ekran ideje (detalj + diskusija tima). Glasanje ostaje u
-  // listi — dva dugmeta u podnožju su svoje dodirne mete, van tapa kartice.
+  const body = idea.text.trim();
+  // Tap na karticu otvara ekran ideje (detalj + diskusija tima). Glasanje je
+  // SEKUNDARNO: kompaktan par dugmadi u podnožju, desno od autora — ne traka
+  // preko pola kartice.
   return (
     <Pressable
       accessibilityRole="button"
@@ -126,17 +148,21 @@ function IdeaRow({
       <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
         {title}
       </Text>
-      {idea.text.trim() ? (
+      {body ? (
         <Text numberOfLines={2} style={[styles.rowText, { color: colors.mutedForeground }]}>
-          {idea.text.trim()}
+          {body}
         </Text>
       ) : null}
-      {idea.author ? (
-        <Text style={[styles.rowAuthor, { color: colors.mutedForeground }]}>
-          {idea.author.displayName}
-        </Text>
-      ) : null}
-      <View style={styles.voteRow}>
+      <View style={styles.footer}>
+        {idea.author ? (
+          <>
+            <Avatar name={idea.author.displayName} size={22} />
+            <Text numberOfLines={1} style={[styles.author, { color: colors.mutedForeground }]}>
+              {idea.author.displayName}
+            </Text>
+          </>
+        ) : null}
+        <View style={styles.grow} />
         <VoteButtons
           upvotes={idea.upvotes}
           downvotes={idea.downvotes}
@@ -150,45 +176,6 @@ function IdeaRow({
   );
 }
 
-function Header({
-  title,
-  onBack,
-  onCanvas,
-  colors,
-}: {
-  title: string;
-  onBack: () => void;
-  onCanvas?: () => void;
-  colors: ColorTokens;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>{title}</Text>
-      {onCanvas ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Canvas prikaz ideja"
-          onPress={onCanvas}
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-          <LayoutGrid size={22} color={colors.foreground} />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <IdejeError message={error.message} onRetry={retry} />;
 }
@@ -198,7 +185,7 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Ideje" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Ideje" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Ideje se ne mogu učitati"
@@ -213,53 +200,34 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginLeft: 2,
-  },
+  grow: { flex: 1 },
   list: {
     padding: 16,
-    gap: 10,
+    paddingTop: 8,
+    gap: 8,
   },
-  // Kartica je kolona: naslov → tekst → autor → red glasova u podnožju.
+  // Kartica: naslov → tekst → podnožje (autor + glasovi u istom redu).
   row: {
     gap: 4,
-    padding: 14,
-    borderRadius: radius.xl,
+    padding: 12,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   rowTitle: {
-    fontSize: 16,
-    lineHeight: 21,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   rowText: {
-    fontSize: 16,
-    lineHeight: 21,
+    ...text.body,
   },
-  rowAuthor: {
-    fontSize: 16,
-    marginTop: 2,
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
   },
-  // Oba glasa u horizontalnom podnožju — svaki puni pola širine (uvek vidljivi).
-  voteRow: {
-    marginTop: 8,
+  author: {
+    ...text.meta,
+    flexShrink: 1,
   },
 });

@@ -11,6 +11,10 @@ export type IdeaVote = 'up' | 'down' | null;
  * (lista ideja, sheet čvora u canvasu, ekran diskusije). Ranije su postojale dve
  * skoro identične kopije; sad je jedna, sa dve visine.
  *
+ * BOJA JE PRIGUŠENA NAMERNO: glas je sekundarna akcija. Aktivan glas nosi tint
+ * podlogu (~12% alfa) i obojenu ikonicu i broj — nikad punu zelenu/crvenu traku
+ * preko pola kartice, jer bi u listi nadjačala sam sadržaj ideje.
+ *
  * Ponovni isti glas ga poništava — to radi server (`ideas.vote` je toggle), ovde
  * se samo prikazuje trenutno stanje.
  */
@@ -26,7 +30,7 @@ export function VoteButtons({
   downvotes: number;
   userVote: IdeaVote;
   disabled?: boolean;
-  /** `sm` u listi (gušće), `md` u sheet-u i na ekranu ideje. */
+  /** `sm` u listi (kompaktno, širina po sadržaju), `md` na ekranu ideje (pola širine). */
   size?: 'sm' | 'md';
   onVote: (vote: 'up' | 'down') => void;
 }) {
@@ -37,8 +41,7 @@ export function VoteButtons({
         kind="up"
         count={upvotes}
         active={userVote === 'up'}
-        activeBg={colors.success}
-        activeFg={colors.successForeground}
+        tint={colors.success}
         disabled={disabled}
         size={size}
         label="Glas za"
@@ -48,8 +51,7 @@ export function VoteButtons({
         kind="down"
         count={downvotes}
         active={userVote === 'down'}
-        activeBg={colors.danger}
-        activeFg={colors.destructiveForeground}
+        tint={colors.danger}
         disabled={disabled}
         size={size}
         label="Glas protiv"
@@ -63,8 +65,7 @@ function VoteButton({
   kind,
   count,
   active,
-  activeBg,
-  activeFg,
+  tint,
   disabled,
   size,
   label,
@@ -73,8 +74,8 @@ function VoteButton({
   kind: 'up' | 'down';
   count: number;
   active: boolean;
-  activeBg: string;
-  activeFg: string;
+  /** Boja glasa (success / danger) — koristi se SAMO na ikonici, broju i tintu. */
+  tint: string;
   disabled: boolean;
   size: 'sm' | 'md';
   label: string;
@@ -82,7 +83,11 @@ function VoteButton({
 }) {
   const colors = useThemeColors();
   const Icon = kind === 'up' ? ThumbsUp : ThumbsDown;
-  const fg = active ? activeFg : colors.foreground;
+  // Aktivno: tint podloga (12% alfa) + obojen sadržaj. Neaktivno: sivo-skala.
+  const fg = active ? tint : colors.mutedForeground;
+  const bg = active ? `${tint}1F` : colors.secondary;
+  const borderColor = active ? `${tint}55` : colors.border;
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -95,8 +100,8 @@ function VoteButton({
         styles.button,
         size === 'md' && styles.buttonMd,
         {
-          backgroundColor: active ? activeBg : colors.secondary,
-          borderColor: active ? activeBg : colors.border,
+          backgroundColor: bg,
+          borderColor,
           opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
         },
       ]}>
@@ -111,8 +116,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  // `sm` — širina po sadržaju: u listi glas stoji sa strane, ne razvlači se
+  // preko pola kartice.
   button: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -123,7 +129,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  // `md` — primarna akcija ekrana ideje: dva jednaka dugmeta u punoj širini.
   buttonMd: {
+    flex: 1,
     gap: 8,
     minHeight: MIN_TOUCH_TARGET + 4,
     borderRadius: radius.card,

@@ -1,4 +1,4 @@
-import { UserRound, Users } from 'lucide-react-native';
+import { Users } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/avatar';
@@ -16,7 +16,7 @@ export type WorkloadFilter = string | null;
 export type WorkloadEntry = {
   key: string;
   name: string;
-  /** `null` za „Nedodeljeno" — tada se crta generična ikonica, ne avatar. */
+  /** `null` za „Nedodeljeno" — tada se crta prazan isečkan krug, ne avatar. */
   avatar: { displayName: string; avatarUrl: string | null } | null;
   open: number;
   overdue: number;
@@ -87,15 +87,9 @@ export function WorkloadStrip({
           onPress={() => onSelect(activeKey === entry.key ? null : entry.key)}
           icon={
             entry.avatar === null ? (
-              <View style={[styles.iconChip, { backgroundColor: colors.muted }]}>
-                <UserRound size={18} color={colors.mutedForeground} />
-              </View>
+              <Avatar empty size={32} accessibilityLabel="Nedodeljeno" />
             ) : (
-              <Avatar
-                name={entry.avatar.displayName}
-                uri={entry.avatar.avatarUrl}
-                size={32}
-              />
+              <Avatar name={entry.avatar.displayName} uri={entry.avatar.avatarUrl} size={32} />
             )
           }
           stats={[

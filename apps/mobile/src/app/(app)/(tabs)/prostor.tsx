@@ -27,6 +27,7 @@ import { AreaBriefingSection } from '@/components/prostor/area-briefing-section'
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
 import { IconButton } from '@/components/ui/icon-button';
+import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
@@ -40,10 +41,17 @@ import {
   supportsTaskData,
   type PageKind,
 } from '@/lib/page-kinds';
-import { areaColor } from '@/lib/task-meta';
+import { areaColor, statusColor, TASK_STATUS_META } from '@/lib/task-meta';
 import type { TaskStatus } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, space, type ColorTokens } from '@/theme/tokens';
+import {
+  fontWeight,
+  MIN_TOUCH_TARGET,
+  radius,
+  space,
+  text,
+  type ColorTokens,
+} from '@/theme/tokens';
 
 /**
  * Minimalni oblik stranice koji ovaj ekran koristi — presek polja koja i
@@ -313,11 +321,9 @@ function AreaRow({
       }
       value={
         label !== null ? (
-          <View style={[styles.countPill, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.countText, { color: colors.mutedForeground }]}>{label}</Text>
-          </View>
+          <Pill label={label} />
         ) : !countsLoaded ? (
-          <Skeleton width={26} height={20} borderRadius={radius.full} />
+          <Skeleton width={26} height={20} borderRadius={radius.pill} />
         ) : undefined
       }
     />
@@ -361,6 +367,32 @@ function RecentRow({
 const INDENT_STEP = 18;
 const MAX_TREE_DEPTH = 8;
 
+/** Broj podstranica po redu — `undefined` dok upit ne stigne. */
+type ChildCount = { count: number; capped: boolean };
+
+/**
+ * Broj podstranica za jedan vidljivi nivo (jedan upit za ceo nivo, ne po redu).
+ * Meta u redu odgovara na „ima li šta unutra" pre nego što se red razvije.
+ */
+function useChildCounts(
+  startupId: Id<'startups'> | null,
+  areaId: Id<'startupAreas'>,
+  pages: readonly { _id: Id<'pages'> }[],
+): Map<Id<'pages'>, ChildCount> {
+  const ids = useMemo(() => pages.map((page) => page._id), [pages]);
+  const rows = useQuery(
+    api.pages.childCounts,
+    startupId !== null && ids.length > 0
+      ? { startupId, areaId, parentPageIds: ids }
+      : 'skip',
+  );
+  return useMemo(() => {
+    const map = new Map<Id<'pages'>, ChildCount>();
+    rows?.forEach((row) => map.set(row.pageId, { count: row.count, capped: row.capped }));
+    return map;
+  }, [rows]);
+}
+
 function PageLevel({
   startupId,
   areaId,
@@ -392,6 +424,7 @@ function PageLevel({
       return next;
     });
   }, []);
+  const childCounts = useChildCounts(startupId, areaId, results);
 
   if (startupId === null || status === 'LoadingFirstPage') {
     return <PageListSkeleton />;
@@ -412,6 +445,7 @@ function PageLevel({
           startupId={startupId}
           areaId={areaId}
           now={now}
+          childCount={childCounts.get(item._id)}
           expandedIds={expandedIds}
           onToggle={toggle}
           onOpen={onOpenLeaf}
@@ -444,6 +478,7 @@ function PageBranch({
   startupId,
   areaId,
   now,
+  childCount,
   expandedIds,
   onToggle,
   onOpen,
@@ -453,6 +488,7 @@ function PageBranch({
   startupId: Id<'startups'>;
   areaId: Id<'startupAreas'>;
   now: number;
+  childCount: ChildCount | undefined;
   expandedIds: ReadonlySet<string>;
   onToggle: (pageId: string) => void;
   onOpen: (page: PageItem) => void;
@@ -464,8 +500,11 @@ function PageBranch({
         page={page}
         depth={depth}
         now={now}
+        childCount={childCount}
         expanded={expanded}
-        canExpand={depth < MAX_TREE_DEPTH}
+        // Dok brojač ne stigne strelica stoji; kad se zna da nema dece — nestaje,
+        // pa se ne otvara prazan nivo.
+        canExpand={depth < MAX_TREE_DEPTH && childCount?.count !== 0}
         onToggle={() => onToggle(page._id)}
         onOpen={onOpen}
       />
@@ -514,6 +553,7 @@ function ChildPages({
     { startupId, areaId, parentPageId },
     { initialNumItems: 20 },
   );
+  const childCounts = useChildCounts(startupId, areaId, results);
   const indent = { paddingLeft: depth * INDENT_STEP };
 
   if (status === 'LoadingFirstPage') {
@@ -546,6 +586,7 @@ function ChildPages({
           startupId={startupId}
           areaId={areaId}
           now={now}
+          childCount={childCounts.get(child._id)}
           expandedIds={expandedIds}
           onToggle={onToggle}
           onOpen={onOpen}
@@ -571,6 +612,7 @@ function PageRow({
   page,
   depth,
   now,
+  childCount,
   expanded,
   canExpand,
   onToggle,
@@ -579,6 +621,7 @@ function PageRow({
   page: PageItem;
   depth: number;
   now: number;
+  childCount: ChildCount | undefined;
   expanded: boolean;
   canExpand: boolean;
   onToggle: () => void;
@@ -587,15 +630,29 @@ function PageRow({
   const colors = useThemeColors();
   const Icon = pageKindMeta(page.kind).icon;
   const tint = pageKindColor(colors, page.kind);
+  const isTask = supportsTaskData(page.kind);
+  const status = isTask ? (page.taskStatus ?? 'backlog') : null;
+  const subpages =
+    childCount && childCount.count > 0
+      ? `${childCount.count}${childCount.capped ? '+' : ''}`
+      : null;
+
   // Tap na red OTVARA stranicu; strelica levo razvija podstranice — dve odvojene
-  // dodirne mete, kao stablo na webu (`page-tree.tsx`). Da li stranica uopšte ima
-  // decu ne znamo pre upita, pa strelica stoji na svakom redu (isto kao web).
+  // dodirne mete, kao stablo na webu (`page-tree.tsx`). Desno NEMA druge strelice:
+  // tamo stoji meta (status zadatka, broj podstranica), a red je ionako ceo dodirljiv.
   return (
     <Row
       title={page.title}
       titleNumberOfLines={2}
       onPress={() => onOpen(page)}
-      accessibilityLabel={`Otvori ${page.title}`}
+      showChevron={false}
+      accessibilityLabel={[
+        `Otvori ${page.title}`,
+        status ? TASK_STATUS_META[status].label : null,
+        subpages ? `${subpages} podstranica` : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}
       style={[styles.pageMain, { paddingLeft: depth * INDENT_STEP }]}
       leading={
         canExpand ? (
@@ -627,8 +684,27 @@ function PageRow({
         </View>
       }
       subtitle={
-        supportsTaskData(page.kind) ? (
+        isTask ? (
           <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
+        ) : undefined
+      }
+      value={
+        status || subpages ? (
+          <View style={styles.rowMeta}>
+            {status ? (
+              <View style={styles.statusTag}>
+                <View
+                  style={[styles.statusDot, { backgroundColor: statusColor(colors, status) }]}
+                />
+                <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
+                  {TASK_STATUS_META[status].label}
+                </Text>
+              </View>
+            ) : null}
+            {subpages ? (
+              <Text style={[styles.subpageCount, { color: colors.subtle }]}>{subpages}</Text>
+            ) : null}
+          </View>
         ) : undefined
       }
     />
@@ -714,59 +790,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 4,
     paddingBottom: 32,
-    gap: 24,
+    gap: 16,
   },
   areaList: {
-    gap: 8,
+    gap: 4,
   },
   // Skelet oblasti (Level1Skeleton) i dalje sklapa red ručno.
   areaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    minHeight: 60,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: radius.xl,
+    minHeight: 56,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   // Kartica oblasti kao `Row` override (ostalo dolazi iz Row.base).
   areaCard: {
-    paddingHorizontal: 14,
-    borderRadius: radius.xl,
+    paddingHorizontal: 12,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   // „Nova oblast" — isečkana ivica je razlikuje od stvarnih oblasti.
   addAreaRow: {
-    paddingHorizontal: 14,
-    borderRadius: radius.xl,
+    paddingHorizontal: 12,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
     borderStyle: 'dashed',
   },
   iconChip: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconChipSm: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
+    width: 28,
+    height: 28,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countPill: {
-    minWidth: 26,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.full,
+  // Meta desno u redu stabla: status zadatka i broj podstranica.
+  rowMeta: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  countText: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
+  statusTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    ...text.meta,
+  },
+  subpageCount: {
+    ...text.meta,
+    fontVariant: ['tabular-nums'],
   },
   grow: {
     flex: 1,
@@ -775,11 +863,11 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   sectionLabel: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    marginBottom: 4,
+    marginBottom: 2,
     marginLeft: 2,
   },
   // „Nedavno" red kao `Row` override — samo horizontalni padding i radijus.
@@ -797,7 +885,8 @@ const styles = StyleSheet.create({
   // (`paddingLeft` se dodaje inline po dubini u stablu.)
   pageMain: {
     paddingHorizontal: 2,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
+    minHeight: 52,
   },
   // Strelica „razvij" — svoja dodirna meta levo od ikonice vrste.
   twisty: {
@@ -813,8 +902,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   childEmpty: {
-    fontSize: 16,
-    lineHeight: 22,
+    ...text.body,
     paddingVertical: 10,
     paddingLeft: 2,
   },
