@@ -342,3 +342,162 @@ paritet zadržan — ali „osim meta" ovo ne pokriva.
 - Izvršavanje: prošlo
 - `npm run check`: **prolazi**
 - `npm test`: prolazi
+- Commit: `7bd5783`
+- Dirnuto fajlova: 42
+
+### Revizija: Faza 5 — redizajn ekrana
+
+Faza je uradila ono što je traženo po sve tri serije, ali je **prekršila zabranu
+diranja backenda**: dodata je nova Convex funkcija `pages.childCounts`
+(`packages/backend/convex/pages.ts:319`) da bi red u Prostoru dobio broj
+podstranica. Opseg: `f607afd..7bd5783`, 3 commita + merge poruka.
+
+**Provere koje sam sam pokrenuo:** `npm run check` prolazi; `tsc --noEmit` u
+`apps/mobile` prolazi; `tsc -p convex/tsconfig.json` prolazi.
+
+#### Tačka po tačka
+
+**SERIJA 1 — ljuska**
+
+1. **Spoji dva zaglavlja — URAĐENO.** Stack više ne crta zaglavlje
+   (`app/(app)/_layout.tsx:20` → `headerShown: false`, obrisano 16
+   `Stack.Screen` override-a). `TabScreen` sada sam montira `AppHeader`
+   (`components/tab-screen.tsx:23`), a `AppHeader` je prepisan na novi primitiv
+   `ScreenHeader` (`components/app-header.tsx:67`). Naslov je `display` levo
+   (`ui/screen-header.tsx:167` → `...text.display`), pretraga i avatar desno
+   (`app-header.tsx:77-88`), prebacivač startupa iza avatara
+   (`app-header.tsx:82-88` otvara `StartupSwitcher`, koji je dobio i red „Moj
+   profil" — `startup-switcher.tsx:74-86`).
+   *Odstupanje:* ime startupa nije nestalo — ostalo je kao `eyebrow` linija
+   iznad naslova (`app-header.tsx:70`), visine 20pt. Nije druga traka, ali nije
+   ni „samo iza avatara".
+2. **Tab bar aktivna accent / neaktivne prigušene — URAĐENO.**
+   `(tabs)/_layout.tsx:20-28` (`focused ? colors.primary : colors.subtle`,
+   `strokeWidth` 2.4/1.8) i `:35` `tabBarInactiveTintColor: colors.subtle`.
+
+**SERIJA 2 — liste**
+
+3. **Gustina — URAĐENO** na svih osam ekrana. Dokazi: `prostor.tsx:789`
+   (`gap` 24→16), `:793` (`gap` 8→4), `:886` (`minHeight: 52` na redu stabla);
+   `ideje.tsx:204-212` (`gap` 10→8, `padding` 14→12); `odobrenja.tsx:339-347`;
+   `clanovi.tsx:150-160` (niz kartica → jedna kartica sa vlas-linijama);
+   `pozivnice.tsx:307`; `pretraga.tsx:412-420`; `aktivnost.tsx:190-196`
+   (`minHeight` 60→56); `puls.tsx:764-766`.
+4. **Prostor: jedna strelica + meta podatak — URAĐENO.** Desna strelica ugašena
+   (`prostor.tsx:648` `showChevron={false}`), ostaje samo „razvij" strelica levo
+   (`:652-672`). Meta desno: status zadatka i broj podstranica
+   (`prostor.tsx:691-708`). Broj podstranica dolazi iz **nove backend funkcije**
+   — vidi tačku 8.
+5. **Ideje: tiši glasovi — URAĐENO.** `ideja/vote-buttons.tsx:87-89` — aktivan
+   glas je tint podloga `${tint}1F` (12%) + obojena ikonica i broj, umesto pune
+   `activeBg` trake. `flex: 1` je skinut sa `sm` varijante i prebačen na `md`
+   (`:117-134`), pa u listi glasovi više ne zauzimaju pola kartice; stoje u
+   podnožju desno od autora (`ideje.tsx:154-172`).
+6. **Avatari sa inicijalima umesto sivih ikonica čoveka — URAĐENO.** `Avatar`
+   je dobio `empty` prop (isečkan krug bez glifa, `ui/avatar.tsx:62-75`) i
+   zamenio `UserRound` na tri mesta: `danas/assignee-stack.tsx:35`,
+   `danas/workload-strip.tsx:90`, `puls.tsx:573`. Novi avatari:
+   `ideje.tsx:159`, `pozivnice.tsx:144`, `clanovi.tsx:95`. U `apps/mobile/src`
+   nije ostala nijedna siva ikonica osobe kao zamena za avatar (jedina dva
+   preostala `UserRound`-a su stavka menija `vise.tsx:58` i ilustracija praznog
+   stanja `profil.tsx:77`).
+
+**SERIJA 3 — detalji**
+
+7. **URAĐENO za pet od šest; „tabela" je samo prelazak na tokene.**
+   - stranica: `stranica/[id].tsx:56-71` (`ScreenHeader`, `eyebrow` = vrsta
+     stranice, naslov u 2 reda, akcije kroz `IconButton`).
+   - zadatak: `zadatak/[id].tsx:152-170` (isto + `eyebrow` = status).
+   - prilozi: `stranica/files-panel.tsx:239-245` — ručni FAB zamenjen
+     primitivom `FAB` sa novim `busy` propom; gustina `:318-345`.
+   - kanvas rail: `canvas/canvas-rail.tsx:133-151` — samo radijusi i `text.body`.
+   - chat: `chat/message-bubble.tsx`, `conversation-row.tsx`,
+     `conversation-header.tsx` — samo tipografski tokeni; zaglavlje razgovora
+     **namerno ostaje nisko i jednoredno** (obrazloženo u
+     `conversation-header.tsx:61-64`), nije `ScreenHeader`.
+   - tabela: `stranica/table-panel.tsx` — izmena je isključivo
+     `fontSize: 16` → `...text.body` i `radius.md` → `radius.control`. Nijedna
+     izmena gustine ili rasporeda.
+
+**PRAVILA**
+
+8. **Min 16px osim `meta` — URAĐENO.** Jedina nova sirova veličina u diffu je
+   `fontSize: 11` za labelu tab bara (`(tabs)/_layout.tsx:40`) — nasleđena
+   vrednost, sistemska traka. Sve ostalo ide kroz `text.*`
+   (`display` 28/34/700, `title` 20/26/600, `body` 16/22/400, `meta` 13/18/500 —
+   `theme/tokens.ts:207-213`, poklapa se sa briefom).
+9. **Dodirna meta min 44pt — DELIMIČNO.** `IconButton` i `back` u zaglavlju su
+   44 (`ui/icon-button.tsx:31`, `screen-header.tsx:148`), ali **`eyebrow` traka
+   je dodirljiva sa 20pt visine + hitSlop 8/4** (`screen-header.tsx:135`, `:91`)
+   → efektivno ~32pt. Ista akcija postoji i na avataru (44pt), pa nije
+   nedostupna, ali je meta ispod pravila.
+10. **Safe area — URAĐENO.** `ScreenHeader` uračunava `insets.top` na jednom
+    mestu (`screen-header.tsx:76`), a svi konvertovani ekrani su izbacili
+    sopstveni `insets.top`; jedini preostali su namerni izuzeci (canvas,
+    razgovor) i dva dev ekrana — vidi „Nedovršeno".
+11. **Koristi postojeće primitive — URAĐENO.** Iskorišćeni `Row`, `Pill`,
+    `SectionHeader`, `IconButton`, `Skeleton`, `Avatar`, `FAB`. Napravljen je
+    **jedan** nov primitiv, `ui/screen-header.tsx` (nije postojao ekvivalent —
+    zamenjuje ~9 ručno sklopljenih zaglavlja), i eksportovan iz `ui/index.ts:21`.
+    `Avatar` i `FAB` su prošireni propom (`empty`, `busy`), nisu klonirani.
+
+#### Napravljeno a nije traženo
+
+- **`pages.childCounts`** — nova Convex query funkcija
+  (`packages/backend/convex/pages.ts:319-359`) + hook `useChildCounts`
+  (`prostor.tsx:377-390`). Prekršaj zabrane iz tačke 6 zadatka.
+- **Brisanje breadcrumb navigacije i „Lista / Canvas" prekidača u Prostoru**
+  (`prostor.tsx:−724..−758` i `−760..−795`). Prekidač je sveden na jednu
+  ikonicu; `jumpTo` je obrisan. Traženo je bilo samo uklanjanje duple ikonice.
+- **`FAB.busy`** (`ui/fab.tsx:22,50-54`) i prelazak `files-panel` na `FAB`.
+- **`StartupSwitcher` je postao „nalog + startupi"** — dodat red profila i
+  `SectionHeader` (`startup-switcher.tsx:74-88`). Sledi iz „prebacivač iza
+  avatara", ali je više od preseljenja.
+- **Brojači u `eyebrow`-u i dve nove funkcije za srpsku množinu** —
+  `ideasWord` (`ideje.tsx:31-38`), `membersWord` (`clanovi.tsx:25-32`).
+- **Skraćen tekst u odobrenjima**: „Fali još N glasova ZA za brisanje" →
+  pilula „fali još N ZA" (`odobrenja.tsx:102`, `:286`).
+- **„Označi sve" iz teksta u ikonicu** (`obavestenja.tsx:23-25`).
+- **`AppHeader` se sada montira po ekranu** (pet tabova + Nivo 2 Prostora)
+  umesto jednom u Stack-u — pet instanci `startups.listForCurrent` i
+  `profiles.getCurrent` umesto jedne. Convex dedupe ublažava, ali je promena
+  arhitekture, ne stila.
+
+#### Nedovršeno / placeholder-i
+
+- `obavestenja.tsx:23` — „Označi sve kao pročitano" je `onPress={() => {}}`.
+  Zatečeno stanje, ali je faza dirala tu liniju i ostavila je praznu. Ceo tab je
+  i dalje skelet Faze 0 (samo `EmptyState`, `:33-37`).
+- `app/(app)/dizajn-katalog.tsx:358` i `app/(app)/editor-spike.tsx:77` — i
+  dalje ručno zaglavlje sa `insets.top + 6`. Zadatak kaže „SVE ekrane"; ova dva
+  su dev-only, ali nisu ni pomenuta kao izuzetak. Katalog uz to ne prikazuje
+  novi `ScreenHeader`.
+- `pages.childCounts` nema test (`grep childCounts packages/backend` → samo
+  definicija) i nema web potrošača; izuzetak od pravila „i web i mobilni" je
+  zapisan u komentaru (`pages.ts:307-312`), što je u skladu sa CLAUDE.md.
+- Funkcija koja vraća samo `null`: nijedna nova. `UnreadIndicator`
+  (`conversation-row.tsx:102`) je zatečena i legitimna.
+- TODO/FIXME komentara u diffu: nema.
+
+#### Ručni `flexDirection: 'row'` (tačka 5)
+
+Sedam novih linija, nijedna ne zaobilazi `Row`:
+
+- `prostor.tsx:837` (`rowMeta`) i `:842` (`statusTag`) — raspored **unutar**
+  `value` slota `Row`-a, ne red liste.
+- `ideje.tsx:223` (`footer`) — podnožje kartice ideje (autor + glasovi).
+- `odobrenja.tsx:374` (`metaRow`) — meta linija unutar kartice odobrenja.
+- `ui/screen-header.tsx:131`, `:144`, `:163` — sam novi primitiv zaglavlja.
+
+Zatečeni ručni redovi (`files-panel.tsx:324`, `prostor.tsx` skelet oblasti)
+nisu dirani i i dalje zaobilaze `Row`.
+
+#### Backend (tačka 6)
+
+**PREKRŠENO.** `packages/backend/convex/pages.ts:319` — nova `query childCounts`
+(+55 linija). Sama funkcija je korektno napisana: `requireStartupMember` +
+`requirePageArea` (`:333-336`), `.take(CAP + 1)` umesto `.collect().length`,
+dvostruko ograničenje (50 roditelja, cap 9), postojeći indeks
+`by_areaId_and_parentPageId_and_archivedAt_and_position` (`schema.ts:277`).
+Ali zadatak je bio čist redizajn i nije tražio nove podatke — broj podstranica
+je bio odluka faze, ne zahtev.
