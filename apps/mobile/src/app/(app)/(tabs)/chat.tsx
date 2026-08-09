@@ -5,6 +5,7 @@ import { FlatList, StyleSheet } from 'react-native';
 import { useQuery } from 'convex/react';
 
 import { ConversationRow } from '@/components/chat/conversation-row';
+import { NewConversationSheet } from '@/components/chat/new-conversation-sheet';
 import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
@@ -35,11 +36,13 @@ export default function ChatScreen() {
   const router = useRouter();
   const { activeStartupId } = useActiveStartup();
   const [segment, setSegment] = useState<ChatSegmentId>('channels');
+  const [composing, setComposing] = useState(false);
 
   const startupArg = activeStartupId ? { startupId: activeStartupId } : 'skip';
   const channels = useQuery(api.chat.listChannels, startupArg);
   const directMessages = useQuery(api.chat.listDirectMessages, startupArg);
   const followedThreads = useQuery(api.chat.listFollowedThreads, startupArg);
+  const profile = useQuery(api.profiles.getCurrent, {});
 
   const data: ChatChannel[] | undefined =
     segment === 'channels'
@@ -59,11 +62,15 @@ export default function ChatScreen() {
       actions={
         <IconButton
           accessibilityLabel="Nova poruka"
+          disabled={activeStartupId === null}
           onPress={() => {
-            // Kreiranje razgovora stiže u kasnijem koraku faze 1
-            // (docs/mobile/02-EKRANI.md §12, red 4).
+            haptics.tap();
+            setComposing(true);
           }}>
-          <SquarePen size={22} color={colors.foreground} />
+          <SquarePen
+            size={22}
+            color={activeStartupId === null ? colors.subtle : colors.foreground}
+          />
         </IconButton>
       }
       // Segment je deo zaglavlja: jedan blok gore umesto treće trake ispod njega.
@@ -73,6 +80,15 @@ export default function ChatScreen() {
         segment={segment}
         onOpen={openConversation}
       />
+      {activeStartupId === null ? null : (
+        <NewConversationSheet
+          open={composing}
+          startupId={activeStartupId}
+          isAdmin={profile?.role === 'admin'}
+          onClose={() => setComposing(false)}
+          onOpened={openConversation}
+        />
+      )}
     </TabScreen>
   );
 }

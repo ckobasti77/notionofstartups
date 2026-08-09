@@ -1,5 +1,13 @@
 import { useMutation, useQuery } from 'convex/react';
-import { ChevronDown, ChevronRight, FileText, ListTodo, Users } from 'lucide-react-native';
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  ListTodo,
+  Paperclip,
+  Table,
+  Users,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -36,11 +44,12 @@ import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 const MAX_TITLE = 200;
 const MAX_INSTRUCTIONS = 20_000;
 
-type PageKind = 'note' | 'task';
+/** Sva četiri tipa iz `pages.create` — isti skup koji web `create-page-dialog` nudi. */
+type PageKind = 'note' | 'task' | 'file' | 'table';
 
 type DuePreset = { label: string; days: number | null };
 
-/** Isti preseti kao u meniju akcija zadatka — bez native date pickera (nema novog paketa). */
+/** Isti preseti kao u meniju akcija zadatka; proizvoljan datum nosi `DatePickerSheet`. */
 const DUE_PRESETS: readonly DuePreset[] = [
   { label: 'Bez roka', days: null },
   { label: 'Danas', days: 0 },
@@ -206,6 +215,25 @@ export function PageCreateSheet({
                 active={kind === 'task'}
                 disabled={busy}
                 onPress={() => setKind('task')}
+                colors={colors}
+              />
+              {/* Tabela i prilozi: `TablePanel` i `FilesPanel` na mobilnom rade,
+                  ali se prazna tabela/fajl-oblačić dosad nisu mogli NAPRAVITI sa
+                  telefona — web `create-page-dialog` nudi sva četiri tipa. */}
+              <KindSegment
+                label="Tabela"
+                icon={<Table size={16} color={kind === 'table' ? colors.foreground : colors.mutedForeground} />}
+                active={kind === 'table'}
+                disabled={busy}
+                onPress={() => setKind('table')}
+                colors={colors}
+              />
+              <KindSegment
+                label="Prilozi"
+                icon={<Paperclip size={16} color={kind === 'file' ? colors.foreground : colors.mutedForeground} />}
+                active={kind === 'file'}
+                disabled={busy}
+                onPress={() => setKind('file')}
                 colors={colors}
               />
             </View>
@@ -414,12 +442,16 @@ const styles = StyleSheet.create({
   },
   kindRow: {
     flexDirection: 'row',
+    // Četiri tipa u jednom redu na uskom telefonu seku labelu — pusti prelom.
+    flexWrap: 'wrap',
     padding: 4,
     borderRadius: radius.lg,
     gap: 4,
   },
   segment: {
     flex: 1,
+    // Dva segmenta po redu kad se prelomi (4 tipa × ~46% širine).
+    minWidth: '46%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

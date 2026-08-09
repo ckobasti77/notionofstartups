@@ -2,7 +2,7 @@ import { useQuery } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
@@ -12,6 +12,7 @@ import { PageActionsSheet, type SheetView } from '@/components/stranica/page-act
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
+import { DiscussionLink } from '@/components/zadatak/discussion-link';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,8 +27,8 @@ import type { ColorTokens } from '@/theme/tokens';
 /**
  * Ekran stranice (docs/mobile/02-EKRANI.md §9). Sadržaj se bira po `kind`:
  * beleška (`note`) → `NoteEditor` (M3.2, tentap), `table` → `TablePanel` (M3.3),
- * `file` → `FilesPanel` (M3.3). Zadatak ima svoj ekran (`zadatak/[id]`), ovamo ne
- * stiže — ako ipak stigne, prikazuje se poruka umesto praznog ekrana.
+ * `file` → `FilesPanel` (M3.3). Zadatak se preusmerava na `zadatak/[id]` — ova
+ * ruta je jedini ulaz po `pageId`, pa pozivalac ne mora da zna `kind`.
  */
 type PageDetails = FunctionReturnType<typeof api.pages.get>;
 
@@ -40,7 +41,17 @@ export default function StranicaScreen() {
   // `null` = sheet je zatvoren; vrednost je korak na kom se otvara.
   const [actionsView, setActionsView] = useState<SheetView | null>(null);
 
-  if (page === undefined) {
+  // Ova ruta je JEDINI ulaz po `pageId` — pozivaoci (obaveštenje, thread razgovora,
+  // veza u tekstu) ne znaju `kind` unapred. Zadatak zato ne završava u ćorsokaku
+  // nego se prosledi na svoj ekran; `replace` da „nazad" ne vrati na međukorak.
+  const isTask = page?.kind === 'task';
+  useEffect(() => {
+    if (isTask) {
+      router.replace({ pathname: '/zadatak/[id]', params: { id: pageId } });
+    }
+  }, [isTask, pageId, router]);
+
+  if (page === undefined || isTask) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Stranica" onBack={() => router.back()} />
@@ -114,6 +125,10 @@ function PageContent({
         areaId={page.areaId}
         onConnect={onConnect}
       />
+      {/* Diskusija uz stranicu — isti `chat.channelForAnchor`/`sendToAnchor` koji
+          web `EntityDiscussionPanel` koristi za SVE tipove stranica, ne samo za
+          zadatak. Komponenta je `anchorType`-agnostična, samo nije bila montirana. */}
+      <DiscussionLink pageId={page._id} startupId={page.startupId} />
       <View style={styles.kindContent}>
         {page.kind === 'note' ? (
           <NoteEditor
@@ -146,7 +161,7 @@ function PageContent({
  */
 function PageSkeleton() {
   return (
-    <View style={styles.skeleton} accessibilityLabel="Učitavanje stranice">
+    <View style={styles.skeleton} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje stranice">
       <SkeletonRow leading="icon" trailing="chevron" />
       <SkeletonRow index={1} leading="icon" trailing="chevron" />
       <View style={styles.skeletonBody}>

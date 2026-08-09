@@ -47,7 +47,7 @@ export function DaySummary({
       {startupName === null ? (
         <Skeleton width={110} height={13} />
       ) : (
-        <Text numberOfLines={1} style={[styles.eyebrow, { color: colors.primary }]}>
+        <Text numberOfLines={1} style={[styles.eyebrow, { color: colors.primaryText }]}>
           {startupName}
         </Text>
       )}

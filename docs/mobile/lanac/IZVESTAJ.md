@@ -645,3 +645,11 @@ ignore pattern"), a `next build` gradi samo `apps/web`, koji u ovom commit-u nij
 dirnut. Drugim rečima, prijavljeno „`npm run check` prolazi" ne kaže ništa o kodu
 ove faze. Revizija je zato pokrenula `npx tsc --noEmit -p apps/mobile/tsconfig.json`
 — **prolazi (exit 0)**. Runtime ponašanje (spring, gest, stagger) nije izvršavano.
+- Trajanje: 81 min
+
+## Faza 7 — završna provera
+
+- Start: 2026-08-09T13:46:12+02:00
+- Izvršavanje: prošlo
+- `npm run check`: **prolazi**
+- `npm test`: prolazi

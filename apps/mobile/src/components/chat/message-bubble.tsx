@@ -144,7 +144,24 @@ export function MessageBubble({
             ) : null}
 
             <Pressable
-              accessibilityRole="text"
+              // Bio je `role="text"` na elementu koji ima dugi pritisak — čitač
+              // ekrana ga je najavljivao kao običan tekst, pa akcije nisu bile
+              // otkrive. Svajp-odgovor je gest koji VoiceOver/TalkBack presreću,
+              // zato obe radnje stoje u rotoru.
+              accessibilityRole="button"
+              accessibilityHint={message.deleted ? undefined : 'Dugi pritisak otvara akcije poruke'}
+              accessibilityActions={
+                message.deleted
+                  ? undefined
+                  : [
+                      { name: 'reply', label: 'Odgovori' },
+                      { name: 'menu', label: 'Akcije poruke' },
+                    ]
+              }
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'reply') fireReply();
+                if (event.nativeEvent.actionName === 'menu') onLongPress(message);
+              }}
               onLongPress={() => {
                 haptics.select();
                 onLongPress(message);
@@ -181,7 +198,7 @@ export function MessageBubble({
                             key={index}
                             style={[
                               styles.mention,
-                              { color: isOwn ? colors.primaryForeground : colors.primary },
+                              { color: isOwn ? colors.primaryForeground : colors.primaryText },
                             ]}>
                             {segment.value}
                           </Text>
@@ -234,7 +251,7 @@ export function MessageBubble({
                     <Text
                       style={[
                         styles.pillCount,
-                        { color: reaction.mine ? colors.primary : colors.mutedForeground },
+                        { color: reaction.mine ? colors.primaryText : colors.mutedForeground },
                       ]}>
                       {reaction.count}
                     </Text>
@@ -264,7 +281,7 @@ function ReplyPreview({
       ? 'Poruka je obrisana'
       : repliedTo.body || 'prilog'
     : 'Odgovor na poruku';
-  const accent = isOwn ? colors.primaryForeground : colors.primary;
+  const accent = isOwn ? colors.primaryForeground : colors.primaryText;
   const textColor = isOwn ? colors.primaryForeground : colors.mutedForeground;
 
   return (

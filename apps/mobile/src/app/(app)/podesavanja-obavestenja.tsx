@@ -1,10 +1,11 @@
 import { useAudioPlayer } from 'expo-audio';
-import { useRouter } from 'expo-router';
+import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   Info,
   Moon,
   Play,
   Smartphone,
+  TriangleAlert,
 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -14,6 +15,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
+import { EmptyState } from '@/components/empty-state';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Sheet } from '@/components/ui/sheet';
 import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
@@ -506,6 +508,31 @@ function PickerColumn({
         );
       })}
     </ScrollView>
+  );
+}
+
+/**
+ * `notificationSettings.get` prolazi kroz `requireProfile` i baca kad sesija
+ * istekne — bez granice ekran pada, a ovo je jedini put do isključivanja zvuka.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <PodesavanjaErrorState message={error.message} onRetry={retry} />;
+}
+
+function PodesavanjaErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const colors = useThemeColors();
+  const router = useRouter();
+  return (
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
+      <EmptyState
+        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        title="Podešavanja se ne mogu učitati"
+        description={message || 'Došlo je do greške pri učitavanju podešavanja.'}
+        actionLabel="Pokušaj ponovo"
+        onAction={onRetry}
+      />
+    </View>
   );
 }
 

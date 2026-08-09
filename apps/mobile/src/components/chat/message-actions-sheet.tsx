@@ -14,11 +14,13 @@ const EDIT_WINDOW_MS = 15 * 60 * 1_000;
  * Akcioni sheet na long-press poruke: red brzih reakcija + odgovor, izmena i
  * brisanje. Jedan `Modal` za celu listu — otvara ga poruka koja nije `null`.
  * „Izmeni" se nudi samo za sopstvene tekstualne poruke u prozoru od 15 min;
- * „Obriši" samo za sopstvene (admin moderacija tuđih ide preko weba).
+ * „Obriši" za sopstvene, a administratoru i za tuđe — isto pravilo kao web
+ * `message-row.tsx` i kao sam backend (`chat.deleteMessage`).
  */
 export function MessageActionsSheet({
   message,
   currentProfileId,
+  isAdmin,
   onReact,
   onReply,
   onEdit,
@@ -27,6 +29,8 @@ export function MessageActionsSheet({
 }: {
   message: ChatMessage | null;
   currentProfileId: Id<'profiles'>;
+  /** Administrator moderira tuđe poruke (backend to već dozvoljava). */
+  isAdmin: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
   onEdit: () => void;
@@ -41,7 +45,7 @@ export function MessageActionsSheet({
     isOwn &&
     message.kind === 'text' &&
     Date.now() - message.createdAt < EDIT_WINDOW_MS;
-  const canDelete = isOwn;
+  const canDelete = message !== null && (isOwn || isAdmin);
 
   // Sheet nema unutrašnji skrol, pa se prevlači bilo gde po njemu — ne samo po ručki.
   return (
@@ -82,7 +86,7 @@ export function MessageActionsSheet({
       {canDelete ? (
         <ActionRow
           icon={<Trash2 size={20} color={colors.destructive} />}
-          label="Obriši"
+          label={isOwn ? 'Obriši' : 'Obriši (moderacija)'}
           destructive
           onPress={onDelete}
           colors={colors}

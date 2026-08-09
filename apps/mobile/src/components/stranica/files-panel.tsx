@@ -11,6 +11,7 @@ import {
   FileVideo,
   ImagePlus,
   Paperclip,
+  Pencil,
   Plus,
   // Ikonica tabele; alias jer `Sheet` je i naš bottom-sheet primitiv.
   Sheet as SheetIcon,
@@ -18,12 +19,14 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilePreview, type PreviewFile } from '@/components/stranica/file-preview';
+import { Button } from '@/components/ui/button';
 import { FAB } from '@/components/ui/fab';
+import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
@@ -33,7 +36,7 @@ import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
 
 type FileCategory = 'image' | 'video' | 'pdf' | 'audio' | 'sheet' | 'document';
 
@@ -67,10 +70,15 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   const generateUploadUrl = useMutation(api.pageFiles.generateUploadUrl);
   const attach = useMutation(api.pageFiles.attach);
   const remove = useMutation(api.pageFiles.remove);
+  const rename = useMutation(api.pageFiles.rename);
 
   const [uploading, setUploading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewFile | null>(null);
+  const [renaming, setRenaming] = useState<{ fileId: Id<'pageFiles'>; name: string } | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   async function upload(input: PickInput) {
     setUploading(true);
@@ -164,6 +172,38 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
     }
   }
 
+  /**
+   * Preimenovanje priloga — pandan `pageFiles.rename` sa weba
+   * (`page-files-panel.tsx`). `Alert.prompt` postoji samo na iOS-u, pa Android
+   * dobija isti tok kroz mali sheet umesto da radnja fali na pola platformi.
+   */
+  function startRename(fileId: Id<'pageFiles'>, name: string) {
+    haptics.tap();
+    setRenaming({ fileId, name });
+  }
+
+  async function submitRename(next: string) {
+    const target = renaming;
+    if (target === null) return;
+    const clean = next.trim();
+    if (!clean) {
+      setRenameError('Naziv ne sme biti prazan.');
+      return;
+    }
+    setRenameBusy(true);
+    try {
+      await rename({ fileId: target.fileId, name: clean });
+      haptics.success();
+      setRenaming(null);
+      setRenameError(null);
+    } catch (error) {
+      haptics.error();
+      setRenameError(accessErrorMessage(error, 'Prilog nije preimenovan.'));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   function confirmRemove(fileId: Id<'pageFiles'>, name: string) {
     Alert.alert('Obriši prilog', `„${name}" biće trajno obrisan.`, [
       { text: 'Otkaži', style: 'cancel' },
@@ -228,13 +268,26 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
                   accessibilityLabel={`Otvori ${file.name}`}
                 />
                 {file.canManage ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Obriši ${file.name}`}
-                    onPress={() => confirmRemove(file._id, file.name)}
-                    style={({ pressed }) => [styles.deleteBtn, pressed && { backgroundColor: colors.muted }]}>
-                    <Trash2 size={18} color={colors.destructive} />
-                  </Pressable>
+                  <>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Preimenuj ${file.name}`}
+                      onPress={() => {
+                        setRenameDraft(file.name);
+                        setRenameError(null);
+                        startRename(file._id, file.name);
+                      }}
+                      style={({ pressed }) => [styles.deleteBtn, pressed && { backgroundColor: colors.muted }]}>
+                      <Pencil size={18} color={colors.mutedForeground} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Obriši ${file.name}`}
+                      onPress={() => confirmRemove(file._id, file.name)}
+                      style={({ pressed }) => [styles.deleteBtn, pressed && { backgroundColor: colors.muted }]}>
+                      <Trash2 size={18} color={colors.destructive} />
+                    </Pressable>
+                  </>
                 ) : null}
               </View>
             );
@@ -263,6 +316,50 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
         onDocument={pickDocument}
         onClose={() => setMenuOpen(false)}
       />
+
+      <Sheet
+        visible={renaming !== null}
+        onClose={() => setRenaming(null)}
+        avoidKeyboard
+        style={styles.renameSheet}>
+        <Text accessibilityRole="header" style={[styles.renameHeading, { color: colors.foreground }]}>
+          Preimenuj prilog
+        </Text>
+        {renameError === null ? null : (
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.renameError, { color: colors.destructive }]}>
+            {renameError}
+          </Text>
+        )}
+        <Input
+          value={renameDraft}
+          onChangeText={(next) => {
+            setRenameDraft(next);
+            if (renameError !== null) setRenameError(null);
+          }}
+          autoFocus
+          editable={!renameBusy}
+          accessibilityLabel="Naziv priloga"
+          returnKeyType="done"
+          onSubmitEditing={() => void submitRename(renameDraft)}
+        />
+        <View style={styles.renameActions}>
+          <Button
+            label="Otkaži"
+            variant="ghost"
+            disabled={renameBusy}
+            onPress={() => setRenaming(null)}
+            style={styles.renameBtn}
+          />
+          <Button
+            label="Sačuvaj"
+            loading={renameBusy}
+            onPress={() => void submitRename(renameDraft)}
+            style={styles.renameBtn}
+          />
+        </View>
+      </Sheet>
 
       <FilePreview file={preview} onClose={() => setPreview(null)} />
     </View>
@@ -314,6 +411,25 @@ function AddMenu({
 }
 
 const styles = StyleSheet.create({
+  renameSheet: {
+    paddingHorizontal: space[5],
+    gap: space[2],
+  },
+  renameHeading: {
+    fontSize: 18,
+    fontWeight: fontWeight.semibold,
+  },
+  renameError: {
+    ...text.body,
+  },
+  renameActions: {
+    flexDirection: 'row',
+    gap: space[2],
+    paddingTop: space[1],
+  },
+  renameBtn: {
+    flex: 1,
+  },
   flex: { flex: 1 },
   list: {
     padding: 16,

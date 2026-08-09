@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { DatePickerSheet, formatDueDate } from '@/components/ui/date-picker-sheet';
 import { OptionChip } from '@/components/ui/option-chip';
 import { Sheet } from '@/components/ui/sheet';
 import {
@@ -96,9 +98,20 @@ export function TaskActionsSheet({
     return dueDayDiffValue === preset.days;
   };
 
+  const [pickingDate, setPickingDate] = useState(false);
+  // „Proizvoljno" je aktivno kad rok postoji ali ga nijedan preset ne pokriva —
+  // tada čip nosi sam datum umesto generičke reči.
+  const isCustomDue =
+    task !== null &&
+    task.dueDate !== null &&
+    !DUE_PRESETS.some((preset) => preset.days !== null && activeDuePreset(preset));
+  const customDueLabel =
+    isCustomDue && task?.dueDate != null ? formatDueDate(task.dueDate) : 'Drugi dan…';
+
   return (
-    <Sheet visible={task !== null} onClose={onClose}>
-      {task ? (
+    <>
+      <Sheet visible={task !== null} onClose={onClose}>
+        {task ? (
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
@@ -158,6 +171,14 @@ export function TaskActionsSheet({
                         }
                       />
                     ))}
+                    {/* Četiri preseta ne pokrivaju „za tri nedelje" — bez ovog
+                        čipa se takav rok mogao uneti samo na webu. */}
+                    <OptionChip
+                      label={customDueLabel}
+                      active={isCustomDue}
+                      disabled={!canEditAll}
+                      onPress={() => setPickingDate(true)}
+                    />
                   </View>
                 </Section>
 
@@ -189,8 +210,21 @@ export function TaskActionsSheet({
               </>
             )}
           </ScrollView>
-      ) : null}
-    </Sheet>
+        ) : null}
+      </Sheet>
+      {/* Sestrinski `Modal`, ne ugnježden: dva ugnježdena `Modal`-a na iOS-u daju
+          crn ekran i pojedu gest za zatvaranje. Roditeljski sheet ostaje otvoren
+          ispod, pa se posle izbora datuma korisnik vraća na isti meni. */}
+      <DatePickerSheet
+        visible={pickingDate}
+        value={task?.dueDate ?? null}
+        onSelect={(dueDate) => {
+          setPickingDate(false);
+          onDue(dueDate);
+        }}
+        onClose={() => setPickingDate(false)}
+      />
+    </>
   );
 }
 
@@ -240,7 +274,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   hint: {
-    fontSize: 12,
+    // Bilo 12px: ovo je objašnjenje ZAŠTO je opcija onemogućena, ne bedž.
+    fontSize: 16,
     lineHeight: 16,
   },
   chips: {

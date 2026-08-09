@@ -82,11 +82,14 @@ export default function ConversationScreen() {
     setEditing(message);
   }, []);
 
+  /**
+   * Thread je zakačen za stranicu (`anchorType === 'page'`). Zadatak je isto
+   * `pages` red, ali ima svoj ekran — `/stranica/[id]` ga sam preusmeri, pa se
+   * `kind` ovde ne mora znati. Pandan `onOpenPage` iz web `conversation-pane`.
+   */
   function openAnchor() {
-    Alert.alert(
-      'Uskoro',
-      'Otvaranje povezanog entiteta stiže uz ekrane stranice i zadatka.',
-    );
+    if (channel === null || channel.anchorId === null) return;
+    router.push({ pathname: '/stranica/[id]', params: { id: channel.anchorId } });
   }
 
   if (profile == null || channels === undefined) {
@@ -140,6 +143,7 @@ export default function ConversationScreen() {
           <MessageList
             channelId={channelId}
             currentProfileId={profile._id}
+            isAdmin={profile.role === 'admin'}
             members={members}
             onReplyTo={beginReply}
             onEdit={beginEdit}

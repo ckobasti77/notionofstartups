@@ -15,12 +15,14 @@ import {
   Sun,
   UserRound,
   Users,
+  TriangleAlert,
   Vote,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,7 +31,7 @@ import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { haptics } from '@/lib/haptics';
-import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
+import { useAppTheme, useThemeColors, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
 /** Tipizovana ruta expo-routera (isti tip koji `router.push` prima). */
@@ -206,24 +208,28 @@ export default function ViseScreen() {
         ))}
 
         {/* TODO(Faza 3, §5.1): privremeni ulaz u merni prototip editora.
-            Izbriši ovaj blok (i rutu `editor-spike` + ekran) posle merenja. */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Editor proba (merenje)"
-          onPress={() => {
-            const spikeRoute: string = '/editor-spike';
-            router.push(spikeRoute as AppRoute);
-          }}
-          style={({ pressed }) => [
-            styles.spike,
-            { borderColor: colors.border },
-            pressed && { backgroundColor: colors.muted },
-          ]}>
-          <FlaskConical size={18} color={colors.mutedForeground} />
-          <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
-            Editor proba (merenje)
-          </Text>
-        </Pressable>
+            Samo u dev buildu — isti tretman kao dizajn katalog ispod; dev alat u
+            produkcijskom meniju je bio nalaz revizije. Izbriši ovaj blok (i rutu
+            `editor-spike` + ekran) posle merenja. */}
+        {__DEV__ ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Editor proba (merenje)"
+            onPress={() => {
+              const spikeRoute: string = '/editor-spike';
+              router.push(spikeRoute as AppRoute);
+            }}
+            style={({ pressed }) => [
+              styles.spike,
+              { borderColor: colors.border },
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <FlaskConical size={18} color={colors.mutedForeground} />
+            <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
+              Editor proba (merenje)
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* Dizajn katalog — samo u dev buildu. Privremeno tokom redizajna. */}
         {__DEV__ ? (
@@ -257,6 +263,31 @@ export default function ViseScreen() {
           style={styles.signOut}
         />
       </ScrollView>
+    </TabScreen>
+  );
+}
+
+/**
+ * Tri upita ovog taba (`collaboration.overview`, `areasV2.listNestingInbox`,
+ * `profiles.getCurrent`) prolaze kroz `requireStartupMember` i bacaju kad je
+ * `activeStartupId` zastareo ili je korisnik uklonjen iz tima. Bez granice ekran
+ * bi pao bez puta nazad — a „Više" je jedini ulaz u odjavu.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <ViseErrorState message={error.message} onRetry={retry} />;
+}
+
+function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <TabScreen title="Više">
+      <EmptyState
+        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        title="Meni se ne može učitati"
+        description={message || 'Došlo je do greške pri učitavanju menija.'}
+        actionLabel="Pokušaj ponovo"
+        onAction={onRetry}
+      />
     </TabScreen>
   );
 }

@@ -55,6 +55,7 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
   const addColumn = useMutation(api.pageTables.addColumn);
   const renameColumn = useMutation(api.pageTables.renameColumn);
   const removeColumn = useMutation(api.pageTables.removeColumn);
+  const moveColumn = useMutation(api.pageTables.moveColumn);
 
   if (meta === undefined || status === 'LoadingFirstPage') {
     return <TableSkeleton />;
@@ -65,6 +66,11 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
   // Klijentske provere limita (ogledalo `lib/validators.ts`); server ostaje autoritet.
   const atColumnLimit = columns.length >= MAX_TABLE_COLUMNS;
   const atRowLimit = meta.rowCount >= MAX_TABLE_ROWS;
+  // Pozicija kolone koja se uređuje — `moveColumn` prima ciljni indeks, ne pomeraj.
+  const editingColumnIndex =
+    editingColumn === null
+      ? -1
+      : columns.findIndex((column) => column.id === editingColumn.columnId);
 
   async function run(action: () => Promise<unknown>, fallback: string) {
     setBusy(true);
@@ -139,6 +145,20 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
             void run(
               () => renameColumn({ pageId, columnId: editingColumn.columnId, label }),
               'Kolona nije preimenovana.',
+            )
+          }
+          canMoveLeft={editingColumnIndex > 0}
+          canMoveRight={editingColumnIndex >= 0 && editingColumnIndex < columns.length - 1}
+          onMove={(direction) =>
+            editingColumn &&
+            void run(
+              () =>
+                moveColumn({
+                  pageId,
+                  columnId: editingColumn.columnId,
+                  toIndex: editingColumnIndex + direction,
+                }),
+              'Kolona nije pomerena.',
             )
           }
           onRemove={() => editingColumn && confirmDeleteColumn(editingColumn.columnId)}
@@ -302,7 +322,7 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
               { borderColor: colors.border },
               pressed && { backgroundColor: colors.muted },
             ]}>
-            <Text style={[styles.loadMoreLabel, { color: colors.primary }]}>Učitaj još redova</Text>
+            <Text style={[styles.loadMoreLabel, { color: colors.primaryText }]}>Učitaj još redova</Text>
           </Pressable>
         ) : status === 'LoadingMore' ? (
           <View style={styles.loadMore}>
@@ -336,6 +356,20 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
           void run(
             () => renameColumn({ pageId, columnId: editingColumn.columnId, label }),
             'Kolona nije preimenovana.',
+          )
+        }
+        canMoveLeft={editingColumnIndex > 0}
+        canMoveRight={editingColumnIndex >= 0 && editingColumnIndex < columns.length - 1}
+        onMove={(direction) =>
+          editingColumn &&
+          void run(
+            () =>
+              moveColumn({
+                pageId,
+                columnId: editingColumn.columnId,
+                toIndex: editingColumnIndex + direction,
+              }),
+            'Kolona nije pomerena.',
           )
         }
         onRemove={() => editingColumn && confirmDeleteColumn(editingColumn.columnId)}

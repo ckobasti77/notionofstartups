@@ -166,6 +166,10 @@ export function Sheet({
   const panel = (
     <Animated.View
       onLayout={onLayout}
+      // Bez ovoga VoiceOver na iOS nastavlja da čita listu IZA sheet-a: `Modal`
+      // sa `transparent` ne sklanja sadržaj ispod iz a11y stabla. Android isto
+      // rešava `importantForAccessibility` na backdrop-u (ispod).
+      accessibilityViewIsModal
       style={[
         styles.panel,
         {
@@ -198,9 +202,12 @@ export function Sheet({
       onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.root}>
         <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
+          {/* Backdrop je vizuelna afordansa za miša/prst. U a11y stablu bi stajao
+              PRE sadržaja sheet-a i čitač bi prvo najavio „Zatvori" — zato je
+              sakriven; izlaz iz sheet-a čitaču daje sam OS (escape gest). */}
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Zatvori"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
             style={styles.root}
             onPress={onClose}
           />

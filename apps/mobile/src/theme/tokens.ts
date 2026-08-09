@@ -58,9 +58,20 @@ export type ColorTokens = {
   /** @deprecated koristi `surfaceRaised`. */
   popover: string;
   popoverForeground: string;
-  /** Akcijski indigo (brief „accent"). Jedini obojeni akcenat chrome-a. */
+  /**
+   * Akcijski indigo (brief „accent"). Jedini obojeni akcenat chrome-a.
+   * Koristi se kao **PODLOGA** (dugme, FAB, mehurić sopstvene poruke, traka
+   * napretka). Za indigo kao **TEKST/IKONU** postoji `primaryText` — ista uloga
+   * ne može da zadovolji oba kontrastna praga istovremeno.
+   */
   primary: string;
   primaryForeground: string;
+  /**
+   * Indigo kao tekst ili ikona na neutralnoj površini. U tamnoj temi je svetliji,
+   * u svetloj tamniji od `primary` — `primary` je optimizovan za beo tekst NA
+   * sebi (6.29:1), a taj isti ton kao tekst na `card` pada ispod 4.5:1.
+   */
+  primaryText: string;
   /** @deprecated sekundarna površina (dugmad/badge). */
   secondary: string;
   secondaryForeground: string;
@@ -101,7 +112,9 @@ export const darkColors: ColorTokens = {
   surfaceRaised: '#1D1D20',
   border: '#26262A',
   foreground: '#F5F5F6',
-  subtle: '#6E6E76',
+  // Bio je #6E6E76 → 3.89:1 na `background`, a token nosi tekst (neaktivna labela
+  // taba). Posvetljen na 5.33:1 na `card` / 5.72:1 na `background`.
+  subtle: '#8A8A93',
   success: '#34D399',
   warning: '#FBBF24',
   danger: '#F87171',
@@ -111,8 +124,10 @@ export const darkColors: ColorTokens = {
   cardForeground: '#F5F5F6',
   popover: '#1D1D20', // = surfaceRaised
   popoverForeground: '#F5F5F6',
-  primary: '#6366F1', // akcijski indigo (brief „accent")
+  // Bio je #6366F1 → beo tekst 4.47:1 (pad AA). #4F46E5 daje 6.29:1 uz isti ton.
+  primary: '#4F46E5', // akcijski indigo (brief „accent") — PODLOGA
   primaryForeground: '#FFFFFF',
+  primaryText: '#818CF8', // indigo kao tekst: 6.11:1 na `card`, 6.60:1 na `background`
   secondary: '#1D1D20',
   secondaryForeground: '#F5F5F6',
   muted: '#232327', // suptilna pozadina (pressed/track/skeleton)
@@ -146,25 +161,29 @@ export const lightColors: ColorTokens = {
   surfaceRaised: '#FFFFFF',
   border: '#E4E4E7',
   foreground: '#18181B',
-  subtle: '#8A8A90',
-  success: '#059669',
-  warning: '#D97706',
-  danger: '#DC2626',
+  // Bio je #8A8A90 → 3.12:1 na `background`. Zatamnjen na 4.81:1.
+  subtle: '#6B6B72',
+  // Semantičke boje u svetloj temi nose i tekst NA 13% tintu iste boje (pilule,
+  // čipovi). Stare vrednosti su tu davale 2.69 (warning) i 3.13 (success).
+  success: '#047857',
+  warning: '#B45309',
+  danger: '#B91C1C',
 
   // Legacy aliasi → nova paleta
   card: '#FCFCFD', // = surface
   cardForeground: '#18181B',
   popover: '#FFFFFF', // = surfaceRaised
   popoverForeground: '#18181B',
-  primary: '#6366F1',
+  primary: '#4F46E5',
   primaryForeground: '#FFFFFF',
+  primaryText: '#4338CA', // indigo kao tekst: 7.71:1 na `surface`
   secondary: '#E9E9EC',
   secondaryForeground: '#18181B',
   muted: '#ECECEE', // suptilna pozadina (pressed/track/skeleton)
   mutedForeground: '#52525B', // sekundarni tekst
   accent: '#E8E9FD', // suptilni indigo-tint za aktivno/selektovano
   accentForeground: '#3730A3',
-  destructive: '#DC2626', // = danger
+  destructive: '#B91C1C', // = danger
   destructiveForeground: '#FFFFFF',
   successForeground: '#FFFFFF',
   warningForeground: '#FFFFFF',

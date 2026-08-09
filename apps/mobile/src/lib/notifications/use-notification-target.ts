@@ -6,14 +6,12 @@ import { usePaginatedQuery } from 'convex/react';
 
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
-import {
-  notificationDestination,
-  type NotificationDestination,
-} from '@/convex/lib/notificationTarget';
+import { notificationDestination } from '@/convex/lib/notificationTarget';
 import { useActiveStartup } from '@/context/active-startup';
 import { usePendingTarget } from '@/context/pending-target';
 
 import { extractPendingTarget } from './deep-link';
+import { navigateToNotificationDestination } from './navigate';
 
 /**
  * Hvata tap na obaveštenje i pamti cilj u `pending-target`. Živi u ROOT lejautu
@@ -103,28 +101,10 @@ export function useNotificationTargetNavigation(): void {
       setActiveStartupId(targetStartupId);
     }
 
-    navigateToDestination(router, notificationDestination(target.targetType, target.targetId));
+    navigateToNotificationDestination(
+      router,
+      notificationDestination(target.targetType, target.targetId),
+    );
     clearTarget();
   }, [target, status, startups, activeStartupId, setActiveStartupId, clearTarget, router]);
-}
-
-/**
- * Klijent-neutralnu destinaciju iz `notificationTarget.ts` prevodi u expo-router
- * navigaciju. Chat je jedini ekran završen u fazi 1; stranice/ideje/odobrenja/puls
- * dobijaju ekrane u fazama 2–4 (docs/mobile/00-PLAN.md), pa do tada tap na njihova
- * obaveštenja vodi na „Danas" umesto na belo. Ugovor cilja je već fiksiran i isti
- * kao na webu — kad ekran postoji, menja se samo ova grana.
- */
-function navigateToDestination(
-  router: ReturnType<typeof useRouter>,
-  dest: NotificationDestination,
-): void {
-  if (dest.screen === 'chat') {
-    router.navigate('/chat');
-    if (dest.entityId) {
-      router.push({ pathname: '/razgovor/[id]', params: { id: dest.entityId } });
-    }
-    return;
-  }
-  router.navigate('/danas');
 }

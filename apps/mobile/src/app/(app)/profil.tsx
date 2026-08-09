@@ -299,7 +299,7 @@ export default function ProfilScreen() {
 function ProfilSkeleton() {
   const colors = useThemeColors();
   return (
-    <View style={styles.content} accessibilityLabel="Učitavanje profila">
+    <View style={styles.content} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje profila">
       <View style={styles.avatarBlock}>
         <Skeleton width={88} height={88} borderRadius={radius.pill} />
         <Skeleton width={180} height={12} />

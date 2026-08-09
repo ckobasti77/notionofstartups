@@ -1,11 +1,17 @@
 import { usePaginatedQuery, useQuery } from 'convex/react';
-import { useFocusEffect, useRouter, type ErrorBoundaryProps } from 'expo-router';
+import {
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+  type ErrorBoundaryProps,
+} from 'expo-router';
 import {
   ChevronDown,
   ChevronRight,
   FolderClosed,
   FolderOpen,
   LayoutGrid,
+  Pencil,
   Plus,
   TriangleAlert,
 } from 'lucide-react-native';
@@ -25,6 +31,7 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
 import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
+import { RenameAreaSheet } from '@/components/prostor/rename-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
@@ -103,12 +110,24 @@ export default function ProstorScreen() {
   const [frames, setFrames] = useState<Frame[]>([]);
   // Fiksan „sada" po mount-u: rok/relativno vreme se ne reklasifikuju u renderu.
   const [now] = useState(() => Date.now());
+  // Ulaz spolja (npr. red oblasti u Pulsu) — otvara tab odmah na toj oblasti.
+  const params = useLocalSearchParams<{ areaId?: string; areaLabel?: string }>();
+  const [renamingArea, setRenamingArea] = useState(false);
 
   // Promena startupa (switcher u headeru) resetuje hijerarhiju na Nivo 1: okviri
   // drže id-jeve oblasti/stranica starog startupa, pa bi upit pukao na tuđem id-ju.
   useEffect(() => {
     setFrames([]);
   }, [activeStartupId]);
+
+  // Parametar se troši ODMAH (`setParams` ga briše), inače bi svaki povratak na
+  // tab ponovo silom otvorio istu oblast i pojeo korisnikovo „nazad".
+  useEffect(() => {
+    const areaId = params.areaId;
+    if (!areaId) return;
+    setFrames([{ areaId: areaId as Id<'startupAreas'>, label: params.areaLabel ?? 'Oblast' }]);
+    router.setParams({ areaId: undefined, areaLabel: undefined });
+  }, [params.areaId, params.areaLabel, router]);
 
   const openArea = useCallback((area: Doc<'startupAreas'>) => {
     haptics.tap();
@@ -181,11 +200,38 @@ export default function ProstorScreen() {
         title={top.label}
         onBack={goBack}
         actions={
-          <IconButton
-            accessibilityLabel="Canvas prikaz oblasti"
-            onPress={() => openAreaCanvas(top.areaId)}>
-            <LayoutGrid size={22} color={colors.foreground} />
-          </IconButton>
+          <>
+            {/* Oblast napravljena sa telefona dosad se sa telefona nije mogla
+                preimenovati — web to nudi na dva mesta (`area-view`, sidebar). */}
+            <IconButton
+              accessibilityLabel="Preimenuj oblast"
+              onPress={() => {
+                haptics.tap();
+                setRenamingArea(true);
+              }}>
+              <Pencil size={20} color={colors.foreground} />
+            </IconButton>
+            <IconButton
+              accessibilityLabel="Canvas prikaz oblasti"
+              onPress={() => openAreaCanvas(top.areaId)}>
+              <LayoutGrid size={22} color={colors.foreground} />
+            </IconButton>
+          </>
+        }
+      />
+      <RenameAreaSheet
+        open={renamingArea}
+        areaId={top.areaId}
+        currentLabel={top.label}
+        onClose={() => setRenamingArea(false)}
+        // Okvir navigacije drži naziv u stanju ekrana, pa ga osvežavamo ovde —
+        // `startups.listAreas` se osveži sam, ali zaglavlje čita `frames`.
+        onRenamed={(label) =>
+          setFrames((prev) =>
+            prev.map((frame) =>
+              frame.areaId === top.areaId ? { ...frame, label } : frame,
+            ),
+          )
         }
       />
       {/* Brifing stoji iznad liste, kao dock na vrhu web `area-view`. */}
@@ -589,7 +635,7 @@ function ChildPages({
         <ActivityIndicator
           size="small"
           color={colors.mutedForeground}
-          accessibilityLabel="Učitavanje podstranica"
+          accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje podstranica"
         />
       </View>
     );
@@ -757,7 +803,7 @@ function PageLevelEmpty({ colors }: { colors: ColorTokens }) {
 function Level1Skeleton() {
   const colors = useThemeColors();
   return (
-    <View style={styles.level1Content} accessibilityLabel="Učitavanje oblasti">
+    <View style={styles.level1Content} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje oblasti">
       <SkeletonList
         count={4}
         gap={4}
@@ -777,7 +823,7 @@ function Level1Skeleton() {
 /** Oblik reda stabla: ikonica vrste 36 + naslov + meta linija. */
 function PageListSkeleton() {
   return (
-    <View style={[styles.listContent, styles.skeletonList]} accessibilityLabel="Učitavanje stranica">
+    <View style={[styles.listContent, styles.skeletonList]} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje stranica">
       <SkeletonList
         count={5}
         gap={16}
@@ -927,7 +973,8 @@ const styles = StyleSheet.create({
   },
   // Strelica „razvij" — svoja dodirna meta levo od ikonice vrste.
   twisty: {
-    width: 28,
+    // Bila 28: visina je bila 44, širina nije. Sada je meta kvadratna.
+    width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',

@@ -164,7 +164,7 @@ export function ContributionThread({
   if (status === 'LoadingFirstPage') {
     // Oblik kartice doprinosa: avatar 32 + ime/meta, pa dve linije teksta.
     return (
-      <View style={styles.wrap} accessibilityLabel="Učitavanje diskusije">
+      <View style={styles.wrap} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje diskusije">
         <SkeletonList
           count={2}
           gap={10}

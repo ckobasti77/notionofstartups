@@ -112,6 +112,9 @@ export function ColumnEditSheet({
   open,
   label,
   saving,
+  canMoveLeft = false,
+  canMoveRight = false,
+  onMove,
   onRename,
   onRemove,
   onClose,
@@ -119,6 +122,11 @@ export function ColumnEditSheet({
   open: boolean;
   label: string;
   saving: boolean;
+  /** Krajnja kolona nema kuda dalje — dugme se onemogućava, ne sakriva. */
+  canMoveLeft?: boolean;
+  canMoveRight?: boolean;
+  /** Pandan `pageTables.moveColumn`; web to nudi u meniju kolone. */
+  onMove?: (direction: -1 | 1) => void;
   onRename: (label: string) => void;
   onRemove: () => void;
   onClose: () => void;
@@ -164,6 +172,30 @@ export function ColumnEditSheet({
           style={styles.flexBtn}
         />
       </View>
+      {onMove === undefined ? null : (
+        <View style={styles.actions}>
+          <Button
+            label="← Pomeri levo"
+            variant="secondary"
+            disabled={saving || !canMoveLeft}
+            onPress={() => {
+              haptics.tap();
+              onMove(-1);
+            }}
+            style={styles.flexBtn}
+          />
+          <Button
+            label="Pomeri desno →"
+            variant="secondary"
+            disabled={saving || !canMoveRight}
+            onPress={() => {
+              haptics.tap();
+              onMove(1);
+            }}
+            style={styles.flexBtn}
+          />
+        </View>
+      )}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Obriši kolonu"

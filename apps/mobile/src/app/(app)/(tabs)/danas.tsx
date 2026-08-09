@@ -2,7 +2,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { CalendarX2, ChevronDown, ChevronRight, ListTodo } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
@@ -41,7 +41,7 @@ import {
   type TodaySegmentId,
 } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, space, text, type ColorTokens } from '@/theme/tokens';
 
 const SECTION_LABEL: Record<TodaySection, string> = {
   overdue: 'Prekoračeno',
@@ -242,8 +242,14 @@ export default function DanasScreen() {
     haptics.error();
     Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
   };
-  const run = (promise: Promise<unknown>) => {
-    void promise.then(() => haptics.success()).catch(notifyError);
+  const run = (promise: Promise<unknown>, announcement = 'Zadatak je ažuriran.') => {
+    void promise
+      .then(() => {
+        haptics.success();
+        // Isti razlog kao u Odobrenjima: uspeh je bio samo vibracija.
+        AccessibilityInfo.announceForAccessibility(announcement);
+      })
+      .catch(notifyError);
   };
 
   const canChangeStatusFor = (task: CommandCenterTask) =>
@@ -405,6 +411,16 @@ export default function DanasScreen() {
                     );
                   })}
                 </StaggerGroup>
+
+                {/* `tasks.commandCenter` seče na 150 zadataka po statusu i to javi
+                    kroz `hasMore`. Web to i prikazuje; mobilni je dosad tiho
+                    odsecao, pa je lista izgledala potpuno a nije bila. */}
+                {command?.hasMore ? (
+                  <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
+                    Prikazano je prvih 150 zadataka po statusu. Suzi filter ili
+                    otvori oblast u Prostoru za pun spisak.
+                  </Text>
+                ) : null}
               </ScrollView>
             )}
           </LoadingSwap>
@@ -549,6 +565,11 @@ function DanasErrorState({ message, onRetry }: { message: string; onRetry: () =>
 }
 
 const styles = StyleSheet.create({
+  truncated: {
+    ...text.body,
+    paddingHorizontal: space[4],
+    paddingTop: space[3],
+  },
   root: {
     flex: 1,
   },

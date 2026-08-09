@@ -165,7 +165,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   emptyAreas: {
-    fontSize: 13,
+    // Upozorenje da nema oblasti je puna rečenica — 16px, ne veličina bedža.
+    fontSize: 16,
     lineHeight: 18,
   },
   actions: {

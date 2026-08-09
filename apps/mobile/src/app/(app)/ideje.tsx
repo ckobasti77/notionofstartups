@@ -2,7 +2,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { LayoutGrid, Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
@@ -146,6 +146,11 @@ function IdeaRow({
     try {
       await vote({ startupId, ideaId: idea._id, voteType });
       haptics.success();
+      // Bez ovoga je glas prolazio nemo za korisnika čitača ekrana — haptika je
+      // bila jedini signal uspeha.
+      AccessibilityInfo.announceForAccessibility(
+        voteType === 'up' ? 'Glas za je zabeležen.' : 'Glas protiv je zabeležen.',
+      );
     } catch (error) {
       haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Glas nije zabeležen.'));

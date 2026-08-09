@@ -325,7 +325,7 @@ function Divider({ colors }: { colors: ColorTokens }) {
 function TaskSkeleton() {
   const colors = useThemeColors();
   return (
-    <View style={styles.content} accessibilityLabel="Učitavanje zadatka">
+    <View style={styles.content} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje zadatka">
       <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
         <SkeletonList
           count={4}

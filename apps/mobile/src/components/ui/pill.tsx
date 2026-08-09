@@ -28,7 +28,9 @@ export type PillProps = {
 function toneColor(colors: ColorTokens, tone: PillTone): string {
   switch (tone) {
     case 'accent':
-      return colors.primary;
+      // Pilula je tekst na 13% tintu iste boje, ne beo tekst na punoj podlozi —
+      // zato tekstualni indigo (`primaryText`), ne podlozni `primary`.
+      return colors.primaryText;
     case 'success':
       return colors.success;
     case 'warning':

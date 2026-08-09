@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl } from 'react-native';
 
 import { haptics } from '@/lib/haptics';
@@ -26,6 +26,16 @@ export function useListRefresh(task?: () => Promise<unknown> | void) {
   const colors = useThemeColors();
   const [refreshing, setRefreshing] = useState(false);
   const running = useRef(false);
+  // Bez čišćenja bi `stop()` pucao posle unmount-a kad korisnik napusti ekran u
+  // toku minimalnog trajanja spinnera — a hook je deljen, pa se greška množi.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   const onRefresh = useCallback(() => {
     if (running.current) return;
@@ -36,8 +46,10 @@ export function useListRefresh(task?: () => Promise<unknown> | void) {
     const startedAt = Date.now();
     const stop = () => {
       const elapsed = Date.now() - startedAt;
-      setTimeout(
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = setTimeout(
         () => {
+          timer.current = null;
           running.current = false;
           setRefreshing(false);
         },

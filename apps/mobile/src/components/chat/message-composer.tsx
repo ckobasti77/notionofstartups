@@ -409,7 +409,8 @@ export function MessageComposer({
             onChangeText={setDraft}
             placeholder="Napiši poruku…  (@ za pominjanje)"
             placeholderTextColor={colors.mutedForeground}
-            multiline
+            accessibilityLabel="Poruka"
+          multiline
             textAlignVertical="top"
           />
         ) : null}

@@ -1,5 +1,16 @@
 import { useMutation, useQuery } from 'convex/react';
-import { Check, Circle, ListChecks, Lock, Pencil, Plus, Trash2, X } from 'lucide-react-native';
+import {
+  Check,
+  Circle,
+  Link2,
+  Link2Off,
+  ListChecks,
+  Lock,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -22,8 +33,10 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/
  * prepravi keširan upit, uz haptiku. Ako server odbije (npr. zaključan lanac),
  * Convex sam vrati optimističku izmenu i prikaže se upozorenje.
  *
- * Ulančavanje koraka (`setChained`) i diskusija po checkpointu su za sada web-only
- * (00-PLAN §2, parity izuzetak) — mobilni poštuje `locked`, ali ne izlaže kontrole.
+ * Ulančavanje koraka (`setChainedToPrevious` / `setAllChained`) je sada i ovde:
+ * ikonica lanca po redu i „Poveži sve / Razveži sve" u zaglavlju sekcije. Autor
+ * briše svoj korak direktno, a tuđi kroz glasanje tima (`requestDeletion`) — isti
+ * put koji web `task-checkpoint-list` nudi.
  */
 export function TaskCheckpointList({
   taskPageId,
@@ -51,6 +64,9 @@ export function TaskCheckpointList({
   const create = useMutation(api.taskCheckpoints.create);
   const updateText = useMutation(api.taskCheckpoints.updateText);
   const archiveOwn = useMutation(api.taskCheckpoints.archiveOwn);
+  const setChained = useMutation(api.taskCheckpoints.setChainedToPrevious);
+  const setAllChained = useMutation(api.taskCheckpoints.setAllChained);
+  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
@@ -99,17 +115,48 @@ export function TaskCheckpointList({
 
   const remove = (item: TaskCheckpoint) => {
     haptics.warning();
-    Alert.alert('Obriši checkpoint', `„${item.text}"`, [
-      { text: 'Otkaži', style: 'cancel' },
-      {
-        text: 'Obriši',
-        style: 'destructive',
-        onPress: () =>
-          void archiveOwn({ checkpointId: item._id })
-            .then(() => haptics.success())
-            .catch(notifyError),
-      },
-    ]);
+    // Autor briše direktno; ko nije autor pokreće glasanje tima. Bez druge grane
+    // član tima nije imao NIKAKAV put da traži brisanje tuđeg koraka.
+    const direct = item.canDeleteDirectly;
+    Alert.alert(
+      direct ? 'Obriši checkpoint' : 'Zatraži brisanje checkpointa',
+      direct
+        ? `„${item.text}"`
+        : `„${item.text}" — korak nije tvoj, pa se pokreće glasanje tima o brisanju.`,
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: direct ? 'Obriši' : 'Zatraži',
+          style: 'destructive',
+          onPress: () =>
+            void (direct
+              ? archiveOwn({ checkpointId: item._id })
+              : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
+            )
+              .then(() => haptics.success())
+              .catch(notifyError),
+        },
+      ],
+    );
+  };
+
+  /**
+   * Lanac: korak čeka prethodni. Ordinal 1 nema šta da čeka, pa se kontrola ne
+   * prikazuje na prvom redu (server to i odbija).
+   */
+  const toggleChain = (item: TaskCheckpoint) => {
+    haptics.select();
+    void setChained({
+      checkpointId: item._id,
+      chained: !item.chainedToPrevious,
+    }).catch(notifyError);
+  };
+
+  const chainAll = (chained: boolean) => {
+    haptics.tap();
+    void setAllChained({ taskPageId, chained })
+      .then(() => haptics.success())
+      .catch(notifyError);
   };
 
   if (checkpoints === undefined) {
@@ -135,9 +182,41 @@ export function TaskCheckpointList({
   const completed = checkpoints.filter((item) => item.completed).length;
   const atLimit = total >= MAX_TASK_CHECKPOINTS;
 
+  // Kontrola „sve" ima smisla tek od dva koraka (prvi se ne može ulančati) i samo
+  // za onoga ko sme da menja strukturu — isti uslov kao `canCreate`.
+  const chainableCount = Math.max(0, total - 1);
+  const allChained =
+    chainableCount > 0 && checkpoints.slice(1).every((item) => item.chainedToPrevious);
+
   return (
     <View style={styles.section}>
       <SectionHeader completed={completed} total={total} colors={colors} />
+
+      {canCreate && chainableCount > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={allChained ? 'Razveži sve korake' : 'Poveži sve korake'}
+          accessibilityHint={
+            allChained
+              ? 'Koraci se posle ovoga mogu završavati bilo kojim redom'
+              : 'Svaki korak posle ovoga čeka prethodni'
+          }
+          onPress={() => chainAll(!allChained)}
+          style={({ pressed }) => [
+            styles.chainAll,
+            { borderColor: colors.border },
+            pressed && { backgroundColor: colors.muted },
+          ]}>
+          {allChained ? (
+            <Link2Off size={16} color={colors.mutedForeground} />
+          ) : (
+            <Link2 size={16} color={colors.mutedForeground} />
+          )}
+          <Text style={[styles.chainAllLabel, { color: colors.mutedForeground }]}>
+            {allChained ? 'Razveži sve' : 'Poveži sve'}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {total > 0 ? (
         <View
@@ -263,6 +342,26 @@ export function TaskCheckpointList({
                   </Text>
                 )}
 
+                {item.canEdit && item.ordinal > 1 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: item.chainedToPrevious }}
+                    accessibilityLabel={
+                      item.chainedToPrevious
+                        ? `Razveži od prethodnog koraka: ${item.text}`
+                        : `Veži za prethodni korak: ${item.text}`
+                    }
+                    onPress={() => toggleChain(item)}
+                    hitSlop={6}
+                    style={styles.rowAction}>
+                    {item.chainedToPrevious ? (
+                      <Link2 size={16} color={colors.primaryText} />
+                    ) : (
+                      <Link2Off size={16} color={colors.subtle} />
+                    )}
+                  </Pressable>
+                ) : null}
+
                 {item.canEdit ? (
                   <Pressable
                     accessibilityRole="button"
@@ -285,10 +384,14 @@ export function TaskCheckpointList({
                   </Pressable>
                 ) : null}
 
-                {item.canDeleteDirectly ? (
+                {item.canDeleteDirectly || item.canRequestDeletion ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Obriši: ${item.text}`}
+                    accessibilityLabel={
+                      item.canDeleteDirectly
+                        ? `Obriši: ${item.text}`
+                        : `Zatraži brisanje: ${item.text}`
+                    }
                     onPress={() => remove(item)}
                     hitSlop={6}
                     style={styles.rowAction}>
@@ -327,6 +430,19 @@ function SectionHeader({
 }
 
 const styles = StyleSheet.create({
+  chainAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  chainAllLabel: {
+    ...text.body,
+    fontWeight: fontWeight.medium,
+  },
   section: {
     gap: 12,
   },

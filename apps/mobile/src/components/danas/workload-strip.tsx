@@ -49,7 +49,7 @@ export function WorkloadStrip({
 
   if (loading) {
     return (
-      <View style={styles.strip} accessibilityLabel="Učitavanje opterećenja tima">
+      <View style={styles.strip} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje opterećenja tima">
         {[0, 1, 2].map((item) => (
           <Skeleton key={item} width={148} height={56} borderRadius={radius.card} />
         ))}

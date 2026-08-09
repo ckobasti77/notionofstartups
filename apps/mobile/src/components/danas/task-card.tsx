@@ -125,6 +125,17 @@ export function TaskCard({
             accessibilityRole="button"
             accessibilityLabel={task.title}
             accessibilityHint="Dodirni za detalj zadatka, dugi pritisak za brzi status"
+            // Svajp desno („Gotovo") i levo („Meni") su gestovi koje korisnik
+            // čitača ekrana ne može da izvede — VoiceOver/TalkBack presreću
+            // horizontalno prevlačenje. Zato iste dve radnje stoje i u rotoru.
+            accessibilityActions={[
+              ...(canDone ? [{ name: 'done', label: 'Označi kao gotovo' }] : []),
+              { name: 'menu', label: 'Meni zadatka' },
+            ]}
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'done' && canDone) onDone();
+              if (event.nativeEvent.actionName === 'menu') onMenu();
+            }}
             onPress={() => {
               haptics.tap();
               onOpen();

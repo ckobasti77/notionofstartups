@@ -158,7 +158,7 @@ function ActivityRow({ item, colors }: { item: ActivityItem; colors: ColorTokens
 /** Oblik `ActivityRow`: zaglavlje dana, pa ikonica-čip + dva reda teksta + avatar. */
 function ActivitySkeleton() {
   return (
-    <View style={styles.skeleton} accessibilityLabel="Učitavanje aktivnosti">
+    <View style={styles.skeleton} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje aktivnosti">
       <Skeleton width="30%" height={14} style={styles.skeletonHead} />
       <SkeletonList
         count={5}

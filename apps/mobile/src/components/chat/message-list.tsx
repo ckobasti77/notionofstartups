@@ -44,12 +44,14 @@ function errorMessage(error: unknown, fallback: string): string {
 export function MessageList({
   channelId,
   currentProfileId,
+  isAdmin,
   members,
   onReplyTo,
   onEdit,
 }: {
   channelId: Id<'chatChannels'>;
   currentProfileId: Id<'profiles'>;
+  isAdmin: boolean;
   members: ChatMember[] | undefined;
   onReplyTo: (message: ChatMessage) => void;
   onEdit: (message: ChatMessage) => void;
@@ -92,21 +94,28 @@ export function MessageList({
     const target = actionsFor;
     if (!target) return;
     setActionsFor(null);
-    Alert.alert('Obrisati poruku?', 'Poruka će ostati kao „Poruka je obrisana".', [
-      { text: 'Otkaži', style: 'cancel' },
-      {
-        text: 'Obriši',
-        style: 'destructive',
-        onPress: () =>
-          void deleteMessage({ messageId: target._id })
-            .then(() => haptics.success())
-            .catch((error) => {
-              haptics.error();
-              Alert.alert('Greška', errorMessage(error, 'Poruka nije obrisana.'));
-            }),
-      },
-    ]);
-  }, [actionsFor, deleteMessage]);
+    const own = target.authorProfileId === currentProfileId;
+    Alert.alert(
+      own ? 'Obrisati poruku?' : 'Obrisati tuđu poruku?',
+      own
+        ? 'Poruka će ostati kao „Poruka je obrisana".'
+        : 'Moderacija: poruka će ostati kao „Poruka je obrisana", a autor neće biti obavešten.',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Obriši',
+          style: 'destructive',
+          onPress: () =>
+            void deleteMessage({ messageId: target._id })
+              .then(() => haptics.success())
+              .catch((error) => {
+                haptics.error();
+                Alert.alert('Greška', errorMessage(error, 'Poruka nije obrisana.'));
+              }),
+        },
+      ],
+    );
+  }, [actionsFor, currentProfileId, deleteMessage]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -218,6 +227,7 @@ export function MessageList({
       <MessageActionsSheet
         message={actionsFor}
         currentProfileId={currentProfileId}
+        isAdmin={isAdmin}
         onReact={(emoji) => {
           if (actionsFor) handleToggleReaction(actionsFor._id, emoji);
           setActionsFor(null);

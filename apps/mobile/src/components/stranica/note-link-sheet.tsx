@@ -143,7 +143,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
   },
   hint: {
-    fontSize: 13,
+    // Objašnjenje neispravne adrese se čita, pa ide na osnovnu veličinu.
+    fontSize: 16,
     lineHeight: 18,
   },
   actions: {

@@ -1,6 +1,6 @@
 import type { FunctionReturnType } from 'convex/server';
 import { useQuery } from 'convex/react';
-import { useRouter, type ErrorBoundaryProps } from 'expo-router';
+import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   ArrowDown,
   ArrowUp,
@@ -42,6 +42,7 @@ import {
   formatWeekLabel,
   isCurrentWeek,
   localWeekStart,
+  normalizeToLocalWeekStart,
   trendDelta,
   trendDirection,
   type Trend,
@@ -71,7 +72,16 @@ export default function PulsScreen() {
   const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
 
-  const [weekStart, setWeekStart] = useState(() => localWeekStart());
+  // Deep link iz obaveštenja `puls_ready` nosi početak nedelje na koju se izveštaj
+  // odnosi. Bez ovoga bi tap na obaveštenje uvek otvarao TEKUĆU nedelju, pa bi
+  // korisnik gledao pogrešan izveštaj (pandan `initialWeekStart` na webu).
+  const { weekStart: weekStartParam } = useLocalSearchParams<{ weekStart?: string }>();
+  const [weekStart, setWeekStart] = useState(() => {
+    const requested = Number(weekStartParam);
+    return Number.isFinite(requested) && requested > 0
+      ? normalizeToLocalWeekStart(requested)
+      : localWeekStart();
+  });
   const [now, setNow] = useState(() => Date.now());
 
   // „Sada" se osvežava kroz navigaciju (kao web) — bez efekta, pa pragovi
@@ -79,6 +89,16 @@ export default function PulsScreen() {
   function goToWeek(next: number) {
     setNow(Date.now());
     setWeekStart(next);
+  }
+
+  /** Red oblasti vodi u Prostor otvoren na toj oblasti — pandan web `puls-view`,
+   *  gde je red dugme koje menja `WorkspaceRoute` na tu oblast. */
+  function openArea(area: AreaSummary) {
+    haptics.tap();
+    router.navigate({
+      pathname: '/prostor',
+      params: { areaId: area.areaId, areaLabel: area.label },
+    });
   }
 
   const weekEnd = addWeeks(weekStart, 1);
@@ -126,7 +146,7 @@ export default function PulsScreen() {
             <View style={styles.sections}>
               <SummaryGrid data={data} colors={colors} hideTrend={isFirstWeek} />
               <StuckSection tasks={data.stuckTasks} now={now} colors={colors} />
-              <AreasSection areas={data.areas} colors={colors} />
+              <AreasSection areas={data.areas} colors={colors} onOpenArea={openArea} />
               <MembersSection
                 members={data.members}
                 unassigned={data.unassigned}
@@ -471,7 +491,15 @@ function StuckCard({
 
 // --- Po oblastima -------------------------------------------------------------
 
-function AreasSection({ areas, colors }: { areas: AreaSummary[]; colors: ColorTokens }) {
+function AreasSection({
+  areas,
+  colors,
+  onOpenArea,
+}: {
+  areas: AreaSummary[];
+  colors: ColorTokens;
+  onOpenArea: (area: AreaSummary) => void;
+}) {
   if (areas.length === 0) return null;
   return (
     <View style={styles.section}>
@@ -484,11 +512,16 @@ function AreasSection({ areas, colors }: { areas: AreaSummary[]; colors: ColorTo
           const percent = total === 0 ? 0 : Math.round((area.doneCount / total) * 100);
           const tint = areaColor(colors, area.key);
           return (
-            <View
+            <Pressable
               key={area.areaId}
-              style={[
+              accessibilityRole="button"
+              accessibilityLabel={`${area.label}, ${percent} procenata gotovo`}
+              accessibilityHint="Otvara oblast u Prostoru"
+              onPress={() => onOpenArea(area)}
+              style={({ pressed }) => [
                 styles.areaRow,
                 index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                pressed && { backgroundColor: colors.muted },
               ]}>
               <View style={[styles.areaIcon, { backgroundColor: `${tint}22` }]}>
                 <Folder size={16} color={tint} />
@@ -514,7 +547,8 @@ function AreasSection({ areas, colors }: { areas: AreaSummary[]; colors: ColorTo
                   ) : null}
                 </Text>
               </View>
-            </View>
+              <ChevronRight size={18} color={colors.subtle} />
+            </Pressable>
           );
         })}
       </View>
@@ -728,7 +762,7 @@ function EmptyCard({ colors, text }: { colors: ColorTokens; text: string }) {
 /** Oblik Pulsa: 2×2 mreža brojača, pa naslov sekcije i dve kartice. */
 function PulsSkeleton() {
   return (
-    <View style={styles.skeleton} accessibilityLabel="Učitavanje Pulsa">
+    <View style={styles.skeleton} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje Pulsa">
       <View style={styles.gridRow}>
         <Skeleton height={88} borderRadius={radius.xl} style={styles.flex} />
         <Skeleton height={88} borderRadius={radius.xl} style={styles.flex} />

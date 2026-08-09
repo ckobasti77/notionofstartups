@@ -30,6 +30,7 @@ import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { inviteLinkUrl } from '@/lib/embed-url';
 import { haptics } from '@/lib/haptics';
 import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useThemeColors } from '@/theme/theme-provider';

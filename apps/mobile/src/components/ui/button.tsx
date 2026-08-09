@@ -43,10 +43,13 @@ function variantColors(colors: ColorTokens, variant: ButtonVariant) {
 }
 
 // Sve veličine ≥ 44pt dodirne mete (docs/mobile/02-EKRANI.md, sekcija 11).
-const SIZES: Record<ButtonSize, { height: number; paddingHorizontal: number; fontSize: number }> = {
-  sm: { height: 44, paddingHorizontal: 14, fontSize: 14 },
-  md: { height: 48, paddingHorizontal: 18, fontSize: 16 },
-  lg: { height: 56, paddingHorizontal: 24, fontSize: 18 },
+// `minHeight`, ne `height`: pri sistemskom uvećanju fonta dugme mora da naraste,
+// a ne da odseče labelu elipsom (WCAG 1.4.4 — dva odbojna dugmeta u Odobrenjima
+// su najgori slučaj: „Za brisanje" / „Protiv" se ne smeju skratiti u istu reč).
+const SIZES: Record<ButtonSize, { minHeight: number; paddingHorizontal: number; fontSize: number }> = {
+  sm: { minHeight: 44, paddingHorizontal: 14, fontSize: 14 },
+  md: { minHeight: 48, paddingHorizontal: 18, fontSize: 16 },
+  lg: { minHeight: 56, paddingHorizontal: 24, fontSize: 18 },
 };
 
 export function Button({
@@ -74,8 +77,9 @@ export function Button({
       style={({ pressed }) => [
         styles.base,
         {
-          height: dims.height,
+          minHeight: dims.minHeight,
           paddingHorizontal: dims.paddingHorizontal,
+          paddingVertical: 6,
           backgroundColor: palette.bg,
           borderColor: palette.border,
           opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1,
@@ -92,7 +96,7 @@ export function Button({
           {icon}
           {children ?? (
             <Text
-              numberOfLines={1}
+              numberOfLines={2}
               style={[styles.label, { color: palette.fg, fontSize: dims.fontSize }]}>
               {label}
             </Text>

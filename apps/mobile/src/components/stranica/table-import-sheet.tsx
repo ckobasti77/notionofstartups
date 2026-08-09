@@ -335,7 +335,7 @@ export function TableImportSheet({
               pressed && { backgroundColor: colors.muted },
               busy && { opacity: 0.5 },
             ]}>
-            <Text style={[styles.secondaryLinkLabel, { color: colors.primary }]}>
+            <Text style={[styles.secondaryLinkLabel, { color: colors.primaryText }]}>
               Izaberi drugi fajl
             </Text>
           </Pressable>

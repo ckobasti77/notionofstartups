@@ -635,3 +635,60 @@ kroz glasanje tima (`deletionRequests`), koje se povlači (`withdrawDeletion`).
 ispravan mobilni oblik nije globalan stek nego **snackbar „Poništi" odmah posle
 radnje** (po radnji, par sekundi). To traži obrnutu mutaciju po pozivaocu — isto
 što web provider već dobija — ali ne i ovaj prikaz.
+
+---
+
+### Uređivanje layouta kanvasa — pomeranje, veličina, ivice, viewport
+
+**Šta je na webu.** `area-canvas-view`, `ideas-canvas-view` i `thoughts-canvas-view`
+nude pun `@xyflow` uređivač: prevlačenje čvorova (`updatePositions`, `moveNodes`,
+`movePages`), promena veličine kartice (`resizePage`, `updateLayout`,
+`resetLayoutSize`, `resetNodeLayoutSize`), povlačenje ivica (`connect`,
+`disconnect`, `createEdge`, `updateEdgeLabel`, `connectPages`, `disconnectPages`,
+`taskCheckpointCanvasEdges.*`) i pamćenje pan/zoom-a (`saveViewport`).
+
+**Zašto se ne prenosi.** Ovo je **ergonomska** odluka, ne tehnička prepreka —
+kaže je `00-PLAN.md` §5.2: mobilni kanvas je za **pregled, navigaciju i dodavanje
+čvora**. Ista odluka je i sprovedena, ne samo zapisana: embed renderuje ReactFlow
+sa `nodesDraggable={false}` i `nodesConnectable={false}`
+(`apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`), i **ne zove nijednu
+mutaciju** — samo upite. Precizno preuređivanje grafa prstom na 6 inča daje lošiji
+rezultat od nikakvog: čvor se pomeri slučajno, a tim to vidi kao stvarnu izmenu.
+
+**Šta mobilni radi umesto toga.** Rail na dnu: uvećaj/umanji, centriraj sve,
+otvori čvor, dodaj čvor. Sadržaj čvora (naslov, tekst, boja, glasovi, brisanje)
+menja se **native**, u sheet-u — samo raspored ostaje web-only.
+
+**Kad bi imalo smisla.** Ako se ikad doda, ispravan mobilni oblik nije slobodno
+prevlačenje nego **„pomeri u pravcu" na izabranom čvoru** (isti obrazac koji je
+kolona tabele dobila u ovoj reviziji: dva dugmeta umesto drag-a).
+
+---
+
+### Izbor članova privatnog kanala pri kreiranju
+
+**Šta je na webu.** `chat/new-conversation.tsx` u istom dijalogu nudi naziv,
+prekidač „privatan" i listu članova za izbor (`createChannel.memberProfileIds`).
+
+**Zašto se ne prenosi u celini.** Mobilni `NewConversationSheet` pravi kanal sa
+nazivom i privatnošću, ali bez izbora članova — to bi bio treći korak u sheet-u
+za radnju koja se u životu tima izvede nekoliko puta ukupno. Kanal se pravi
+prazan; članovi se dodaju na webu.
+
+**Ograničenje koje treba znati.** Privatan kanal napravljen sa telefona vidi samo
+onaj ko ga je napravio dok mu se članovi ne dodaju. Sheet to i piše na licu mesta
+(„Članove privatnog kanala za sada dodaje administrator na webu"), da niko ne
+otkrije tek posle.
+
+---
+
+### Drag-and-drop premeštanje stranica
+
+**Šta je na webu.** `page-tree.tsx` i `workspace-shell.tsx` premeštaju stranicu u
+drugu oblast ili pod drugog roditelja prevlačenjem.
+
+**Zašto se ne prenosi.** Nijedna **sposobnost** ne fali — `areasV2.movePage`,
+`requestNesting` i `detachPage` postoje na mobilnom, u `PageActionsSheet`. Fali
+samo **gest**, a drag-and-drop kroz ugnježdene skrol-liste na telefonu se tuče sa
+skrolom i sa swipe-back gestom sistema. Meni ciljeva je pouzdaniji i dostupan
+čitaču ekrana, što drag nikad nije.

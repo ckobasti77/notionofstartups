@@ -10,7 +10,9 @@ export function FullScreenLoader({ label = 'Pripremam radni prostor' }: { label?
   return (
     <ThemedView style={styles.container}>
       <ActivityIndicator size="large" color={theme.text} />
-      <ThemedText type="small" themeColor="textSecondary" style={styles.label}>
+      {/* `default` = 16px; bio je `small` (14px), a ovo je jedini tekst koji
+          korisnik vidi na svakom hladnom startu. */}
+      <ThemedText themeColor="textSecondary" style={styles.label}>
         {label}
       </ThemedText>
     </ThemedView>

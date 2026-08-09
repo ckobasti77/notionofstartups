@@ -30,13 +30,14 @@ export function AccessProblem({
             {message}
           </ThemedText>
           <Pressable
+            accessibilityRole="button"
             onPress={onSignOut}
             style={({ pressed }) => [
               styles.button,
               { backgroundColor: theme.backgroundSelected },
               pressed && styles.pressed,
             ]}>
-            <ThemedText type="smallBold">Odjavi se</ThemedText>
+            <ThemedText style={styles.buttonLabel}>Odjavi se</ThemedText>
           </Pressable>
         </ThemedView>
       </SafeAreaView>
@@ -45,6 +46,11 @@ export function AccessProblem({
 }
 
 const styles = StyleSheet.create({
+  // 16px minimum: ovo je jedina akcija na ekranu greške pristupa (bio je 14px).
+  buttonLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
   container: {
     flex: 1,
   },

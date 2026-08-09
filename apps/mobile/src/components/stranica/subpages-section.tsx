@@ -147,7 +147,7 @@ export function SubpagesSection({
               accessibilityLabel="Učitaj još podstranica"
               onPress={() => loadMore(20)}
               style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.muted }]}>
-              <Text style={[styles.moreText, { color: colors.primary }]}>Učitaj još</Text>
+              <Text style={[styles.moreText, { color: colors.primaryText }]}>Učitaj još</Text>
             </Pressable>
           ) : null}
 

@@ -121,7 +121,7 @@ export function StartupSwitcher({
               onLoadMore?.();
             }}
             style={({ pressed }) => [styles.loadMore, pressed && { opacity: 0.7 }]}>
-            <Text style={[styles.loadMoreText, { color: colors.primary }]}>Učitaj još</Text>
+            <Text style={[styles.loadMoreText, { color: colors.primaryText }]}>Učitaj još</Text>
           </Pressable>
         ) : null}
       </ScrollView>

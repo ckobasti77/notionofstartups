@@ -90,7 +90,7 @@ function BriefingBody({
   if (canvas === undefined) {
     // Oblik skupljenog zaglavlja: strelica, naslov, pa kratka meta desno.
     return (
-      <View style={styles.loading} accessibilityLabel="Učitavanje brifinga">
+      <View style={styles.loading} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje brifinga">
         <Skeleton width={18} height={18} />
         <Skeleton width={92} height={16} />
         <View style={styles.loadingSpacer} />

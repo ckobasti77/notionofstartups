@@ -1,10 +1,11 @@
 /**
  * Gradi URL embed canvas rute (`apps/web/app/embed/canvas/[kind]/[id]`) za mobilni
  * `WebView` (M4.3, §5.2). Auth NE ide kroz URL — token bi završio u web access
- * logovima i WebView istoriji. Umesto toga: embed se učita bez tokena, javi `ready`
- * preko `postMessage` mosta, a native mu pošalje `{type:"auth", token}` (i osvežava
- * ga na svaku promenu). URL nosi samo `theme` (nije osetljiv), i to za prvi paint —
- * dalje promene teme idu takođe kroz most, pa URL ostaje stabilan.
+ * logovima i WebView istoriji. Umesto toga native INJEKTUJE token pre učitavanja
+ * stranice (`injectedJavaScriptBeforeContentLoaded` → `window.__DEVOTION_AUTH__`);
+ * `ready`/`authed` handshake više ne postoji (ZA-POPRAVKU Z2). URL nosi samo
+ * `theme` (nije osetljiv), i to za prvi paint — dalje promene idu kroz most, pa
+ * URL ostaje stabilan.
  *
  * Web bazu daje `EXPO_PUBLIC_WEB_URL` (vidi `.env.example`). Bez nje vraća `null`,
  * pa ekran prikaže jasnu grešku umesto belog WebView-a.
@@ -50,4 +51,17 @@ export function canvasKindLabel(kind: CanvasKind): string {
     case 'page':
       return 'Stranica';
   }
+}
+
+/**
+ * Pun pozivni link — pandan `${window.location.origin}/?invite=…` sa weba
+ * (`admin-dialog.tsx`). Prima ga osoba koja NEMA aplikaciju, pa mora da vodi na
+ * web, ne na `devotion://` shemu; web onda nudi instalaciju.
+ *
+ * Vraća `null` kad `EXPO_PUBLIC_WEB_URL` nije podešen — pozivalac tada nudi samo
+ * kopiranje koda umesto linka koji nikuda ne vodi.
+ */
+export function inviteLinkUrl(code: string): string | null {
+  if (!webBase) return null;
+  return `${webBase.replace(/\/+$/, '')}/?invite=${encodeURIComponent(code)}`;
 }
