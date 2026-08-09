@@ -143,6 +143,30 @@ Najvažniji ekran. Odgovara na „šta me čeka", isto kao desktop `command-cent
 **Ovde nema kanbana.** Kanban sa četiri kolone i drag-and-drop-om na telefonu ne
 radi. Umesto toga: grupisana lista sa svajpom. Isti podaci, upotrebljiv oblik.
 
+### Uvodna kartica („Zdravo, …") — pandan web `home-view`
+
+Web ima dve odvojene rute za isti trenutak: `home` (pozdrav, brojači, mreža
+oblasti, tim) i `today` (trijaža). Na telefonu se **ne pravi šesti ekran** —
+`home-view` se svodi na uvodnu karticu na vrhu taba „Danas", jer je sve ostalo iz
+njega već negde:
+
+| Deo `home-view` | Gde je na mobilnom |
+|---|---|
+| Pozdrav + naziv startupa | `DaySummary` — vrh taba „Danas" |
+| Brojači (otvoreno / kasni / hitno) | `DaySummary` |
+| Mreža oblasti | Tab **Prostor**, Nivo 1 |
+| „Sledeći zadaci" | sama lista taba „Danas" |
+| Spisak tima | traka opterećenja tima (ispod) i **Više → Članovi** |
+
+Kartica skroluje sa listom, pa ne uzima stalan prostor, i broji **isti skup**
+zadataka koji je u listi (segment „Moji zadaci" sužava i nju).
+
+**Izuzetak — „Napredak (%)" se ne prenosi.** Procenat traži i završene zadatke, a
+`tasks.commandCenter` vraća samo otvorene. Web ga računa iz prvih 100 zadataka
+(`tasks.listForStartup`) i sam ga označava zvezdicom kao procenu; druga paginirana
+pretplata na telefonu ne zaslužuje približan broj. Traži se agregatni upit —
+zapisano u `ZA-POPRAVKU.md`.
+
 ---
 
 ## 5. Tab 2 — Prostor

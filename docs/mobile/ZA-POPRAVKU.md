@@ -178,6 +178,30 @@ Plan: `~/.claude/plans/mobilni-nema-editor-bele-ki-shimmying-fern.md`.
 
 ---
 
+## 3. Nedostaju agregatni brojači zadataka (napredak %)
+
+**Kontekst.** Web `home-view.tsx` prikazuje karticu „Napredak" — procenat završenih
+zadataka u startupu. Računa ga tako što povuče **prvih 100** zadataka kroz
+`tasks.listForStartup` (paginirano) i podeli `done / ukupno`; kad ima još rezultata,
+sam obeleži broj zvezdicom jer je procena, ne podatak.
+
+**Zašto mobilni to nema.** `tasks.commandCenter` (jedini upit koji tab „Danas"
+koristi) vraća **samo otvorene** zadatke, pa se procenat iz njega ne može izvesti.
+Druga paginirana pretplata od 100 dokumenata po ekranu — zarad broja koji je i na
+webu približan — ne isplati se na telefonu. `DaySummary` zato prikazuje
+`otvoreno / kasni / hitno`, sve tri tačne.
+
+**USLOV za zatvaranje.** Novi (jeftin) upit koji vraća agregat po startupu, npr.
+`tasks.counts({ startupId }) → { open, done, total }`, izračunat iz indeksa
+`by_startup_status_active_sort` po statusu (`.take` samo brojanja, bez učitavanja
+tela). Kad postoji: dodati četvrti brojač u `DaySummary` i, po želji, izbaciti
+web hak sa prvih 100.
+
+**Ne dodavati backend samo zbog ovoga** dok se ne skupi još potrošača agregata
+(npr. Puls, widget iz Faze 5).
+
+---
+
 # Naučene zamke — ne ponavljaj
 
 Ove nisu „čeka se na uslov" — već rešene greške koje se lako vrate. Zapisane da

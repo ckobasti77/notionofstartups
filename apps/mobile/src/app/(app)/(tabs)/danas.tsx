@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { QuickAddSheet } from '@/components/danas/quick-add-sheet';
 import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
@@ -18,6 +19,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import {
   bucketTasksForToday,
+  classifyDeadline,
   nextLocalMidnight,
   TODAY_SECTION_ORDER,
   type TodaySection,
@@ -107,6 +109,27 @@ export default function DanasScreen() {
     () => (visibleTasks ? bucketTasksForToday(visibleTasks, now) : undefined),
     [visibleTasks, now],
   );
+
+  // Brojači za `DaySummary` — isti skup zadataka koji je i u listi, pa se pozdrav i
+  // lista ne mogu razići (segment „Moji zadaci" sužava oba).
+  const summaryCounts = useMemo<DaySummaryCounts | null>(() => {
+    if (visibleTasks === undefined) return null;
+    let overdue = 0;
+    let urgent = 0;
+    for (const task of visibleTasks) {
+      if (
+        classifyDeadline({ dueDate: task.dueDate, taskStatus: task.taskStatus, now }).urgency ===
+        'overdue'
+      ) {
+        overdue += 1;
+      }
+      if (task.taskPriority === 'urgent') urgent += 1;
+    }
+    return { open: visibleTasks.length, overdue, urgent };
+  }, [visibleTasks, now]);
+
+  const firstName = profile?.displayName.trim().split(/\s+/)[0] ?? null;
+  const segmentLabel = segment === 'mine' ? 'Moji zadaci' : 'Pregled';
 
   // Meni akcija cilja živi zadatak po id-ju, pa prati realtime izmene / nestanak.
   const [menuTaskId, setMenuTaskId] = useState<Id<'pages'> | null>(null);
@@ -244,6 +267,12 @@ export default function DanasScreen() {
           <ScrollView
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}>
+            <DaySummary
+              firstName={firstName}
+              startupName={startup?.name ?? null}
+              counts={summaryCounts}
+              segmentLabel={segmentLabel}
+            />
             {TODAY_SECTION_ORDER.map((key) => {
               const items = buckets[key];
               if (items.length === 0) return null;
