@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { ensureAreaChannel, ensureGeneralChannel } from "./lib/chat_channels";
 import { insertContribution } from "./lib/collaboration";
 import { nodeSearchText } from "./lib/pages";
 import { MAX_TASK_ASSIGNEES } from "./lib/validators";
@@ -248,34 +249,14 @@ export const backfillChatChannels = migrations.define({
   migrateOne: async (ctx, startup) => {
     if (startup.archivedAt !== null) return;
 
-    const existingGeneral = await ctx.db
-      .query("chatChannels")
-      .withIndex("by_startup_and_kind", (q) =>
-        q
-          .eq("startupId", startup._id)
-          .eq("kind", "startup")
-          .eq("archivedAt", null),
-      )
-      .first();
-    if (existingGeneral === null) {
-      await ctx.db.insert("chatChannels", {
-        startupId: startup._id,
-        kind: "startup",
-        areaId: null,
-        anchorType: null,
-        anchorId: null,
-        dmKey: null,
-        name: "Opšte",
-        isPrivate: false,
-        lastMessageAt: startup.createdAt,
-        lastMessagePreview: "",
-        lastMessageAuthorId: null,
-        messageCount: 0,
-        createdByProfileId: startup.createdByProfileId,
-        archivedAt: null,
-        createdAt: startup.createdAt,
-      });
-    }
+    // Isti insert-if-absent helper koji koriste `startups.create`/`createArea` —
+    // jedan izvor istine za oblik kanala. Za postojeće startup-e koristi njihov
+    // `createdAt` (ne „sada") da denormalizovani `lastMessageAt` ne skoči napred.
+    await ensureGeneralChannel(ctx, {
+      startupId: startup._id,
+      createdByProfileId: startup.createdByProfileId,
+      createdAt: startup.createdAt,
+    });
 
     const areas = await ctx.db
       .query("startupAreas")
@@ -284,28 +265,11 @@ export const backfillChatChannels = migrations.define({
       )
       .collect();
     for (const area of areas) {
-      const existingArea = await ctx.db
-        .query("chatChannels")
-        .withIndex("by_area", (q) =>
-          q.eq("areaId", area._id).eq("archivedAt", null),
-        )
-        .first();
-      if (existingArea !== null) continue;
-      await ctx.db.insert("chatChannels", {
+      await ensureAreaChannel(ctx, {
         startupId: startup._id,
-        kind: "area",
         areaId: area._id,
-        anchorType: null,
-        anchorId: null,
-        dmKey: null,
         name: area.label,
-        isPrivate: false,
-        lastMessageAt: startup.createdAt,
-        lastMessagePreview: "",
-        lastMessageAuthorId: null,
-        messageCount: 0,
         createdByProfileId: startup.createdByProfileId,
-        archivedAt: null,
         createdAt: startup.createdAt,
       });
     }

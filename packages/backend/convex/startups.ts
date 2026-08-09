@@ -3,6 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { recordActivity } from "./lib/activity";
+import { ensureAreaChannel, ensureGeneralChannel } from "./lib/chat_channels";
 import { archiveAssignmentsForProfile } from "./lib/task_assignees";
 import {
   requireActiveProfile,
@@ -172,10 +173,25 @@ export const create = mutation({
       archivedAt: null,
       createdAt: now,
     });
+    // Opšti kanal tima + po jedan kanal za svaku podrazumevanu oblast. Backend je
+    // jedini izvor kanala (web i mobilni ih samo prikazuju), pa se prave ovde a ne
+    // u klijentu. `ensure*` su idempotentni — isti helper koristi i backfill.
+    await ensureGeneralChannel(ctx, {
+      startupId,
+      createdByProfileId: admin._id,
+      createdAt: now,
+    });
     for (const area of AREA_DEFINITIONS) {
-      await ctx.db.insert("startupAreas", {
+      const areaId = await ctx.db.insert("startupAreas", {
         startupId,
         ...area,
+        createdAt: now,
+      });
+      await ensureAreaChannel(ctx, {
+        startupId,
+        areaId,
+        name: area.label,
+        createdByProfileId: admin._id,
         createdAt: now,
       });
     }
@@ -419,6 +435,16 @@ export const createArea = mutation({
       key,
       label: cleanedLabel,
       position: maxPosition + 1,
+      createdAt: now,
+    });
+
+    // Nova oblast dobija svoj chat kanal odmah — inače bi se pojavio tek posle
+    // ručnog backfill-a. Idempotentno (isti helper kao create/backfill).
+    await ensureAreaChannel(ctx, {
+      startupId: args.startupId,
+      areaId,
+      name: cleanedLabel,
+      createdByProfileId: profile._id,
       createdAt: now,
     });
 
