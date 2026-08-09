@@ -1,0 +1,19 @@
+Ti si revizor. NE popravljaš ništa, samo proveravaš i pišeš nalaz.
+
+Faza koja je upravo završena zadata je u fajlu docs/mobile/lanac/promptovi/faza-3.txt.
+Izmene su u opsegu commit-a: git diff fd625ae..HEAD
+
+Uradi:
+1. Pročitaj zadati prompt i pročitaj stvarni diff.
+2. Za SVAKU numerisanu tačku prompta reci: URAĐENO / DELIMIČNO / NIJE URAĐENO,
+   sa imenom fajla i linijom kao dokazom. Bez dokaza ne smeš da napišeš URAĐENO.
+3. Nabroj sve što je napravljeno a nije traženo.
+4. Nabroj placeholder-e, prazne komponente, TODO komentare i funkcije koje samo
+   vraćaju null — to su nedovršene stvari.
+5. Proveri da nijedan novi red nije napisan ručno preko flexDirection:'row'
+   umesto kroz components/ui/row.tsx.
+6. Proveri da nije dodata nijedna nova funkcija u packages/backend.
+
+Nalaz dopiši na kraj fajla docs/mobile/lanac/IZVESTAJ.md, pod naslovom „### Revizija: Faza 3 — paritet kreiranja i organizacije".
+Piši kratko i bez ulepšavanja. Ako faza nije uradila ono što je traženo, napiši
+to prvom rečenicom.
