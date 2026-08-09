@@ -97,10 +97,8 @@ export function AppHeader() {
       {/* Avatar / profil */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Profil"
-        onPress={() => {
-          // Profil/tema/odjava — otvara se iz taba „Više" (skelet faze 0).
-        }}
+        accessibilityLabel="Moj profil"
+        onPress={() => router.push('/profil')}
         style={({ pressed }) => [styles.avatarButton, pressed && { opacity: 0.7 }]}>
         <Avatar name={profile?.displayName} uri={profile?.avatarUrl ?? null} size={32} />
       </Pressable>

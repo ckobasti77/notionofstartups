@@ -13,6 +13,7 @@ import {
   Palette,
   Settings,
   Sun,
+  UserRound,
   Users,
   Vote,
   type LucideIcon,
@@ -54,6 +55,7 @@ const MENU: MenuItem[][] = [
     { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
   ],
   [
+    { icon: UserRound, label: 'Moj profil', route: '/profil' },
     { icon: Users, label: 'Članovi tima', route: '/clanovi', adminOnly: true },
     { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
     { icon: Settings, label: 'Podešavanja', soon: true },

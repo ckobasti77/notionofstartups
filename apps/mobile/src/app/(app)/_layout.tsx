@@ -44,6 +44,8 @@ export default function AppLayout() {
         />
         {/* Ideje — native lista + glasanje, canvas kroz WebView. */}
         <Stack.Screen name="ideje" options={{ headerShown: false }} />
+        {/* Moj profil — ulaz iz avatara u `AppHeader` i iz taba „Više". */}
+        <Stack.Screen name="profil" options={{ headerShown: false }} />
         {/* Admin: članovi tima i pozivnice (ulaz skriven ne-adminima u „Više"). */}
         <Stack.Screen name="clanovi" options={{ headerShown: false }} />
         <Stack.Screen name="pozivnice" options={{ headerShown: false }} />

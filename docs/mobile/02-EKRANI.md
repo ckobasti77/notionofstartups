@@ -381,6 +381,20 @@ nego na desktopu, jer se glasa u pokretu.
 administracija članova (`startups.addMember`, `removeMember`) samo za
 `role === "admin"` (`requireAdmin`).
 
+### Moj profil — pandan web `profile-dialog`
+
+Ruta `/profil`, dva ulaza: avatar u zaglavlju (`AppHeader`) i **Više → Moj
+profil**. Na telefonu je **ekran, ne sheet** — biranje slike ionako otvara
+sistemski birač preko celog ekrana, pa bi sheet ispod njega bio suvišan sloj.
+
+- Slika: `expo-image-picker` iz galerije **ili** kamerom (web ima samo `<input
+  type=file>`), kvadratno kadriranje, pa `storage.generateAvatarUploadUrl` →
+  upload → `storage.setAvatar`. Granica od 5 MB se proverava i na klijentu, da se
+  velika slika ne pošalje pa odbije na serveru.
+- Ime: `profiles.updateCurrent`, snima se na blur/`done` i dugmetom.
+- Email i uloga su samo za čitanje, sa objašnjenjem zašto — na webu je email
+  onemogućeno polje bez ijedne reči.
+
 ---
 
 ## 9. Teški ekrani
