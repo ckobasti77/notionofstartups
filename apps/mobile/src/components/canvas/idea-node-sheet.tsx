@@ -1,14 +1,16 @@
 import { useMutation } from 'convex/react';
-import { ThumbsDown, ThumbsUp } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { MessagesSquare } from 'lucide-react-native';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { VoteButtons } from '@/components/ideja/vote-buttons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 
 /** Detalj ideje razrešen iz `api.ideas.list` po `nodeId` iz WebView poruke. */
 export type IdeaDetail = {
@@ -37,6 +39,7 @@ export function IdeaNodeSheet({
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const vote = useMutation(api.ideas.vote);
   const [busy, setBusy] = useState(false);
 
@@ -80,77 +83,39 @@ export function IdeaNodeSheet({
             ) : null}
 
             <View style={styles.votes}>
-              <VoteButton
-                icon={<ThumbsUp size={20} color={idea.userVote === 'up' ? colors.successForeground : colors.foreground} />}
-                count={idea.upvotes}
-                active={idea.userVote === 'up'}
-                activeBg={colors.success}
-                activeFg={colors.successForeground}
+              <VoteButtons
+                upvotes={idea.upvotes}
+                downvotes={idea.downvotes}
+                userVote={idea.userVote}
                 disabled={busy}
-                onPress={() => void castVote('up')}
-                colors={colors}
-                label="Glas za"
-              />
-              <VoteButton
-                icon={<ThumbsDown size={20} color={idea.userVote === 'down' ? colors.destructiveForeground : colors.foreground} />}
-                count={idea.downvotes}
-                active={idea.userVote === 'down'}
-                activeBg={colors.destructive}
-                activeFg={colors.destructiveForeground}
-                disabled={busy}
-                onPress={() => void castVote('down')}
-                colors={colors}
-                label="Glas protiv"
+                onVote={(next) => void castVote(next)}
               />
             </View>
+
+            {/* Diskusija je duga i ima kompozer — otvara se kao ekran, ne u sheet-u
+                nad canvasom (tastatura i WebView ispod se tuku za isti prostor). */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Otvori diskusiju o ideji"
+              onPress={() => {
+                const ideaId = idea._id;
+                onClose();
+                router.push({ pathname: '/ideja/[id]', params: { id: ideaId } });
+              }}
+              style={({ pressed }) => [
+                styles.discussion,
+                { borderColor: colors.border },
+                pressed && { backgroundColor: colors.muted },
+              ]}>
+              <MessagesSquare size={18} color={colors.foreground} />
+              <Text style={[styles.discussionText, { color: colors.foreground }]}>
+                Diskusija
+              </Text>
+            </Pressable>
           </ScrollView>
         ) : null}
       </View>
     </Modal>
-  );
-}
-
-function VoteButton({
-  icon,
-  count,
-  active,
-  activeBg,
-  activeFg,
-  disabled,
-  onPress,
-  colors,
-  label,
-}: {
-  icon: React.ReactNode;
-  count: number;
-  active: boolean;
-  activeBg: string;
-  activeFg: string;
-  disabled: boolean;
-  onPress: () => void;
-  colors: ColorTokens;
-  label: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}, trenutno ${count}`}
-      accessibilityState={{ selected: active, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.voteBtn,
-        {
-          backgroundColor: active ? activeBg : colors.secondary,
-          borderColor: active ? activeBg : colors.border,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
-        },
-      ]}>
-      {icon}
-      <Text style={[styles.voteCount, { color: active ? activeFg : colors.foreground }]}>
-        {count}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -194,23 +159,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   votes: {
-    flexDirection: 'row',
-    gap: 12,
     marginTop: 8,
   },
-  voteBtn: {
-    flex: 1,
+  discussion: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    minHeight: MIN_TOUCH_TARGET + 4,
+    minHeight: MIN_TOUCH_TARGET,
+    marginTop: 4,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  voteCount: {
+  discussionText: {
     fontSize: 16,
     fontWeight: fontWeight.semibold,
-    fontVariant: ['tabular-nums'],
   },
 });

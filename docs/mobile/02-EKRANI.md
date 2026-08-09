@@ -490,6 +490,29 @@ tako se editovanje sadržaja radi native, a samo layout ostaje u WebView-u.
 
 `[⛶]` rotira u landscape za više prostora.
 
+### 9.3.1 Ekran ideje i diskusija — pandan web `idea-discussion-dialog`
+
+Ruta `/ideja/[id]`. Ulazi: tap na karticu u listi **Ideje** i dugme „Diskusija" u
+sheet-u čvora na canvasu. Dotad ideja na telefonu nije imala detalj, pa se
+diskusija tima nije videla nigde.
+
+Ekran, ne sheet: nit ima kompozer i uređivanje teksta, a tastatura i sheet nad
+WebView-om se tuku za istu polovinu ekrana.
+
+- Ideja se čita iz `ideas.list` — iste pretplate koju lista i canvas već drže, pa
+  detalj ne košta nov upit.
+- Nit: `collaboration.listContributionsPaginated` (+ `addContribution`,
+  `updateContribution`, `moderateContribution`, `deleteOwnContribution`,
+  `requestDeletion`). Status moderacije (Odobreno / Odbijeno / Na čekanju) stoji uz
+  svaki tekst, kao na webu.
+- **Razlika 1:** web sam doučitava sve strane u `useEffect`-u; mobilni ima dugme
+  „Učitaj još" — tiho povlačenje stotina poruka troši bateriju i podatke.
+- **Razlika 2:** web briše odmah pa nudi „Undo" u toast-u; mobilni **pita pre
+  brisanja**, jer toast koji se sam skloni na telefonu promakne. Zato se
+  `collaboration.restoreOwnContribution` na mobilnom ne koristi.
+- Tekst se čuva kao HTML (nastao na webu) i prikazuje kroz `noteHtmlToText` —
+  mobilni ne renderuje HTML izvan editora.
+
 ### 9.4 Tabele
 
 `pageTableColumns` / `pageTableRows`, do 64 kolone i 5.000 redova. Na telefonu:

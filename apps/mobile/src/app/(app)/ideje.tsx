@@ -1,11 +1,12 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, LayoutGrid, Lightbulb, ThumbsDown, ThumbsUp, TriangleAlert } from 'lucide-react-native';
+import { ChevronLeft, LayoutGrid, Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { VoteButtons } from '@/components/ideja/vote-buttons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -94,6 +95,7 @@ function IdeaRow({
   startupId: Id<'startups'>;
   colors: ColorTokens;
 }) {
+  const router = useRouter();
   const vote = useMutation(api.ideas.vote);
   const [busy, setBusy] = useState(false);
 
@@ -109,11 +111,18 @@ function IdeaRow({
   };
 
   const title = (idea.title ?? '').trim() || 'Ideja';
-  // Kartica je namerno nedodirljiva (View, ne Pressable): na telefonu nema ekrana
-  // detalja ideje — čita se u listi, uređuje u canvas prikazu. Bez pressed efekta
-  // da ne izgleda tapljivo (rn-review). Glasanje ide preko dva dugmeta u podnožju.
+  // Tap na karticu otvara ekran ideje (detalj + diskusija tima). Glasanje ostaje u
+  // listi — dva dugmeta u podnožju su svoje dodirne mete, van tapa kartice.
   return (
-    <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Otvori ideju: ${title}`}
+      onPress={() => router.push({ pathname: '/ideja/[id]', params: { id: idea._id } })}
+      style={({ pressed }) => [
+        styles.row,
+        { backgroundColor: colors.card, borderColor: colors.border },
+        pressed && { backgroundColor: colors.muted },
+      ]}>
       <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
         {title}
       </Text>
@@ -128,71 +137,15 @@ function IdeaRow({
         </Text>
       ) : null}
       <View style={styles.voteRow}>
-        <VotePill
-          icon={<ThumbsUp size={16} color={idea.userVote === 'up' ? colors.successForeground : colors.foreground} />}
-          count={idea.upvotes}
-          active={idea.userVote === 'up'}
-          activeBg={colors.success}
-          activeFg={colors.successForeground}
+        <VoteButtons
+          upvotes={idea.upvotes}
+          downvotes={idea.downvotes}
+          userVote={idea.userVote}
           disabled={busy}
-          onPress={() => void cast('up')}
-          colors={colors}
-          label="Glas za"
-        />
-        <VotePill
-          icon={<ThumbsDown size={16} color={idea.userVote === 'down' ? colors.destructiveForeground : colors.foreground} />}
-          count={idea.downvotes}
-          active={idea.userVote === 'down'}
-          activeBg={colors.destructive}
-          activeFg={colors.destructiveForeground}
-          disabled={busy}
-          onPress={() => void cast('down')}
-          colors={colors}
-          label="Glas protiv"
+          size="sm"
+          onVote={(next) => void cast(next)}
         />
       </View>
-    </View>
-  );
-}
-
-function VotePill({
-  icon,
-  count,
-  active,
-  activeBg,
-  activeFg,
-  disabled,
-  onPress,
-  colors,
-  label,
-}: {
-  icon: React.ReactNode;
-  count: number;
-  active: boolean;
-  activeBg: string;
-  activeFg: string;
-  disabled: boolean;
-  onPress: () => void;
-  colors: ColorTokens;
-  label: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}, trenutno ${count}`}
-      accessibilityState={{ selected: active, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.pill,
-        {
-          backgroundColor: active ? activeBg : colors.secondary,
-          borderColor: active ? activeBg : colors.border,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
-        },
-      ]}>
-      {icon}
-      <Text style={[styles.pillCount, { color: active ? activeFg : colors.foreground }]}>{count}</Text>
     </Pressable>
   );
 }
@@ -307,25 +260,6 @@ const styles = StyleSheet.create({
   },
   // Oba glasa u horizontalnom podnožju — svaki puni pola širine (uvek vidljivi).
   voteRow: {
-    flexDirection: 'row',
-    gap: 8,
     marginTop: 8,
-  },
-  pill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    minWidth: 56,
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 10,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  pillCount: {
-    fontSize: 16,
-    fontWeight: fontWeight.semibold,
-    fontVariant: ['tabular-nums'],
   },
 });
