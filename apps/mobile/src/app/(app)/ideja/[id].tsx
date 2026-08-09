@@ -1,13 +1,12 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, Lightbulb, TriangleAlert } from 'lucide-react-native';
+import { Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,12 +17,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { ContributionThread } from '@/components/ideja/contribution-thread';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 
 /**
  * Ekran ideje — pandan web `idea-discussion-dialog.tsx`. Do sad je ideja na
@@ -69,7 +69,7 @@ export default function IdejaScreen() {
   if (activeStartupId === null) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Header title="Ideja" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Ideja" onBack={() => router.back()} />
         <EmptyState
           icon={<Lightbulb size={40} color={colors.mutedForeground} />}
           title="Izaberi startup"
@@ -82,7 +82,7 @@ export default function IdejaScreen() {
   if (data === undefined) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Header title="Ideja" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Ideja" onBack={() => router.back()} />
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje ideje" />
         </View>
@@ -93,7 +93,7 @@ export default function IdejaScreen() {
   if (idea === null) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Header title="Ideja" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Ideja" onBack={() => router.back()} />
         <EmptyState
           icon={<Lightbulb size={40} color={colors.mutedForeground} />}
           title="Ideja više ne postoji"
@@ -109,7 +109,7 @@ export default function IdejaScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title={title} onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title={title} onBack={() => router.back()} />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -149,39 +149,6 @@ export default function IdejaScreen() {
   );
 }
 
-function Header({
-  title,
-  onBack,
-  colors,
-}: {
-  title: string;
-  onBack: () => void;
-  colors: ColorTokens;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
-        {title}
-      </Text>
-    </View>
-  );
-}
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <IdejaError message={error.message} onRetry={retry} />;
@@ -192,7 +159,7 @@ function IdejaError({ message, onRetry }: { message: string; onRetry: () => void
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Ideja" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Ideja" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Ideja se ne može učitati"
@@ -215,28 +182,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginLeft: 2,
-    marginRight: 8,
   },
   content: {
     padding: 16,

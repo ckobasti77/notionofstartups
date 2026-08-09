@@ -9,6 +9,8 @@ import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 export type ScreenHeaderProps = {
   /** Naslov ekrana — `display` (28/34/700), levo. */
   title: string;
+  /** Naslov sadržaja (npr. ime stranice) ume da bude dug — 2 reda umesto 1. */
+  titleNumberOfLines?: number;
   /**
    * Prigušena `meta` linija IZNAD naslova (npr. ime startupa, oblast, putanja).
    * String se prikazuje kao tekst; čvor (npr. `Skeleton`) se ubacuje kakav jeste.
@@ -39,6 +41,7 @@ export type ScreenHeaderProps = {
  */
 export function ScreenHeader({
   title,
+  titleNumberOfLines = 1,
   eyebrow,
   onEyebrowPress,
   eyebrowAccessibilityLabel,
@@ -107,7 +110,9 @@ export function ScreenHeader({
             <ChevronLeft size={24} color={colors.foreground} />
           </Pressable>
         ) : null}
-        <Text numberOfLines={1} style={[styles.title, { color: colors.foreground }]}>
+        <Text
+          numberOfLines={titleNumberOfLines}
+          style={[styles.title, { color: colors.foreground }]}>
           {title}
         </Text>
         {actions ? <View style={styles.actions}>{actions}</View> : null}

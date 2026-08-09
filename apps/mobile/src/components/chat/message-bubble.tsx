@@ -19,7 +19,7 @@ import {
 } from '@/lib/chat';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const AVATAR = 32;
 const REPLY_THRESHOLD = 56;
@@ -288,9 +288,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   systemText: {
-    fontSize: 13,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
     textAlign: 'center',
-    lineHeight: 18,
   },
   row: {
     paddingHorizontal: 10,
@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   author: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
     marginLeft: 4,
   },
@@ -338,21 +338,19 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   replyText: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   body: {
-    fontSize: 16,
-    lineHeight: 22,
+    ...text.body,
   },
   mention: {
     fontWeight: fontWeight.semibold,
     textDecorationLine: 'underline',
   },
   deleted: {
-    fontSize: 16,
+    ...text.body,
     fontStyle: 'italic',
-    lineHeight: 22,
   },
   meta: {
     flexDirection: 'row',
@@ -383,7 +381,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   pillCount: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },

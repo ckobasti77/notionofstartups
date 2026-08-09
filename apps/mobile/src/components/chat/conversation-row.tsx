@@ -11,7 +11,7 @@ import {
   type ChatChannel,
 } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /** Red liste razgovora: ikonica/avatar, ime, pregled poruke, vreme i unread. */
 export function ConversationRow({
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   iconBox: {
     width: 44,
     height: 44,
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -116,12 +116,12 @@ const styles = StyleSheet.create({
     minWidth: 40,
   },
   time: {
-    fontSize: 12,
-    lineHeight: 14,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   dot: {
     width: 10,
     height: 10,
-    borderRadius: radius.full,
+    borderRadius: radius.pill,
   },
 });

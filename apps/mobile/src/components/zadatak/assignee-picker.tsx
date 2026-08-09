@@ -178,8 +178,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   scroll: {
     flexGrow: 0,

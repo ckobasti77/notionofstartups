@@ -22,13 +22,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilePreview, type PreviewFile } from '@/components/stranica/file-preview';
+import { FAB } from '@/components/ui/fab';
 import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { MIN_TOUCH_TARGET, radius, SHADOW_COLOR, type ColorTokens } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
 type FileCategory = 'image' | 'video' | 'pdf' | 'audio' | 'sheet' | 'document';
 
@@ -235,18 +236,13 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
       )}
 
       {showAdd ? (
-        <Pressable
-          accessibilityRole="button"
+        <FAB
+          icon={Plus}
           accessibilityLabel="Dodaj prilog"
+          busy={uploading}
           onPress={() => setMenuOpen(true)}
-          disabled={uploading}
-          style={[styles.fab, { backgroundColor: colors.primary, bottom: insets.bottom + 16 }]}>
-          {uploading ? (
-            <ActivityIndicator color={colors.primaryForeground} />
-          ) : (
-            <Plus size={26} color={colors.primaryForeground} />
-          )}
-        </Pressable>
+          style={{ bottom: insets.bottom + 16 }}
+        />
       ) : null}
 
       <AddMenu
@@ -322,12 +318,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: {
     padding: 16,
-    gap: 8,
+    paddingTop: 8,
+    gap: 4,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radius.lg,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   rowMain: {
@@ -335,16 +332,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingLeft: 12,
     paddingRight: 8,
-    minHeight: 60,
-    borderRadius: radius.lg,
+    minHeight: 56,
+    borderRadius: radius.card,
   },
   iconChip: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -354,21 +351,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 4,
-    borderRadius: radius.md,
-  },
-  fab: {
-    position: 'absolute',
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: SHADOW_COLOR,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    borderRadius: radius.control,
   },
   backdrop: {
     position: 'absolute',

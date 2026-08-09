@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 const MAX_INSTRUCTIONS = 20_000; // ogledalo `MAX_TASK_INSTRUCTIONS_LENGTH`
 
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   headerLabel: {
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.bold,
   },
   editButton: {
@@ -161,12 +161,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   body: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...text.body,
   },
   empty: {
-    fontSize: 14,
-    lineHeight: 20,
+    ...text.body,
   },
   backdrop: {
     position: 'absolute',
@@ -194,8 +192,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sheetTitle: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
+    ...text.title,
   },
   sheetClose: {
     width: 36,

@@ -1,5 +1,11 @@
 import type { LucideIcon } from 'lucide-react-native';
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, SHADOW_COLOR } from '@/theme/tokens';
@@ -12,6 +18,8 @@ export type FABProps = {
   onPress: () => void;
   /** Obavezan opis akcije (ikonica sama nema tekst). */
   accessibilityLabel: string;
+  /** Akcija u toku (npr. otpremanje) — spiner umesto ikonice, dodir onemogućen. */
+  busy?: boolean;
   /** Doterivanje pozicije/ofseta (difolt je apsolutno dole desno). */
   style?: StyleProp<ViewStyle>;
 };
@@ -21,12 +29,14 @@ export type FABProps = {
  * mesta gde je senka dozvoljena (drugo je sheet). Pozicija je apsolutna po
  * difoltu — prepiši je kroz `style` (npr. u katalogu za prikaz u mestu).
  */
-export function FAB({ icon: Icon, onPress, accessibilityLabel, style }: FABProps) {
+export function FAB({ icon: Icon, onPress, accessibilityLabel, busy = false, style }: FABProps) {
   const colors = useThemeColors();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: busy, busy }}
+      disabled={busy}
       onPress={onPress}
       style={({ pressed }) => [
         styles.fab,
@@ -37,7 +47,11 @@ export function FAB({ icon: Icon, onPress, accessibilityLabel, style }: FABProps
         },
         style,
       ]}>
-      <Icon size={26} color={colors.primaryForeground} />
+      {busy ? (
+        <ActivityIndicator color={colors.primaryForeground} />
+      ) : (
+        <Icon size={26} color={colors.primaryForeground} />
+      )}
     </Pressable>
   );
 }

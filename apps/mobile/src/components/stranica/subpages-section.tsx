@@ -13,12 +13,13 @@ import {
 } from 'react-native';
 
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
+import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { pageKindColor, pageKindMeta } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /**
  * „Podstranice" — kolapsibilna sekcija unutar ekrana stranice (M3.2, KORAK 3).
@@ -74,9 +75,7 @@ export function SubpagesSection({
         {loading ? (
           <ActivityIndicator size="small" color={colors.mutedForeground} />
         ) : (
-          <View style={[styles.countPill, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.countText, { color: colors.mutedForeground }]}>{countLabel}</Text>
-          </View>
+          <Pill label={countLabel} />
         )}
       </Pressable>
 
@@ -171,18 +170,7 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    fontSize: fontSize.base,
-    fontWeight: fontWeight.semibold,
-  },
-  countPill: {
-    minWidth: 26,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-    alignItems: 'center',
-  },
-  countText: {
-    fontSize: 13,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   body: {
@@ -195,12 +183,13 @@ const styles = StyleSheet.create({
   },
   row: {
     paddingHorizontal: 2,
-    borderRadius: radius.md,
+    minHeight: 52,
+    borderRadius: radius.control,
   },
   iconChip: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
+    width: 28,
+    height: 28,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -210,7 +199,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   moreText: {
-    fontSize: 14,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   addBtn: {
@@ -218,14 +207,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minHeight: 44,
+    minHeight: MIN_TOUCH_TARGET,
     marginTop: 4,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     borderStyle: 'dashed',
   },
   addText: {
-    fontSize: 14,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
 });

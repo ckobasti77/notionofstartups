@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Kontekstualna primarna akcija rail-a: bez selekcije je „Nova ideja", a kad je na
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   createBtn: {
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 16,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     // U RN je podrazumevani `flexShrink` 0, pa bi se dugme na uskom ekranu (360dp) ili
     // uz uvećan sistemski font prelilo VAN ekrana umesto da se skrati — deo dodirne
     // mete bi tada bio nedodirljiv. `minWidth: 0` je uslov da `numberOfLines={1}`
@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   createLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
     flexShrink: 1,
   },

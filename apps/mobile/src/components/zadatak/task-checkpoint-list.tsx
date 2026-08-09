@@ -10,7 +10,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { MAX_TASK_CHECKPOINTS } from '@/lib/task-meta';
 import type { TaskCheckpoint } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Lista checkpointa zadatka (docs/mobile/02-EKRANI.md §9.2). Ordinali, lanci i
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerLabel: {
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.bold,
   },
   countPill: {
@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   countText: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.bold,
   },
   track: {
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   empty: {
-    fontSize: 13,
+    ...text.body,
     textAlign: 'center',
     paddingVertical: 18,
     paddingHorizontal: 16,
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ordinalText: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.bold,
   },
   check: {
@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
   },
   text: {
     flex: 1,
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   editInput: {

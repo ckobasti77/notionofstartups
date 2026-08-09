@@ -13,7 +13,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const ROW_HEIGHT = 48;
 const HEADER_HEIGHT = 44;
@@ -458,17 +458,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   toolbarLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   limitCaption: {
     // Objašnjava zašto je dugme onemogućeno — puna veličina osnovnog teksta.
-    fontSize: 16,
+    ...text.body,
     paddingHorizontal: 12,
     paddingTop: 8,
   },
@@ -500,11 +500,11 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
   },
   headerText: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   cellText: {
-    fontSize: 16,
+    ...text.body,
   },
   emptyRows: {
     alignItems: 'center',
@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   emptyText: {
-    fontSize: 16,
+    ...text.body,
     textAlign: 'center',
   },
   addFirstRow: {
@@ -522,11 +522,11 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 16,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   addFirstLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   loadMore: {
@@ -535,11 +535,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   loadMoreLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
 });

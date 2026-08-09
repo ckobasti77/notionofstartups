@@ -1,7 +1,6 @@
 import { useAudioPlayer } from 'expo-audio';
 import { useRouter } from 'expo-router';
 import {
-  ChevronLeft,
   Info,
   Moon,
   Play,
@@ -24,6 +23,7 @@ import { useMutation, useQuery } from 'convex/react';
 
 import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import type { ChannelBase } from '@/convex/lib/notificationChannels';
 import type { NotificationType } from '@/convex/lib/notifications';
 import {
@@ -83,7 +83,7 @@ export default function NotificationSettingsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Header colors={colors} topInset={insets.top} onBack={() => router.back()} />
+      <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
       {settings === undefined ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} />
@@ -284,39 +284,6 @@ function SettingsForm({
         onClose={() => setPicker(null)}
       />
     </>
-  );
-}
-
-function Header({
-  colors,
-  topInset,
-  onBack,
-}: {
-  colors: ColorTokens;
-  topInset: number;
-  onBack: () => void;
-}) {
-  return (
-    <View
-      style={[
-        styles.header,
-        {
-          paddingTop: topInset + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
-        Obaveštenja i zvuci
-      </Text>
-    </View>
   );
 }
 
@@ -557,26 +524,6 @@ function PickerColumn({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
   },
   loading: {
     flex: 1,

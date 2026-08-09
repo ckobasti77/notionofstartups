@@ -27,7 +27,7 @@ import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import { channelDisplayName, type ChatChannel } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 type NotificationLevel = 'all' | 'mentions' | 'none';
 
@@ -58,6 +58,10 @@ function subtitle(channel: ChatChannel): string {
  * Header ekrana razgovora: back, ikona/naslov/podnaslov, „otvori entitet" za
  * threadove zakačene za stranicu, i `⋯` meni sa nivoom obaveštenja. `onMeasure`
  * javlja visinu ekranu (za `keyboardVerticalOffset` na iOS).
+ *
+ * NAMERNO nije `ScreenHeader` sa `display` naslovom: u razgovoru lista poruka
+ * nosi ekran, pa zaglavlje ostaje jednoredno i nisko (kao u svakom messengeru).
+ * Tipografija i radijusi su ipak isti tokeni kao svugde.
  */
 export function ConversationHeader({
   channel,
@@ -216,12 +220,12 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   iconBox: {
     width: 36,
     height: 36,
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -230,11 +234,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   subtitle: {
-    fontSize: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   backdrop: {
     position: 'absolute',
@@ -255,10 +260,10 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   menuTitle: {
-    fontSize: 12,
-    fontWeight: fontWeight.semibold,
+    ...text.meta,
+    fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     paddingHorizontal: 20,
     paddingBottom: 6,
   },

@@ -2,7 +2,6 @@ import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   CalendarDays,
-  ChevronLeft,
   CircleDot,
   ClipboardX,
   Ellipsis,
@@ -16,7 +15,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,7 +34,9 @@ import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
+import { IconButton } from '@/components/ui/icon-button';
 import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -50,7 +50,7 @@ import {
   type TaskStatus,
 } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Detalj zadatka — full-screen, van tabova (docs/mobile/02-EKRANI.md §9.2).
@@ -98,7 +98,7 @@ export default function ZadatakScreen() {
   if (page === undefined || profile === undefined) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <TaskHeader title="Zadatak" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Zadatak" onBack={() => router.back()} />
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
@@ -109,7 +109,7 @@ export default function ZadatakScreen() {
   if (page.kind !== 'task') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <TaskHeader title={page.title} onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title={page.title} titleNumberOfLines={2} onBack={() => router.back()} />
         <EmptyState
           icon={<ClipboardX size={40} color={colors.mutedForeground} />}
           title="Ovo nije zadatak"
@@ -149,13 +149,23 @@ export default function ZadatakScreen() {
   return (
     <GestureHandlerRootView style={styles.container}>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <TaskHeader
-          title={page.title}
-          onBack={() => router.back()}
-          colors={colors}
-          onMeasure={setHeaderHeight}
-          onOpenActions={() => setActionsView('menu')}
-        />
+        {/* Visina zaglavlja je offset za `KeyboardAvoidingView` — meri se ovde,
+            jer `ScreenHeader` sam uračunava safe-area i menja visinu po uređaju. */}
+        <View onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
+          <ScreenHeader
+            title={page.title}
+            titleNumberOfLines={2}
+            eyebrow={TASK_STATUS_META[status].label}
+            onBack={() => router.back()}
+            actions={
+              <IconButton
+                accessibilityLabel="Akcije zadatka"
+                onPress={() => setActionsView('menu')}>
+                <Ellipsis size={20} color={colors.foreground} />
+              </IconButton>
+            }
+          />
+        </View>
 
         <KeyboardAvoidingView
           style={styles.flex}
@@ -303,55 +313,6 @@ export default function ZadatakScreen() {
   );
 }
 
-function TaskHeader({
-  title,
-  onBack,
-  colors,
-  onMeasure,
-  onOpenActions,
-}: {
-  title: string;
-  onBack: () => void;
-  colors: ColorTokens;
-  onMeasure?: (height: number) => void;
-  /** „…" — organizacija (premesti / ugnjezdi / izdvoji / poveži). */
-  onOpenActions?: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      onLayout={onMeasure ? (event) => onMeasure(event.nativeEvent.layout.height) : undefined}
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
-        {title}
-      </Text>
-      {onOpenActions ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Akcije zadatka"
-          onPress={onOpenActions}
-          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-          <Ellipsis size={20} color={colors.foreground} />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 function Divider({ colors }: { colors: ColorTokens }) {
   return <View style={[styles.divider, { backgroundColor: colors.border }]} />;
 }
@@ -369,7 +330,7 @@ function TaskErrorState({ message, onRetry }: { message: string; onRetry: () => 
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <TaskHeader title="Zadatak" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Zadatak" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Zadatak se ne može učitati"
@@ -393,36 +354,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginRight: 8,
-  },
   content: {
     padding: 16,
-    gap: 12,
+    paddingTop: 8,
+    gap: 8,
     paddingBottom: 40,
   },
   card: {
-    borderRadius: radius.xl,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
+    padding: 12,
     gap: 4,
   },
   // Kartica čiji sadržaj sam nosi svoj padding (npr. „Povezane stavke").
@@ -431,13 +372,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     overflow: 'hidden',
   },
-  // Row unutar kartice (padding 14) — bez dodatnog horizontalnog paddinga.
+  // Row unutar kartice (padding 12) — bez dodatnog horizontalnog paddinga.
   metaRow: {
     paddingHorizontal: 4,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   valueText: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   statusValue: {

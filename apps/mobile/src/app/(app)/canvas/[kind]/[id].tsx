@@ -20,7 +20,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-url';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
@@ -494,12 +494,14 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: radius.control,
   },
+  // NAMERNO `title`, ne `display`: canvas ekran rotira u landscape i WebView mu je
+  // ceo sadržaj — krupno zaglavlje bi mu pojelo vidno polje. Zato i nije
+  // `ScreenHeader` (koji ne zna za bočne insete u položenom prikazu).
   headerTitle: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginRight: 8,
   },
   webWrap: {

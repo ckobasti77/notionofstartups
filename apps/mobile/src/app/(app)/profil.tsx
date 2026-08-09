@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from 'convex/react';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { Camera, ChevronLeft, Trash2, TriangleAlert, UserRound } from 'lucide-react-native';
+import { Camera, Trash2, TriangleAlert, UserRound } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +26,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /** Isto ograničenje koje `storage.setAvatar` proverava na serveru. */
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -60,7 +61,7 @@ export default function ProfilScreen() {
   if (profile === undefined) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Header title="Moj profil" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Moj profil" onBack={() => router.back()} />
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje profila" />
         </View>
@@ -71,7 +72,7 @@ export default function ProfilScreen() {
   if (profile === null) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Header title="Moj profil" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Moj profil" onBack={() => router.back()} />
         <EmptyState
           icon={<UserRound size={40} color={colors.mutedForeground} />}
           title="Profil nije pronađen"
@@ -179,7 +180,7 @@ export default function ProfilScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Moj profil" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Moj profil" onBack={() => router.back()} />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
@@ -284,37 +285,6 @@ export default function ProfilScreen() {
   );
 }
 
-function Header({
-  title,
-  onBack,
-  colors,
-}: {
-  title: string;
-  onBack: () => void;
-  colors: ColorTokens;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>{title}</Text>
-    </View>
-  );
-}
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <ProfilError message={error.message} onRetry={retry} />;
@@ -325,7 +295,7 @@ function ProfilError({ message, onRetry }: { message: string; onRetry: () => voi
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Moj profil" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Moj profil" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Profil se ne može učitati"
@@ -348,27 +318,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginLeft: 2,
   },
   content: {
     padding: 16,

@@ -1,10 +1,9 @@
 import { useQuery } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
+import { Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
@@ -13,11 +12,13 @@ import { PageActionsSheet, type SheetView } from '@/components/stranica/page-act
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
+import { IconButton } from '@/components/ui/icon-button';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { pageKindLabel, pageKindMeta } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
+import type { ColorTokens } from '@/theme/tokens';
 
 /**
  * Ekran stranice (docs/mobile/02-EKRANI.md §9). Sadržaj se bira po `kind`:
@@ -39,7 +40,7 @@ export default function StranicaScreen() {
   if (page === undefined) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <PageHeader title="Stranica" onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title="Stranica" onBack={() => router.back()} />
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje" />
         </View>
@@ -52,12 +53,21 @@ export default function StranicaScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PageHeader
+      <ScreenHeader
         title={page.title}
+        titleNumberOfLines={2}
+        eyebrow={pageKindLabel(page.kind)}
         onBack={() => router.back()}
-        onOpenCanvas={openCanvas}
-        onOpenActions={() => setActionsView('menu')}
-        colors={colors}
+        actions={
+          <>
+            <IconButton accessibilityLabel="Canvas stranice" onPress={openCanvas}>
+              <LayoutGrid size={20} color={colors.foreground} />
+            </IconButton>
+            <IconButton accessibilityLabel="Akcije stranice" onPress={() => setActionsView('menu')}>
+              <Ellipsis size={20} color={colors.foreground} />
+            </IconButton>
+          </>
+        }
       />
       <PageContent page={page} colors={colors} onConnect={() => setActionsView('relate')} />
       <PageActionsSheet
@@ -144,63 +154,6 @@ function UnexpectedKind({
   );
 }
 
-function PageHeader({
-  title,
-  onBack,
-  onOpenCanvas,
-  onOpenActions,
-  colors,
-}: {
-  title: string;
-  onBack: () => void;
-  onOpenCanvas?: () => void;
-  /** „…" — organizacija stranice (premesti / ugnjezdi / izdvoji / poveži). */
-  onOpenActions?: () => void;
-  colors: ColorTokens;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
-        {title}
-      </Text>
-      {onOpenCanvas ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Canvas stranice"
-          onPress={onOpenCanvas}
-          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-          <LayoutGrid size={20} color={colors.foreground} />
-        </Pressable>
-      ) : null}
-      {onOpenActions ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Akcije stranice"
-          onPress={onOpenActions}
-          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-          <Ellipsis size={20} color={colors.foreground} />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 /**
  * Greška: `pages.get` prolazi kroz `requireStartupMember`/`requireVisiblePage` i
  * baca kad korisnik nema pristup — expo-router to hvata ovde umesto pada ekrana.
@@ -214,7 +167,7 @@ function PageErrorState({ message, onRetry }: { message: string; onRetry: () => 
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PageHeader title="Stranica" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Stranica" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Stranica se ne može učitati"
@@ -240,26 +193,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginRight: 8,
   },
 });

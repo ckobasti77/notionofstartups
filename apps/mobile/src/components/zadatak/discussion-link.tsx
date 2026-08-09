@@ -20,7 +20,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { porukaWord } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /**
  * Red diskusije zadatka (docs/mobile/02-EKRANI.md §9.2). Thread se pravi lenjo —
@@ -234,8 +234,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sheetTitle: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
+    ...text.title,
   },
   sheetClose: {
     width: 36,
