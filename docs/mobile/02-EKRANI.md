@@ -161,6 +161,26 @@ njega već negde:
 Kartica skroluje sa listom, pa ne uzima stalan prostor, i broji **isti skup**
 zadataka koji je u listi (segment „Moji zadaci" sužava i nju).
 
+### Opterećenje tima — pandan web `workload-strip`
+
+Horizontalno skrolabilna traka čipova između segmenata i liste, samo u segmentu
+„Pregled": **Svi**, pa svaki član, pa (kad postoji posao bez izvršioca)
+**Nedodeljeno**. Čip nosi avatar, ime i brojače `otvoreno / kasni / hitno`. Tap
+filtrira listu, ponovni tap na aktivni čip gasi filter — isto ponašanje kao na
+webu.
+
+Traka **stoji van skrola liste**: kad filter isprazni listu, dugme kojim se filter
+gasi mora ostati na ekranu. Prazno stanje tada glasi „Za izabranog člana nema
+otvorenih zadataka." sa akcijom „Prikaži sve".
+
+Brojači po članu se računaju iz **svih** otvorenih zadataka, ne iz filtriranih, da
+se ne menjaju dok se filter prebacuje. Zadatak sa više izvršilaca ulazi u
+opterećenje svakog od njih, pa je zbir po članovima veći od broja zadataka (isto
+kao web).
+
+U segmentu „Moji zadaci" trake nema — filter po članu nad listom koja je već
+svedena na jednog čoveka ne znači ništa.
+
 **Izuzetak — „Napredak (%)" se ne prenosi.** Procenat traži i završene zadatke, a
 `tasks.commandCenter` vraća samo otvorene. Web ga računa iz prvih 100 zadataka
 (`tasks.listForStartup`) i sam ga označava zvezdicom kao procenu; druga paginirana

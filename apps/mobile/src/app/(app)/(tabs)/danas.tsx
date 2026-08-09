@@ -10,6 +10,12 @@ import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { QuickAddSheet } from '@/components/danas/quick-add-sheet';
 import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
 import { TaskCard } from '@/components/danas/task-card';
+import {
+  UNASSIGNED_KEY,
+  WorkloadStrip,
+  type WorkloadEntry,
+  type WorkloadFilter,
+} from '@/components/danas/workload-strip';
 import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
@@ -64,6 +70,8 @@ export default function DanasScreen() {
   const { activeStartupId } = useActiveStartup();
   const [segment, setSegment] = useState<TodaySegmentId>('overview');
   const [blockedOpen, setBlockedOpen] = useState(false);
+  // Filter trake opterećenja: `null` = svi, `UNASSIGNED_KEY` = bez izvršioca.
+  const [memberFilter, setMemberFilter] = useState<WorkloadFilter>(null);
 
   const profile = useQuery(api.profiles.getCurrent, {});
   const myId = profile?._id ?? null;
@@ -71,6 +79,11 @@ export default function DanasScreen() {
   const startupArg = activeStartupId ? { startupId: activeStartupId } : 'skip';
   const command = useQuery(api.tasks.commandCenter, startupArg);
   const startup = useQuery(api.startups.get, startupArg);
+  // Članovi su potrebni i traci opterećenja i meniju akcija — jedna pretplata za oba.
+  const members = useQuery(
+    api.startups.listMembers,
+    activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
+  );
 
   const tasks = command?.tasks;
   const taskIds = useMemo(() => tasks?.map((task) => task._id) ?? [], [tasks]);
@@ -95,7 +108,7 @@ export default function DanasScreen() {
   }, [startup]);
 
   // „Moji zadaci" = otvoreni zadaci aktivnog startupa gde sam izvršilac.
-  const visibleTasks = useMemo<CommandCenterTask[] | undefined>(() => {
+  const segmentTasks = useMemo<CommandCenterTask[] | undefined>(() => {
     if (tasks === undefined) return undefined;
     if (segment === 'overview') return tasks;
     if (taskIds.length > 0 && assigneeRows === undefined) return undefined; // čeka izvršioce
@@ -104,6 +117,65 @@ export default function DanasScreen() {
       assigneesByTask.get(task._id)?.some((a) => a.profileId === myId),
     );
   }, [tasks, segment, taskIds, assigneeRows, myId, assigneesByTask]);
+
+  // Opterećenje tima (traka čipova) — računa se iz SVIH otvorenih zadataka, ne iz
+  // filtriranih, da brojači po članu ostanu stabilni dok se filter menja (kao web).
+  const workload = useMemo<WorkloadEntry[]>(() => {
+    if (tasks === undefined || members === undefined) return [];
+    const entries: WorkloadEntry[] = members.map((member) => ({
+      key: member.profile._id,
+      name: member.profile.displayName,
+      avatar: { displayName: member.profile.displayName, avatarUrl: member.profile.avatarUrl },
+      open: 0,
+      overdue: 0,
+      urgent: 0,
+    }));
+    const unassigned: WorkloadEntry = {
+      key: UNASSIGNED_KEY,
+      name: 'Nedodeljeno',
+      avatar: null,
+      open: 0,
+      overdue: 0,
+      urgent: 0,
+    };
+    const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+
+    for (const task of tasks) {
+      // Svi izvršioci su ravnopravni, pa zadatak ulazi u opterećenje svakog od njih;
+      // zbir po članovima je zato veći od broja zadataka.
+      const taskAssignees = assigneesByTask.get(task._id) ?? [];
+      const targets =
+        taskAssignees.length === 0
+          ? [unassigned]
+          : taskAssignees.flatMap((assignee) => {
+              const entry = byKey.get(assignee.profileId);
+              return entry === undefined ? [] : [entry];
+            });
+      const overdue =
+        classifyDeadline({ dueDate: task.dueDate, taskStatus: task.taskStatus, now }).urgency ===
+        'overdue';
+      for (const entry of targets) {
+        entry.open += 1;
+        if (overdue) entry.overdue += 1;
+        if (task.taskPriority === 'urgent') entry.urgent += 1;
+      }
+    }
+
+    return unassigned.open > 0 ? [...entries, unassigned] : entries;
+  }, [tasks, members, assigneesByTask, now]);
+
+  // Filter po članu važi samo u segmentu „Pregled" — u „Mojim zadacima" bi sužavao
+  // listu koja je već svedena na jednog čoveka.
+  const visibleTasks = useMemo<CommandCenterTask[] | undefined>(() => {
+    if (segmentTasks === undefined) return undefined;
+    if (segment !== 'overview' || memberFilter === null) return segmentTasks;
+    if (memberFilter === UNASSIGNED_KEY) {
+      return segmentTasks.filter((task) => (assigneesByTask.get(task._id) ?? []).length === 0);
+    }
+    return segmentTasks.filter((task) =>
+      (assigneesByTask.get(task._id) ?? []).some((a) => a.profileId === memberFilter),
+    );
+  }, [segmentTasks, segment, memberFilter, assigneesByTask]);
 
   const buckets = useMemo(
     () => (visibleTasks ? bucketTasksForToday(visibleTasks, now) : undefined),
@@ -128,8 +200,16 @@ export default function DanasScreen() {
     return { open: visibleTasks.length, overdue, urgent };
   }, [visibleTasks, now]);
 
+  // Promena startupa nosi druge članove — stari filter bi ostao kao mrtav id.
+  useEffect(() => {
+    setMemberFilter(null);
+  }, [activeStartupId]);
+
   const firstName = profile?.displayName.trim().split(/\s+/)[0] ?? null;
-  const segmentLabel = segment === 'mine' ? 'Moji zadaci' : 'Pregled';
+  const filteredName =
+    memberFilter === null ? null : (workload.find((e) => e.key === memberFilter)?.name ?? null);
+  const segmentLabel =
+    filteredName ?? (segment === 'mine' ? 'Moji zadaci' : 'Pregled');
 
   // Meni akcija cilja živi zadatak po id-ju, pa prati realtime izmene / nestanak.
   const [menuTaskId, setMenuTaskId] = useState<Id<'pages'> | null>(null);
@@ -142,11 +222,6 @@ export default function DanasScreen() {
     // Zadatak je napustio otvoreni skup (npr. označen „gotovo") → zatvori meni.
     if (menuTaskId && menuTask === null) setMenuTaskId(null);
   }, [menuTaskId, menuTask]);
-
-  const members = useQuery(
-    api.startups.listMembers,
-    menuTaskId && activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
-  );
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -249,8 +324,28 @@ export default function DanasScreen() {
           <SegmentedControl options={TODAY_SEGMENTS} value={segment} onChange={setSegment} />
         </View>
 
+        {/* Traka opterećenja je FILTER, pa stoji van skrola liste: kad filter isprazni
+            listu, dugme za gašenje filtera mora ostati na ekranu. */}
+        {segment === 'overview' && startupReady ? (
+          <WorkloadStrip
+            entries={workload}
+            totalOpen={tasks?.length ?? 0}
+            activeKey={memberFilter}
+            onSelect={setMemberFilter}
+            loading={members === undefined || command === undefined}
+          />
+        ) : null}
+
         {loading ? (
           <LoadingList />
+        ) : allEmpty && memberFilter !== null ? (
+          <EmptyState
+            icon={<ListTodo size={40} color={colors.mutedForeground} />}
+            title="Za izabranog člana nema otvorenih zadataka."
+            description="Filter je uključen u traci opterećenja iznad."
+            actionLabel="Prikaži sve"
+            onAction={() => setMemberFilter(null)}
+          />
         ) : allEmpty ? (
           <EmptyState
             icon={<ListTodo size={40} color={colors.mutedForeground} />}
