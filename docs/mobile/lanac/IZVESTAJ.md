@@ -509,3 +509,139 @@ je bio odluka faze, ne zahtev.
 - Izvršavanje: prošlo
 - `npm run check`: **prolazi**
 - `npm test`: prolazi
+- Commit: `b141c6d`
+- Dirnuto fajlova: 73
+
+### Revizija: Faza 6 — pokret
+
+Faza je uradila najveći deo traženog, ali tri tačke nisu završene: stagger je
+pokvaren na tri liste (animira usred skrola, suprotno od onoga što sopstveni
+komentar tvrdi), ekran razgovora je preskočen u celini, i pull-to-refresh fali
+na četiri liste.
+
+Opseg: `git diff 08d7b2e..HEAD` — 73 fajla, svi u `apps/mobile`.
+
+#### Tačka po tačku
+
+**1. Sheet-ovi: spring ulaz/izlaz, postepen backdrop, gest nadole — URAĐENO.**
+Novi primitiv `components/ui/sheet.tsx`: spring ulaz (`:101`, `SHEET_SPRING` u
+`theme/motion.ts:23`), kraći `withTiming` izlaz (`:122`), backdrop kao rampa
+vezana za `progress` i za pomeraj prsta (`:157-160`), pan sa pragom 88px /
+900px/s (`:30-32, :141-155`). `GestureHandlerRootView` unutar `Modal`-a (`:199`)
+i jedan u korenu (`app/_layout.tsx:80`). Primitiv koristi 22 fajla; jedini
+preostali sirovi `Modal` je `stranica/file-preview.tsx:43` (pun ekran, ne sheet,
+i sam gasi animaciju pod reduced-motion na `:45`).
+
+**2. Liste: staggered fade+slide, max 300ms — DELIMIČNO.**
+Primitiv postoji i budžet je ispoštovan: `ui/stagger.tsx` + `motion.ts:36`
+(4 × 30ms + 180ms = 300ms), pomeraj 8px (`motion.ts:41`).
+
+Ali: u `ui/stagger.tsx:62` uslov je
+`!reduced && (group === null || Date.now() - group.startedAt < 450)`. Kad
+`StaggerGroup` nije postavljen, `group === null` i **animacija je uvek uključena**.
+Tri liste koriste `StaggerItem` bez grupe:
+- `app/(app)/(tabs)/chat.tsx:121` (FlatList)
+- `app/(app)/aktivnost.tsx:101` (SectionList, paginirana)
+- `app/(app)/(tabs)/prostor.tsx:462` (FlatList, paginirana)
+
+Posledica je tačno ono što komentar u `chat.tsx:117-119` tvrdi da se ne dešava —
+redovi koje `FlatList` montira lenjo tokom skrola ulaze uz fade, a na paginiranim
+listama svaka doučitana strana ponovo animira. Komentar je netačan.
+
+Liste bez staggera uopšte: `puls.tsx`, `podesavanja-obavestenja.tsx`,
+`subpages-section.tsx`, `files-panel.tsx`, `table-panel.tsx`,
+`relations-section.tsx`, `task-checkpoint-list.tsx`, `contribution-thread.tsx`.
+`message-list.tsx` je izuzet uz obrazloženje (inverted lista).
+
+**3. Skeleton u obliku sadržaja + crossfade, na SVAKU listu — DELIMIČNO.**
+Urađeno: `ui/skeletons.tsx` (232 linije oblika — red, kartica zadatka, kartica
+ideje, mehur poruke, pasus; mere usklađene sa `ui/row.tsx`, `:174-181`),
+`ui/loading-swap.tsx` crossfade sa `pointerEvents="none"` na skeletonu (`:80`),
+deljeni puls u `ui/skeleton.tsx:29`.
+
+Nije urađeno:
+- `app/(app)/razgovor/[id].tsx:97` — ekran razgovora nije ni dirnut u ovom
+  commit-u; prvo učitavanje je i dalje goli `ActivityIndicator`. To je jedan od
+  najkorišćenijih ekrana.
+- `app/(app)/(tabs)/prostor.tsx:589` — `LoadingFirstPage` ugnježdenih podstranica
+  je spiner, ne skeleton.
+
+Crossfade fali tamo gde se skeleton vraća kroz rani `return` (skok, ne prelaz):
+`zadatak/[id].tsx:100-107`, `stranica/[id].tsx:47`, `ideja/[id].tsx:91`,
+`profil.tsx:68`, `table-panel.tsx:60`.
+
+Ostali `ActivityIndicator`-i (`aktivnost.tsx:119`, `subpages-section.tsx:136`,
+`table-panel.tsx:309`, `contribution-thread.tsx:317`, `prostor.tsx:486`) su
+podnožja paginacije — legitimno.
+
+**4. Haptika (light / success / warning / error) — URAĐENO.**
+`lib/haptics.ts:21-54` — `tap` = `ImpactFeedbackStyle.Light` (`:23`), `success`
+(`:41`), `warning` (`:47`), `error` (`:53`). Korišćeno u 45 fajlova; mapiranje
+provereno na uzorku: destruktivno → `warning` (`vise.tsx`, `pozivnice.tsx:…`,
+`message-actions-sheet.tsx`), neuspeh mutacije → `error`
+(`zadatak/[id].tsx:93`). `haptics.ts:15` izričito kaže da reduced-motion ne gasi
+haptiku — tačno, to je podešavanje za vizuelni pokret.
+
+**5. Native stack sa gestom nazad, osim na kanvasu — URAĐENO.**
+`hooks/use-stack-animation.ts:20-30` (`ios_from_right` + `gestureEnabled: true`,
+`animation: 'none'` pod reduced-motion), primenjeno u sva tri layouta
+(`app/_layout.tsx:41`, `(app)/_layout.tsx:22`, `(auth)/_layout.tsx:6`). Kanvas je
+jedini izuzetak: `(app)/_layout.tsx:26` `gestureEnabled: false`, uz dugme „nazad"
+u zaglavlju (`canvas/[kind]/[id].tsx:426-435`).
+
+**6. Pull-to-refresh na svakoj realtime listi — DELIMIČNO.**
+`hooks/use-list-refresh.tsx` + `refreshControl` na 9 lista: `chat`, `danas`,
+`prostor` (obe), `aktivnost`, `clanovi`, `ideje`, `odobrenja`, `pozivnice`,
+`puls`. Fali na: `razgovor/[id].tsx` (ekran nije dirnut), `pretraga.tsx`,
+`podesavanja-obavestenja.tsx`, `profil.tsx`. `message-list.tsx:165` je izuzet uz
+obrazloženje (inverted lista — spiner bi bio na dnu).
+
+**7. Reduced-motion, jedan hook svuda — URAĐENO.**
+`hooks/use-reduced-motion.ts` — `useSyncExternalStore` nad
+`AccessibilityInfo.isReduceMotionEnabled` + `reduceMotionChanged` (`:32-33`),
+jedan pretplatnik za celu aplikaciju. Koristi ga 8 mesta: `sheet`, `stagger`,
+`skeleton`, `loading-swap`, `use-stack-animation`, `collapsible`,
+`animated-icon`, `file-preview`. Nigde nije nađen drugi izvor istine.
+
+#### Provera 5 — `flexDirection: 'row'` mimo `ui/row.tsx`
+
+Čisto. Novih 10 linija sa `flexDirection: 'row'`: 5 u `ui/skeletons.tsx`
+(oblici skeletona), 2 u `table-panel.tsx` (skeleton zaglavlja/reda), po 1 u
+`pretraga.tsx` (`skeletonRow`), `area-briefing-section.tsx` (`skeletonRow`) i
+`task-checkpoint-list.tsx` (`skeletonRow`). Nijedan nije ručno sklopljen red
+liste — svi su skeleton oblici ili toolbar.
+
+#### Provera 6 — `packages/backend`
+
+Čisto. `git diff 08d7b2e..HEAD --name-only` ne dodiruje ni `packages/backend` ni
+`apps/web`. Nula novih Convex funkcija.
+
+#### Urađeno a nije traženo
+
+- `haptics.select()` i `haptics.threshold()` (`lib/haptics.ts:28, :34`) — dva
+  semantička kanala preko traženih četiri.
+- Haptika na promenu taba (`(tabs)/_layout.tsx:33`).
+- `GestureHandlerRootView` u korenu (`app/_layout.tsx:80`) — nužan preduslov za
+  gest sheet-a, ali je dodatna promena strukture.
+- Prepisivanje ~20 postojećih modala na novi `Sheet` (npr. `cell-edit-sheet.tsx`
+  −273/+…, `conversation-header.tsx` −83, `startup-switcher.tsx` −178). Sledi iz
+  tačke 1, ali je po obimu veće od dodavanja pokreta.
+- Barrel eksporti u `ui/index.ts` (+14 linija).
+- `use-list-refresh.tsx:8` — veštački minimum od 450ms za spiner. Ne blokira
+  dodir, ali je jedina animacija u fazi koja namerno traje duže nego posao.
+
+#### Placeholder-i, TODO, prazne komponente
+
+Nijedan nov. `grep` po diff-u ne nalazi `TODO`/`FIXME`; jedini `return null;`
+(`odobrenja.tsx`) je prazna sekcija u listi, ne nedovršena funkcija. Zatečeni
+placeholder van opsega: `razgovor/[id].tsx:85-90` `openAnchor()` javlja „Uskoro —
+stiže uz ekrane stranice i zadatka", a ti ekrani postoje od Faze 2/3.
+
+#### Napomena o verifikaciji
+
+`npm run check` = `eslint && next build` (root `package.json`). ESLint **ignoriše
+ceo `apps/mobile`** (`eslint --debug` → „File ignored because of a matching
+ignore pattern"), a `next build` gradi samo `apps/web`, koji u ovom commit-u nije
+dirnut. Drugim rečima, prijavljeno „`npm run check` prolazi" ne kaže ništa o kodu
+ove faze. Revizija je zato pokrenula `npx tsc --noEmit -p apps/mobile/tsconfig.json`
+— **prolazi (exit 0)**. Runtime ponašanje (spring, gest, stagger) nije izvršavano.
