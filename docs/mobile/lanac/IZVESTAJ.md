@@ -104,3 +104,122 @@ i 6 u `dizajn-katalog.tsx`.
 - Izvršavanje: prošlo
 - `npm run check`: **prolazi**
 - `npm test`: prolazi
+- Commit: `36627c9`
+- Dirnuto fajlova: 9
+
+### Revizija: Faza 1 — editor beleški
+
+Faza je isporučila editor, ali **ne i ceo traženi minimum: blok koda ne postoji**
+(tačka 2), a beleška koja sadrži tabelu, prilog ili blok koda se uopšte ne može
+uređivati na telefonu — otvara se samo za čitanje. Sve ostalo iz prompta je
+urađeno i provereno.
+
+#### 1. Tačka po tačka
+
+**1. Pun editor za `kind === 'note'`, isti Convex model i format, autosave sa
+debounce-om, tolerancija na gubitak veze — URAĐENO.**
+- Grana `note` više nije placeholder: `stranica/[id].tsx:88-98`.
+- Isti model kao web: `areasV2.updatePage` + `expectedRevision` + `KONFLIKT_IZMENA`
+  (`note-editor.tsx:207-232`) — web radi isto (`page-editor-view.tsx:142,289-294,331`).
+  Telo je HTML iz Tiptap-a, bez konverzije (`lib/note-content.ts:1-16`).
+- Debounce 250 + 450 ms (`note-editor.tsx:53-55`) prema 650 ms na webu
+  (`page-editor-view.tsx:349`).
+- Gubitak veze: nacrt je u refovima i ne briše se (`note-editor.tsx:100-110`),
+  neuspeh se ponavlja na 5 s do 5 puta (`note-editor.tsx:57-59,338-342`), izlaz sa
+  ekrana i odlazak u pozadinu šalju poslednju izmenu (`note-editor.tsx:349-402`),
+  mutacije idu kroz red čekanja (`note-editor.tsx:125-134`).
+- Ograničenje: nacrt nije upisan na disk, pa gašenje aplikacije u offline stanju
+  i dalje gubi nesnimljeno. Nije traženo, ali nije ni pokriveno.
+
+**2. Minimum za paritet — DELIMIČNO. Blok koda NIJE isporučen.**
+- Podebljano `note-toolbar.tsx:85-92`, kurziv `:93-100`, H1–H3 `:140-163`,
+  liste `:165-180`, čekirana lista `:181-188`, link `:117-138` + `note-link-sheet.tsx`.
+- Blok koda ne postoji. U traci je samo *inline* `kod`
+  (`note-toolbar.tsx:109-116` → `toggleCode`, ne `toggleCodeBlock`). Uzrok je
+  potvrđen: `grep -c codeBlock` nad
+  `node_modules/@10play/tentap-editor/src/simpleWebEditor/build/editorHtml.js`
+  vraća **0** (za `taskList`, `heading`, `bulletList`, `blockquote`, `link` vraća 1).
+- Posledica šira od jednog dugmeta: telo sa `<pre>`, `<table>` ili `data-note-file`
+  se **ne otvara u editoru nego u prikazu za čitanje**
+  (`lib/note-content.ts:28-32`, `note-editor.tsx:143-147,481-503`). Za takve
+  beleške mobilni i dalje nema uređivanje — samo je poruka lepša nego ranije.
+- Web za poređenje: takođe ima samo inline `code` u traci
+  (`rich-text-editor.tsx:340-342`), ali StarterKit mu ostavlja `codeBlock` čvor
+  (`rich-text-editor.tsx:177-183`), pa ``` na webu pravi blok koda koji mobilni
+  posle ne ume da otvori.
+
+**3. Traka prati tastaturu — URAĐENO (nije provereno na uređaju).**
+- Traka je apsolutno pozicionirana u `KeyboardAvoidingView` (`note-editor.tsx:484-492`,
+  `styles.toolbarWrap:718-723`) i sakriva se kad tastature nema
+  (`note-toolbar.tsx:43-57,82`). `keyboardShouldPersistTaps="always"`
+  (`note-toolbar.tsx:241`) da prvi dodir primeni alat.
+- `behavior="padding"` na Androidu (obrazloženje: edge-to-edge razbija
+  `adjustResize`) je odluka koja se ne može potvrditi bez uređaja.
+
+**4. Ne gubi fokus na svaki autosave — URAĐENO po konstrukciji, nemereno.**
+- Nacrt je u refovima, kucanje ne menja stanje (`note-editor.tsx:99-110`), a
+  `setSaveState('dirty')` iz `dirty` React odbacuje bez rendera (`:160-165`).
+- `useBridgeState` (osvežava se na svaku promenu selekcije) je u traci, ne u
+  editoru (`note-toolbar.tsx:65-78`) — `RichText` se zbog toga ne prerenderuje.
+- Nepokriveno: ciklus snimanja ipak menja stanje (`dirty→saving→saved`,
+  `:205,226`), pa se `RichText` prerenderuje, a tentap `source` gradi inline
+  (`node_modules/@10play/tentap-editor/src/RichText/RichText.tsx:54-59`). Po RN
+  diff-u nested propova to ne bi trebalo da izazove reload, ali nije isprobano.
+
+**Zahtev o mernom gejtu (sekcija „VAŽNO O MERENJU") — URAĐENO.**
+`docs/mobile/ZA-POPRAVKU.md` §2 sada eksplicitno kaže da je editor izgrađen PRE
+merenja, da gejt ostaje otvoren, i opisuje plan B (markdown u `TextInput` +
+`NoteReader`). Nijedan izmišljen broj nije upisan — tabela „Brojevi" je i dalje
+prazna. Nema tvrdnje da je merenje obavljeno.
+
+#### 2. Napravljeno, a nije traženo
+
+- `note-reader.tsx` — verno čitanje HTML tela u `WebView` bez JS-a, linkovi u
+  sistemski pregledač.
+- `note-link.ts` + `note-link-sheet.tsx` — sopstvena normalizacija adrese bez
+  `URL` (RN nema pun polyfill) i sheet za unos.
+- Detekcija nepodržanih blokova i pad na čitanje (`note-content.ts:28-53`).
+- Traka širi od minimuma: precrtano, citat, uvlačenje/izvlačenje stavke,
+  poništi/ponovi (`note-toolbar.tsx:101-108,189-227`).
+- Banner za konflikt sa „Kopiraj nacrt" u clipboard (`note-editor.tsx:404-422,516-565`).
+- Indikator snimanja sa 7 stanja i ručnim ponavljanjem (`note-editor.tsx:567-636`).
+- CSS teme za editor i čitanje (`note-content.ts:111-244`).
+- `UnexpectedKind` prazno stanje za `task` na ovom ekranu (`stranica/[id].tsx:112-131`).
+
+#### 3. Nedovršeno (placeholderi, TODO, `return null`)
+
+- Nema nijednog `TODO`/`FIXME` ni prazne komponente u diffu.
+- `return null` postoji 2 puta i oba su namerna: traka se sakriva bez tastature
+  (`note-toolbar.tsx:82`), indikator se ne prikazuje kad korisnik ne sme da menja
+  (`note-editor.tsx:588`).
+- Otvoreno, ali zapisano: blok koda, ubacivanje slika/priloga u telo (web ima
+  `note-file-node`), uređivanje tabela — sve tri rupe su nabrojane u
+  `ZA-POPRAVKU.md` §2, tačke 1–3.
+- `editor-spike.tsx` i ulaz u „Više" i dalje stoje (namerno — gejt je otvoren).
+  Web ruta `/embed/note/[id]` je sada bez korisnika, jer je izabran tentap.
+- `NATIVE-BUILD.md` i dalje ne postoji. `package.json` nije menjan, pa pravilo
+  nije aktivirano, ali napomena da tentap ima native deo (moguć nov dev build)
+  završila je u `ZA-POPRAVKU.md`, ne u `NATIVE-BUILD.md`.
+
+#### 4. `flexDirection: 'row'` mimo `components/ui/row.tsx`
+
+6 novih pojava, nijedna nije red liste, pa `Row` nije mogao da se upotrebi:
+`note-editor.tsx:643` (naslov + indikator), `:659` (indikator), `:671` (traka
+napomene), `:699` i `:704` (par dugmadi u banneru), `note-link-sheet.tsx:196`
+(par dugmadi). `note-toolbar.tsx` nema nijednu — koristi horizontalni `ScrollView`.
+Prekršaja nema.
+
+#### 5. Backend
+
+`git diff --name-only 26a1680..HEAD -- packages/backend` je **prazan**. Nijedna
+nova funkcija, nijedna izmena šeme. Editor koristi postojeći `areasV2.updatePage`.
+
+#### 6. Ostale primedbe
+
+- **Naslov se vidi dvaput**: u zaglavlju ekrana (`stranica/[id].tsx:134-190`,
+  vrednost sa servera) i kao `TextInput` u editoru (`note-editor.tsx:458-467`,
+  lokalni nacrt). Dok se kuca, dva prikaza se razilaze.
+- Provereno lokalno: `npm run check` prolazi, `tsc --noEmit -p apps/mobile/tsconfig.json`
+  prolazi (izlaz 0). Tvrdnje iz izveštaja faze o proverama su tačne.
+- Ništa od isporučenog nije pokrenuto na uređaju ni emulatoru — ni u fazi, ni u
+  ovoj reviziji.
