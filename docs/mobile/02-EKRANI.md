@@ -559,3 +559,42 @@ Razlike koje mobilni nameće:
 | 14 | Canvasi (WebView) | 4 |
 | 15 | Ideje | 4 |
 | 16 | Admin: članovi, pozivnice | 4 |
+
+---
+
+## 13. Izuzeci — web prikazi koji NEMAJU mobilni pandan
+
+Pravilo iz `CLAUDE.md` je da svaka funkcija postoji na oba klijenta, a izuzetak se
+**izričito zapisuje**. Ovo je taj spisak. Nije lista zaostalog posla — ovo su
+odluke da se nešto ne pravi, sa razlogom.
+
+### `workspace-history.tsx` — undo/redo stek
+
+**Šta je na webu.** Uprkos imenu, ovo nije istorija kretanja kroz aplikaciju.
+`WorkspaceHistoryProvider` drži dva steka u memoriji kartice i vezuje globalni
+`window.addEventListener("keydown")` na **Ctrl/Cmd+Z**, **Ctrl+Shift+Z** i
+**Ctrl+Y**. Svaki unos je par `{ undo, redo }` — dve suprotne Convex mutacije koje
+pozivaoc sam upisuje.
+
+**Zašto se ne prenosi.**
+
+1. **Nema okidača.** Ceo prikaz je prečica na tastaturi. Na telefonu nema
+   `keydown`-a; RN nema `window`. Ostalo bi dugme „nazad-radnja" koje niko ne traži
+   jer ga u mobilnim aplikacijama nema.
+2. **Nema proizvođača.** `pushHistory` zovu isključivo canvas prikazi
+   (`area-canvas-view`, `ideas-canvas-view`, `thoughts-canvas-view`, `ideas-view`)
+   — premeštanje čvorova, povezivanje, brisanje ivica. Na mobilnom canvasi žive u
+   WebView embed-u, koji je po `00-PLAN.md` §5.2 namerno **za pregled, navigaciju i
+   dodavanje**, ne za preuređivanje layouta. Stek bi ostao prazan.
+3. **Stek nije trajan.** Živi u memoriji kartice; refresh ga briše. Na telefonu se
+   ekrani odmontiraju i aplikacija ode u pozadinu češće nego što se stek napuni, pa
+   bi „Poništi" ponekad radilo, a ponekad ne — gore od toga da ga nema.
+
+**Šta mobilni radi umesto toga.** Zaštita ide **pre** radnje, ne posle:
+destruktivne akcije traže potvrdu (`Alert`), a brisanje tuđeg sadržaja ionako ide
+kroz glasanje tima (`deletionRequests`), koje se povlači (`withdrawDeletion`).
+
+**Kad bi imalo smisla.** Ako se jednog dana doda uređivanje canvasa na telefonu,
+ispravan mobilni oblik nije globalan stek nego **snackbar „Poništi" odmah posle
+radnje** (po radnji, par sekundi). To traži obrnutu mutaciju po pozivaocu — isto
+što web provider već dobija — ali ne i ovaj prikaz.
