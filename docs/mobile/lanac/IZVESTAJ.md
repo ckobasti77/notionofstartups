@@ -223,3 +223,11 @@ nova funkcija, nijedna izmena šeme. Editor koristi postojeći `areasV2.updatePa
   prolazi (izlaz 0). Tvrdnje iz izveštaja faze o proverama su tačne.
 - Ništa od isporučenog nije pokrenuto na uređaju ni emulatoru — ni u fazi, ni u
   ovoj reviziji.
+- Trajanje: 37 min
+
+## Faza 4 — ekrani koji fale
+
+- Start: 2026-08-09T10:39:09+02:00
+- Izvršavanje: prošlo
+- `npm run check`: **prolazi**
+- `npm test`: prolazi
