@@ -1,4 +1,5 @@
 import { useQuery } from 'convex/react';
+import type { FunctionReturnType } from 'convex/server';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { ChevronLeft, Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
@@ -7,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
+import { NoteEditor } from '@/components/stranica/note-editor';
 import { PageActionsSheet } from '@/components/stranica/page-actions-sheet';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
@@ -18,10 +20,12 @@ import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Ekran stranice (docs/mobile/02-EKRANI.md §9). Sadržaj se bira po `kind`:
- * `table` → `TablePanel` (M3.3), `file` → `FilesPanel` (M3.3). Beleška (`note`)
- * i dalje čeka rich-text editor (M3.2, „measure-then-decide"), pa prikazuje
- * placeholder. Zadatak ima svoj ekran (`zadatak/[id]`), ovamo ne stiže.
+ * beleška (`note`) → `NoteEditor` (M3.2, tentap), `table` → `TablePanel` (M3.3),
+ * `file` → `FilesPanel` (M3.3). Zadatak ima svoj ekran (`zadatak/[id]`), ovamo ne
+ * stiže — ako ipak stigne, prikazuje se poruka umesto praznog ekrana.
  */
+type PageDetails = FunctionReturnType<typeof api.pages.get>;
+
 export default function StranicaScreen() {
   const colors = useThemeColors();
   const router = useRouter();
@@ -53,14 +57,7 @@ export default function StranicaScreen() {
         onOpenActions={() => setActionsOpen(true)}
         colors={colors}
       />
-      <PageContent
-        pageId={pageId}
-        kind={page.kind}
-        canManage={page.permissions.canEdit}
-        startupId={page.startupId}
-        areaId={page.areaId}
-        colors={colors}
-      />
+      <PageContent page={page} colors={colors} />
       <PageActionsSheet
         open={actionsOpen}
         page={page}
@@ -71,32 +68,41 @@ export default function StranicaScreen() {
 }
 
 function PageContent({
-  pageId,
-  kind,
-  canManage,
-  startupId,
-  areaId,
+  page,
   colors,
 }: {
-  pageId: Id<'pages'>;
-  kind: 'note' | 'task' | 'file' | 'table';
-  canManage: boolean;
-  startupId: Id<'startups'>;
-  areaId: Id<'startupAreas'>;
+  page: PageDetails;
   colors: ColorTokens;
 }) {
   // „Podstranice" su sada sekcija unutar stranice (tap u Prostoru otvara stranicu, ne
   // roni u podstranice) — stoji iznad sadržaja, skupljena podrazumevano.
   return (
     <View style={styles.content}>
-      <SubpagesSection pageId={pageId} startupId={startupId} areaId={areaId} />
+      <SubpagesSection
+        pageId={page._id}
+        startupId={page.startupId}
+        areaId={page.areaId}
+      />
       <View style={styles.kindContent}>
-        {kind === 'table' ? (
-          <TablePanel pageId={pageId} />
-        ) : kind === 'file' ? (
-          <FilesPanel pageId={pageId} canManage={canManage} />
+        {page.kind === 'note' ? (
+          <NoteEditor
+            // Nov ključ = nov editor: tentap `initialContent` se čita samo na
+            // montiranju, pa prelazak na drugu belešku mora da ga remontira.
+            key={page._id}
+            pageId={page._id}
+            startupId={page.startupId}
+            remoteTitle={page.title}
+            remoteContent={page.content}
+            remoteRevision={page.revision}
+            canEdit={page.permissions.canEdit}
+            canEditBody={page.permissions.canEditBody}
+          />
+        ) : page.kind === 'table' ? (
+          <TablePanel pageId={page._id} />
+        ) : page.kind === 'file' ? (
+          <FilesPanel pageId={page._id} canManage={page.permissions.canEdit} />
         ) : (
-          <NotePlaceholder kind={kind} colors={colors} />
+          <UnexpectedKind kind={page.kind} colors={colors} />
         )}
       </View>
     </View>
@@ -104,22 +110,23 @@ function PageContent({
 }
 
 /**
- * Beleška: pun editor (embed WebView) stiže tek posle mernog gejta (KORAK 2 plana).
- * Do tada placeholder — ali navigacija i „Podstranice" već rade.
+ * Zadatak ima svoj ekran (`zadatak/[id]`) i ovde ne bi trebalo da stigne. Ako
+ * ipak stigne (stara duboka veza, notifikacija iz prethodne verzije), bolje je
+ * jasna poruka nego prazan ekran.
  */
-function NotePlaceholder({
+function UnexpectedKind({
   kind,
   colors,
 }: {
-  kind: 'note' | 'task' | 'file' | 'table';
+  kind: PageDetails['kind'];
   colors: ColorTokens;
 }) {
   const Icon = pageKindMeta(kind).icon;
   return (
     <EmptyState
       icon={<Icon size={40} color={colors.mutedForeground} />}
-      title="Editor stiže uskoro"
-      description={`Uređivanje sadržaja (${pageKindLabel(kind)}) stiže sa rich-text editorom (M3.2).`}
+      title={pageKindLabel(kind)}
+      description="Ova stavka se otvara na svom ekranu — vrati se i otvori je iz liste."
     />
   );
 }

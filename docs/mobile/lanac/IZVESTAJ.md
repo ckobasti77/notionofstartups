@@ -96,3 +96,11 @@ i 6 u `dizajn-katalog.tsx`.
 - `NATIVE-BUILD.md` nije napravljen — `apps/mobile/package.json` nije menjan, pa
   pravilo nije ni bilo aktivirano. Menjan je `babel.config.js`, što traži čist
   Metro keš (ne nov native build).
+- Trajanje: 29 min
+
+## Faza 1 — editor beleški
+
+- Start: 2026-08-09T10:01:25+02:00
+- Izvršavanje: prošlo
+- `npm run check`: **prolazi**
+- `npm test`: prolazi
