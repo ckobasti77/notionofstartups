@@ -765,3 +765,16 @@ Dve neistinite/neuredne sitnice:
 
 **Prošlo.** Nula izmena: `git diff 3791d54..HEAD --stat -- packages/` ne vraća
 nijedan fajl.
+- Trajanje: 56 min
+
+---
+
+## Zaključak lanca
+
+- Kraj: 2026-08-09T14:42:28+02:00
+- Ukupno: 310 min
+- Grana: `ui-nocni-20260809-0931` (ništa nije gurnuto na remote)
+- Commit-ova: 54
+
+Native build nije potreban — `apps/mobile/package.json` nije menjan.
+Dovoljno je `r` u Metro terminalu.
