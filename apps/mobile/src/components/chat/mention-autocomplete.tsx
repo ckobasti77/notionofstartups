@@ -1,9 +1,10 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/avatar';
+import { Row } from '@/components/ui/row';
 import type { ChatMember } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { radius } from '@/theme/tokens';
 
 /**
  * Popover sa članovima startupa pri kucanju `@`. Prikazuje se iznad unosa;
@@ -27,26 +28,21 @@ export function MentionAutocomplete({
       ]}>
       <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
         {candidates.map((member) => (
-          <Pressable
+          <Row
             key={member.profile._id}
-            accessibilityRole="button"
-            accessibilityLabel={`Pomeni ${member.profile.displayName}`}
+            style={styles.row}
+            icon={
+              <Avatar
+                name={member.profile.displayName}
+                uri={member.profile.avatarUrl ?? null}
+                size={28}
+              />
+            }
+            title={member.profile.displayName}
             onPress={() => onSelect(member)}
-            style={({ pressed }) => [
-              styles.row,
-              pressed && { backgroundColor: colors.muted },
-            ]}>
-            <Avatar
-              name={member.profile.displayName}
-              uri={member.profile.avatarUrl ?? null}
-              size={28}
-            />
-            <Text
-              numberOfLines={1}
-              style={[styles.name, { color: colors.foreground }]}>
-              {member.profile.displayName}
-            </Text>
-          </Pressable>
+            showChevron={false}
+            accessibilityLabel={`Pomeni ${member.profile.displayName}`}
+          />
         ))}
       </ScrollView>
     </View>
@@ -64,15 +60,8 @@ const styles = StyleSheet.create({
     maxHeight: 196,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 10,
     paddingHorizontal: 12,
     minHeight: 44,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-    flexShrink: 1,
   },
 });

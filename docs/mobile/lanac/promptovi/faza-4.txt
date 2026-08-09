@@ -1,0 +1,22 @@
+Radiš na Devotion monorepou. Sve na srpskom. Nenadzirano izvršavanje.
+
+Napravi mobilne pandane ekranima koje web ima a mobilni nema. Za svaki PRVO
+pročitaj web verziju, pa odluči da li ima smisla na telefonu — ako nema, napiši
+to u docs/mobile/02-EKRANI.md kao IZUZETAK sa razlogom, umesto da praviš nešto
+što niko neće otvoriti. Bolje pet dobrih nego sedam praznih.
+
+Redom, commit posle svakog:
+1. home-view.tsx / command-center-view.tsx -> početni pregled. Odluči: proširuješ
+   „Danas" ili praviš nov ekran? Obrazloži odluku u commit poruci.
+2. area-briefing-dock.tsx  -> brifing oblasti
+3. workload-strip.tsx      -> opterećenje tima
+4. page-relations.tsx      -> veze između stranica
+5. workspace-history.tsx   -> istorija kretanja
+6. profile-dialog.tsx      -> profil
+7. idea-discussion-dialog.tsx -> diskusija na ideji
+
+Sve native, bez WebView-a, sa primitivima iz apps/mobile/src/components/ui.
+Svaki novi red kroz components/ui/row.tsx. Tekst min 16px osim meta.
+Nijedna nova backend funkcija — ako fali podatak, zapiši u ZA-POPRAVKU.md.
+
+Na kraju: npm run check.

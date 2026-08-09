@@ -109,24 +109,25 @@ function IdeaRow({
   };
 
   const title = (idea.title ?? '').trim() || 'Ideja';
+  // Kartica je namerno nedodirljiva (View, ne Pressable): na telefonu nema ekrana
+  // detalja ideje — čita se u listi, uređuje u canvas prikazu. Bez pressed efekta
+  // da ne izgleda tapljivo (rn-review). Glasanje ide preko dva dugmeta u podnožju.
   return (
     <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {title}
+      <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
+        {title}
+      </Text>
+      {idea.text.trim() ? (
+        <Text numberOfLines={2} style={[styles.rowText, { color: colors.mutedForeground }]}>
+          {idea.text.trim()}
         </Text>
-        {idea.text.trim() ? (
-          <Text numberOfLines={2} style={[styles.rowText, { color: colors.mutedForeground }]}>
-            {idea.text.trim()}
-          </Text>
-        ) : null}
-        {idea.author ? (
-          <Text style={[styles.rowAuthor, { color: colors.mutedForeground }]}>
-            {idea.author.displayName}
-          </Text>
-        ) : null}
-      </View>
-      <View style={styles.voteCol}>
+      ) : null}
+      {idea.author ? (
+        <Text style={[styles.rowAuthor, { color: colors.mutedForeground }]}>
+          {idea.author.displayName}
+        </Text>
+      ) : null}
+      <View style={styles.voteRow}>
         <VotePill
           icon={<ThumbsUp size={16} color={idea.userVote === 'up' ? colors.successForeground : colors.foreground} />}
           count={idea.upvotes}
@@ -284,17 +285,12 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 10,
   },
+  // Kartica je kolona: naslov → tekst → autor → red glasova u podnožju.
   row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+    gap: 4,
     padding: 14,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  rowBody: {
-    flex: 1,
-    gap: 4,
   },
   rowTitle: {
     fontSize: 16,
@@ -309,10 +305,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 2,
   },
-  voteCol: {
+  // Oba glasa u horizontalnom podnožju — svaki puni pola širine (uvek vidljivi).
+  voteRow: {
+    flexDirection: 'row',
     gap: 8,
+    marginTop: 8,
   },
   pill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

@@ -1,4 +1,3 @@
-import { Check } from 'lucide-react-native';
 import {
   Modal,
   Pressable,
@@ -9,11 +8,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar } from '@/components/ui/avatar';
+import { OptionChip } from '@/components/ui/option-chip';
+import {
+  AssigneePickerList,
+  assigneeCountLabel,
+  assigneeLimitHint,
+} from '@/components/zadatak/assignee-picker';
 import { dueDayDiff } from '@/lib/deadline';
 import {
   dueDateInDays,
-  MAX_TASK_ASSIGNEES,
   priorityColor,
   statusColor,
   TASK_PRIORITY_META,
@@ -89,9 +92,9 @@ export function TaskActionsSheet({
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
-  const assignedIds = new Set(assignees.map((a) => a.profileId));
+  const assigneeIds = assignees.map((a) => a.profileId);
+  const assignedIds = new Set(assigneeIds);
   const isSelfAssigned = currentProfileId !== null && assignedIds.has(currentProfileId);
-  const atAssigneeLimit = assignedIds.size >= MAX_TASK_ASSIGNEES;
 
   const dueDayDiffValue =
     task && task.dueDate !== null ? dueDayDiff(task.dueDate, now) : null;
@@ -99,16 +102,6 @@ export function TaskActionsSheet({
     if (!task) return false;
     if (preset.days === null) return task.dueDate === null;
     return dueDayDiffValue === preset.days;
-  };
-
-  const toggleMember = (profileId: Id<'profiles'>) => {
-    const next = new Set(assignedIds);
-    if (next.has(profileId)) next.delete(profileId);
-    else {
-      if (next.size >= MAX_TASK_ASSIGNEES) return; // klijentska brana pre server errora
-      next.add(profileId);
-    }
-    onSetAssignees([...next]);
   };
 
   return (
@@ -142,7 +135,6 @@ export function TaskActionsSheet({
                     active={task.taskStatus === status}
                     disabled={!canChangeStatus}
                     onPress={() => onStatus(status)}
-                    colors={colors}
                   />
                 ))}
               </View>
@@ -163,7 +155,6 @@ export function TaskActionsSheet({
                         active={(task.taskPriority ?? 'medium') === priority}
                         disabled={!canEditAll}
                         onPress={() => onPriority(priority)}
-                        colors={colors}
                       />
                     ))}
                   </View>
@@ -183,65 +174,21 @@ export function TaskActionsSheet({
                         onPress={() =>
                           onDue(preset.days === null ? null : dueDateInDays(preset.days))
                         }
-                        colors={colors}
                       />
                     ))}
                   </View>
                 </Section>
 
                 <Section
-                  label={
-                    canEditAll
-                      ? `Izvršioci  ${assignedIds.size}/${MAX_TASK_ASSIGNEES}`
-                      : 'Izvršioci'
-                  }
-                  hint={
-                    canEditAll && atAssigneeLimit
-                      ? `Dostignut maksimum od ${MAX_TASK_ASSIGNEES} izvršilaca.`
-                      : undefined
-                  }
+                  label={canEditAll ? assigneeCountLabel(assignedIds.size) : 'Izvršioci'}
+                  hint={canEditAll ? assigneeLimitHint(assignedIds.size) : undefined}
                   colors={colors}>
-                  {canEditAll && members === undefined ? (
-                    <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-                      Učitavanje članova…
-                    </Text>
-                  ) : canEditAll && members && members.length === 0 ? (
-                    <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-                      Nema članova u ovom startupu.
-                    </Text>
-                  ) : canEditAll && members ? (
-                    <View style={styles.members}>
-                      {members.map((member) => {
-                        const active = assignedIds.has(member.profile._id);
-                        const memberDisabled = !active && atAssigneeLimit;
-                        return (
-                          <Pressable
-                            key={member.membershipId}
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: active, disabled: memberDisabled }}
-                            accessibilityLabel={member.profile.displayName}
-                            disabled={memberDisabled}
-                            onPress={() => toggleMember(member.profile._id)}
-                            style={({ pressed }) => [
-                              styles.memberRow,
-                              memberDisabled && { opacity: 0.4 },
-                              pressed && !memberDisabled && { backgroundColor: colors.muted },
-                            ]}>
-                            <Avatar
-                              name={member.profile.displayName}
-                              uri={member.profile.avatarUrl}
-                              size={32}
-                            />
-                            <Text
-                              numberOfLines={1}
-                              style={[styles.memberName, { color: colors.foreground }]}>
-                              {member.profile.displayName}
-                            </Text>
-                            {active ? <Check size={18} color={colors.primary} /> : null}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                  {canEditAll ? (
+                    <AssigneePickerList
+                      members={members}
+                      selectedIds={assigneeIds}
+                      onChange={onSetAssignees}
+                    />
                   ) : (
                     <Pressable
                       accessibilityRole="button"
@@ -283,48 +230,6 @@ function Section({
       {children}
       {hint ? <Text style={[styles.hint, { color: colors.mutedForeground }]}>{hint}</Text> : null}
     </View>
-  );
-}
-
-function OptionChip({
-  label,
-  dotColor,
-  active,
-  disabled,
-  onPress,
-  colors,
-}: {
-  label: string;
-  dotColor?: string;
-  active: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-  colors: ColorTokens;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: active, disabled }}
-      accessibilityLabel={label}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        {
-          backgroundColor: active ? colors.accent : colors.secondary,
-          borderColor: active ? colors.primary : 'transparent',
-          opacity: disabled ? 0.4 : pressed ? 0.85 : 1,
-        },
-      ]}>
-      {dotColor ? <View style={[styles.chipDot, { backgroundColor: dotColor }]} /> : null}
-      <Text
-        style={[
-          styles.chipLabel,
-          { color: active ? colors.accentForeground : colors.foreground },
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -380,39 +285,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  chipDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  chipLabel: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  members: {
-    gap: 2,
-  },
-  memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: MIN_TOUCH_TARGET + 4,
-    paddingHorizontal: 8,
-    borderRadius: radius.md,
-  },
-  memberName: {
-    flex: 1,
-    fontSize: 16,
   },
   selfRow: {
     minHeight: MIN_TOUCH_TARGET,

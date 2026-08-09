@@ -122,6 +122,8 @@ const styles = StyleSheet.create({
   group: {
     flexDirection: 'row',
     gap: 8,
+    // Ikonice su fiksne 44pt dodirne mete — nikad se ne skupljaju.
+    flexShrink: 0,
   },
   railIcon: {
     width: MIN_TOUCH_TARGET,
@@ -138,9 +140,16 @@ const styles = StyleSheet.create({
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 16,
     borderRadius: radius.md,
+    // U RN je podrazumevani `flexShrink` 0, pa bi se dugme na uskom ekranu (360dp) ili
+    // uz uvećan sistemski font prelilo VAN ekrana umesto da se skrati — deo dodirne
+    // mete bi tada bio nedodirljiv. `minWidth: 0` je uslov da `numberOfLines={1}`
+    // na labeli uopšte pređe u eliptiranje.
+    flexShrink: 1,
+    minWidth: 0,
   },
   createLabel: {
     fontSize: 16,
     fontWeight: fontWeight.semibold,
+    flexShrink: 1,
   },
 });

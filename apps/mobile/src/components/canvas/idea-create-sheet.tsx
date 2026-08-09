@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -20,7 +21,9 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius } from '@/theme/tokens';
 
 const MAX_TITLE = 120;
-const MAX_TEXT = 2000;
+// Isto ograničenje kao na serveru (`cleanRequiredText(..., 12000)`) i kao u
+// `ThoughtCreateSheet` — ranije je 2000 tiho sekao duži unos.
+const MAX_TEXT = 12_000;
 
 /**
  * Kreiranje nove ideje iz canvas rail-a (M4.3). Native unos naslova + teksta →
@@ -50,8 +53,10 @@ export function IdeaCreateSheet({
   const submit = async () => {
     const cleanTitle = title.trim();
     const cleanText = text.trim();
-    if (!cleanTitle && !cleanText) {
-      Alert.alert('Prazna ideja', 'Unesi bar naslov ili tekst.');
+    // `ideas.create` traži OBA polja (`cleanRequiredText` baca na prazan string), pa se
+    // ovde proverava isto — ranije je sheet puštao samo naslov i mutacija je pucala.
+    if (!cleanTitle || !cleanText) {
+      Alert.alert('Nepotpuna ideja', 'Unesi i naslov i opis.');
       return;
     }
     setBusy(true);
@@ -80,35 +85,40 @@ export function IdeaCreateSheet({
             styles.sheet,
             { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insets.bottom + 12 },
           ]}>
-          <Text style={[styles.heading, { color: colors.foreground }]}>Nova ideja</Text>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            autoFocus
-            maxLength={MAX_TITLE}
-            placeholder="Naslov"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
-          />
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            multiline
-            maxLength={MAX_TEXT}
-            placeholder="Opis (opciono)"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[
-              styles.input,
-              styles.multiline,
-              { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
-            ]}
-          />
-          <View style={styles.actions}>
-            <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
-            <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
-          </View>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled">
+            <Text style={[styles.heading, { color: colors.foreground }]}>Nova ideja</Text>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              autoFocus
+              maxLength={MAX_TITLE}
+              placeholder="Naslov"
+              placeholderTextColor={colors.mutedForeground}
+              selectionColor={colors.primary}
+              style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input }]}
+            />
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              multiline
+              maxLength={MAX_TEXT}
+              placeholder="Opis"
+              placeholderTextColor={colors.mutedForeground}
+              selectionColor={colors.primary}
+              style={[
+                styles.input,
+                styles.multiline,
+                { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+              ]}
+            />
+            <View style={styles.actions}>
+              <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
+              <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
+            </View>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -134,6 +144,15 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 16,
     paddingHorizontal: 20,
+    // Ograniči visinu i skroluj sadržaj: na niskom ekranu (i u landscape-u, koji canvas
+    // ekran podržava) sa otvorenom tastaturom dugmad inače ostanu van vidljivog dela.
+    // Isti obrazac kao `thought-create-sheet.tsx` i `page-create-sheet.tsx`.
+    maxHeight: '85%',
+  },
+  scroll: {
+    flexGrow: 0,
+  },
+  content: {
     gap: 10,
   },
   heading: {

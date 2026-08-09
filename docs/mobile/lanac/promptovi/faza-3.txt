@@ -1,0 +1,67 @@
+Radiš na Devotion monorepou (apps/web Next.js, apps/mobile Expo, packages/backend Convex).
+Sve na srpskom. Ne pitaj — odlučuj i radi. Ovo je nenadzirano izvršavanje.
+
+Mobilni može da napravi stranicu samo sa naslovom i vrstom, i ne može da je
+premesti, ugnjezdi, izdvoji ni poveže. Web sve to ima. Sve backend mutacije već
+postoje — ne dodaje se nijedna nova.
+
+Prvo tri repa iz prethodne faze (tačka 0), pa paritet (tačke 1-5).
+
+0.A UKLONI PRIVREMENU DIJAGNOSTIKU.
+    apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx: funkcija logDiag i svih
+    šest poziva sa `probe:` ("auth", "render", tri "view"). Ne diraj postNative —
+    on nosi pravi protokol (node:open, selection).
+    apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:191: console.log dijagnostike i
+    granu za {type:"debug"} u onMessage ako ostane bez svrhe.
+
+0.B ZAPIŠI DIJAGNOZU u docs/mobile/ZA-POPRAVKU.md, sekcija „Naučene zamke", kao Z3.
+    Sadržaj: insertWorkspacePage je upisivao placement na (0,0) bezuslovno; web put
+    (areasV2.createPage) je maskirao kvar jer posle inserta prepiše poziciju kroz
+    upsertPlacement, pa se videlo samo na direktnim pozivaocima (pages.create sa
+    mobilnog kanvasa, konverzija misli). Pravilo: svaki novi put ka
+    insertWorkspacePage MORA da prođe kroz canvasPlacement.getAvailableCanvasPosition.
+    Četiri-pet rečenica, isti ton kao Z1 i Z2.
+
+1. PROŠIRI apps/mobile/src/components/canvas/page-create-sheet.tsx ZA kind === 'task'.
+   Sada šalje samo {startupId, areaId, parentPageId, kind, title}. pages.create već
+   prima taskStatus, taskPriority, assigneeProfileIds, dueDate, instructions,
+   checkpoints. Uzor: apps/web/components/workspace/create-page-dialog.tsx.
+   Ne pravi formular preko celog ekrana. Naslov i vrsta ostaju odmah vidljivi;
+   status, prioritet, izvršioci, rok, instrukcije i checkpointi idu iza reda
+   „Više opcija" koji se razvija. Za kind === 'note' ostaje kao sada.
+
+2. KREIRANJE OBLASTI. Mutacija je startups.createArea. Preslikaj
+   apps/web/components/workspace/create-area-dialog.tsx kao bottom sheet.
+   Ulaz: Prostor, pored liste oblasti.
+
+3. IZBOR IZVRŠILACA KAO DELJENA KOMPONENTA.
+   apps/mobile/src/components/danas/task-actions-sheet.tsx već ima logiku izbora
+   članova sa MAX_TASK_ASSIGNEES granicom. Izvuci je u samostalan AssigneePicker
+   sheet i koristi je na oba mesta: pri kreiranju (tačka 1) i u detalju zadatka.
+   Ne duplirati logiku granice.
+
+4. ORGANIZACIJA STRANICE — četiri akcije kojih mobilni uopšte nema. Dodaj ih kao
+   akcije u sheet-u stranice (dugme „…" u zaglavlju stranice):
+   - Premesti u oblast   -> areasV2.movePage      (uzor move-to-area-menu.tsx)
+   - Ugnjezdi pod…       -> areasV2.requestNesting (uzor nesting-target-menu.tsx)
+   - Izdvoji             -> areasV2.detachPage     (uzor detach-page-button.tsx)
+   - Poveži sa…          -> areasV2.createRelation (uzor notes/note-link-dialog.tsx)
+   Ugnježdavanje ide kroz odobrenje — posle poziva prikaži da čeka odobrenje.
+   Svaka akcija: busy lock, potvrda za destruktivne, greška kroz isti obrazac kao
+   ostatak aplikacije.
+
+5. HIJERARHIJA U PROSTORU.
+   prostor.tsx sada prikazuje ravnu listu vrhova. Web page-tree.tsx pokazuje stablo.
+   Napravi isto: red se može razviti, deca se uvlače, stanje razvijenosti se pamti
+   dok si na ekranu. Decu dohvati tek kad se red razvije.
+
+PRAVILA:
+- Nijedna nova backend mutacija. Ako ti nešto fali, stani i napiši u
+  docs/mobile/ZA-POPRAVKU.md umesto da izmišljaš.
+- Tekst minimum 16px, osim pravog meta-teksta (badge, vreme).
+- Svaki novi red koristi apps/mobile/src/components/ui/row.tsx — ne piši nove
+  flexDirection:'row' blokove ručno.
+- Ako menjaš apps/mobile/package.json, dodaj red o tome u docs/mobile/lanac/NATIVE-BUILD.md
+  (napravi fajl ako ne postoji) — to znači da ujutru treba nov native build.
+
+Na kraju: npm run check. Popravi sve što padne.

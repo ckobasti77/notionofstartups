@@ -27,6 +27,7 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -708,22 +709,26 @@ function IdeaRow({
   first?: boolean;
 }) {
   return (
-    <View
+    <Row
+      title={label}
+      accessibilityLabel={`${label}: ${trend.current}`}
+      showChevron={false}
       style={[
         styles.ideaRow,
         !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-      ]}>
-      <View style={[styles.areaIcon, { backgroundColor: `${tint}22` }]}>
-        <Icon size={16} color={tint} />
-      </View>
-      <Text style={[styles.ideaLabel, { color: colors.foreground }]} numberOfLines={1}>
-        {label}
-      </Text>
-      <View style={styles.ideaRight}>
-        <Text style={[styles.ideaValue, { color: colors.foreground }]}>{trend.current}</Text>
-        {!hideTrend ? <TrendLine colors={colors} trend={trend} upIsGood /> : null}
-      </View>
-    </View>
+      ]}
+      icon={
+        <View style={[styles.areaIcon, { backgroundColor: `${tint}22` }]}>
+          <Icon size={16} color={tint} />
+        </View>
+      }
+      value={
+        <View style={styles.ideaRight}>
+          <Text style={[styles.ideaValue, { color: colors.foreground }]}>{trend.current}</Text>
+          {!hideTrend ? <TrendLine colors={colors} trend={trend} upIsGood /> : null}
+        </View>
+      }
+    />
   );
 }
 
@@ -1077,17 +1082,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 1,
   },
-  // Ideje
+  // Ideje — red kao `Row` override (raspored i naslov dolaze iz Row.base).
   ideaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    padding: space[3],
-  },
-  ideaLabel: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: fontWeight.medium,
+    paddingHorizontal: space[3],
+    paddingVertical: space[3],
   },
   ideaRight: {
     alignItems: 'flex-end',

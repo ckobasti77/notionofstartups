@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, type ViewProps } from 'react-native';
 
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { radius, text, type ColorTokens } from '@/theme/tokens';
 
 export type BadgeVariant =
   | 'default'
@@ -18,9 +18,9 @@ export type BadgeProps = ViewProps & {
 function badgeColors(colors: ColorTokens, variant: BadgeVariant) {
   switch (variant) {
     case 'secondary':
-      return { bg: colors.secondary, fg: colors.secondaryForeground, border: 'transparent' };
+      return { bg: colors.surfaceRaised, fg: colors.foreground, border: 'transparent' };
     case 'destructive':
-      return { bg: colors.destructive, fg: colors.destructiveForeground, border: 'transparent' };
+      return { bg: colors.danger, fg: colors.destructiveForeground, border: 'transparent' };
     case 'success':
       return { bg: colors.success, fg: colors.successForeground, border: 'transparent' };
     case 'outline':
@@ -61,11 +61,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: radius.full,
+    borderRadius: radius.pill,
   },
   text: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: fontWeight.semibold,
+    ...text.meta,
   },
 });

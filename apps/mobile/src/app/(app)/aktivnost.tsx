@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -129,23 +130,22 @@ export default function AktivnostScreen() {
 function ActivityRow({ item, colors }: { item: ActivityItem; colors: ColorTokens }) {
   const { Icon, tint } = actionVisual(item.action, colors);
   return (
-    <View style={styles.row}>
-      <View style={[styles.rowIcon, { backgroundColor: `${tint}22` }]}>
-        <Icon size={16} color={tint} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text style={[styles.rowTitle, { color: colors.foreground }]} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={[styles.rowSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-          {item.detail ? `${item.detail} · ` : ''}
-          {formatActivityTime(item.createdAt)}
-        </Text>
-      </View>
-      {item.actor ? (
-        <Avatar name={item.actor.displayName} uri={item.actor.avatarUrl} size={28} />
-      ) : null}
-    </View>
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.rowIcon, { backgroundColor: `${tint}22` }]}>
+          <Icon size={16} color={tint} />
+        </View>
+      }
+      title={item.title}
+      titleNumberOfLines={2}
+      subtitle={`${item.detail ? `${item.detail} · ` : ''}${formatActivityTime(item.createdAt)}`}
+      value={
+        item.actor ? (
+          <Avatar name={item.actor.displayName} uri={item.actor.avatarUrl} size={28} />
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -246,11 +246,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: space[3],
     minHeight: 60,
     paddingVertical: space[2],
+    // Horizontalni razmak nosi lista (listContent), pa red poništava podrazumevani
+    // paddingHorizontal iz <Row> da se ne dupla uvlačenje.
+    paddingHorizontal: 0,
   },
   rowIcon: {
     width: 32,
@@ -258,19 +259,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  rowBody: {
-    flex: 1,
-    gap: 2,
-  },
-  rowTitle: {
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: fontWeight.semibold,
-  },
-  rowSub: {
-    fontSize: 13,
-    lineHeight: 18,
   },
   footer: {
     paddingVertical: space[4],

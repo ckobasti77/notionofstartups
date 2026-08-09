@@ -28,6 +28,7 @@ import {
 
 import { MentionAutocomplete } from '@/components/chat/mention-autocomplete';
 import { VoiceRecorder, type RecordedVoice } from '@/components/chat/voice-recorder';
+import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import {
@@ -496,20 +497,13 @@ function AttachMenu({
           },
         ]}>
         {options.map((option) => (
-          <Pressable
+          <Row
             key={option.key}
-            accessibilityRole="button"
-            accessibilityLabel={option.label}
+            icon={option.icon}
+            title={option.label}
             onPress={option.onPress}
-            style={({ pressed }) => [
-              styles.attachRow,
-              pressed && { backgroundColor: colors.muted },
-            ]}>
-            {option.icon}
-            <Text style={[styles.attachLabel, { color: colors.foreground }]}>
-              {option.label}
-            </Text>
-          </Pressable>
+            showChevron={false}
+          />
         ))}
       </View>
     </Modal>
@@ -589,16 +583,5 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius['2xl'],
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 8,
-  },
-  attachRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    minHeight: MIN_TOUCH_TARGET + 4,
-    paddingHorizontal: 20,
-  },
-  attachLabel: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
   },
 });

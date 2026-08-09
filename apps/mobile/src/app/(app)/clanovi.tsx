@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -61,19 +62,13 @@ export default function ClanoviScreen() {
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}>
           {(members ?? []).map((member) => (
-            <View
+            <Row
               key={member.membershipId}
-              style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Avatar name={member.profile.displayName} uri={member.profile.avatarUrl} size={40} />
-              <View style={styles.body}>
-                <Text numberOfLines={1} style={[styles.name, { color: colors.foreground }]}>
-                  {member.profile.displayName}
-                </Text>
-                <Text numberOfLines={1} style={[styles.email, { color: colors.mutedForeground }]}>
-                  {member.profile.email}
-                </Text>
-              </View>
-            </View>
+              style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+              icon={<Avatar name={member.profile.displayName} uri={member.profile.avatarUrl} size={40} />}
+              title={member.profile.displayName}
+              subtitle={member.profile.email}
+            />
           ))}
           {capped ? (
             <Text style={[styles.cappedNote, { color: colors.mutedForeground }]}>
@@ -156,24 +151,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
     padding: 12,
     minHeight: 60,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  body: {
-    flex: 1,
-    gap: 2,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  email: {
-    fontSize: 16,
   },
   cappedNote: {
     fontSize: 16,

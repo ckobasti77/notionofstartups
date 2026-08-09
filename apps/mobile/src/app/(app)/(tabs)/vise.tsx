@@ -5,12 +5,12 @@ import {
   Bell,
   Brain,
   ChartColumn,
-  ChevronRight,
   FlaskConical,
   Lightbulb,
   Mail,
   Monitor,
   Moon,
+  Palette,
   Settings,
   Sun,
   Users,
@@ -24,6 +24,7 @@ import { TabScreen } from '@/components/tab-screen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
@@ -153,44 +154,39 @@ export default function ViseScreen() {
               const topBorder =
                 itemIndex > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border };
 
-              // Stavka bez ekrana: nedodirljiva (View, ne Pressable), prigušena,
-              // bez chevron-a, sa oznakom „uskoro" — da izgleda tačno onako kako se
-              // ponaša (rn-review: mrtva stavka u meniju).
+              // Stavka bez ekrana: `disabled` Row — prigušen, bez chevron-a, bez
+              // pressed efekta, sa oznakom „uskoro" (rn-review: mrtva stavka u meniju).
               if (item.soon) {
                 return (
-                  <View
+                  <Row
                     key={item.label}
-                    accessibilityRole="text"
+                    disabled
+                    icon={<Icon size={20} color={colors.mutedForeground} />}
+                    title={item.label}
+                    value={
+                      <View style={[styles.soonPill, { backgroundColor: colors.muted }]}>
+                        <Text style={[styles.soonText, { color: colors.mutedForeground }]}>uskoro</Text>
+                      </View>
+                    }
                     accessibilityLabel={`${item.label} — uskoro, nedostupno`}
-                    style={[styles.row, topBorder, styles.rowDisabled]}>
-                    <Icon size={20} color={colors.mutedForeground} />
-                    <Text style={[styles.rowLabel, { color: colors.mutedForeground }]}>{item.label}</Text>
-                    <View style={[styles.soonPill, { backgroundColor: colors.muted }]}>
-                      <Text style={[styles.soonText, { color: colors.mutedForeground }]}>uskoro</Text>
-                    </View>
-                  </View>
+                    style={topBorder || undefined}
+                  />
                 );
               }
 
               return (
-                <Pressable
+                <Row
                   key={item.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
+                  icon={<Icon size={20} color={colors.foreground} />}
+                  title={item.label}
+                  value={badge ? <Badge label={badge} variant="destructive" /> : undefined}
                   onPress={() => {
                     if (item.label === 'Misli') openThoughts();
                     else if (item.route) router.push(item.route);
                   }}
-                  style={({ pressed }) => [
-                    styles.row,
-                    topBorder,
-                    pressed && { backgroundColor: colors.muted },
-                  ]}>
-                  <Icon size={20} color={colors.foreground} />
-                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>{item.label}</Text>
-                  {badge ? <Badge label={badge} variant="destructive" /> : null}
-                  <ChevronRight size={18} color={colors.mutedForeground} />
-                </Pressable>
+                  accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
+                  style={topBorder || undefined}
+                />
               );
             })}
           </Card>
@@ -200,7 +196,7 @@ export default function ViseScreen() {
             Izbriši ovaj blok (i rutu `editor-spike` + ekran) posle merenja. */}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Editor spike (merenje)"
+          accessibilityLabel="Editor proba (merenje)"
           onPress={() => {
             const spikeRoute: string = '/editor-spike';
             router.push(spikeRoute as AppRoute);
@@ -212,9 +208,30 @@ export default function ViseScreen() {
           ]}>
           <FlaskConical size={18} color={colors.mutedForeground} />
           <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
-            Editor spike (merenje)
+            Editor proba (merenje)
           </Text>
         </Pressable>
+
+        {/* Dizajn katalog — samo u dev buildu. Privremeno tokom redizajna. */}
+        {__DEV__ ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dizajn katalog (dev)"
+            onPress={() => {
+              const route: string = '/dizajn-katalog';
+              router.push(route as AppRoute);
+            }}
+            style={({ pressed }) => [
+              styles.spike,
+              { borderColor: colors.border },
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <Palette size={18} color={colors.mutedForeground} />
+            <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
+              Dizajn katalog (dev)
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Button
           label="Odjavi se"
@@ -269,22 +286,6 @@ const styles = StyleSheet.create({
     padding: 0,
     gap: 0,
     overflow: 'hidden',
-  },
-  row: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  rowDisabled: {
-    opacity: 0.5,
-  },
-  rowLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
   },
   soonPill: {
     paddingHorizontal: 10,

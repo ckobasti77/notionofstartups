@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import { ChevronRight, MessagesSquare, Send, X } from 'lucide-react-native';
+import { MessagesSquare, Send, X } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   Alert,
@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Input } from '@/components/ui/input';
+import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -69,44 +70,31 @@ export function DiscussionLink({
   return (
     <>
       {channel ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Diskusija, ${channel.messageCount} ${porukaWord(channel.messageCount)}`}
+        <Row
+          style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+          icon={
+            <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}17` }]}>
+              <MessagesSquare size={18} color={colors.primary} />
+            </View>
+          }
+          title="Diskusija"
+          subtitle={`${channel.messageCount} ${porukaWord(channel.messageCount)}`}
           onPress={() => router.push({ pathname: '/razgovor/[id]', params: { id: channel._id } })}
-          style={({ pressed }) => [
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
-          ]}>
-          <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}17` }]}>
-            <MessagesSquare size={18} color={colors.primary} />
-          </View>
-          <View style={styles.textWrap}>
-            <Text style={[styles.title, { color: colors.foreground }]}>Diskusija</Text>
-            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              {channel.messageCount} {porukaWord(channel.messageCount)}
-            </Text>
-          </View>
-          <ChevronRight size={20} color={colors.mutedForeground} />
-        </Pressable>
+          accessibilityLabel={`Diskusija, ${channel.messageCount} ${porukaWord(channel.messageCount)}`}
+        />
       ) : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Započni diskusiju"
+        <Row
+          style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+          icon={
+            <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}17` }]}>
+              <MessagesSquare size={18} color={colors.primary} />
+            </View>
+          }
+          title="Započni diskusiju"
+          subtitle="Otvori razgovor tima o ovom zadatku."
           onPress={() => setComposerOpen(true)}
-          style={({ pressed }) => [
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
-          ]}>
-          <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}17` }]}>
-            <MessagesSquare size={18} color={colors.primary} />
-          </View>
-          <View style={styles.textWrap}>
-            <Text style={[styles.title, { color: colors.foreground }]}>Započni diskusiju</Text>
-            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              Otvori razgovor tima o ovom zadatku.
-            </Text>
-          </View>
-        </Pressable>
+          showChevron={false}
+        />
       )}
 
       <Modal
@@ -219,17 +207,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  textWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: fontWeight.bold,
-  },
-  subtitle: {
-    fontSize: 13,
   },
   backdrop: {
     position: 'absolute',

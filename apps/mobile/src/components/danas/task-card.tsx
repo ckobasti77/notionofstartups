@@ -9,6 +9,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
+import { Pill } from '@/components/ui';
 import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
@@ -141,19 +142,17 @@ export function TaskCard({
                 opacity: pressed ? 0.92 : 1,
               },
             ]}>
-            <View style={styles.main}>
-              <Text numberOfLines={2} style={[styles.title, { color: colors.foreground }]}>
+            <View style={styles.titleRow}>
+              <Text numberOfLines={1} style={[styles.title, { color: colors.foreground }]}>
                 {task.title}
               </Text>
-              <View style={styles.meta}>
-                <PriorityDot priority={task.taskPriority} />
-                <Text numberOfLines={1} style={[styles.area, { color: colors.mutedForeground }]}>
-                  {areaLabel}
-                </Text>
-                <DeadlineBadge dueDate={task.dueDate} taskStatus={task.taskStatus} now={now} />
-              </View>
+              <AssigneeStack assignees={assignees} />
             </View>
-            <AssigneeStack assignees={assignees} />
+            <View style={styles.meta}>
+              <Pill tone="neutral" label={areaLabel} />
+              <DeadlineBadge dueDate={task.dueDate} taskStatus={task.taskStatus} now={now} />
+              <PriorityDot priority={task.taskPriority} showLabel />
+            </View>
           </Pressable>
         </Animated.View>
       </GestureDetector>
@@ -193,20 +192,21 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    flexDirection: 'column',
+    gap: 8,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: 14,
     paddingHorizontal: 16,
     minHeight: 64,
   },
-  main: {
-    flex: 1,
-    gap: 8,
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   title: {
+    flex: 1,
     fontSize: 16,
     lineHeight: 21,
     fontWeight: fontWeight.semibold,
@@ -216,9 +216,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     flexWrap: 'wrap',
-  },
-  area: {
-    fontSize: 13,
-    flexShrink: 1,
   },
 });

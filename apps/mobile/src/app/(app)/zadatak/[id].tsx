@@ -1,6 +1,15 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, ChevronRight, ClipboardX, TriangleAlert } from 'lucide-react-native';
+import {
+  CalendarDays,
+  ChevronLeft,
+  CircleDot,
+  ClipboardX,
+  Ellipsis,
+  Flag,
+  TriangleAlert,
+  Users,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -21,15 +30,20 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
 import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { PageActionsSheet } from '@/components/stranica/page-actions-sheet';
+import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
+import { Row } from '@/components/ui/row';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import {
   formatShortDate,
   statusColor,
+  TASK_PRIORITY_META,
   TASK_STATUS_META,
   type TaskPriority,
   type TaskStatus,
@@ -52,6 +66,12 @@ export default function ZadatakScreen() {
   const insets = useSafeAreaInsets();
   const [now] = useState(() => Date.now());
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Izvršioci imaju svoj sheet (deljen sa kreiranjem zadatka) — duža lista članova
+  // ne mora da deli prostor sa statusom/prioritetom/rokom.
+  const [assigneesOpen, setAssigneesOpen] = useState(false);
+  // Zadatak je `pages` dokument kao i stranica, pa deli isti „…" sheet
+  // (premesti / ugnjezdi / izdvoji / poveži) — web mu nudi iste akcije.
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
 
   const page = useQuery(api.pages.get, { pageId });
@@ -132,6 +152,7 @@ export default function ZadatakScreen() {
           onBack={() => router.back()}
           colors={colors}
           onMeasure={setHeaderHeight}
+          onOpenActions={() => setActionsOpen(true)}
         />
 
         <KeyboardAvoidingView
@@ -146,36 +167,78 @@ export default function ZadatakScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <MetaRow label="Status" onPress={openSheet} colors={colors}>
-              <View style={styles.statusValue}>
-                <View style={[styles.statusDot, { backgroundColor: statusColor(colors, status) }]} />
-                <Text style={[styles.valueText, { color: colors.foreground }]}>
-                  {TASK_STATUS_META[status].label}
-                </Text>
-              </View>
-            </MetaRow>
-            <Divider colors={colors} />
-            <MetaRow label="Prioritet" onPress={openSheet} colors={colors}>
-              <PriorityDot priority={page.taskPriority} showLabel />
-            </MetaRow>
-            <Divider colors={colors} />
-            <MetaRow label="Rok" onPress={openSheet} colors={colors}>
-              {page.dueDate === null ? (
-                <Text style={[styles.valueText, { color: colors.mutedForeground }]}>Bez roka</Text>
-              ) : (
-                <View style={styles.rokValue}>
-                  <Text style={[styles.valueText, { color: colors.foreground }]}>
-                    {formatShortDate(page.dueDate)}
-                  </Text>
-                  <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
-                </View>
-              )}
-            </MetaRow>
-            <Divider colors={colors} />
-            <MetaRow label="Izvršioci" onPress={openSheet} colors={colors}>
-              <AssigneeStack assignees={assigneeList} max={5} />
-            </MetaRow>
-          </View>
+              <Row
+                variant="value"
+                title="Status"
+                onPress={openSheet}
+                accessibilityLabel={`Izmeni status, trenutno ${TASK_STATUS_META[status].label}`}
+                style={styles.metaRow}
+                icon={<CircleDot size={20} color={colors.mutedForeground} />}
+                value={
+                  <View style={styles.statusValue}>
+                    <View style={[styles.statusDot, { backgroundColor: statusColor(colors, status) }]} />
+                    <Text style={[styles.valueText, { color: colors.foreground }]}>
+                      {TASK_STATUS_META[status].label}
+                    </Text>
+                  </View>
+                }
+              />
+              <Divider colors={colors} />
+              <Row
+                variant="value"
+                title="Prioritet"
+                onPress={openSheet}
+                accessibilityLabel={`Izmeni prioritet, trenutno ${TASK_PRIORITY_META[page.taskPriority ?? 'medium'].label}`}
+                style={styles.metaRow}
+                icon={<Flag size={20} color={colors.mutedForeground} />}
+                value={<PriorityDot priority={page.taskPriority} showLabel />}
+              />
+              <Divider colors={colors} />
+              <Row
+                variant="value"
+                title="Rok"
+                onPress={openSheet}
+                accessibilityLabel={`Izmeni rok, trenutno ${
+                  page.dueDate === null ? 'bez roka' : formatShortDate(page.dueDate)
+                }`}
+                style={styles.metaRow}
+                icon={<CalendarDays size={20} color={colors.mutedForeground} />}
+                value={
+                  page.dueDate === null ? (
+                    <Text style={[styles.valueText, { color: colors.mutedForeground }]}>Bez roka</Text>
+                  ) : (
+                    <View style={styles.rokValue}>
+                      <Text style={[styles.valueText, { color: colors.foreground }]}>
+                        {formatShortDate(page.dueDate)}
+                      </Text>
+                      <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
+                    </View>
+                  )
+                }
+              />
+              <Divider colors={colors} />
+              <Row
+                variant="value"
+                title="Izvršioci"
+                // Kreator bira pun spisak (deljeni piker); ko nije kreator dobija
+                // „priključi se / napusti" iz `TaskActionsSheet`.
+                onPress={canEditAll ? () => setAssigneesOpen(true) : openSheet}
+                accessibilityLabel={`Izmeni izvršioce, trenutno ${
+                  assigneeList.length === 0 ? 'bez izvršilaca' : assigneeList.length
+                }`}
+                style={styles.metaRow}
+                icon={<Users size={20} color={colors.mutedForeground} />}
+                // Dok `listForTask` traje, `assigneeList` je prazan — bez ovoga bi
+                // dodeljen zadatak nakratko pokazao „Nedodeljeno" placeholder.
+                value={
+                  assignees === undefined ? (
+                    <Skeleton width={26} height={26} borderRadius={radius.full} />
+                  ) : (
+                    <AssigneeStack assignees={assigneeList} max={5} />
+                  )
+                }
+              />
+            </View>
 
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <InstructionsSection
@@ -208,6 +271,20 @@ export default function ZadatakScreen() {
           onSetAssignees={applySetAssignees}
           onClose={() => setSheetOpen(false)}
         />
+
+        <AssigneePickerSheet
+          open={assigneesOpen}
+          members={members}
+          selectedIds={assigneeList.map((a) => a.profileId)}
+          onChange={applySetAssignees}
+          onClose={() => setAssigneesOpen(false)}
+        />
+
+        <PageActionsSheet
+          open={actionsOpen}
+          page={page}
+          onClose={() => setActionsOpen(false)}
+        />
       </View>
     </GestureHandlerRootView>
   );
@@ -218,11 +295,14 @@ function TaskHeader({
   onBack,
   colors,
   onMeasure,
+  onOpenActions,
 }: {
   title: string;
   onBack: () => void;
   colors: ColorTokens;
   onMeasure?: (height: number) => void;
+  /** „…" — organizacija (premesti / ugnjezdi / izdvoji / poveži). */
+  onOpenActions?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -246,31 +326,16 @@ function TaskHeader({
       <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
         {title}
       </Text>
+      {onOpenActions ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Akcije zadatka"
+          onPress={onOpenActions}
+          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
+          <Ellipsis size={20} color={colors.foreground} />
+        </Pressable>
+      ) : null}
     </View>
-  );
-}
-
-function MetaRow({
-  label,
-  onPress,
-  colors,
-  children,
-}: {
-  label: string;
-  onPress: () => void;
-  colors: ColorTokens;
-  children: React.ReactNode;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Izmeni: ${label}`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.metaRow, pressed && { backgroundColor: colors.muted }]}>
-      <Text style={[styles.metaLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <View style={styles.metaValue}>{children}</View>
-      <ChevronRight size={18} color={colors.mutedForeground} />
-    </Pressable>
   );
 }
 
@@ -347,26 +412,13 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 4,
   },
+  // Row unutar kartice (padding 14) — bez dodatnog horizontalnog paddinga.
   metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: MIN_TOUCH_TARGET,
-    borderRadius: radius.md,
     paddingHorizontal: 4,
-  },
-  metaLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    width: 84,
-  },
-  metaValue: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: radius.md,
   },
   valueText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.medium,
   },
   statusValue: {

@@ -1,13 +1,14 @@
 import { usePaginatedQuery, useQuery } from 'convex/react';
 import { useFocusEffect, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FolderClosed,
   FolderOpen,
   LayoutGrid,
   LayoutList,
-  SquareArrowOutUpRight,
+  Plus,
   TriangleAlert,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,7 +24,9 @@ import {
 } from 'react-native';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
+import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
+import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -38,7 +41,6 @@ import {
 } from '@/lib/page-kinds';
 import { areaColor } from '@/lib/task-meta';
 import type { TaskStatus } from '@/lib/task-meta';
-import { pageBackRoute } from '@/lib/workspace-route';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, space, type ColorTokens } from '@/theme/tokens';
 
@@ -58,10 +60,12 @@ type PageItem = {
   updatedAt: number;
 };
 
-/** Jedan nivo u hijerarhiji: koren oblasti (Nivo 2) ili ugnježdena stranica (Nivo 3+). */
-type Frame =
-  | { kind: 'area'; areaId: Id<'startupAreas'>; label: string }
-  | { kind: 'page'; page: PageItem };
+/**
+ * Prostor ide samo jedan nivo duboko: izabrana oblast i njene stranice na vrhu.
+ * Dublje se ide OTVARANJEM stranice (ekran stranice nosi sekciju „Podstranice"), ne
+ * roniranjem ovde — zato okvir drži samo oblast.
+ */
+type Frame = { areaId: Id<'startupAreas'>; label: string };
 
 /** „Danas 14:22" nije potrebno — kratko relativno vreme za sekciju „Nedavno". */
 function formatRecentTime(updatedAt: number, now: number): string {
@@ -74,10 +78,9 @@ function formatRecentTime(updatedAt: number, now: number): string {
 /**
  * Tab „Prostor" — hijerarhijska navigacija kroz oblasti i stranice
  * (docs/mobile/02-EKRANI.md §5). Zamena za desktop `workspace-sidebar` +
- * `page-tree`. Nivoi se drže u internom steku okvira (bez push ruta), pa header
- * nosi breadcrumb, a „nazad" ide kroz `pageBackRoute` (roditeljska stranica,
- * inače koren oblasti). Ceo red uđe dublje; zaseban „Otvori" vodi na sadržaj
- * (beleška/fajl/tabela → editor placeholder, zadatak → ekran zadatka).
+ * `page-tree`. Prostor ide samo do liste stranica u oblasti; tap na red OTVARA
+ * stranicu (beleška/fajl/tabela → ekran stranice, zadatak → ekran zadatka), a
+ * podstranice su sekcija u samoj stranici. „Nazad" sa liste vraća na Nivo 1.
  */
 export default function ProstorScreen() {
   const colors = useThemeColors();
@@ -94,11 +97,7 @@ export default function ProstorScreen() {
   }, [activeStartupId]);
 
   const openArea = useCallback((area: Doc<'startupAreas'>) => {
-    setFrames([{ kind: 'area', areaId: area._id, label: area.label }]);
-  }, []);
-
-  const drillPage = useCallback((page: PageItem) => {
-    setFrames((prev) => [...prev, { kind: 'page', page }]);
+    setFrames([{ areaId: area._id, label: area.label }]);
   }, []);
 
   const openLeaf = useCallback(
@@ -120,16 +119,10 @@ export default function ProstorScreen() {
     [router],
   );
 
-  // „Nazad" kroz hijerarhiju preko `pageBackRoute`: nivo naviše — roditeljska
-  // stranica, inače koren oblasti; sa korena oblasti nazad na listu oblasti.
+  // Prostor je jednonivoovski (oblast → njene stranice), pa „nazad" uvek vraća na
+  // listu oblasti (Nivo 1).
   const goBack = useCallback(() => {
-    setFrames((prev) => {
-      if (prev.length === 0) return prev;
-      const top = prev[prev.length - 1];
-      if (top.kind === 'area') return [];
-      const back = pageBackRoute(top.page);
-      return back.kind === 'area' ? prev.slice(0, 1) : prev.slice(0, prev.length - 1);
-    });
+    setFrames((prev) => (prev.length === 0 ? prev : []));
   }, []);
 
   const jumpTo = useCallback((index: number) => {
@@ -165,10 +158,7 @@ export default function ProstorScreen() {
     );
   }
 
-  const areaId = top.kind === 'area' ? top.areaId : top.page.areaId;
-  const parentPageId = top.kind === 'area' ? null : top.page._id;
-  // Ključ po nivou: svaki nivo dobija svež paginacioni kursor (`listChildren`).
-  const frameKey = top.kind === 'area' ? `area:${top.areaId}` : `page:${top.page._id}`;
+  const frameKey = `area:${top.areaId}`;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -178,27 +168,14 @@ export default function ProstorScreen() {
         onBack={goBack}
         onJump={jumpTo}
         rightSlot={
-          top.kind === 'area' ? (
-            <ViewModeToggle colors={colors} onOpenCanvas={() => openAreaCanvas(top.areaId)} />
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Otvori ${top.page.title}`}
-              onPress={() => openLeaf(top.page)}
-              style={({ pressed }) => [styles.openButton, pressed && { backgroundColor: colors.muted }]}>
-              <SquareArrowOutUpRight size={20} color={colors.foreground} />
-            </Pressable>
-          )
+          <ViewModeToggle colors={colors} onOpenCanvas={() => openAreaCanvas(top.areaId)} />
         }
       />
       <PageLevel
         key={frameKey}
         startupId={activeStartupId}
-        areaId={areaId}
-        parentPageId={parentPageId}
-        currentPage={top.kind === 'page' ? top.page : null}
+        areaId={top.areaId}
         now={now}
-        onDrill={drillPage}
         onOpenLeaf={openLeaf}
       />
     </View>
@@ -226,6 +203,7 @@ function Level1({
     api.pages.recentForStartup,
     startupId ? { startupId, limit: 8 } : 'skip',
   );
+  const [createAreaOpen, setCreateAreaOpen] = useState(false);
 
   const countByArea = useMemo(() => {
     const map = new Map<Id<'startupAreas'>, { count: number; capped: boolean }>();
@@ -244,6 +222,8 @@ function Level1({
           icon={<FolderOpen size={40} color={colors.mutedForeground} />}
           title="Još nema oblasti"
           description="Oblasti i stranice tima pojaviće se ovde."
+          actionLabel="Nova oblast"
+          onAction={() => setCreateAreaOpen(true)}
         />
       ) : (
         <ScrollView
@@ -260,6 +240,14 @@ function Level1({
                 onPress={() => onOpenArea(area)}
               />
             ))}
+            {/* Nova oblast stoji uz listu oblasti — isti ulaz kao web „Nova oblast". */}
+            <Row
+              title="Nova oblast"
+              onPress={() => setCreateAreaOpen(true)}
+              showChevron={false}
+              style={[styles.addAreaRow, { borderColor: colors.border }]}
+              icon={<Plus size={20} color={colors.mutedForeground} />}
+            />
           </View>
 
           {recent && recent.length > 0 ? (
@@ -282,6 +270,14 @@ function Level1({
           ) : null}
         </ScrollView>
       )}
+
+      {startupId ? (
+        <CreateAreaSheet
+          open={createAreaOpen}
+          startupId={startupId}
+          onClose={() => setCreateAreaOpen(false)}
+        />
+      ) : null}
     </TabScreen>
   );
 }
@@ -302,30 +298,26 @@ function AreaRow({
   const tint = areaColor(colors, area.key);
   const label = count ? (count.capped ? `${count.count}+` : String(count.count)) : null;
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori oblast ${area.label}${label ? `, ${label} stranica` : ''}`}
+    <Row
+      title={area.label}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.areaRow,
-        { backgroundColor: colors.card, borderColor: colors.border },
-        pressed && { backgroundColor: colors.muted },
-      ]}>
-      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-        <FolderClosed size={20} color={tint} />
-      </View>
-      <Text numberOfLines={1} style={[styles.areaLabel, { color: colors.foreground }]}>
-        {area.label}
-      </Text>
-      {label !== null ? (
-        <View style={[styles.countPill, { backgroundColor: colors.muted }]}>
-          <Text style={[styles.countText, { color: colors.mutedForeground }]}>{label}</Text>
+      accessibilityLabel={`Otvori oblast ${area.label}${label ? `, ${label} stranica` : ''}`}
+      style={[styles.areaCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+          <FolderClosed size={20} color={tint} />
         </View>
-      ) : !countsLoaded ? (
-        <Skeleton width={26} height={20} borderRadius={radius.full} />
-      ) : null}
-      <ChevronRight size={20} color={colors.mutedForeground} />
-    </Pressable>
+      }
+      value={
+        label !== null ? (
+          <View style={[styles.countPill, { backgroundColor: colors.muted }]}>
+            <Text style={[styles.countText, { color: colors.mutedForeground }]}>{label}</Text>
+          </View>
+        ) : !countsLoaded ? (
+          <Skeleton width={26} height={20} borderRadius={radius.full} />
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -343,58 +335,67 @@ function RecentRow({
   const Icon = pageKindMeta(page.kind).icon;
   const tint = pageKindColor(colors, page.kind);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori ${page.title}`}
+    <Row
+      title={page.title}
+      subtitle={formatRecentTime(page.updatedAt, now)}
       onPress={onPress}
-      style={({ pressed }) => [styles.recentRow, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChipSm, { backgroundColor: `${tint}22` }]}>
-        <Icon size={16} color={tint} />
-      </View>
-      <Text numberOfLines={1} style={[styles.recentTitle, { color: colors.foreground }]}>
-        {page.title}
-      </Text>
-      <Text style={[styles.recentTime, { color: colors.mutedForeground }]}>
-        {formatRecentTime(page.updatedAt, now)}
-      </Text>
-    </Pressable>
+      showChevron={false}
+      // Vreme je podnaslov, pa ga `Row` ne sklapa u labelu — dodaje se ručno.
+      accessibilityLabel={`Otvori ${page.title}, ${formatRecentTime(page.updatedAt, now)}`}
+      style={styles.recentRow}
+      icon={
+        <View style={[styles.iconChipSm, { backgroundColor: `${tint}22` }]}>
+          <Icon size={16} color={tint} />
+        </View>
+      }
+    />
   );
 }
 
-/* ── Nivo 2/3: stranice u oblasti / podstranice ────────────────────────── */
+/* ── Nivo 2: stablo stranica u oblasti ─────────────────────────────────── */
+
+/** Uvlačenje po nivou; dalje od ovoga naslov na telefonu ostaje bez prostora. */
+const INDENT_STEP = 18;
+const MAX_TREE_DEPTH = 8;
 
 function PageLevel({
   startupId,
   areaId,
-  parentPageId,
-  currentPage,
   now,
-  onDrill,
   onOpenLeaf,
 }: {
   startupId: Id<'startups'> | null;
   areaId: Id<'startupAreas'>;
-  parentPageId: Id<'pages'> | null;
-  currentPage: PageItem | null;
   now: number;
-  onDrill: (page: PageItem) => void;
   onOpenLeaf: (page: PageItem) => void;
 }) {
   const colors = useThemeColors();
+  // Koren oblasti (`parentPageId: null`); dublji nivoi se dohvataju tek kad se red
+  // razvije — svaki `PageBranch` ima svoj upit i montira ga samo dok je otvoren.
   const { results, status, loadMore } = usePaginatedQuery(
     api.pages.listChildren,
-    startupId ? { startupId, areaId, parentPageId } : 'skip',
+    startupId ? { startupId, areaId, parentPageId: null } : 'skip',
     { initialNumItems: 50 },
   );
 
-  const loadingFirst = startupId === null || status === 'LoadingFirstPage';
+  // Stanje razvijenosti živi na nivou oblasti i traje dok se ne napusti ekran /
+  // ne promeni oblast (`key` na `PageLevel` u roditelju ga tada resetuje).
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = useCallback((pageId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  }, []);
 
-  if (loadingFirst) {
+  if (startupId === null || status === 'LoadingFirstPage') {
     return <PageListSkeleton />;
   }
 
   if (results.length === 0) {
-    return <PageLevelEmpty currentPage={currentPage} colors={colors} onOpenLeaf={onOpenLeaf} />;
+    return <PageLevelEmpty colors={colors} />;
   }
 
   return (
@@ -402,7 +403,16 @@ function PageLevel({
       data={results}
       keyExtractor={(item) => item._id}
       renderItem={({ item }) => (
-        <PageRow page={item} now={now} colors={colors} onDrill={onDrill} onOpen={onOpenLeaf} />
+        <PageBranch
+          page={item}
+          depth={0}
+          startupId={startupId}
+          areaId={areaId}
+          now={now}
+          expandedIds={expandedIds}
+          onToggle={toggle}
+          onOpen={onOpenLeaf}
+        />
       )}
       ItemSeparatorComponent={() => <View style={[styles.sep, { backgroundColor: colors.border }]} />}
       onEndReachedThreshold={0.5}
@@ -424,82 +434,210 @@ function PageLevel({
   );
 }
 
-function PageRow({
+/** Jedan red stabla + (kad je razvijen) njegova deca. */
+function PageBranch({
   page,
+  depth,
+  startupId,
+  areaId,
   now,
-  colors,
-  onDrill,
+  expandedIds,
+  onToggle,
   onOpen,
 }: {
   page: PageItem;
+  depth: number;
+  startupId: Id<'startups'>;
+  areaId: Id<'startupAreas'>;
   now: number;
-  colors: ColorTokens;
-  onDrill: (page: PageItem) => void;
+  expandedIds: ReadonlySet<string>;
+  onToggle: (pageId: string) => void;
   onOpen: (page: PageItem) => void;
 }) {
-  const Icon = pageKindMeta(page.kind).icon;
-  const tint = pageKindColor(colors, page.kind);
-  // Dva sestrinska dodirna elementa (ne ugnježdena): red = uđi dublje, dugme =
-  // otvori sadržaj. Ugnježdeni Pressable bi ih spojio u jedan a11y čvor, pa
-  // „Otvori" ne bi bio poseban fokus za čitač ekrana.
+  const expanded = expandedIds.has(page._id);
   return (
-    <View style={styles.pageRow}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Uđi u ${page.title}`}
-        accessibilityHint="Prikazuje podstranice"
-        onPress={() => onDrill(page)}
-        style={({ pressed }) => [styles.pageMain, pressed && { backgroundColor: colors.muted }]}>
-        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-          <Icon size={18} color={tint} />
-        </View>
-        <View style={styles.pageBody}>
-          <Text numberOfLines={2} style={[styles.pageTitle, { color: colors.foreground }]}>
-            {page.title}
-          </Text>
-          {supportsTaskData(page.kind) ? (
-            <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
-          ) : null}
-        </View>
-        <ChevronRight size={18} color={colors.mutedForeground} />
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Otvori ${page.title}`}
-        onPress={() => onOpen(page)}
-        style={({ pressed }) => [styles.openButton, pressed && { backgroundColor: colors.muted }]}>
-        <SquareArrowOutUpRight size={18} color={colors.mutedForeground} />
-      </Pressable>
+    <View>
+      <PageRow
+        page={page}
+        depth={depth}
+        now={now}
+        expanded={expanded}
+        canExpand={depth < MAX_TREE_DEPTH}
+        onToggle={() => onToggle(page._id)}
+        onOpen={onOpen}
+      />
+      {expanded ? (
+        <ChildPages
+          startupId={startupId}
+          areaId={areaId}
+          parentPageId={page._id}
+          depth={depth + 1}
+          now={now}
+          expandedIds={expandedIds}
+          onToggle={onToggle}
+          onOpen={onOpen}
+        />
+      ) : null}
     </View>
   );
 }
 
-function PageLevelEmpty({
-  currentPage,
-  colors,
-  onOpenLeaf,
+/**
+ * Deca jednog reda. Montira se TEK kad je red razvijen, pa se `listChildren` i
+ * pokreće tek tada — zatvoreno stablo ne plaća nijedan dodatan upit.
+ */
+function ChildPages({
+  startupId,
+  areaId,
+  parentPageId,
+  depth,
+  now,
+  expandedIds,
+  onToggle,
+  onOpen,
 }: {
-  currentPage: PageItem | null;
-  colors: ColorTokens;
-  onOpenLeaf: (page: PageItem) => void;
+  startupId: Id<'startups'>;
+  areaId: Id<'startupAreas'>;
+  parentPageId: Id<'pages'>;
+  depth: number;
+  now: number;
+  expandedIds: ReadonlySet<string>;
+  onToggle: (pageId: string) => void;
+  onOpen: (page: PageItem) => void;
 }) {
-  if (currentPage) {
-    const Icon = pageKindMeta(currentPage.kind).icon;
+  const colors = useThemeColors();
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.pages.listChildren,
+    { startupId, areaId, parentPageId },
+    { initialNumItems: 20 },
+  );
+  const indent = { paddingLeft: depth * INDENT_STEP };
+
+  if (status === 'LoadingFirstPage') {
     return (
-      <EmptyState
-        icon={<Icon size={40} color={colors.mutedForeground} />}
-        title="Nema podstranica"
-        description="Ova stranica još nema ugnježdene stranice."
-        actionLabel="Otvori stranicu"
-        onAction={() => onOpenLeaf(currentPage)}
-      />
+      <View style={[styles.childState, indent]}>
+        <ActivityIndicator
+          size="small"
+          color={colors.mutedForeground}
+          accessibilityLabel="Učitavanje podstranica"
+        />
+      </View>
     );
   }
+
+  if (results.length === 0) {
+    return (
+      <Text style={[styles.childEmpty, indent, { color: colors.mutedForeground }]}>
+        Nema podstranica.
+      </Text>
+    );
+  }
+
+  return (
+    <View>
+      {results.map((child) => (
+        <PageBranch
+          key={child._id}
+          page={child}
+          depth={depth}
+          startupId={startupId}
+          areaId={areaId}
+          now={now}
+          expandedIds={expandedIds}
+          onToggle={onToggle}
+          onOpen={onOpen}
+        />
+      ))}
+      {status === 'LoadingMore' ? (
+        <View style={[styles.childState, indent]}>
+          <ActivityIndicator size="small" color={colors.mutedForeground} accessibilityLabel="Učitavanje" />
+        </View>
+      ) : status === 'CanLoadMore' ? (
+        <Row
+          title="Učitaj još"
+          onPress={() => loadMore(20)}
+          showChevron={false}
+          style={[styles.pageMain, indent]}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function PageRow({
+  page,
+  depth,
+  now,
+  expanded,
+  canExpand,
+  onToggle,
+  onOpen,
+}: {
+  page: PageItem;
+  depth: number;
+  now: number;
+  expanded: boolean;
+  canExpand: boolean;
+  onToggle: () => void;
+  onOpen: (page: PageItem) => void;
+}) {
+  const colors = useThemeColors();
+  const Icon = pageKindMeta(page.kind).icon;
+  const tint = pageKindColor(colors, page.kind);
+  // Tap na red OTVARA stranicu; strelica levo razvija podstranice — dve odvojene
+  // dodirne mete, kao stablo na webu (`page-tree.tsx`). Da li stranica uopšte ima
+  // decu ne znamo pre upita, pa strelica stoji na svakom redu (isto kao web).
+  return (
+    <Row
+      title={page.title}
+      titleNumberOfLines={2}
+      onPress={() => onOpen(page)}
+      accessibilityLabel={`Otvori ${page.title}`}
+      style={[styles.pageMain, { paddingLeft: depth * INDENT_STEP }]}
+      leading={
+        canExpand ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            accessibilityLabel={
+              expanded ? `Sakrij podstranice: ${page.title}` : `Prikaži podstranice: ${page.title}`
+            }
+            onPress={onToggle}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.twisty,
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            {expanded ? (
+              <ChevronDown size={18} color={colors.mutedForeground} />
+            ) : (
+              <ChevronRight size={18} color={colors.mutedForeground} />
+            )}
+          </Pressable>
+        ) : (
+          <View style={styles.twisty} />
+        )
+      }
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+          <Icon size={18} color={tint} />
+        </View>
+      }
+      subtitle={
+        supportsTaskData(page.kind) ? (
+          <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
+        ) : undefined
+      }
+    />
+  );
+}
+
+function PageLevelEmpty({ colors }: { colors: ColorTokens }) {
   return (
     <EmptyState
       icon={<FolderOpen size={40} color={colors.mutedForeground} />}
       title="Ova oblast je prazna."
-      description="Kreiranje stranica stiže u Fazi 3."
+      description="Otvori Canvas u zaglavlju da dodaš prvu stranicu."
     />
   );
 }
@@ -542,7 +680,7 @@ function DeepHeader({
         // Uvek skrolovan na kraj: trenutni (najdublji) nivo je vidljiv na telefonu.
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
         {frames.map((frame, index) => {
-          const label = frame.kind === 'area' ? frame.label : frame.page.title;
+          const label = frame.label;
           const isLast = index === frames.length - 1;
           return (
             <View key={index} style={styles.crumb}>
@@ -717,17 +855,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   crumbText: {
-    fontSize: 15,
+    fontSize: 16,
   },
   headerRight: {
     marginLeft: 4,
-  },
-  openButton: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
   },
   /* Lista/Canvas prekidač */
   toggle: {
@@ -761,6 +892,7 @@ const styles = StyleSheet.create({
   areaList: {
     gap: 8,
   },
+  // Skelet oblasti (Level1Skeleton) i dalje sklapa red ručno.
   areaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -770,6 +902,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  // Kartica oblasti kao `Row` override (ostalo dolazi iz Row.base).
+  areaCard: {
+    paddingHorizontal: 14,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  // „Nova oblast" — isečkana ivica je razlikuje od stvarnih oblasti.
+  addAreaRow: {
+    paddingHorizontal: 14,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: 'dashed',
   },
   iconChip: {
     width: 40,
@@ -784,11 +929,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  areaLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.semibold,
   },
   countPill: {
     minWidth: 26,
@@ -815,21 +955,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     marginLeft: 2,
   },
+  // „Nedavno" red kao `Row` override — samo horizontalni padding i radijus.
   recentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: 48,
     paddingHorizontal: 2,
-    paddingVertical: 6,
     borderRadius: radius.md,
-  },
-  recentTitle: {
-    flex: 1,
-    fontSize: 16,
-  },
-  recentTime: {
-    fontSize: 13,
   },
   /* Nivo 2/3 lista */
   listContent: {
@@ -837,29 +966,30 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 32,
   },
-  pageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  // Red stranice kao `Row` override — samo horizontalni padding i radijus.
+  // (`paddingLeft` se dodaje inline po dubini u stablu.)
   pageMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: 56,
-    paddingVertical: 8,
-    paddingLeft: 2,
+    paddingHorizontal: 2,
     borderRadius: radius.md,
   },
-  pageBody: {
-    flex: 1,
-    gap: 6,
+  // Strelica „razvij" — svoja dodirna meta levo od ikonice vrste.
+  twisty: {
+    width: 28,
+    height: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+  },
+  childState: {
+    paddingVertical: 10,
+    paddingLeft: 2,
     alignItems: 'flex-start',
   },
-  pageTitle: {
+  childEmpty: {
     fontSize: 16,
-    lineHeight: 21,
-    fontWeight: fontWeight.medium,
+    lineHeight: 22,
+    paddingVertical: 10,
+    paddingLeft: 2,
   },
   sep: {
     height: StyleSheet.hairlineWidth,

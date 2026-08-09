@@ -176,7 +176,7 @@ export default function CanvasScreen() {
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[]; message?: string };
+      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[] };
       try {
         msg = JSON.parse(event.nativeEvent.data);
       } catch {

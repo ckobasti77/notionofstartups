@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { Badge, type BadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -120,13 +121,15 @@ export default function PozivniceScreen() {
             const canRevoke = invite.revokedAt === null && invite.claimedAt === null;
             const revoking = revokingId === invite._id;
             return (
-              <View
+              // Red nije dodirljiv (nema `onPress`) — `Row` ga renderuje kao View, pa
+              // je „Opozovi" u `value` slotu samostalno dugme, a ne ugnježdeni tap.
+              <Row
                 key={invite._id}
-                style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={styles.rowBody}>
-                  <Text numberOfLines={1} style={[styles.email, { color: colors.foreground }]}>
-                    {invite.email}
-                  </Text>
+                title={invite.email}
+                accessibilityLabel={`Pozivnica za ${invite.email}, ${status.label}`}
+                showChevron={false}
+                style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+                subtitle={
                   <View style={styles.metaRow}>
                     <Badge label={status.label} variant={status.variant} />
                     {invite.claimedBy ? (
@@ -135,28 +138,30 @@ export default function PozivniceScreen() {
                       </Text>
                     ) : null}
                   </View>
-                </View>
-                {canRevoke ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
-                    accessibilityState={{ disabled: revokingId !== null }}
-                    disabled={revokingId !== null}
-                    onPress={() => confirmRevoke(invite._id, invite.email)}
-                    style={({ pressed }) => [
-                      styles.revokeBtn,
-                      { borderColor: colors.border },
-                      pressed && { backgroundColor: colors.muted },
-                      revokingId !== null && { opacity: 0.5 },
-                    ]}>
-                    {revoking ? (
-                      <ActivityIndicator size="small" color={colors.destructive} />
-                    ) : (
-                      <Text style={[styles.revokeLabel, { color: colors.destructive }]}>Opozovi</Text>
-                    )}
-                  </Pressable>
-                ) : null}
-              </View>
+                }
+                value={
+                  canRevoke ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
+                      accessibilityState={{ disabled: revokingId !== null }}
+                      disabled={revokingId !== null}
+                      onPress={() => confirmRevoke(invite._id, invite.email)}
+                      style={({ pressed }) => [
+                        styles.revokeBtn,
+                        { borderColor: colors.border },
+                        pressed && { backgroundColor: colors.muted },
+                        revokingId !== null && { opacity: 0.5 },
+                      ]}>
+                      {revoking ? (
+                        <ActivityIndicator size="small" color={colors.destructive} />
+                      ) : (
+                        <Text style={[styles.revokeLabel, { color: colors.destructive }]}>Opozovi</Text>
+                      )}
+                    </Pressable>
+                  ) : undefined
+                }
+              />
             );
           })}
         </ScrollView>
@@ -347,24 +352,16 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
   },
+  // Kartica pozivnice kao `Row` override (raspored dolazi iz Row.base).
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     minHeight: 64,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  rowBody: {
-    flex: 1,
-    gap: 6,
-  },
-  email: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
   metaRow: {
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

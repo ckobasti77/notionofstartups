@@ -25,6 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -287,23 +288,19 @@ function PageRow({
   const Icon = pageKindMeta(page.kind).icon;
   const tint = pageKindColor(colors, page.kind);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori ${page.title}`}
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+          <Icon size={18} color={tint} />
+        </View>
+      }
+      title={page.title}
+      subtitle={`${page.area?.label ?? 'Oblast'} · ${page.startup?.name ?? 'Startup'}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-        <Icon size={18} color={tint} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={1} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {page.title}
-        </Text>
-        <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
-          {page.area?.label ?? 'Oblast'} · {page.startup?.name ?? 'Startup'}
-        </Text>
-      </View>
-    </Pressable>
+      showChevron={false}
+      accessibilityLabel={`Otvori ${page.title}`}
+    />
   );
 }
 
@@ -317,24 +314,20 @@ function MessageRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori razgovor ${message.channelName}`}
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${colors.info}22` }]}>
+          <MessageSquareText size={18} color={colors.info} />
+        </View>
+      }
+      title={message.body || 'Prilog'}
+      titleNumberOfLines={2}
+      subtitle={`${message.channelName}${message.author ? ` · ${message.author.displayName}` : ''}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChip, { backgroundColor: `${colors.info}22` }]}>
-        <MessageSquareText size={18} color={colors.info} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {message.body || 'Prilog'}
-        </Text>
-        <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
-          {message.channelName}
-          {message.author ? ` · ${message.author.displayName}` : ''}
-        </Text>
-      </View>
-    </Pressable>
+      showChevron={false}
+      accessibilityLabel={`Otvori razgovor ${message.channelName}`}
+    />
   );
 }
 
@@ -361,25 +354,20 @@ function NodeRow({
   // MessageRow, jer je tada sadržaj a ne kratak naslov).
   const primary = title || body || 'Bez naslova';
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${primary} — ${openHint}`}
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+          <Icon size={18} color={tint} />
+        </View>
+      }
+      title={primary}
+      titleNumberOfLines={title ? 1 : 2}
+      subtitle={title && body ? body : undefined}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-        <Icon size={18} color={tint} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={title ? 1 : 2} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {primary}
-        </Text>
-        {title && body ? (
-          <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
-            {body}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
+      showChevron={false}
+      accessibilityLabel={`${primary} — ${openHint}`}
+    />
   );
 }
 
@@ -490,16 +478,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  rowBody: {
-    flex: 1,
-    gap: 2,
-  },
-  rowTitle: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  rowSub: {
-    fontSize: 16,
   },
 });

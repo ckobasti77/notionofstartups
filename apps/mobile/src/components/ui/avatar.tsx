@@ -30,7 +30,8 @@ function paletteFor(colors: ColorTokens, name?: string | null) {
     { bg: colors.primary, fg: colors.primaryForeground },
     { bg: colors.info, fg: colors.infoForeground },
     { bg: colors.success, fg: colors.successForeground },
-    { bg: colors.destructive, fg: colors.destructiveForeground },
+    { bg: colors.warning, fg: colors.warningForeground },
+    { bg: colors.danger, fg: colors.destructiveForeground },
   ];
   const key = name ?? '';
   let hash = 0;
@@ -52,7 +53,7 @@ export function Avatar({ name, uri, size = 40, style }: AvatarProps) {
         {
           width: size,
           height: size,
-          borderRadius: radius.full,
+          borderRadius: radius.pill,
           backgroundColor: showImage ? colors.muted : pair.bg,
           borderColor: colors.border,
         },
@@ -61,7 +62,7 @@ export function Avatar({ name, uri, size = 40, style }: AvatarProps) {
       {showImage ? (
         <Image
           source={{ uri: uri as string }}
-          style={{ width: size, height: size, borderRadius: radius.full }}
+          style={{ width: size, height: size, borderRadius: radius.pill }}
           contentFit="cover"
           onError={() => setFailed(true)}
         />

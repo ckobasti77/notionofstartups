@@ -23,6 +23,7 @@ import {
 } from 'lucide-react-native';
 
 import { Avatar } from '@/components/ui/avatar';
+import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import { channelDisplayName, type ChatChannel } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -157,24 +158,20 @@ export function ConversationHeader({
             },
           ]}>
           <Text style={[styles.menuTitle, { color: colors.mutedForeground }]}>Obaveštenja</Text>
-          {LEVELS.map(({ level, label, Icon }) => (
-            <Pressable
-              key={level}
-              accessibilityRole="button"
-              accessibilityLabel={label}
-              accessibilityState={{ selected: activeLevel === level }}
-              onPress={() => void changeLevel(level)}
-              style={({ pressed }) => [
-                styles.menuRow,
-                pressed && { backgroundColor: colors.muted },
-              ]}>
-              <Icon size={20} color={colors.foreground} />
-              <Text style={[styles.menuLabel, { color: colors.foreground }]}>{label}</Text>
-              {activeLevel === level ? (
-                <Check size={18} color={colors.primary} />
-              ) : null}
-            </Pressable>
-          ))}
+          {LEVELS.map(({ level, label, Icon }) => {
+            const active = activeLevel === level;
+            return (
+              <Row
+                key={level}
+                icon={<Icon size={20} color={colors.foreground} />}
+                title={label}
+                value={active ? <Check size={18} color={colors.primary} /> : undefined}
+                onPress={() => void changeLevel(level)}
+                showChevron={false}
+                accessibilityLabel={active ? `${label}, izabrano` : label}
+              />
+            );
+          })}
         </View>
       </Modal>
     </View>
@@ -264,17 +261,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     paddingHorizontal: 20,
     paddingBottom: 6,
-  },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    minHeight: MIN_TOUCH_TARGET + 4,
-    paddingHorizontal: 20,
-  },
-  menuLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
   },
 });

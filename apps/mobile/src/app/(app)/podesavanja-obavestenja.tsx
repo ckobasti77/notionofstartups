@@ -16,13 +16,13 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery } from 'convex/react';
 
+import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import type { ChannelBase } from '@/convex/lib/notificationChannels';
 import type { NotificationType } from '@/convex/lib/notifications';
@@ -211,17 +211,15 @@ function SettingsForm({
               TIHI SATI
             </Text>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={[styles.row, styles.rowFirst]}>
-                <Moon size={20} color={colors.foreground} />
-                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Uključeno</Text>
-                <Switch
-                  value={quietOn}
-                  onValueChange={onToggleQuiet}
-                  trackColor={{ true: colors.primary, false: colors.muted }}
-                  thumbColor={colors.card}
-                  accessibilityLabel="Tihi sati"
-                />
-              </View>
+              <Row
+                variant="toggle"
+                style={[styles.row, styles.rowFirst]}
+                icon={<Moon size={20} color={colors.foreground} />}
+                title="Uključeno"
+                checked={quietOn}
+                onToggle={onToggleQuiet}
+                accessibilityLabel="Tihi sati"
+              />
 
               {quietOn ? (
                 <>
@@ -342,48 +340,41 @@ function ToggleRow({
   const hasSound = row.previewSound !== null;
   const previewReady = hasSoundPreview(row.previewSound);
   return (
-    <View
+    <Row
+      variant="toggle"
       style={[
         styles.row,
         first ? styles.rowFirst : styles.rowDivider,
         !first && { borderTopColor: colors.border },
-      ]}>
-      <View style={styles.rowText}>
-        <Text style={[styles.rowLabel, { color: colors.foreground }]}>{row.label}</Text>
-        {row.description ? (
-          <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-            {row.description}
-          </Text>
-        ) : null}
-      </View>
-      {hasSound ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !previewReady }}
-          accessibilityLabel={
-            previewReady
-              ? `Probaj zvuk: ${row.label}`
-              : `Zvuk se uskoro dodaje: ${row.label}`
-          }
-          disabled={!previewReady}
-          onPress={onPreview}
-          style={({ pressed }) => [
-            styles.previewBtn,
-            { borderColor: colors.border },
-            !previewReady && styles.previewBtnDisabled,
-            pressed && previewReady && { backgroundColor: colors.muted },
-          ]}>
-          <Play size={16} color={colors.primary} fill={colors.primary} />
-        </Pressable>
-      ) : null}
-      <Switch
-        value={enabled}
-        onValueChange={onToggle}
-        trackColor={{ true: colors.primary, false: colors.muted }}
-        thumbColor={colors.card}
-        accessibilityLabel={row.label}
-      />
-    </View>
+      ]}
+      title={row.label}
+      subtitle={row.description || undefined}
+      value={
+        hasSound ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !previewReady }}
+            accessibilityLabel={
+              previewReady
+                ? `Probaj zvuk: ${row.label}`
+                : `Zvuk se uskoro dodaje: ${row.label}`
+            }
+            disabled={!previewReady}
+            onPress={onPreview}
+            style={({ pressed }) => [
+              styles.previewBtn,
+              { borderColor: colors.border },
+              !previewReady && styles.previewBtnDisabled,
+              pressed && previewReady && { backgroundColor: colors.muted },
+            ]}>
+            <Play size={16} color={colors.primary} fill={colors.primary} />
+          </Pressable>
+        ) : undefined
+      }
+      checked={enabled}
+      onToggle={onToggle}
+      accessibilityLabel={row.label}
+    />
   );
 }
 
@@ -623,19 +614,6 @@ const styles = StyleSheet.create({
   },
   rowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
-  rowLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  rowDescription: {
-    fontSize: 13,
-    lineHeight: 18,
   },
   previewBtn: {
     width: MIN_TOUCH_TARGET,

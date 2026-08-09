@@ -32,11 +32,11 @@ export type ButtonProps = Omit<PressableProps, 'style' | 'children'> & {
 function variantColors(colors: ColorTokens, variant: ButtonVariant) {
   switch (variant) {
     case 'secondary':
-      return { bg: colors.secondary, fg: colors.secondaryForeground, border: 'transparent' };
+      return { bg: colors.surfaceRaised, fg: colors.foreground, border: 'transparent' };
     case 'ghost':
       return { bg: 'transparent', fg: colors.foreground, border: 'transparent' };
     case 'destructive':
-      return { bg: colors.destructive, fg: colors.destructiveForeground, border: 'transparent' };
+      return { bg: colors.danger, fg: colors.destructiveForeground, border: 'transparent' };
     default:
       return { bg: colors.primary, fg: colors.primaryForeground, border: 'transparent' };
   }
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   fullWidth: {

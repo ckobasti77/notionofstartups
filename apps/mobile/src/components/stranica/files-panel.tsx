@@ -17,17 +17,18 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilePreview, type PreviewFile } from '@/components/stranica/file-preview';
+import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, SHADOW_COLOR, type ColorTokens } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, SHADOW_COLOR, type ColorTokens } from '@/theme/tokens';
 
 type FileCategory = 'image' | 'video' | 'pdf' | 'audio' | 'sheet' | 'document';
 
@@ -203,24 +204,21 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
             const Icon = CATEGORY_META[file.category].icon;
             return (
               <View key={file._id} style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Otvori ${file.name}`}
+                <Row
+                  style={styles.rowMain}
+                  icon={
+                    <View style={[styles.iconChip, { backgroundColor: colors.accent }]}>
+                      <Icon size={20} color={colors.primary} />
+                    </View>
+                  }
+                  title={file.name}
+                  subtitle={`${CATEGORY_META[file.category].label}${
+                    formatFileSize(file.size) ? ` · ${formatFileSize(file.size)}` : ''
+                  }`}
                   onPress={() => openFile(file)}
-                  style={({ pressed }) => [styles.rowMain, pressed && { backgroundColor: colors.muted }]}>
-                  <View style={[styles.iconChip, { backgroundColor: colors.accent }]}>
-                    <Icon size={20} color={colors.primary} />
-                  </View>
-                  <View style={styles.meta}>
-                    <Text numberOfLines={1} style={[styles.name, { color: colors.foreground }]}>
-                      {file.name}
-                    </Text>
-                    <Text style={[styles.sub, { color: colors.mutedForeground }]}>
-                      {CATEGORY_META[file.category].label}
-                      {formatFileSize(file.size) ? ` · ${formatFileSize(file.size)}` : ''}
-                    </Text>
-                  </View>
-                </Pressable>
+                  showChevron={false}
+                  accessibilityLabel={`Otvori ${file.name}`}
+                />
                 {file.canManage ? (
                   <Pressable
                     accessibilityRole="button"
@@ -296,34 +294,26 @@ function AddMenu({
           styles.menu,
           { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insetBottom + 12 },
         ]}>
-        <MenuRow icon={ImagePlus} label="Iz galerije" onPress={onLibrary} colors={colors} />
-        <MenuRow icon={Camera} label="Slikaj kamerom" onPress={onCamera} colors={colors} />
-        <MenuRow icon={FileIcon} label="Iz dokumenata" onPress={onDocument} colors={colors} />
+        <Row
+          icon={<ImagePlus size={22} color={colors.foreground} />}
+          title="Iz galerije"
+          onPress={onLibrary}
+          showChevron={false}
+        />
+        <Row
+          icon={<Camera size={22} color={colors.foreground} />}
+          title="Slikaj kamerom"
+          onPress={onCamera}
+          showChevron={false}
+        />
+        <Row
+          icon={<FileIcon size={22} color={colors.foreground} />}
+          title="Iz dokumenata"
+          onPress={onDocument}
+          showChevron={false}
+        />
       </View>
     </Modal>
-  );
-}
-
-function MenuRow({
-  icon: Icon,
-  label,
-  onPress,
-  colors,
-}: {
-  icon: LucideIcon;
-  label: string;
-  onPress: () => void;
-  colors: ColorTokens;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: colors.muted }]}>
-      <Icon size={22} color={colors.foreground} />
-      <Text style={[styles.menuLabel, { color: colors.foreground }]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -357,17 +347,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  meta: {
-    flex: 1,
-    gap: 2,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  sub: {
-    fontSize: 16,
   },
   deleteBtn: {
     width: MIN_TOUCH_TARGET,
@@ -409,17 +388,5 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 12,
     paddingHorizontal: 12,
-  },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    minHeight: 56,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-  },
-  menuLabel: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
   },
 });

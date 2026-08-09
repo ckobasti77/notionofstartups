@@ -49,6 +49,8 @@ export default function AppLayout() {
         <Stack.Screen name="pozivnice" options={{ headerShown: false }} />
         {/* Merni prototip editora (Faza 3, §5.1) — privremeno; briše se posle merenja. */}
         <Stack.Screen name="editor-spike" options={{ headerShown: false }} />
+        {/* Dizajn katalog — dev-only ulaz iz „Više"; sopstveni header. */}
+        <Stack.Screen name="dizajn-katalog" options={{ headerShown: false }} />
       </Stack>
     </ActiveStartupProvider>
   );

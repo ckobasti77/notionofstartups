@@ -24,6 +24,20 @@ export function embedCanvasUrl(opts: {
   return `${base}/embed/canvas/${encodeURIComponent(opts.kind)}/${encodeURIComponent(opts.id)}?${query}`;
 }
 
+/**
+ * Gradi URL embed rute editora beleške (`apps/web/app/embed/note/[id]`) za mobilni
+ * `WebView` (M3.2). Isti auth model kao canvas embed: token se injektuje u
+ * `window.__DEVOTION_AUTH__` PRE učitavanja (ne kroz URL). `theme` je za prvi paint.
+ *
+ * Poseban `pageId === 'probe'` je merni prototip (KORAK 1): renderuje PRAVI editor sa
+ * ~2000 reči, bez auth-a/snimanja, za merenje latencije na uređaju.
+ */
+export function embedNoteUrl(opts: { pageId: string; theme: 'light' | 'dark' }): string | null {
+  if (!webBase) return null;
+  const base = webBase.replace(/\/+$/, '');
+  return `${base}/embed/note/${encodeURIComponent(opts.pageId)}?theme=${opts.theme}`;
+}
+
 /** Nominativ vrste kanvasa za header. */
 export function canvasKindLabel(kind: CanvasKind): string {
   switch (kind) {

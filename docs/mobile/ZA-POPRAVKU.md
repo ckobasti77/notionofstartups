@@ -57,6 +57,55 @@ Redosled je opisan i u `packages/backend/convex/migrations.ts:437`.
 
 ---
 
+## 2. Editor beleške — merni gejt (M3.2)
+
+**Kontekst.** Arhitektura editora je **embed web editora u WebView-u** (`/embed/note/[id]`),
+ne tentap lokalni bundle (nula prepravki, savršen paritet, nema rizika gubitka tabela/
+priloga). Ostaje jedan nemereni rizik: **latencija Tiptap-a u WebView-u na jeftinom
+Androidu**. Pun editor (auth + autosave) se NE gradi dok se to ne izmeri — „ne pravi ono
+što nisi izmerio".
+
+**Šta je urađeno (proba).** Merni prototip renderuje PRAVI `RichTextEditor` (istu
+komponentu koja se šalje) sa ~2000 reči, bez auth-a/snimanja, uz HUD:
+- Web: `apps/web/app/embed/note/[id]/note-embed.tsx` (grana `pageId === 'probe'`).
+- Mobilni host: `apps/mobile/src/app/(app)/editor-spike.tsx` (WebView nad `/embed/note/probe`),
+  ulaz „Editor proba (merenje)" u tabu „Više".
+- Provereno u web pregledaču: editor se renderuje, ~1910 reči, kucanje registruje, HUD
+  `Ready`/`Warm` rade, nula grešaka u konzoli.
+
+**Kako meriti (radi se na UREĐAJU — ne emulator).** Na fizičkom iPhone-u **i** jeftinom/
+starijem Androidu: „Više" → „Editor proba (merenje)".
+- `Ready` (HUD): od navigacije stranice do editora — cold otvaranje.
+- `Warm` (HUD, dugme „Ponovo montiraj"): re-init editora bez reload-a stranice.
+- keystroke→glyph: snimi 240fps kamerom drugog telefona, izbroj frejmove od dodira do slova.
+- Skroluj do dna (~2000 reči) i kucaj tamo — proveri da tastatura ne prekriva kursor.
+- **`EXPO_PUBLIC_WEB_URL` mora da bude dostupan sa uređaja** (LAN IP za fizički telefon;
+  `10.0.2.2` važi samo za Android emulator).
+
+**Pragovi:** cold `Ready` < 1.5 s (ili prihvatljivo uz skeleton), `Warm` < 500 ms,
+keystroke→glyph neprimetno.
+
+**Brojevi (popuni na uređaju):**
+
+| Uređaj | Ready (cold) | Warm | keystroke→glyph | Tastatura ne prekriva kursor? | Prolazi? |
+|---|---|---|---|---|---|
+| iPhone (model?) | — | — | — | — | — |
+| Jeftin Android (model?) | — | — | — | — | — |
+
+**USLOV / odluka.**
+- **Prolazi** → gradi pun embed editor (KORAK 2 plana): auth ljuska iz `canvas-embed.tsx`,
+  `pages.get` + `pageFiles.list`, autosave kroz `areasV2.updatePage` (650 ms, revizija,
+  `KONFLIKT_IZMENA`), read-only kad `!canEditBody`. Zameni placeholder u `stranica/[id]`
+  note grani WebView-om, pa obriši probu (`editor-spike.tsx` + ulaz u `vise.tsx` + ruta u
+  `_layout.tsx`).
+- **Pada** → native fallback (markdown u `TextInput` + pregled). Upozorenje: backend čuva
+  HTML, pa markdown traži HTML↔markdown konverziju (gubitak tabela/priloga) — odluku doneti
+  zajedno, verovatno uz „napredno uređivanje na webu".
+
+Plan: `~/.claude/plans/mobilni-nema-editor-bele-ki-shimmying-fern.md`.
+
+---
+
 # Naučene zamke — ne ponavljaj
 
 Ove nisu „čeka se na uslov" — već rešene greške koje se lako vrate. Zapisane da
@@ -118,3 +167,20 @@ pouzdano dodavanjem još retry-ja.
 `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx` (injekcija + zamrznut token, gejt na
 `initialToken`) i `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx` (sinhroni
 bootstrap kroz `useLayoutEffect`). Protokol: `docs/mobile/00-PLAN.md` §5.2.
+
+## Z3. Nova stranica sleće na (0,0) — placement se mora tražiti, ne pretpostaviti
+
+**Simptom.** Stranica napravljena sa mobilnog kanvasa (i konverzijom misli u stranicu)
+pojavljuje se u gornjem levom uglu, po pravilu tačno preko neke već postojeće kartice —
+dok ista radnja na webu uredno spusti karticu na slobodno mesto.
+
+**Uzrok.** `insertWorkspacePage` je placement upisivao na `(0,0)` bezuslovno. Web put
+(`areasV2.createPage`) je kvar maskirao: on posle inserta ionako prepiše poziciju kroz
+`upsertPlacement`, pa se pogrešna početna vrednost nikad nije videla. Ispod je ispadalo
+samo kod direktnih pozivalaca koji tog drugog koraka nemaju — `pages.create` sa mobilnog
+kanvasa i konverzija misli u stranicu.
+
+**Pravilo.** Svaki novi put ka `insertWorkspacePage` MORA da prođe kroz
+`canvasPlacement.getAvailableCanvasPosition` — pozicija se traži od kanvasa, ne
+pretpostavlja. Ako neki pozivalac poziciju bira sam, to mora biti eksplicitna namera
+(npr. drop na tačnu koordinatu), a ne difolt koji je neko zaboravio da prepiše.
