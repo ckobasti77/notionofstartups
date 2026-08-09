@@ -1,7 +1,7 @@
 Ti si revizor. NE popravljaš ništa, samo proveravaš i pišeš nalaz.
 
-Faza koja je upravo završena zadata je u fajlu docs/mobile/lanac/promptovi/faza-6.txt.
-Izmene su u opsegu commit-a: git diff 08d7b2e..HEAD
+Faza koja je upravo završena zadata je u fajlu docs/mobile/lanac/promptovi/faza-7.txt.
+Izmene su u opsegu commit-a: git diff 3791d54..HEAD
 
 Uradi:
 1. Pročitaj zadati prompt i pročitaj stvarni diff.
@@ -14,6 +14,6 @@ Uradi:
    umesto kroz components/ui/row.tsx.
 6. Proveri da nije dodata nijedna nova funkcija u packages/backend.
 
-Nalaz dopiši na kraj fajla docs/mobile/lanac/IZVESTAJ.md, pod naslovom „### Revizija: Faza 6 — pokret".
+Nalaz dopiši na kraj fajla docs/mobile/lanac/IZVESTAJ.md, pod naslovom „### Revizija: Faza 7 — završna provera".
 Piši kratko i bez ulepšavanja. Ako faza nije uradila ono što je traženo, napiši
 to prvom rečenicom.

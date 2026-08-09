@@ -653,3 +653,115 @@ ove faze. Revizija je zato pokrenula `npx tsc --noEmit -p apps/mobile/tsconfig.j
 - Izvršavanje: prošlo
 - `npm run check`: **prolazi**
 - `npm test`: prolazi
+- Commit: `421ee35`
+- Dirnuto fajlova: 60
+
+### Revizija: Faza 7 — završna provera
+
+Faza je uradila ono što je traženo, sa jednim izuzetkom: tačka 3 nije izvršena
+kako je napisana jer traženi skill ne postoji — to je zamenjeno ručnom revizijom
+i zapisano.
+
+#### Tačka po tačka
+
+**1. parity-check nad celim `apps/web` vs `apps/mobile` — URAĐENO.**
+Rezultat postoji u oba smera. IZUZECI: `docs/mobile/02-EKRANI.md:641` (uređivanje
+layouta kanvasa), `:668` (izbor članova privatnog kanala), `:685`
+(drag-and-drop premeštanje stranica). PROPUSTI popravljeni — npr. tab Obaveštenja
+je bio prazan skelet, sada je pun ekran (`apps/mobile/src/app/(app)/(tabs)/obavestenja.tsx:53`
+paginirani `notifications.list`, `:135` `markAllRead`, `:182` `SectionList`);
+Odobrenja su dobila četiri segmenta kao web (`odobrenja.tsx:57`, `:139`
+`withdrawDeletion`); ulančavanje checkpointa (`task-checkpoint-list.tsx:67-68`);
+`chat` „Nova poruka" više nije prazan `onPress` (`(tabs)/chat.tsx` →
+`new-conversation-sheet.tsx`, 307 novih linija); bedževi nepročitanog u tab baru
+(`(tabs)/_layout.tsx:98`, `:108`). PROPUSTI koji nisu popravljeni su nabrojani
+(vidi tačku 5). **Ograničenje dokaza:** iz diff-a se ne može dokazati da je
+poređenje bilo iscrpno — dokazuje se samo da je rezultat širok i klasifikovan.
+
+**2. rn-review nad izmenama u `apps/mobile` — URAĐENO.** Nalazi su vidljivi kao
+izmene koje nemaju veze sa paritetom: dodirna meta „twisty" strelice
+(`(tabs)/prostor.tsx:976`, bila 28pt široka), `Button` prešao sa `height` na
+`minHeight` + `numberOfLines={2}` (`ui/button.tsx:46-49`, `:99`), `IconButton`
+sada prevodi `disabled` u a11y stanje (`ui/icon-button.tsx:26`), curenje tajmera
+u `use-list-refresh.tsx:29-36`, `ErrorBoundary` na „Više" i „Podešavanja
+obaveštenja", dev alat sakriven iza `__DEV__` (`(tabs)/vise.tsx:211`).
+
+**3. Skill `design:accessibility-review` — NIJE URAĐENO (skill ne postoji).**
+Provereno: nema ga ni u `.claude/skills/` ni u `~/.claude/skills/`. Faza to
+izričito piše (`docs/mobile/ZA-POPRAVKU.md:231-236`) i umesto njega radi ručnu
+WCAG reviziju. Rezultat te revizije je stvaran: nov `primaryText` token
+(`theme/tokens.ts:130`, `:179`), `primary` `#6366F1 → #4F46E5`, izolacija fokusa
+u deljenom sheet primitivu (`ui/sheet.tsx:172`), rotor-akcije umesto svajp-gestova
+(`danas/task-card.tsx:131-139`, `chat/message-bubble.tsx:151-164`). Verdikt je
+NIJE URAĐENO zato što se tražena radnja nije izvršila, ne zato što je izostao
+rezultat.
+
+**4. Popravka PROPUSTA bez novih backend funkcija — URAĐENO.**
+`git diff 3791d54..HEAD -- packages/` je **prazan**. Sve nove mutacije su
+postojeće (`taskCheckpoints.setAllChained`, `pageTables.moveColumn`,
+`pageFiles.rename`, `collaboration.withdrawDeletion`, `areasV2.withdrawNesting`,
+`chat.unreadSummary`) — potvrđeno i time što `tsc` protiv `_generated/api` prolazi.
+IZUZECI su u `02-EKRANI.md`, kako je traženo.
+
+**5. `ZA-POPRAVKU.md` — URAĐENO.** Nova sekcija `ZA-POPRAVKU.md:226-424`, 12
+podtačaka sa razlogom, uključujući i ono što je neprijatno: brisanje stranice sa
+telefona (`:255`, čeka odluku iz `00-PLAN.md` §9.4), admin ekran (`:271`),
+`convertToIdeas` (`:299`), šta NIJE provereno (`:404`).
+
+#### Provera tvrdnji o verifikaciji
+
+Sve tri prijavljene komande sam pokrenuo: `npm run check` **exit 0**, `npm test`
+**exit 0** (37 fajlova, 321 test), `npx tsc --noEmit -p apps/mobile/tsconfig.json`
+**exit 0**. Ali kao i u Fazi 6: nijedna od prve dve ne dodiruje kod ove faze.
+`vitest.config.ts` navodi projekte `apps/web` i `packages/backend` — `apps/mobile`
+nije među njima, pa 321 test ne pokriva nijednu izmenjenu liniju; `npm run check`
+je `eslint && next build`, a `apps/web` u ovom commit-u nije dirnut. Jedina prava
+provera je `tsc`. Ništa nije pokrenuto na uređaju — faza to i sama piše
+(`ZA-POPRAVKU.md:404`).
+
+#### Napravljeno a nije traženo
+
+- **Obrisana četiri nekorišćena fajla** — `components/external-link.tsx`,
+  `hint-row.tsx`, `web-badge.tsx`, `ui/collapsible.tsx`. Provereno: nijedan se
+  nigde ne uvozi (pogoci na `ExternalLink` su lucide ikonica). Čišćenje mrtvog
+  koda, nije traženo.
+- **Promena globalne palete** — `primary`, `subtle`, `success`, `warning`,
+  `danger`, `destructive` u `theme/tokens.ts` i `tailwind.config.js`. Motiv je
+  kontrast, ali posledica je da se **menja izgled cele aplikacije**, ne samo
+  nalaza. Faza to priznaje (`ZA-POPRAVKU.md:414-418`).
+- **`ui/date-picker-sheet.tsx` — 254 linije novog kalendara.** Nije popravka nego
+  nova komponenta; opravdana paritetom (rok van četiri preseta), ali je najveći
+  neprijavljeni komad.
+- **Nova navigaciona veza Puls → Prostor** sa parametrima (`puls.tsx:95-102`,
+  `prostor.tsx:123-130`) — parity-motivisano, ali novi mehanizam prosleđivanja
+  stanja kroz rutu.
+
+#### Placeholderi, TODO, prazne funkcije
+
+Novih nema — nijedan dodat red ne sadrži `TODO`/`FIXME`, nema komponente koja
+vraća `null` kao stub (`inviteLinkUrl` vraća `null` samo kad `EXPO_PUBLIC_WEB_URL`
+nije podešen, `AreasSection` kad je lista prazna — oba namerna). Zatečeni
+`TODO(Faza 3, §5.1)` u `vise.tsx:210` je ostao, ali je blok sada iza `__DEV__`.
+
+Dve neistinite/neuredne sitnice:
+
+- `canvas/page-create-sheet.tsx:52` — komentar tvrdi „proizvoljan datum nosi
+  `DatePickerSheet`", a taj fajl `DatePickerSheet` **ne uvozi**. Pravljenje
+  stranice sa proizvoljnim rokom i dalje ne postoji; komentar zavodi.
+- `danas/task-actions-sheet.tsx:278-279` — `fontSize` podignut na 16, a
+  `lineHeight` ostao 16. Tekst od dva reda će se lepiti.
+
+#### Tačka 5 provere — ručni `flexDirection: 'row'` umesto `ui/row.tsx`
+
+**Prošlo.** Deset novih pojava, nijedna nije red liste: `obavestenja.tsx`
+(skeleton), `ideja/[id].tsx` (dugmad izmene), `new-conversation-sheet.tsx`,
+`rename-area-sheet.tsx`, `files-panel.tsx` (redovi dugmadi u sheet-u),
+`date-picker-sheet.tsx` ×4 (navigacija meseca, zaglavlje dana, mreža, dugmad),
+`task-checkpoint-list.tsx` („Poveži sve" dugme). Svi novi redovi liste idu kroz
+`Row` — `obavestenja.tsx`, `odobrenja.tsx`, `ideja/[id].tsx`,
+`new-conversation-sheet.tsx` ga uvoze.
+
+#### Tačka 6 provere — nove funkcije u `packages/backend`
+
+**Prošlo.** Nula izmena: `git diff 3791d54..HEAD --stat -- packages/` ne vraća
+nijedan fajl.
