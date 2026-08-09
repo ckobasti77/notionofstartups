@@ -406,6 +406,18 @@ administracija članova (`startups.addMember`, `removeMember`) samo za
   inače je editor neupotrebljiv
 - `[⋯]` meni: premesti u oblast, poveži stranicu, prilozi, arhiviraj
 
+**Povezane stavke — pandan web `page-relations`.** Kolapsibilna sekcija ispod
+„Podstranica" (i na ekranu zadatka, unutar kartice): spisak veza ka drugim
+stranicama, tap otvara drugu stranu, dugme desno uklanja vezu. Svoju vezu brišeš
+odmah (`areasV2.deleteRelation`), za tuđu se pokreće glasanje
+(`collaboration.requestDeletion`, `page_relation`) — server šalje `canDelete` /
+`canRequestDeletion`, klijent ih samo poštuje.
+
+**Pravljenje veze se NE duplira**: već postoji u „…" meniju („Poveži sa…"), pa
+dugme u podnožju sekcije otvara isti sheet direktno na tom koraku. Web padajući
+izbornik kandidata sa grupama po oblasti ostaje sheet sa listom — na telefonu je
+lista čitljivija od `Select`-a sa sto stavki.
+
 ### 9.2 Detalj zadatka
 
 Native ekran, bez WebView-a — najčešće korišćen, mora da bude brz.

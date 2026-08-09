@@ -30,7 +30,8 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
 import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
-import { PageActionsSheet } from '@/components/stranica/page-actions-sheet';
+import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
+import { RelationsSection } from '@/components/stranica/relations-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
@@ -71,7 +72,8 @@ export default function ZadatakScreen() {
   const [assigneesOpen, setAssigneesOpen] = useState(false);
   // Zadatak je `pages` dokument kao i stranica, pa deli isti „…" sheet
   // (premesti / ugnjezdi / izdvoji / poveži) — web mu nudi iste akcije.
-  const [actionsOpen, setActionsOpen] = useState(false);
+  // `null` = sheet je zatvoren; vrednost je korak na kom se otvara.
+  const [actionsView, setActionsView] = useState<SheetView | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
 
   const page = useQuery(api.pages.get, { pageId });
@@ -152,7 +154,7 @@ export default function ZadatakScreen() {
           onBack={() => router.back()}
           colors={colors}
           onMeasure={setHeaderHeight}
-          onOpenActions={() => setActionsOpen(true)}
+          onOpenActions={() => setActionsView('menu')}
         />
 
         <KeyboardAvoidingView
@@ -252,6 +254,16 @@ export default function ZadatakScreen() {
             <TaskCheckpointList taskPageId={pageId} canCreate={canEditAll} />
           </View>
 
+          <View style={[styles.card, styles.flush, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <RelationsSection
+              pageId={pageId}
+              startupId={page.startupId}
+              areaId={page.areaId}
+              onConnect={() => setActionsView('relate')}
+              showDivider={false}
+            />
+          </View>
+
             <DiscussionLink pageId={pageId} startupId={page.startupId} />
           </ScrollView>
         </KeyboardAvoidingView>
@@ -281,9 +293,10 @@ export default function ZadatakScreen() {
         />
 
         <PageActionsSheet
-          open={actionsOpen}
+          open={actionsView !== null}
+          initialView={actionsView ?? 'menu'}
           page={page}
-          onClose={() => setActionsOpen(false)}
+          onClose={() => setActionsView(null)}
         />
       </View>
     </GestureHandlerRootView>
@@ -411,6 +424,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
     gap: 4,
+  },
+  // Kartica čiji sadržaj sam nosi svoj padding (npr. „Povezane stavke").
+  flush: {
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    overflow: 'hidden',
   },
   // Row unutar kartice (padding 14) — bez dodatnog horizontalnog paddinga.
   metaRow: {

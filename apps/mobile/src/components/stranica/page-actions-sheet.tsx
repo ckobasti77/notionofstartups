@@ -7,7 +7,7 @@ import {
   Link2,
   Scissors,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,7 +32,7 @@ import { fontWeight, radius } from '@/theme/tokens';
 type PageDetails = FunctionReturnType<typeof api.pages.get>;
 
 /** Menija ima jedan nivo dubine: spisak akcija → spisak ciljeva za izabranu akciju. */
-type SheetView = 'menu' | 'move' | 'nest' | 'relate';
+export type SheetView = 'menu' | 'move' | 'nest' | 'relate';
 
 const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
   move: 'Premesti u oblast',
@@ -57,15 +57,27 @@ const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
 export function PageActionsSheet({
   open,
   page,
+  initialView = 'menu',
   onClose,
 }: {
   open: boolean;
   page: PageDetails;
+  /**
+   * Korak na kom se sheet otvara. „Povezane stavke" (sekcija na ekranu stranice)
+   * vodi pravo na `relate` da se ne prolazi kroz meni koji je već zaobiđen.
+   */
+  initialView?: SheetView;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const [view, setView] = useState<SheetView>('menu');
+  const [view, setView] = useState<SheetView>(initialView);
+
+  // Svako otvaranje kreće od zadatog koraka — stari korak iz prošlog otvaranja ne
+  // sme da procuri (sheet ostaje montiran).
+  useEffect(() => {
+    if (open) setView(initialView);
+  }, [open, initialView]);
   // Jedna brava za ceo sheet: dok mutacija traje nijedan cilj se ne može tapnuti
   // (vrednost je id cilja da baš taj red pokaže spiner).
   const [busyId, setBusyId] = useState<string | null>(null);

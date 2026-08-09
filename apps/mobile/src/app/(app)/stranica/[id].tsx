@@ -9,7 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
 import { NoteEditor } from '@/components/stranica/note-editor';
-import { PageActionsSheet } from '@/components/stranica/page-actions-sheet';
+import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
+import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
 import { api } from '@/convex/_generated/api';
@@ -32,7 +33,8 @@ export default function StranicaScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const pageId = id as Id<'pages'>;
   const page = useQuery(api.pages.get, { pageId });
-  const [actionsOpen, setActionsOpen] = useState(false);
+  // `null` = sheet je zatvoren; vrednost je korak na kom se otvara.
+  const [actionsView, setActionsView] = useState<SheetView | null>(null);
 
   if (page === undefined) {
     return (
@@ -54,14 +56,15 @@ export default function StranicaScreen() {
         title={page.title}
         onBack={() => router.back()}
         onOpenCanvas={openCanvas}
-        onOpenActions={() => setActionsOpen(true)}
+        onOpenActions={() => setActionsView('menu')}
         colors={colors}
       />
-      <PageContent page={page} colors={colors} />
+      <PageContent page={page} colors={colors} onConnect={() => setActionsView('relate')} />
       <PageActionsSheet
-        open={actionsOpen}
+        open={actionsView !== null}
+        initialView={actionsView ?? 'menu'}
         page={page}
-        onClose={() => setActionsOpen(false)}
+        onClose={() => setActionsView(null)}
       />
     </View>
   );
@@ -70,18 +73,28 @@ export default function StranicaScreen() {
 function PageContent({
   page,
   colors,
+  onConnect,
 }: {
   page: PageDetails;
   colors: ColorTokens;
+  /** Otvara `PageActionsSheet` na koraku „Poveži sa…". */
+  onConnect: () => void;
 }) {
   // „Podstranice" su sada sekcija unutar stranice (tap u Prostoru otvara stranicu, ne
-  // roni u podstranice) — stoji iznad sadržaja, skupljena podrazumevano.
+  // roni u podstranice) — stoji iznad sadržaja, skupljena podrazumevano. Ispod nje
+  // „Povezane stavke": veze na druge stranice, iz bilo koje oblasti.
   return (
     <View style={styles.content}>
       <SubpagesSection
         pageId={page._id}
         startupId={page.startupId}
         areaId={page.areaId}
+      />
+      <RelationsSection
+        pageId={page._id}
+        startupId={page.startupId}
+        areaId={page.areaId}
+        onConnect={onConnect}
       />
       <View style={styles.kindContent}>
         {page.kind === 'note' ? (
