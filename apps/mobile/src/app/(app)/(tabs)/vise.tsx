@@ -7,6 +7,7 @@ import {
   ChartColumn,
   FlaskConical,
   Lightbulb,
+  ListTodo,
   Mail,
   Monitor,
   Moon,
@@ -53,6 +54,7 @@ type MenuItem = {
 const MENU: MenuItem[][] = [
   [
     { icon: Vote, label: 'Odobrenja', route: '/odobrenja' },
+    { icon: ListTodo, label: 'Svi zadaci', route: '/zadaci' },
     { icon: ChartColumn, label: 'Puls', route: '/puls' },
     { icon: Lightbulb, label: 'Ideje', route: '/ideje' },
     { icon: Brain, label: 'Misli', route: '/misli' },

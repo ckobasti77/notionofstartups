@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
 import { NoteEditor } from '@/components/stranica/note-editor';
 import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
+import { PageContributionsSection } from '@/components/stranica/page-contributions-section';
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
@@ -104,6 +105,7 @@ export default function StranicaScreen() {
         initialView={actionsView ?? 'menu'}
         page={page}
         onClose={() => setActionsView(null)}
+        onArchived={() => router.back()}
       />
     </View>
   );
@@ -139,6 +141,7 @@ function PageContent({
           web `EntityDiscussionPanel` koristi za SVE tipove stranica, ne samo za
           zadatak. Komponenta je `anchorType`-agnostična, samo nije bila montirana. */}
       <DiscussionLink pageId={page._id} startupId={page.startupId} pageKind={page.kind} />
+      <PageContributionsSection pageId={page._id} />
       <View style={styles.kindContent}>
         {page.kind === 'note' ? (
           <NoteEditor

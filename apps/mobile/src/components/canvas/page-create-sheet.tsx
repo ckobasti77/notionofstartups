@@ -59,8 +59,10 @@ const DUE_PRESETS: readonly DuePreset[] = [
 
 /**
  * Kreiranje stranice/pod-stranice iz canvas rail-a i sekcije „Podstranice" (M4.4).
- * Native unos naslova + vrste (beleška/zadatak) → `pages.create`; WebView (koji sluša
- * `getAreaCanvasByArea` / `getPageCanvasByPage`) sam pokupi novi čvor realtime.
+ * Native unos naslova + vrste (beleška/zadatak) → `areasV2.createPage` (PARITET A5:
+ * ujednačeno sa `pages.create`, koji tvrdo baca na tuđem roditelju umesto da pošalje
+ * zahtev za odobrenje); WebView (koji sluša `getAreaCanvasByArea` / `getPageCanvasByPage`)
+ * sam pokupi novi čvor realtime.
  * Fajl/tabela se prave na desktopu (traže prilog/kolone) — namerno izostavljene (§5.2).
  *
  * PARITET SA WEBOM (`create-page-dialog.tsx`): zadatak nosi i status, prioritet,
@@ -86,7 +88,7 @@ export function PageCreateSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const create = useMutation(api.pages.create);
+  const create = useMutation(api.areasV2.createPage);
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<PageKind>('note');
   const [busy, setBusy] = useState(false);
@@ -136,14 +138,14 @@ export function PageCreateSheet({
     haptics.tap();
     try {
       const cleanInstructions = instructions.trim();
-      await create({
+      const result = await create({
         startupId,
         areaId,
-        parentPageId,
+        rootPageId: parentPageId,
         kind,
         title: cleanTitle,
         // Opciona polja se šalju samo za zadatak i samo kad su postavljena —
-        // `pages.create` ih validira kroz `validateWorkspacePageTarget`.
+        // `areasV2.createPage` ih validira kroz `validateWorkspacePageTarget`.
         ...(kind === 'task'
           ? {
               taskStatus: status,
@@ -156,6 +158,12 @@ export function PageCreateSheet({
           : {}),
       });
       haptics.success();
+      if (result.nestingStatus === 'pending') {
+        Alert.alert(
+          'Čeka odobrenje',
+          `„${cleanTitle}" je kreirana u korenu oblasti i čeka odobrenje autora ciljne stranice.`,
+        );
+      }
       reset();
       closeAll();
     } catch (error) {

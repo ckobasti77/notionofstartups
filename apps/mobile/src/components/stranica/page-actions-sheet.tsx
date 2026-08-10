@@ -6,6 +6,7 @@ import {
   FolderOutput,
   Link2,
   Scissors,
+  Trash2,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -51,6 +52,7 @@ export function PageActionsSheet({
   page,
   initialView = 'menu',
   onClose,
+  onArchived,
 }: {
   open: boolean;
   page: PageDetails;
@@ -60,6 +62,8 @@ export function PageActionsSheet({
    */
   initialView?: SheetView;
   onClose: () => void;
+  /** Poziva se posle uspešnog DIREKTNOG arhiviranja (ne posle zahteva za glasanje). */
+  onArchived: () => void;
 }) {
   const colors = useThemeColors();
   const [view, setView] = useState<SheetView>(initialView);
@@ -77,6 +81,8 @@ export function PageActionsSheet({
   const requestNesting = useMutation(api.areasV2.requestNesting);
   const detachPage = useMutation(api.areasV2.detachPage);
   const createRelation = useMutation(api.areasV2.createRelation);
+  const archivePage = useMutation(api.areasV2.archivePage);
+  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const startup = useQuery(
     api.startups.get,
@@ -182,6 +188,55 @@ export function PageActionsSheet({
     );
   };
 
+  const archiveOrRequest = () => {
+    if (busyId !== null) return;
+    if (!page.permissions.canDeleteDirectly) {
+      haptics.tap();
+      setBusyId('archive');
+      void requestDeletion({ target: { kind: 'page', id: page._id } })
+        .then(() => {
+          haptics.success();
+          close();
+          Alert.alert('Poslato', 'Glasanje o brisanju je pokrenuto.');
+        })
+        .catch((error: unknown) => {
+          haptics.error();
+          Alert.alert('Greška', accessErrorMessage(error, 'Zahtev nije poslat.'));
+        })
+        .finally(() => setBusyId(null));
+      return;
+    }
+    haptics.warning();
+    Alert.alert(
+      'Obrisati stranicu?',
+      'Podstranice će biti izvučene nivo iznad.',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Obriši',
+          style: 'destructive',
+          onPress: () => {
+            setBusyId('archive');
+            void archivePage({ startupId: page.startupId, pageId: page._id })
+              .then(() => {
+                haptics.success();
+                // `close()` PRE `onArchived()`: ako pozivalac nema istoriju za
+                // `router.back()` (npr. deep link), sheet se ipak zatvara umesto
+                // da ostane otvoren nad upravo arhiviranom stranicom.
+                close();
+                onArchived();
+              })
+              .catch((error: unknown) => {
+                haptics.error();
+                Alert.alert('Greška', accessErrorMessage(error, 'Stranica nije arhivirana.'));
+              })
+              .finally(() => setBusyId(null));
+          },
+        },
+      ],
+    );
+  };
+
   const areaById = new Map((startup?.areas ?? []).map((area) => [area._id, area.label]));
 
   return (
@@ -227,6 +282,20 @@ export function PageActionsSheet({
                 onPress={() => setView('relate')}
                 style={styles.row}
                 icon={<Link2 size={20} color={colors.mutedForeground} />}
+              />
+              <Row
+                title="Obriši"
+                subtitle={
+                  page.permissions.canDeleteDirectly
+                    ? 'Arhivira stranicu; podstranice idu nivo iznad'
+                    : 'Traži jednoglasno glasanje tima'
+                }
+                onPress={archiveOrRequest}
+                disabled={busyId !== null}
+                showChevron={false}
+                style={styles.row}
+                icon={<Trash2 size={20} color={colors.mutedForeground} />}
+                value={busyId === 'archive' ? <ActivityIndicator color={colors.primary} /> : undefined}
               />
             </ScrollView>
           </>

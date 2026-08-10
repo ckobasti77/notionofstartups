@@ -46,7 +46,8 @@ export function ContributionThread({
 }: {
   target:
     | { kind: 'idea'; id: Id<'ideaNodes'> }
-    | { kind: 'task_checkpoint'; id: Id<'taskCheckpoints'> };
+    | { kind: 'task_checkpoint'; id: Id<'taskCheckpoints'> }
+    | { kind: 'page'; id: Id<'pages'> };
   /** Kad je `false`, nit se samo čita (nema kompozera). */
   canAdd: boolean;
 }) {
@@ -58,6 +59,7 @@ export function ContributionThread({
   );
 
   const addContribution = useMutation(api.collaboration.addContribution);
+  const addPageEntry = useMutation(api.pages.addEntry);
   const updateContribution = useMutation(api.collaboration.updateContribution);
   const deleteOwn = useMutation(api.collaboration.deleteOwnContribution);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
@@ -80,7 +82,11 @@ export function ContributionThread({
     setBusyId('new');
     haptics.tap();
     try {
-      await addContribution({ target, content });
+      if (target.kind === 'page') {
+        await addPageEntry({ pageId: target.id, content });
+      } else {
+        await addContribution({ target, content });
+      }
       haptics.success();
       setDraft('');
       setComposerOpen(false);

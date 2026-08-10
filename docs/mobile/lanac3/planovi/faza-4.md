@@ -742,3 +742,77 @@ implementaciji pokaže da nešto od ovoga stvarno smeta):
 5. Na kraju cele faze: `docs/mobile/PARITET.md` — čekiraj sve 4 A3 stavke i
    preostale 3 A5 stavke (`createPage`, `archivePage`, `addEntry`, `prune`
    kao Z), svaka sa fajl:linija dokazom u istom commit-u kao kod.
+
+---
+
+## 6. Odstupanja od plana (upisano tokom implementacije)
+
+Sve prijavio `rn-review` agent (posle koda, pre commit-a) osim gde je drugačije
+naznačeno. Svako odstupanje je popravljeno u istom koraku, ne ostavljeno za
+sledeću fazu.
+
+1. **`onJoinLeave` u `zadaci.tsx` NIJE no-op, suprotno §2.5.3.** Plan je tvrdio
+   da se u ovom ekranu „uvek koristi `AssigneePickerList` grana" pa
+   `onJoinLeave` navodno nikad ne okida. To je netačno: `TaskActionsSheet`
+   grana na `canEditAll` NEZAVISNO od `statusOnly`/`canChangeStatus` — kad
+   ne-kreator otvori PUN meni (svajp levo, ne long-press), `canEditAll` je
+   `false` i sheet prikazuje red „Priključi se / napusti", ne
+   `AssigneePickerList`. No-op bi tu bio VIDLJIVO mrtvo dugme. Implementirano
+   je sa stvarnim `taskAssignees.join`/`leave` (isti obrazac kao
+   `danas.tsx`/`zadatak/[id].tsx`), `zadaci.tsx` (`applyJoinLeave`).
+2. **Tip `patch` u `patchTask` je `Partial<{taskStatus, taskPriority, dueDate,
+   assigneeProfileIds}>`, ne `Record<string, unknown>` kako je pisalo u §2.5.3
+   pseudokodu.** `Record<string, unknown>` spread u strogo tipiziran
+   `areasV2.updatePage` poziv ne prolazi `tsc` (polja bi imala tip `unknown`
+   umesto stvarnog tipa). Otkriveno pri pisanju koda, ne od agenta.
+3. **FAB u `zadaci.tsx` je generički `@/components/ui/fab` sa
+   `style={{bottom: insets.bottom + 16}}`, ne `QuickAddFab` kako je pisalo u
+   §2.5.5.** `QuickAddFab` nema `style`/insets prop (zakucana pozicija,
+   dizajnirana za TAB ekrane gde tab bar već rezerviše safe area).
+   `zadaci.tsx` je STACK ekran (kao `misli.tsx`/`ideje.tsx`, koji iz istog
+   razloga koriste generički `FAB`) — bez insets-a bi dugme sedelo na samoj
+   ivici ekrana kod telefona sa home-indicator gestom (safe area pravilo).
+4. **`page-contributions-section.tsx` dobila ograničenu visinu + interni
+   skrol + lokalni `KeyboardAvoidingView`, čega NIJE bilo u §2.3 kodu.**
+   `rn-review` nalaz: na `stranica/[id].tsx` je roditelj OBIČAN `View`
+   (`content: {flex:1}`, ne `ScrollView` — editor/tabela/fajl ispod sami
+   skroluju), pa bi duža nit doprinosa gurnula editor van ekrana BEZ ikakvog
+   skrola do njega. Popravka kopira `SubpagesSection`-ov već uspostavljen
+   obrazac (`ScrollView` sa `maxHeight: windowHeight*0.42`,
+   `nestedScrollEnabled`) + lokalni `KeyboardAvoidingView` (isti
+   `Platform.OS==='ios'?'padding':undefined` obrazac kao `ideja/[id].tsx`
+   kompozer) da tastatura ne prekrije kompozer. Sused NoteEditor-u (ne
+   roditelj), pa ne dira njegov `use-keyboard-inset.ts` tok.
+5. **`meta` stil u `page-contributions-section.tsx` je `text.body` (16px), ne
+   `text.meta` (13px)** kako je pisalo u §2.3 „title/meta kopiraj iz
+   `ideja/[id].tsx`". Rečenica „Potpisan tekst članova tima…" je pun opisni
+   tekst (isto kao `RelationsSection`-ovo prazno stanje, koje iz istog
+   razloga koristi `text.body`), ne meta-oznaka (vreme/bedž) — `ideja/[id]
+   .tsx`-ov `meta` stil se tamo koristi za „Autor: X" atribuciju, drugačiju
+   ulogu. Ispod praga od 16px iz pravila faze.
+6. **Dodat `busyTaskId` bravu u `zadaci.tsx`** (`patchTask`/`applyJoinLeave`),
+   kog plan pseudokod nije imao. Bez nje bi brz dupli svajp/tap na ISTU
+   karticu mogao poslati dve mutacije nad istim (možda već zastarelim)
+   `revision`-om — pravilo faze traži „busy lock" na svakoj mutaciji za SVAKI
+   nov ekran. (Sestrinski `danas.tsx`/`zadatak/[id].tsx` to nemaju za brze
+   akcije, ali to je postojeće stanje van obima ove izmene, ne uzor koji treba
+   ponoviti na novom ekranu.)
+7. **`parity-check` agent (druga verifikaciona runda) našao je tri dodatna
+   sitna problema, sva tri popravljena u istom koraku:**
+   - `page-actions-sheet.tsx`-ov direktni brisanje-granа je zvao samo
+     `onArchived()` (→ `router.back()`), ne i `close()`. Ako `router.back()`
+     nema istoriju (deep link na `stranica/[id]`/`zadatak/[id]`), sheet bi
+     ostao otvoren nad upravo arhiviranom (sad bacajućom) stranicom. Popravka:
+     `close()` PRE `onArchived()`, isti redosled kao `requestDeletion` grana
+     koja je to već radila ispravno.
+   - `page-create-sheet.tsx`-ov doc-komentar je i dalje pisao `pages.create`
+     posle §2.1 izmene mutacije na `areasV2.createPage` — ažurirano.
+   - `zadaci.tsx`-ov `taskIds` (izveden iz `usePaginatedQuery`-jevog
+     AKUMULIRANOG `results`) nije imao gornju granicu — posle dovoljno
+     „Učitaj još" (server strana pušta do `MAX_TASK_PAGE_SIZE=100` po
+     stranici) prešao bi backend-ov `taskAssignees.listForTasks` limit od 300
+     id-jeva, koji TVRDO baca (`taskAssignees.ts:110-114`) i srušio ceo ekran
+     u `ErrorBoundary`. Popravka: `results.slice(0, 300)` pre slanja upita —
+     zadaci iznad granice ostaju bez prikazanih izvršilaca na kartici
+     (degradacija, ne pad); konstanta i objašnjenje u `zadaci.tsx` uz uvoz
+     `TaskPatch` tipa.

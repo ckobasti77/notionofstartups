@@ -206,10 +206,26 @@ Web `admin-dialog.tsx` sve to ima. Mobilni je imao samo pozivnice i **listu
 Mobilni `danas.tsx` koristi samo `tasks.commandCenter` (moji zadaci danas).
 Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
 
-- [ ] `tasks.listForStartup` — svi zadaci startupa, ne samo moji
-- [ ] Filteri: status, prioritet, izvršilac, rok (na telefonu: sheet sa filterima, ne kolone)
-- [ ] Grupisanje po statusu, sa brojem u zaglavlju grupe
-- [ ] Izmena statusa/prioriteta direktno iz liste (`areasV2.updatePage`)
+- [x] `tasks.listForStartup` — svi zadaci startupa, ne samo moji
+      — nov ekran `zadaci.tsx` (tab „Više" → „Svi zadaci"), `zadaci.tsx:95`
+      (`usePaginatedQuery(api.tasks.listForStartup, ...)`, status/izvršilac
+      server-side); ulaz `vise.tsx:57` (`route: '/zadaci'`)
+- [x] Filteri: status, prioritet, izvršilac, rok (na telefonu: sheet sa filterima, ne kolone)
+      — nov `components/zadaci/tasks-filter-sheet.tsx` (4 sekcije, `OptionChip`,
+      primena odmah); status/izvršilac server-side (`zadaci.tsx:90-106`),
+      prioritet/rok/nedodeljeno klijentski nad `classifyDeadline`
+      (`zadaci.tsx:132-159`, `@/lib/deadline`); mont. `zadaci.tsx:415`
+- [x] Grupisanje po statusu, sa brojem u zaglavlju grupe
+      — `zadaci.tsx:161-170` (`grouped`, samo kad je status filter „Svi"),
+      `SectionHeader` (deljena komponenta) `zadaci.tsx:376`; kad je status filter
+      na konkretnoj vrednosti: ravna lista + summary red „N zadataka"
+      (`zadaci.tsx:382-386`)
+- [x] Izmena statusa/prioriteta direktno iz liste (`areasV2.updatePage`)
+      — `zadaci.tsx:197` (mutacija), `patchTask` `zadaci.tsx:210-225` (`busyTaskId`
+      brava); `TaskCard`/`TaskActionsSheet` ponovo upotrebljeni bez izmene, kačeni
+      na `areasV2.updatePage` (STROŽI model — samo kreator, dosledno
+      web `tasks-view.tsx`/`task-table-view.tsx`, ne Danas-ovom izuzetku za
+      izvršioca)
 
 ## A4. Ideje — organizacija i konverzija
 
@@ -223,12 +239,26 @@ Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
 
 Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
-- [ ] `areasV2.archivePage` — arhiviranje stranice
+- [x] `areasV2.archivePage` — arhiviranje stranice
+      — `page-actions-sheet.tsx:191-230` (`archiveOrRequest`: vlasnik → potvrda →
+      `archivePage`; nevlasnik → `collaboration.requestDeletion`), red „Obriši"
+      `page-actions-sheet.tsx:282-294`; `onArchived={() => router.back()}` na
+      `stranica/[id].tsx:108` i `zadatak/[id].tsx:326`
 - [x] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si)
       — rešeno sa E12 (`breadcrumbs-eyebrow.tsx`, dokazi tamo); backend netaknut
-- [ ] `pages.addEntry` — dodavanje unosa u stranicu (web `page-editor-view.tsx`)
-- [ ] `areasV2.createPage` — mobilni koristi `pages.create`; proveri da li se ponašaju isto i ujednači
-- [ ] `pageFiles.prune` — čišćenje nevezanih priloga
+- [x] `pages.addEntry` — dodavanje unosa u stranicu (web `page-editor-view.tsx`)
+      — `contribution-thread.tsx:49` (target union +`page`), `:85-89` (grananje
+      u `submit()`: `page` → `pages.addEntry`, ostalo → `collaboration.
+      addContribution`); nova sekcija `page-contributions-section.tsx` (ograničena
+      visina + interni skrol + lokalni `KeyboardAvoidingView`, rn-review nalaz),
+      montirana `stranica/[id].tsx:144` i `zadatak/[id].tsx:293`
+- [x] `areasV2.createPage` — mobilni koristi `pages.create`; proveri da li se ponašaju isto i ujednači
+      — `page-create-sheet.tsx:89` (`useMutation(api.areasV2.createPage)`),
+      `:142` (`rootPageId: parentPageId` u pozivu), `:159-164` (Alert „Čeka
+      odobrenje" kad `result.nestingStatus === 'pending'`)
+- [x] `pageFiles.prune` — čišćenje nevezanih priloga — IZUZETAK, vidi tabelu Z
+      (mobilni tentap editor ne ume da ubaci prilog u telo beleške, pa nema šta
+      da se čisti; zatvara se sa mernim gejtom ZA-POPRAVKU §2/§5.1)
 
 ## A6. Vraćanje obrisanog — sistemska rupa
 
@@ -520,3 +550,4 @@ Prazan razlog ne važi. „Nije bitno" nije razlog.
 |---|---|
 | `pushSubscriptions.myDeviceCount` | Web push kroz browser; mobilni koristi Expo push, drugi mehanizam. |
 | `areasV2.resolveRoute` | Rutiranje web URL-ova; mobilni ima expo-router. |
+| `pageFiles.prune` | Čisti osirotele priloge UMETNUTE U TELO beleške preko node-view mehanizma; mobilni tentap editor ne ume da ubaci prilog u telo (ZA-POPRAVKU §2/§5.1, gejt i dalje otvoren) — nema koda koji na mobilnom može da napravi taj osiroteli red, pa nema šta da se čisti. Zatvara se zajedno sa proširenjem tentap bundle-a. |

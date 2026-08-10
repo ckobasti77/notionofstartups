@@ -28,6 +28,7 @@ import { PriorityDot } from '@/components/danas/priority-dot';
 import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
+import { PageContributionsSection } from '@/components/stranica/page-contributions-section';
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
@@ -289,6 +290,7 @@ export default function ZadatakScreen() {
           </View>
 
             <DiscussionLink pageId={pageId} startupId={page.startupId} pageKind="task" />
+            <PageContributionsSection pageId={pageId} />
           </ScrollView>
         </KeyboardAvoidingView>
 
@@ -321,6 +323,7 @@ export default function ZadatakScreen() {
           initialView={actionsView ?? 'menu'}
           page={page}
           onClose={() => setActionsView(null)}
+          onArchived={() => router.back()}
         />
       </View>
     </View>
