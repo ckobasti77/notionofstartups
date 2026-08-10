@@ -184,3 +184,17 @@ test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
 - `lint`: prolazi
 - `test`: prolazi
 - Commit: `257290e` · dirnuto fajlova: 3
+- Trajanje: 1 min
+
+## Faza 4 - Ideje, vraćanje obrisanog, chat
+
+**Cilj:** Ništa se ne gubi zauvek: svaka arhivirana stvar se može vratiti, na svakom ekranu.
+
+| Korak | Model | Effort | Režim |
+|---|---|---|---|
+| PLAN | `` | `max` | bez izmena koda |
+| IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
+| REVIZIJA | `` | `max` | bez izmena koda |
+
+- Start: 2026-08-10T05:04:16
+- PLAN: **nije napisan** - implementacija ide bez plana
