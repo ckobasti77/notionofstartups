@@ -204,3 +204,17 @@ test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
 - `lint`: prolazi
 - `test`: prolazi
 - Commit: `7c8b919` · dirnuto fajlova: 3
+- Trajanje: 1 min
+
+## Faza 5 - Nula grešaka
+
+**Cilj:** tsc, lint, build i testovi prolaze bez ijedne greške i bez ijednog upozorenja.
+
+| Korak | Model | Effort | Režim |
+|---|---|---|---|
+| PLAN | `` | `max` | bez izmena koda |
+| IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
+| REVIZIJA | `` | `max` | bez izmena koda |
+
+- Start: 2026-08-10T05:04:57
+- PLAN: **nije napisan** - implementacija ide bez plana
