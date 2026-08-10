@@ -6,13 +6,22 @@ import { radius, SHADOW_COLOR } from '@/theme/tokens';
 
 const SIZE = 56;
 
-/** Plutajuće dugme dole desno za brzo dodavanje zadatka (docs/mobile §3, §4). */
-export function QuickAddFab({ onPress }: { onPress: () => void }) {
+/**
+ * Plutajuće dugme dole desno za brzo dodavanje (docs/mobile §3, §4). Izgled i
+ * pozicija su svuda isti — `label` samo imenuje šta se pravi (a11y).
+ */
+export function QuickAddFab({
+  onPress,
+  label = 'Novi zadatak',
+}: {
+  onPress: () => void;
+  label?: string;
+}) {
   const colors = useThemeColors();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Novi zadatak"
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [
         styles.fab,

@@ -27,7 +27,9 @@ import {
   View,
 } from 'react-native';
 import { AppHeader } from '@/components/app-header';
+import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
+import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { EmptyState } from '@/components/empty-state';
 import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
@@ -113,6 +115,8 @@ export default function ProstorScreen() {
   // Ulaz spolja (npr. red oblasti u Pulsu) — otvara tab odmah na toj oblasti.
   const params = useLocalSearchParams<{ areaId?: string; areaLabel?: string }>();
   const [renamingArea, setRenamingArea] = useState(false);
+  // FAB „Nova stranica" na Nivou 2 (E13) — isti gest kao „novi zadatak" na Danas.
+  const [creatingPage, setCreatingPage] = useState(false);
 
   // Promena startupa (switcher u headeru) resetuje hijerarhiju na Nivo 1: okviri
   // drže id-jeve oblasti/stranica starog startupa, pa bi upit pukao na tuđem id-ju.
@@ -243,6 +247,24 @@ export default function ProstorScreen() {
         now={now}
         onOpenLeaf={openLeaf}
       />
+      {/* Stranica se prirodno pravi u oblasti (E13); Nivo 1 FAB nema — tamo se
+          pravi OBLAST i taj ulaz već postoji („Nova oblast"). */}
+      <QuickAddFab
+        label="Nova stranica"
+        onPress={() => {
+          haptics.tap();
+          setCreatingPage(true);
+        }}
+      />
+      {activeStartupId ? (
+        <PageCreateSheet
+          open={creatingPage}
+          startupId={activeStartupId}
+          areaId={top.areaId}
+          parentPageId={null}
+          onClose={() => setCreatingPage(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -792,7 +814,7 @@ function PageLevelEmpty({ colors }: { colors: ColorTokens }) {
     <EmptyState
       icon={<FolderOpen size={40} color={colors.mutedForeground} />}
       title="Ova oblast je prazna."
-      description="Otvori Canvas u zaglavlju da dodaš prvu stranicu."
+      description="Dodaj prvu stranicu dugmetom + dole desno."
     />
   );
 }
@@ -962,7 +984,8 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 32,
+    // FAB (56) + bottom 16 + zazor: poslednji red mora ceo iznad FAB-a (kao E11).
+    paddingBottom: 96,
   },
   // Red stranice kao `Row` override — samo horizontalni padding i radijus.
   // (`paddingLeft` se dodaje inline po dubini u stablu.)

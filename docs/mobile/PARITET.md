@@ -316,7 +316,7 @@ Posle dva-tri nivoa ugnježdavanja ne znaš gde si, a nemaš sidebar kao na webu
 „Danas" ima FAB, ekran oblasti nema ništa — a to je mesto gde se stranica
 prirodno pravi.
 
-- [ ] Isti FAB, isto ponašanje, na svim ekranima gde kreiranje ima smisla
+- [x] Isti FAB, isto ponašanje, na svim ekranima gde kreiranje ima smisla — `QuickAddFab` (sa `label` propom) + postojeći `PageCreateSheet` na Nivou 2 Prostora; Nivo 1 ne dobija FAB (tamo se pravi oblast, ulaz „Nova oblast" postoji); `dokazi-ux/e13-fab.png` + `e13-posle-kreiranja.png` („Proba FAB" u listi realtime)
 
 ---
 
