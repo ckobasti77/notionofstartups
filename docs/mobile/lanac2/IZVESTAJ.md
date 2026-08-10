@@ -144,3 +144,17 @@ test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
 - `lint`: prolazi
 - `test`: prolazi
 - Commit: `371e6df` · dirnuto fajlova: 3
+- Trajanje: 1 min
+
+## Faza 2 - Administracija startupa
+
+**Cilj:** Admin sa telefona može sve što može sa weba: startup, logo, članovi, redosled oblasti.
+
+| Korak | Model | Effort | Režim |
+|---|---|---|---|
+| PLAN | `` | `max` | bez izmena koda |
+| IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
+| REVIZIJA | `` | `max` | bez izmena koda |
+
+- Start: 2026-08-10T05:02:55
+- PLAN: **nije napisan** - implementacija ide bez plana

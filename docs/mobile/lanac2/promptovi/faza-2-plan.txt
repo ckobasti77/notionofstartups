@@ -1,0 +1,64 @@
+ultrathink
+
+Radiš na Devotion monorepou: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvršavanje - ne pitaj,
+odlučuj i radi.
+
+PRVO pročitaj, uvek, pre bilo čega:
+  docs/mobile/PARITET.md      <- tvoja lista i tvoja memorija
+  docs/mobile/ZA-POPRAVKU.md  <- naučene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+
+PRAVILA KOJA VAŽE U SVAKOJ FAZI:
+- Paritet je FUNKCIONALNI, ne vizuelni. Ne prekopavaj web layout. Za svaku
+  funkciju pitaj se kako se isti ishod postiže prstom na malom ekranu, pa to
+  napravi. Tabela prevoda obrazaca je u PARITET.md.
+- Backend NE menjaj. Sve funkcije već postoje. Ako ti stvarno nešto fali, stani
+  i zapiši u docs/mobile/ZA-POPRAVKU.md umesto da izmišljaš.
+- Svaki novi red kroz apps/mobile/src/components/ui/row.tsx. Ne piši ručno nove
+  flexDirection:'row' blokove.
+- Tekst min 16px osim pravog meta-teksta. Dodirna meta min 44pt. Safe area.
+  busy lock na svakoj mutaciji. Prazno, učitavanje i greška - sva tri stanja.
+- ČEKIRAJ [x] u docs/mobile/PARITET.md čim nešto završiš, u ISTOM commit-u sa
+  kodom. Ako odlučiš da nešto ne ide na telefon, upiši red u sekciju Z sa
+  razlogom. Prazan razlog ne važi.
+- U sekciji 'ŠTA JE VEĆ URAĐENO" fajla PARITET.md je spisak stvari koje RADE.
+  Ne diraj ih i ne pravi ih ponovo.
+- Ako menjaš apps/mobile/package.json, dopiši red u docs/mobile/lanac2/NATIVE-BUILD.md
+  (napravi fajl ako ne postoji) - to znači da ujutru treba nov native build.
+FAZA 2 - ADMINISTRACIJA STARTUPA (sekcija A2 u PARITET.md)
+
+Web admin-dialog.tsx ima devet funkcija koje mobilni nema. Mobilni ima samo
+pozivnice i listu članova bez ijedne akcije - provereno na emulatoru, u meniju
+'Više" nema nikakve administracije.
+
+Uradi sve nečekirane stavke iz A2.
+
+Posebno pazi:
+- Sve iza requireAdmin na backendu, i sakriveno u meniju ako korisnik nije admin.
+  Dvostruka brana, kao što je već urađeno za pozivnice.
+- reorderAreas na telefonu NIJE drag&drop. Dugmad 'gore/dole" u redu oblasti, ili
+  sheet sa izborom pozicije. Drag na maloj listi sa prstom je frustracija.
+- Uklanjanje člana je destruktivno - potvrda, i jasno šta biva sa njegovim
+  zadacima.
+- Logo: expo-image-picker je već instaliran, koristi njega.
+=====================================================================
+OVO JE KORAK PLANIRANJA. NE MENJAJ NIJEDAN FAJL SA KODOM.
+=====================================================================
+
+Tvoj jedini posao sada je da napišeš plan u fajl docs\mobile\lanac2\planovi\faza-2.md
+
+CILJ FAZE (po ovome ćeš biti meren): Admin sa telefona može sve što može sa weba: startup, logo, članovi, redosled oblasti.
+
+Plan mora da sadrži, tim redom:
+1. Šta si pročitao i šta si zatekao - konkretno, sa imenima fajlova i linijama.
+   Ako je nešto iz liste VEĆ urađeno, reci to i izbaci iz plana.
+2. Redosled izmena, jedna po jedna, sa fajlom koji se dira i razlogom.
+3. Za svaku izmenu: kako se na telefonu, prstom, postiže isti ishod kao na webu.
+   Ako obrazac sa weba ne radi na malom ekranu, napiši čime ga zamenjuješ.
+4. Šta može da pukne i šta ćeš uraditi ako pukne.
+5. Šta NEĆEŠ raditi u ovoj fazi i zašto (to ide u sekciju Z fajla PARITET.md).
+6. Kako ćeš na kraju dokazati da svaka stavka radi - konkretan test, ne 'proveriću".
+
+Piši kratko i konkretno. Bez opštih rečenica. Ovaj plan će drugi agent sprovesti
+doslovno, pa sve što ne napišeš - neće se desiti.
