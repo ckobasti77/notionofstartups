@@ -41,6 +41,11 @@ svaki red kroz `components/ui/row.tsx`; safe area; `busy` lock na svakoj mutacij
 
 # 0 — BLOKATOR: SVI KANVASI VRAĆAJU 404
 
+**REŠENO 2026-08-10** — uzroci: (1) projekat `alati` na portu 3000 (Devotion tiho
+pobegao na 3001), (2) bez `allowedDevOrigins: ["10.0.2.2"]` hidracija sa emulatora
+visi; vidi `KANVAS-DIJAGNOZA.md`; dokaz: `kanvas-dijagnoza/posle.png` (Ideje, 3
+oblačića + veze) i `posle-misli.png` (Misli).
+
 **Ovo se rešava PRVO. Dok ovo stoji, kanvas, Misli i editor preko WebView-a ne
 mogu ni da se testiraju.**
 
@@ -60,12 +65,12 @@ postoji na disku i ispravna je — problem nije u kodu nego u tome šta sluša n
 Ovo takođe znači da **prethodne „popravke kanvasa" nisu ni mogle da se provere** —
 sve vreme se testiralo protiv pogrešnog servera.
 
-- [ ] Utvrdi šta zauzima port 3000 (`netstat -ano | findstr :3000`, pa `tasklist /FI "PID eq <pid>"`)
-- [ ] Ugasi to, pa pokreni `npm run dev` iz `notion-clone`
-- [ ] Potvrdi u browseru na hostu: `http://localhost:3000/embed/canvas/ideas/proba` renderuje Devotion, ne 404
-- [ ] Potvrdi u Chrome-u u emulatoru: `http://10.0.2.2:3000` je Devotion
-- [ ] Tek onda otvori kanvas u aplikaciji i **napravi screenshot sa vidljivim oblačićima**
-- [ ] Ako i posle ovoga kanvas ne crta — tek TADA je bag u kodu; bisektuj po `PROMPT-KANVAS-GOAL.md`
+- [x] Utvrdi šta zauzima port 3000 (`netstat -ano | findstr :3000`, pa `tasklist /FI "PID eq <pid>"`) — `alati` (PID 19484, pa respawn 24924; gašeno celo `npm run dev` stablo)
+- [x] Ugasi to, pa pokreni `npm run dev` iz `notion-clone` — Devotion na 3000, identitet potvrđen kroz netstat + CommandLine
+- [x] Potvrdi u browseru na hostu: `http://localhost:3000/embed/canvas/ideas/proba` renderuje Devotion, ne 404 — curl vraća 200
+- [x] Potvrdi u Chrome-u u emulatoru: `http://10.0.2.2:3000` je Devotion — `kanvas-dijagnoza/chrome-emulator-posle.png` („Ovaj prikaz radi samo u Devotion aplikaciji.")
+- [x] Tek onda otvori kanvas u aplikaciji i **napravi screenshot sa vidljivim oblačićima** — `kanvas-dijagnoza/posle.png` + `posle-misli.png`
+- [x] Ako i posle ovoga kanvas ne crta — tek TADA je bag u kodu; bisektuj po `PROMPT-KANVAS-GOAL.md` — nije se steklo: kanvas crta (posle.png)
 
 ---
 
