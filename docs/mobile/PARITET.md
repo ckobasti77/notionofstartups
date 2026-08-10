@@ -300,14 +300,21 @@ Prazna beleška kaže **„Write something …"**. Cela aplikacija je na srpskom
 Na beleški (ne zadatku) stoji: „Započni diskusiju — Otvori razgovor tima o ovom
 **zadatku**."
 
-- [ ] Tekst mora da prati vrstu stranice (beleška/zadatak)
+- [x] Tekst mora da prati vrstu stranice (beleška/zadatak) — `DiscussionLink`
+      ima `pageKind` mapu za sve 4 vrste; beleška: „…o ovoj beleški."
+      (`dokazi-ux/e6-beleska-p2.png`), zadatak: „…o ovom zadatku."
+      (`e6-zadatak-p2.png`)
 
 ## E7. Zadatak: „Izvršioci" prikazuje prazan krug koji se vrti
 
 Kad zadatak nema izvršioce, u redu stoji prazan kružić koji izgleda kao spiner
 koji se nikad ne završi, umesto poruke „Niko nije dodeljen".
 
-- [ ] Prazno stanje sa tekstom, ne prazan avatar-placeholder
+- [x] Prazno stanje sa tekstom, ne prazan avatar-placeholder — red „Izvršioci"
+      na detalju: tekst „Niko nije dodeljen" (16px, prigušeno), red i dalje
+      dodirljiv (otvara piker); skeleton tokom učitavanja ostaje; prazan krug na
+      kompaktnim karticama LISTE je svesno zadržan (oznaka „mesto čeka nekoga");
+      `dokazi-ux/e7-posle-p2.png`
 
 ## E8. Nema „…" menija ni na zadatku ni na beleški
 
