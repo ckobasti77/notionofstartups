@@ -293,7 +293,14 @@ Vrh ekrana: „ScanMe ⌄" pa „Danas". Odmah ispod, u kartici: „SCANME" pa
 
 Prazna beleška kaže **„Write something …"**. Cela aplikacija je na srpskom.
 
-- [ ] Prevedi, i pretraži ostatak editora za još engleskog teksta
+- [x] Prevedi, i pretraži ostatak editora za još engleskog teksta — statički
+      `PlaceholderBridge.configureExtension` (runtime `setPlaceholder` ne osvežava
+      dekoraciju — odstupanje 3 u planu); nova prazna beleška pokazuje „Zapiši
+      kontekst, odluke i sledeće korake…", naslov „Naslov beleške"
+      (`dokazi-ux/e5-posle-p2.png`); sweep grep
+      (`write something|type your|add link|url here|untitled`) — jedini pogodak
+      je komentar u `note-toolbar.tsx` koji objašnjava zašto tentap-ov engleski
+      toolbar nije korišćen
 
 ## E6. Pogrešan tekst na beleški: „razgovor o ovom zadatku"
 
@@ -322,8 +329,12 @@ koji se nikad ne završi, umesto poruke „Niko nije dodeljen".
 izdvajanje i povezivanje — ali **u zaglavlju detalja nema dugmeta koje ga
 otvara.** Funkcija je napisana pa nedostupna.
 
-- [ ] Dugme „…" u zaglavlju i zadatka i beleške, otvara postojeći sheet
-- [ ] Proveri da li ima još ovakvih slučajeva: komponenta postoji, ulaz ne
+- [x] Dugme „…" u zaglavlju i zadatka i beleške, otvara postojeći sheet —
+      potvrđeno na svežem bundle-u: beleška `dokazi-ux/e8-beleska-p2.png`
+      (4 reda; „Izdvoji" ispravno prigušen u korenu), zadatak `e8-zadatak-p2.png`
+- [x] Proveri da li ima još ovakvih slučajeva: komponenta postoji, ulaz ne —
+      grep inventar svih `*-sheet/*-picker/*-preview` komponenti: svaka ima ≥1
+      import + mount (provereno u istraživanju 2. runde); siročića nema
 
 ## E9. Naslov se prikazuje dvaput
 
@@ -339,8 +350,14 @@ Na beleški „oze" stoji u zaglavlju i odmah ispod kao izmenjiv naslov.
 B / I / S / `<>` / link / H1 / H2 / H3 — poslednja ikonica presečena ivicom
 ekrana, bez naznake da traka skroluje.
 
-- [ ] Skrolabilna sa peek-om, ili prelom u dva reda
-- [ ] Proveri sa OTVORENOM tastaturom da traka stoji iznad nje, ne ispod
+- [x] Skrolabilna sa peek-om, ili prelom u dva reda — poslednja vidljiva ikonica
+      prirodno viri preko desne ivice (poziv na skrol); skrol stiže do „Ponovi"
+      (undo/redo grupa iza separatora), kraj trake čist — `paddingRight` nije
+      potreban (odluka na ekranu): `dokazi-ux/e10-posle-p2.png` +
+      `e10-kraj-trake-p2.png`
+- [x] Proveri sa OTVORENOM tastaturom da traka stoji iznad nje, ne ispod —
+      puna Gboard tastatura u kadru (`mInputShown=true`), traka NEPOSREDNO iznad
+      nje (`use-keyboard-inset.ts` popravka iz 1. runde radi); oba dokaza gore
 
 ## E11. FAB „+" preklapa sadržaj poslednje kartice
 
