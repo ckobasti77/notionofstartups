@@ -574,7 +574,10 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 96,
+    // IZMERENO na emulatoru (E11): sa 96 poslednja kartica na kraju skrola
+    // završava ~47dp ISPOD vrha FAB-a (efektivni razmak ~25dp, ne 96). 160 daje
+    // ≥ 8dp zazora iznad FAB-a (56 + bottom 16). Ne smanjuj bez merenja.
+    paddingBottom: 160,
     gap: 20,
   },
   section: {

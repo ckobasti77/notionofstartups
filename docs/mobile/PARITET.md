@@ -302,7 +302,7 @@ ekrana, bez naznake da traka skroluje.
 
 Na „Danas" plavo dugme prekriva desni deo poslednjeg zadatka u listi.
 
-- [ ] Donji padding liste = visina FAB-a + razmak
+- [x] Donji padding liste = visina FAB-a + razmak — IZMERENO na kraju skrola: sa 96 kartica završava ~47dp ispod vrha FAB-a; podignuto na 160 → zazor ~17dp (uiautomator bounds: kartica 1999 < FAB 2043); isto i na Prostor Nivou 2; `dokazi-ux/e11-posle.png`
 
 ## E12. Nema putanje (breadcrumbs) nigde
 

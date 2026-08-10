@@ -984,8 +984,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    // FAB (56) + bottom 16 + zazor: poslednji red mora ceo iznad FAB-a (kao E11).
-    paddingBottom: 96,
+    // Poslednji red mora ceo iznad FAB-a (56 + bottom 16). 160, ne 96: na Danas
+    // listi je IZMERENO da 96 efektivno ostavi ~25dp (E11) — isti iznos i ovde.
+    paddingBottom: 160,
   },
   // Red stranice kao `Row` override — samo horizontalni padding i radijus.
   // (`paddingLeft` se dodaje inline po dubini u stablu.)
