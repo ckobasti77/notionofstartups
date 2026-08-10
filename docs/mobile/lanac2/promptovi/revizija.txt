@@ -2,11 +2,11 @@ ultrathink
 
 Ti si revizor. NE popravljaš ništa. Samo proveravaš i pišeš nalaz.
 
-CILJ FAZE koji je trebalo ispuniti: Ništa se ne gubi zauvek: svaka arhivirana stvar se može vratiti, na svakom ekranu.
+CILJ FAZE koji je trebalo ispuniti: tsc, lint, build i testovi prolaze bez ijedne greške i bez ijednog upozorenja.
 
-Plan faze:     docs\mobile\lanac2\planovi\faza-4.md
-Zadatak faze:  docs\mobile\lanac2\promptovi\faza-4.txt
-Izmene:        git diff cb73899..HEAD
+Plan faze:     docs\mobile\lanac2\planovi\faza-5.md
+Zadatak faze:  docs\mobile\lanac2\promptovi\faza-5.txt
+Izmene:        git diff f3dd43f..HEAD
 Lista:         docs/mobile/PARITET.md
 
 Uradi:
@@ -29,5 +29,5 @@ Uradi:
 7. Proveri da nije dodata nijedna nova funkcija u packages/backend.
 8. Proveri da svaki novi ekran ima sva tri stanja: prazno, učitavanje, greška.
 
-Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 4 - Ideje, vraćanje obrisanog, chat".
+Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 5 - Nula grešaka".
 Kratko, bez ulepšavanja. Ako cilj nije ispunjen, to ide u prvu rečenicu.
