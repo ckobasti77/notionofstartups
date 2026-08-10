@@ -41,12 +41,11 @@ svaki red kroz `components/ui/row.tsx`; safe area; `busy` lock na svakoj mutacij
 
 # 0 — BLOKATOR: SVI KANVASI VRAĆAJU 404
 
-**REŠENO 2026-08-10** — uzroci: (1) projekat `alati` na portu 3000 (Devotion tiho
-pobegao na 3001), (2) bez `allowedDevOrigins: ["10.0.2.2"]` hidracija sa emulatora
-visi; vidi `KANVAS-DIJAGNOZA.md`; dokaz: `kanvas-dijagnoza/posle.png` (Ideje, 3
-oblačića + veze) i `posle-misli.png` (Misli).
+**REŠENO 10.08. u Fazi 0 lanca (commit `8d69cfd`).** Uzrok: na portu 3000 je radio
+projekat `alati`, a Devotion je tiho pobegao na 3001; plus je nedostajao
+`allowedDevOrigins` za emulator. Dokazi i screenshot-i: `docs/mobile/KANVAS-DIJAGNOZA.md`.
 
-**Ovo se rešava PRVO. Dok ovo stoji, kanvas, Misli i editor preko WebView-a ne
+~~Ovo se rešava PRVO. Dok ovo stoji, kanvas, Misli i editor preko WebView-a ne
 mogu ni da se testiraju.**
 
 Dokaz, uhvaćen na emulatoru:
@@ -65,12 +64,12 @@ postoji na disku i ispravna je — problem nije u kodu nego u tome šta sluša n
 Ovo takođe znači da **prethodne „popravke kanvasa" nisu ni mogle da se provere** —
 sve vreme se testiralo protiv pogrešnog servera.
 
-- [x] Utvrdi šta zauzima port 3000 (`netstat -ano | findstr :3000`, pa `tasklist /FI "PID eq <pid>"`) — `alati` (PID 19484, pa respawn 24924; gašeno celo `npm run dev` stablo)
-- [x] Ugasi to, pa pokreni `npm run dev` iz `notion-clone` — Devotion na 3000, identitet potvrđen kroz netstat + CommandLine
-- [x] Potvrdi u browseru na hostu: `http://localhost:3000/embed/canvas/ideas/proba` renderuje Devotion, ne 404 — curl vraća 200
-- [x] Potvrdi u Chrome-u u emulatoru: `http://10.0.2.2:3000` je Devotion — `kanvas-dijagnoza/chrome-emulator-posle.png` („Ovaj prikaz radi samo u Devotion aplikaciji.")
-- [x] Tek onda otvori kanvas u aplikaciji i **napravi screenshot sa vidljivim oblačićima** — `kanvas-dijagnoza/posle.png` + `posle-misli.png`
-- [x] Ako i posle ovoga kanvas ne crta — tek TADA je bag u kodu; bisektuj po `PROMPT-KANVAS-GOAL.md` — nije se steklo: kanvas crta (posle.png)
+- [x] Utvrdi šta zauzima port 3000 (`netstat -ano | findstr :3000`, pa `tasklist /FI "PID eq <pid>"`)
+- [x] Ugasi to, pa pokreni `npm run dev` iz `notion-clone`
+- [x] Potvrdi u browseru na hostu: `http://localhost:3000/embed/canvas/ideas/proba` renderuje Devotion, ne 404
+- [x] Potvrdi u Chrome-u u emulatoru: `http://10.0.2.2:3000` je Devotion
+- [x] Tek onda otvori kanvas u aplikaciji i **napravi screenshot sa vidljivim oblačićima**
+- [x] Ako i posle ovoga kanvas ne crta — tek TADA je bag u kodu; bisektuj po `PROMPT-KANVAS-GOAL.md`
 
 ---
 
@@ -134,7 +133,7 @@ Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
 Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
 - [ ] `areasV2.archivePage` — arhiviranje stranice
-- [x] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si) — rešeno u Fazi UX kroz E12 (`breadcrumbs-eyebrow.tsx`)
+- [ ] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si)
 - [ ] `pages.addEntry` — dodavanje unosa u stranicu (web `page-editor-view.tsx`)
 - [ ] `areasV2.createPage` — mobilni koristi `pages.create`; proveri da li se ponašaju isto i ujednači
 - [ ] `pageFiles.prune` — čišćenje nevezanih priloga
@@ -217,6 +216,21 @@ Za svaku stavku: uradi je na emulatoru, pa istu na webu, i uporedi ishod u bazi.
 
 # E — BAGOVI UHVAĆENI NA EKRANU
 
+> **ISPRAVKA od 10.08. — pročitaj pre nego što kreneš.**
+>
+> 1. **Grana `ui-nocni-20260809-0931` JE već sadržana u istoriji ove grane.**
+>    Provereno: `git merge-base --is-ancestor ui-nocni-20260809-0931 HEAD` prolazi,
+>    i `note-editor.tsx`, `page-actions-sheet.tsx` i `ui/sheet.tsx` postoje na disku.
+>    **NE radi merge.** Plan Faze UX od 10.08. tvrdio je suprotno i bio je u krivu.
+> 2. Bagovi E1–E13 su snimljeni sa **zastarelog Metro bundle-a**. Za svaki prvo
+>    proveri da li i dalje postoji na svežem bundle-u, pa tek onda popravljaj.
+>    **E5, E8 i E10 su najverovatnije već popravljeni** — potvrdi na ekranu i
+>    čekiraj bez izmene koda ako rade.
+> 3. **E2 ima poznat uzrok:** `ScrollView` u React Native ima podrazumevani
+>    `flexGrow: 1`, pa se traka filtera razvlači. Popravka je jedna linija stila.
+>    **E3 i E11 su verovatno samo posledice E2** — proveri ih tek posle nje.
+
+
 Nisu iz koda. Svaki je viđen na emulatoru dok je aplikacija radila, i svaki
 korisnik vidi svaki put. Poređani po tome koliko bole.
 
@@ -237,43 +251,43 @@ oko 300px, sa sitnim tekstom vertikalno centriranim u praznini. Traka je zakucan
 — **ne pomera se pri skrolovanju**, pa na svakom pomeraju liste zauzima skoro
 pola ekrana. Ostane ti oko tri reda zadataka.
 
-- [x] Visina kartice na sadržaj (~72px), ne rastegnuta — uzrok: RN `ScrollView` default `flexGrow:1` gutao visinu; `dokazi-ux/e2-pre.png` → `e2-posle.png`
-- [x] Traka skroluje zajedno sa listom, ili postaje kompaktan red chip-ova — kompaktan red chip-ova, ostaje van skrola (filter mora ostati vidljiv kad isprazni listu)
-- [x] Ako član ima 0 otvorenih, ne troši istu površinu kao onaj sa 4 — površina je sada na sadržaj; chip sa 0 nema „kasni/hitno" statove i nula je prigušena (`e2-posle.png`)
+- [ ] Visina kartice na sadržaj (~72px), ne rastegnuta
+- [ ] Traka skroluje zajedno sa listom, ili postaje kompaktan red chip-ova
+- [ ] Ako član ima 0 otvorenih, ne troši istu površinu kao onaj sa 4
 
 ## E3. Horizontalna traka odsečena na ivici
 
 Treća kartica je presečena na desnoj ivici ekrana, bez paddinga i bez naznake da
 ima još. Izgleda kao greška iscrtavanja, ne kao poziv da se skroluje.
 
-- [x] `contentContainerStyle` sa paddingom, i peek sledeće kartice — padding 16 je već postojao; `maxWidth` chipa 220→180 daje jasan peek treće kartice (`e2-posle.png`, vidi se avatar + tekst „Ne…")
+- [ ] `contentContainerStyle` sa paddingom, i peek sledeće kartice
 
 ## E4. Dvostruko zaglavlje na „Danas"
 
 Vrh ekrana: „ScanMe ⌄" pa „Danas". Odmah ispod, u kartici: „SCANME" pa
 „Zdravo, Jovan." Ime startupa dvaput u 400px, i dva naslova jedan ispod drugog.
 
-- [x] Jedno zaglavlje. Pozdrav i statistika bez ponavljanja imena startupa — eyebrow uklonjen iz `day-summary.tsx`; ime ostaje samo u `AppHeader` (prebacivač); `dokazi-ux/e4-posle.png`
+- [ ] Jedno zaglavlje. Pozdrav i statistika bez ponavljanja imena startupa
 
 ## E5. Editor beleške: placeholder na engleskom
 
 Prazna beleška kaže **„Write something …"**. Cela aplikacija je na srpskom.
 
-- [x] Prevedi, i pretraži ostatak editora za još engleskog teksta — uzrok: tentap runtime `setPlaceholder` ne osvežava dekoraciju (vidi plan, odstupanje 3); sada statički kroz `PlaceholderBridge.configureExtension`; sweep grep čist (jedini pogodak = komentar u `note-toolbar.tsx`); `dokazi-ux/e5-posle.png`
+- [ ] Prevedi, i pretraži ostatak editora za još engleskog teksta
 
 ## E6. Pogrešan tekst na beleški: „razgovor o ovom zadatku"
 
 Na beleški (ne zadatku) stoji: „Započni diskusiju — Otvori razgovor tima o ovom
 **zadatku**."
 
-- [x] Tekst mora da prati vrstu stranice (beleška/zadatak) — `DiscussionLink` dobio `pageKind`, mapa za sve 4 vrste; beleška: `dokazi-ux/e6-beleska.png` („o ovoj beleški"), zadatak: `e6-zadatak.png` („o ovom zadatku")
+- [ ] Tekst mora da prati vrstu stranice (beleška/zadatak)
 
 ## E7. Zadatak: „Izvršioci" prikazuje prazan krug koji se vrti
 
 Kad zadatak nema izvršioce, u redu stoji prazan kružić koji izgleda kao spiner
 koji se nikad ne završi, umesto poruke „Niko nije dodeljen".
 
-- [x] Prazno stanje sa tekstom, ne prazan avatar-placeholder — „Niko nije dodeljen" na detalju, red ostaje dodirljiv (otvara piker); skeleton za učitavanje ostaje; prazan krug na karticama liste je svesno zadržan (kompaktna oznaka, vidi plan §5); `dokazi-ux/e7-posle.png`
+- [ ] Prazno stanje sa tekstom, ne prazan avatar-placeholder
 
 ## E8. Nema „…" menija ni na zadatku ni na beleški
 
@@ -281,42 +295,42 @@ koji se nikad ne završi, umesto poruke „Niko nije dodeljen".
 izdvajanje i povezivanje — ali **u zaglavlju detalja nema dugmeta koje ga
 otvara.** Funkcija je napisana pa nedostupna.
 
-- [x] Dugme „…" u zaglavlju i zadatka i beleške, otvara postojeći sheet — bilo urađeno u lancu 2, dokazano na svežem bundle-u: `dokazi-ux/e8-beleska.png` + `e8-zadatak.png` (i „Premesti u oblast" prikazuje spisak oblasti)
-- [x] Proveri da li ima još ovakvih slučajeva: komponenta postoji, ulaz ne — grep inventar svih `*-sheet/*-picker/*-preview`: svaka ima ≥1 importera, siročića nema
+- [ ] Dugme „…" u zaglavlju i zadatka i beleške, otvara postojeći sheet
+- [ ] Proveri da li ima još ovakvih slučajeva: komponenta postoji, ulaz ne
 
 ## E9. Naslov se prikazuje dvaput
 
 Na beleški „oze" stoji u zaglavlju i odmah ispod kao izmenjiv naslov.
 
-- [x] Jedan naslov. Ako je izmenjiv, zaglavlje neka bude putanja, ne isto ime — beleška: title=„Beleška", eyebrow=putanja, ime samo u editoru (izmenjivo); tabela/prilog zadržavaju naslov u zaglavlju (telo ga ne ponavlja); `dokazi-ux/e9-pre.png` → `e9-posle.png`
+- [ ] Jedan naslov. Ako je izmenjiv, zaglavlje neka bude putanja, ne isto ime
 
 ## E10. Traka za formatiranje odsečena na desnoj ivici
 
 B / I / S / `<>` / link / H1 / H2 / H3 — poslednja ikonica presečena ivicom
 ekrana, bez naznake da traka skroluje.
 
-- [x] Skrolabilna sa peek-om, ili prelom u dva reda — poslednja ikonica viri na desnoj ivici (poziv na skrol), skrol stiže do „Ponovi": `dokazi-ux/e10-posle.png` + `e10-kraj-trake.png`
-- [x] Proveri sa OTVORENOM tastaturom da traka stoji iznad nje, ne ispod — BILA JE ISPOD: ugnježdeni `KeyboardAvoidingView` je mešao relativne/apsolutne koordinate (podigao ~40dp umesto ~340dp); zamenjen eksplicitnim pomakom iz keyboard eventa (`use-keyboard-inset.ts`); tastatura u kadru na oba dokaza
+- [ ] Skrolabilna sa peek-om, ili prelom u dva reda
+- [ ] Proveri sa OTVORENOM tastaturom da traka stoji iznad nje, ne ispod
 
 ## E11. FAB „+" preklapa sadržaj poslednje kartice
 
 Na „Danas" plavo dugme prekriva desni deo poslednjeg zadatka u listi.
 
-- [x] Donji padding liste = visina FAB-a + razmak — IZMERENO na kraju skrola: sa 96 kartica završava ~47dp ispod vrha FAB-a; podignuto na 160 → zazor ~17dp (uiautomator bounds: kartica 1999 < FAB 2043); isto i na Prostor Nivou 2; `dokazi-ux/e11-posle.png`
+- [ ] Donji padding liste = visina FAB-a + razmak
 
 ## E12. Nema putanje (breadcrumbs) nigde
 
 U detalju zadatka iznad naslova stoji „Backlog" — to je status, ne putanja.
 Posle dva-tri nivoa ugnježdavanja ne znaš gde si, a nemaš sidebar kao na webu.
 
-- [x] `pages.getBreadcrumbs` u zaglavlju detalja (vidi i A5) — `breadcrumbs-eyebrow.tsx` na oba detalja; status na zadatku više NIJE eyebrow (ostaje u meta kartici); koren = ime oblasti (`e9-posle.png`: „Dev"), ugnježden = „Dev › oze" (`e12-zadatak.png`), reaktivno na ugnježdavanje; lokalni ErrorBoundary čuva ekran
+- [ ] `pages.getBreadcrumbs` u zaglavlju detalja (vidi i A5)
 
 ## E13. U oblasti nema dugmeta za novu stranicu
 
 „Danas" ima FAB, ekran oblasti nema ništa — a to je mesto gde se stranica
 prirodno pravi.
 
-- [x] Isti FAB, isto ponašanje, na svim ekranima gde kreiranje ima smisla — `QuickAddFab` (sa `label` propom) + postojeći `PageCreateSheet` na Nivou 2 Prostora; Nivo 1 ne dobija FAB (tamo se pravi oblast, ulaz „Nova oblast" postoji); `dokazi-ux/e13-fab.png` + `e13-posle-kreiranja.png` („Proba FAB" u listi realtime)
+- [ ] Isti FAB, isto ponašanje, na svim ekranima gde kreiranje ima smisla
 
 ---
 

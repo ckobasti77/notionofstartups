@@ -17,7 +17,11 @@
 param(
     # Podrazumevano FABLE - jedini model koji je dosad rešio kanvas.
     # Možeš proslediti alias ("fable", "opus") ili pun ID ("claude-opus-4-8-...").
-    [string]$Model = ""   # prazno = koristi ono sto je podeseno u claude -> /model
+    [string]$Model = "",  # prazno = koristi ono sto je podeseno u claude -> /model
+
+    # Preskoci sve faze PRE ove. Primer:  -Od faza-ux
+    # Kljucevi: faza-0, faza-ux, faza-1, faza-2, faza-3, faza-4, faza-5, faza-6
+    [string]$Od = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -198,6 +202,15 @@ function PustiKlod {
         return 125
     }
     $rep = Get-Content -LiteralPath $Log -Raw -ErrorAction SilentlyContinue
+    if ($rep -and ($rep -match "hit your weekly limit|usage limit|rate limit|Claude usage limit reached")) {
+        Write-Host ""
+        Write-Host "PREKID: dostignut limit potrosnje." -ForegroundColor Red
+        Write-Host "Sve naredne faze bi radile u prazno i pravile lazne commit-ove." -ForegroundColor Red
+        Write-Host "Kad se limit obnovi, pusti lanac ponovo - faze koje su gotove" -ForegroundColor Yellow
+        Write-Host "revizor prepoznaje kao urandene po cekiranim kvadraticima." -ForegroundColor Yellow
+        Write-Host "Detalji u: $Log" -ForegroundColor Yellow
+        exit 1
+    }
     if ($rep -and ($rep -match "unknown option|unknown argument|error: unknown")) {
         Write-Host ""
         Write-Host "PREKID: claude odbija argumente koje mu saljem." -ForegroundColor Red
@@ -525,6 +538,23 @@ ZapisiFajl $Izvestaj ($zaglavljeIzvestaja + "`n")
 # ============================================================================
 #  GLAVNA PETLJA
 # ============================================================================
+# Preskakanje vec zavrsenih faza (-Od)
+if ($Od) {
+    $kljucevi = @($Faze | ForEach-Object { $_.k })
+    $idx = [array]::IndexOf($kljucevi, $Od)
+    if ($idx -lt 0) {
+        Write-Host "GRESKA: -Od '$Od' nije poznata faza." -ForegroundColor Red
+        Write-Host "Dozvoljeno: $($kljucevi -join ', ')" -ForegroundColor Yellow
+        exit 1
+    }
+    if ($idx -gt 0) {
+        Write-Host "Preskacem $idx vec zavrsenih faza, krecem od '$Od'." -ForegroundColor Yellow
+        Zapisi ""
+        Zapisi "> Pokrenuto sa -Od $Od : prvih $idx faza je preskoceno kao vec zavrseno."
+        $Faze = $Faze[$idx..($Faze.Count - 1)]
+    }
+}
+
 foreach ($f in $Faze) {
     $kljuc = $f.k; $naziv = $f.n; $cilj = $f.cilj; $telo = $f.telo
     $log = "$LogDir\$kljuc.log"
