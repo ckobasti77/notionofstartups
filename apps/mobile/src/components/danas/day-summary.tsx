@@ -27,14 +27,11 @@ export type DaySummaryCounts = {
  */
 export function DaySummary({
   firstName,
-  startupName,
   counts,
   segmentLabel,
 }: {
   /** Ime za pozdrav; `null` dok profil stiže. */
   firstName: string | null;
-  /** Naziv aktivnog startupa; `null` dok stiže. */
-  startupName: string | null;
   /** Brojači; `null` dok zadaci stižu (prikazuje se skelet). */
   counts: DaySummaryCounts | null;
   /** „Pregled" ili „Moji zadaci" — kaže na šta se brojači odnose. */
@@ -42,15 +39,10 @@ export function DaySummary({
 }) {
   const colors = useThemeColors();
 
+  // Ime startupa namerno NIJE ovde: već stoji u `AppHeader` eyebrow-u (koji je
+  // ujedno i prebacivač) — dvaput u 400px je bio bag E4.
   return (
     <Card style={styles.card}>
-      {startupName === null ? (
-        <Skeleton width={110} height={13} />
-      ) : (
-        <Text numberOfLines={1} style={[styles.eyebrow, { color: colors.primaryText }]}>
-          {startupName}
-        </Text>
-      )}
       {firstName === null ? (
         <Skeleton width="60%" height={26} />
       ) : (
@@ -119,12 +111,6 @@ function Stat({
 const styles = StyleSheet.create({
   card: {
     gap: 4,
-  },
-  eyebrow: {
-    ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
   },
   greeting: {
     ...text.title,

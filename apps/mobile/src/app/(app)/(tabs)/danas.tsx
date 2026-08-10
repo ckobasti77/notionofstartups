@@ -379,7 +379,6 @@ export default function DanasScreen() {
                 refreshControl={refreshControl}>
                 <DaySummary
                   firstName={firstName}
-                  startupName={startup?.name ?? null}
                   counts={summaryCounts}
                   segmentLabel={segmentLabel}
                 />

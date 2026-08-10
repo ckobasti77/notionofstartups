@@ -253,7 +253,7 @@ ima još. Izgleda kao greška iscrtavanja, ne kao poziv da se skroluje.
 Vrh ekrana: „ScanMe ⌄" pa „Danas". Odmah ispod, u kartici: „SCANME" pa
 „Zdravo, Jovan." Ime startupa dvaput u 400px, i dva naslova jedan ispod drugog.
 
-- [ ] Jedno zaglavlje. Pozdrav i statistika bez ponavljanja imena startupa
+- [x] Jedno zaglavlje. Pozdrav i statistika bez ponavljanja imena startupa — eyebrow uklonjen iz `day-summary.tsx`; ime ostaje samo u `AppHeader` (prebacivač); `dokazi-ux/e4-posle.png`
 
 ## E5. Editor beleške: placeholder na engleskom
 
