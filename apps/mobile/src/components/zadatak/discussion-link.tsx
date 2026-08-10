@@ -11,22 +11,35 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { porukaWord } from '@/lib/chat';
+import type { PageKind } from '@/lib/page-kinds';
 import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
+/** Poziv na diskusiju mora da imenuje pravu vrstu stranice (bag E6). */
+const DISCUSSION_SUBTITLE: Record<PageKind, string> = {
+  task: 'Otvori razgovor tima o ovom zadatku.',
+  note: 'Otvori razgovor tima o ovoj beleški.',
+  table: 'Otvori razgovor tima o ovoj tabeli.',
+  file: 'Otvori razgovor tima o ovom prilogu.',
+};
+
 /**
- * Red diskusije zadatka (docs/mobile/02-EKRANI.md §9.2). Thread se pravi lenjo —
+ * Red diskusije stranice (docs/mobile/02-EKRANI.md §9.2). Thread se pravi lenjo —
  * `channelForAnchor` je `null` dok neko ne pošalje prvu poruku (04-CHAT.md §4).
  * Ako postoji → link na pun razgovor; ako ne → dugme koje ga pravi prvom porukom
  * kroz `sendToAnchor`. Posle slanja reaktivni upit sam pretvori red u link.
+ * Komponenta je anchorType-agnostična — montiraju je i zadatak i beleška/tabela/
+ * prilog, pa tekst bira `pageKind`.
  */
 export function DiscussionLink({
   pageId,
   startupId,
+  pageKind,
 }: {
   pageId: Id<'pages'>;
   startupId: Id<'startups'>;
+  pageKind: PageKind;
 }) {
   const colors = useThemeColors();
   const router = useRouter();
@@ -87,7 +100,7 @@ export function DiscussionLink({
             </View>
           }
           title="Započni diskusiju"
-          subtitle="Otvori razgovor tima o ovom zadatku."
+          subtitle={DISCUSSION_SUBTITLE[pageKind]}
           onPress={() => setComposerOpen(true)}
           showChevron={false}
         />
