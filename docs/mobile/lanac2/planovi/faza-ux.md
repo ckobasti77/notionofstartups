@@ -391,4 +391,35 @@ dokaza na disku.
 
 ## Odstupanja (popunjava izvršilac)
 
-_(prazno pri pisanju plana)_
+1. **K0 merge — jedan konflikt umesto dva.** `_generated/api.d.ts` se spojio
+   automatski; konfliktovao je samo `ZA-POPRAVKU.md`. Rešeno po pravilu iz
+   plana, s tim da je numeracija naših zamki zadržana (Z3 port, Z4
+   allowedDevOrigins — plan i memorija ih tako referenciraju), a ui-nocni
+   zamka „placement na (0,0)" je postala **Z5**. `npx convex codegen` je usput
+   i push-ovao funkcije na dev deployment (potrebno emulatoru za
+   `pages.childCounts`).
+2. **E1 se NE reprodukuje na svežem bundle-u** — testirano na
+   startup-switcheru i page-actions sheet-u (`dumpsys`:
+   `topResumedActivity=com.devotion.app` posle keyevent 4, sheet zatvoren).
+   Kod NIJE menjan; uzrok je bio zastareo bundle. Ostali reprezentativni
+   sheet-ovi testirani usput (spisak u §6 tabeli dokaza).
+3. **E5 NIJE bio „već urađen u kodu"** kako je plan pretpostavio. Runtime
+   `setPlaceholder` u tentap-u 1.0.1 samo upiše opciju u ekstenziju
+   (`editor.setOptions()` uz TODO komentar u samom tentap-u) — ProseMirror
+   dekoracija se ne osveži do prvog kucanja, pa prazna beleška večno pokazuje
+   engleski default. Popravljeno **statički**:
+   `PlaceholderBridge.configureExtension({placeholder})` u `bridgeExtensions`
+   (modulski const), runtime poziv uklonjen.
+4. **Tastatura na emulatoru:** AVD je imao `hw.keyboard=yes`, pa se softverska
+   tastatura uopšte ne iscrtava (`mInputShown=true`, prozor nulte visine) i
+   E10 dokaz „tastatura u kadru" nije bio moguć. Promenjeno na
+   `hw.keyboard=no` + hladan restart emulatora.
+5. **K6 sitnica:** prazno stanje oblasti je govorilo „Otvori Canvas u
+   zaglavlju da dodaš prvu stranicu" — zastarelo čim je FAB stigao; sada
+   upućuje na FAB.
+6. **E11 — preklapanje kad lista NE preskače ekran.** Posle E2 popravke
+   trenutna lista (4 zadatka) staje cela na ekran, pa `paddingBottom` nema šta
+   da gura: FAB tada stoji preko donjeg desnog ugla poslednje kartice, što je
+   standardno Material FAB ponašanje (i Gmail ga ima). Test iz §6 („sa
+   dovoljno zadataka, skrol do dna") je merodavan — proveren sa listom koja
+   preskače ekran.

@@ -1,4 +1,10 @@
-import { RichText, useEditorBridge, type EditorBridge } from '@10play/tentap-editor';
+import {
+  PlaceholderBridge,
+  RichText,
+  TenTapStartKit,
+  useEditorBridge,
+  type EditorBridge,
+} from '@10play/tentap-editor';
 import * as Clipboard from 'expo-clipboard';
 import { useMutation } from 'convex/react';
 import { Check, CloudOff, Copy, Info, RefreshCw, TriangleAlert } from 'lucide-react-native';
@@ -59,6 +65,18 @@ const RETRY_MS = 5_000;
 const MAX_AUTO_RETRIES = 4;
 
 const NOTE_PLACEHOLDER = 'Zapiši kontekst, odluke i sledeće korake…';
+
+/**
+ * Placeholder MORA statički, pri inicijalizaciji editora: runtime
+ * `setPlaceholder` samo upiše opciju u ekstenziju, a dekoracija se ne osveži do
+ * prvog kucanja — prazna beleška bi večno pokazivala tentap-ov engleski default
+ * (bag E5). Modulski `const`: nova referenca po renderu bi reinicijalizovala most.
+ */
+const NOTE_BRIDGES = TenTapStartKit.map((bridge) =>
+  bridge === PlaceholderBridge
+    ? PlaceholderBridge.configureExtension({ placeholder: NOTE_PLACEHOLDER })
+    : bridge,
+);
 
 type SaveState =
   | 'saved'
@@ -286,6 +304,7 @@ export function NoteEditor({
     avoidIosKeyboard: true,
     editable: bodyEditable,
     theme: editorTheme,
+    bridgeExtensions: NOTE_BRIDGES,
     onChange: handleContentChange,
   });
 
@@ -296,7 +315,6 @@ export function NoteEditor({
   const handleEditorLoad = useCallback(() => {
     cssLoadedRef.current = true;
     editorRef.current?.injectCSS(editorCss, 'devotion-note');
-    editorRef.current?.setPlaceholder(NOTE_PLACEHOLDER);
   }, [editorCss]);
 
   // Promena teme dok je editor otvoren — CSS se osvežava u mestu (isti tag).

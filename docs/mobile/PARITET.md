@@ -259,7 +259,7 @@ Vrh ekrana: „ScanMe ⌄" pa „Danas". Odmah ispod, u kartici: „SCANME" pa
 
 Prazna beleška kaže **„Write something …"**. Cela aplikacija je na srpskom.
 
-- [ ] Prevedi, i pretraži ostatak editora za još engleskog teksta
+- [x] Prevedi, i pretraži ostatak editora za još engleskog teksta — uzrok: tentap runtime `setPlaceholder` ne osvežava dekoraciju (vidi plan, odstupanje 3); sada statički kroz `PlaceholderBridge.configureExtension`; sweep grep čist (jedini pogodak = komentar u `note-toolbar.tsx`); `dokazi-ux/e5-posle.png`
 
 ## E6. Pogrešan tekst na beleški: „razgovor o ovom zadatku"
 
