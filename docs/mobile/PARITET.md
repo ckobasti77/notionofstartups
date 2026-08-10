@@ -281,8 +281,8 @@ koji se nikad ne završi, umesto poruke „Niko nije dodeljen".
 izdvajanje i povezivanje — ali **u zaglavlju detalja nema dugmeta koje ga
 otvara.** Funkcija je napisana pa nedostupna.
 
-- [ ] Dugme „…" u zaglavlju i zadatka i beleške, otvara postojeći sheet
-- [ ] Proveri da li ima još ovakvih slučajeva: komponenta postoji, ulaz ne
+- [x] Dugme „…" u zaglavlju i zadatka i beleške, otvara postojeći sheet — bilo urađeno u lancu 2, dokazano na svežem bundle-u: `dokazi-ux/e8-beleska.png` + `e8-zadatak.png` (i „Premesti u oblast" prikazuje spisak oblasti)
+- [x] Proveri da li ima još ovakvih slučajeva: komponenta postoji, ulaz ne — grep inventar svih `*-sheet/*-picker/*-preview`: svaka ima ≥1 importera, siročića nema
 
 ## E9. Naslov se prikazuje dvaput
 
