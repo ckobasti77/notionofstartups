@@ -3,7 +3,6 @@ import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   Activity,
   Building2,
-  ChevronLeft,
   FileText,
   FolderTree,
   Mail,
@@ -16,28 +15,28 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  SectionList,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, SectionList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
+import { StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import {
   formatActivityTime,
   groupActivitiesByDay,
   type ActivityItem,
 } from '@/lib/activity';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, space, type ColorTokens } from '@/theme/tokens';
+import { radius, space, type ColorTokens } from '@/theme/tokens';
 
 const PAGE_SIZE = 30;
 
@@ -65,6 +64,7 @@ function actionVisual(action: ActivityItem['action'], colors: ColorTokens): {
  */
 export default function AktivnostScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
   const [now] = useState(() => Date.now());
@@ -77,50 +77,57 @@ export default function AktivnostScreen() {
 
   const loadingFirst = activeStartupId === null || status === 'LoadingFirstPage';
   const sections = groupActivitiesByDay(results, now);
+  const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader colors={colors} topInset={insets.top} />
+      <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
 
-      {loadingFirst ? (
-        <ActivitySkeleton colors={colors} />
-      ) : results.length === 0 ? (
+      {!loadingFirst && results.length === 0 ? (
         <EmptyState
           icon={<Activity size={40} color={colors.mutedForeground} />}
           title="Još nema aktivnosti"
           description="Kreiranje stranice, zadatka ili poziva pojaviće se ovde."
         />
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => <ActivityRow item={item} colors={colors} />}
-          renderSectionHeader={({ section }) => (
-            <View style={[styles.dayHeader, { backgroundColor: colors.background }]}>
-              <Text
-                accessibilityRole="header"
-                style={[styles.dayHeaderText, { color: colors.mutedForeground }]}>
-                {section.title}
-              </Text>
-            </View>
+        <LoadingSwap loading={loadingFirst} skeleton={<ActivitySkeleton />}>
+          {loadingFirst ? null : (
+            <SectionList
+              sections={sections}
+              keyExtractor={(item) => item._id}
+              // `index` je po sekciji, pa je stagger po danu — što je i tačno:
+              // dan je vizuelna celina.
+              renderItem={({ item, index }) => (
+                <StaggerItem index={index}>
+                  <ActivityRow item={item} colors={colors} />
+                </StaggerItem>
+              )}
+              renderSectionHeader={({ section }) => (
+                <SectionHeader
+                  title={section.title}
+                  style={[styles.dayHeader, { backgroundColor: colors.background }]}
+                />
+              )}
+              stickySectionHeadersEnabled
+              onEndReachedThreshold={0.5}
+              onEndReached={() => {
+                if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
+              }}
+              ListFooterComponent={
+                status === 'LoadingMore' ? (
+                  <View style={styles.footer}>
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                ) : (
+                  <View style={styles.footerSpacer} />
+                )
+              }
+              contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + space[6] }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}
+            />
           )}
-          stickySectionHeadersEnabled
-          onEndReachedThreshold={0.5}
-          onEndReached={() => {
-            if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
-          }}
-          ListFooterComponent={
-            status === 'LoadingMore' ? (
-              <View style={styles.footer}>
-                <ActivityIndicator color={colors.primary} />
-              </View>
-            ) : (
-              <View style={styles.footerSpacer} />
-            )
-          }
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + space[6] }]}
-          showsVerticalScrollIndicator={false}
-        />
+        </LoadingSwap>
       )}
     </View>
   );
@@ -129,60 +136,44 @@ export default function AktivnostScreen() {
 function ActivityRow({ item, colors }: { item: ActivityItem; colors: ColorTokens }) {
   const { Icon, tint } = actionVisual(item.action, colors);
   return (
-    <View style={styles.row}>
-      <View style={[styles.rowIcon, { backgroundColor: `${tint}22` }]}>
-        <Icon size={16} color={tint} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text style={[styles.rowTitle, { color: colors.foreground }]} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={[styles.rowSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-          {item.detail ? `${item.detail} · ` : ''}
-          {formatActivityTime(item.createdAt)}
-        </Text>
-      </View>
-      {item.actor ? (
-        <Avatar name={item.actor.displayName} uri={item.actor.avatarUrl} size={28} />
-      ) : null}
-    </View>
-  );
-}
-
-function ScreenHeader({ colors, topInset }: { colors: ColorTokens; topInset: number }) {
-  const router = useRouter();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: topInset + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={() => router.back()}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>Aktivnost</Text>
-    </View>
-  );
-}
-
-function ActivitySkeleton({ colors }: { colors: ColorTokens }) {
-  return (
-    <View style={styles.skeleton} accessibilityLabel="Učitavanje aktivnosti">
-      <Skeleton width="30%" height={14} style={styles.skeletonHead} />
-      {[0, 1, 2, 3, 4].map((item) => (
-        <View key={item} style={styles.skeletonRow}>
-          <Skeleton width={32} height={32} borderRadius={radius.md} />
-          <View style={styles.skeletonBody}>
-            <Skeleton width="75%" height={15} />
-            <Skeleton width="45%" height={12} />
-          </View>
-          <Skeleton width={28} height={28} borderRadius={radius.full} />
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.rowIcon, { backgroundColor: `${tint}22` }]}>
+          <Icon size={16} color={tint} />
         </View>
-      ))}
+      }
+      title={item.title}
+      titleNumberOfLines={2}
+      subtitle={`${item.detail ? `${item.detail} · ` : ''}${formatActivityTime(item.createdAt)}`}
+      value={
+        item.actor ? (
+          <Avatar name={item.actor.displayName} uri={item.actor.avatarUrl} size={28} />
+        ) : undefined
+      }
+    />
+  );
+}
+
+/** Oblik `ActivityRow`: zaglavlje dana, pa ikonica-čip + dva reda teksta + avatar. */
+function ActivitySkeleton() {
+  return (
+    <View style={styles.skeleton} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje aktivnosti">
+      <Skeleton width="30%" height={14} style={styles.skeletonHead} />
+      <SkeletonList
+        count={5}
+        gap={space[4]}
+        item={(index) => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={32} height={32} borderRadius={radius.md} />
+            <View style={styles.skeletonBody}>
+              <Skeleton width={index % 2 === 0 ? '75%' : '62%'} height={15} />
+              <Skeleton width="45%" height={12} />
+            </View>
+            <Skeleton width={28} height={28} borderRadius={radius.full} />
+          </View>
+        )}
+      />
     </View>
   );
 }
@@ -193,10 +184,10 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 function AktivnostErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader colors={colors} topInset={insets.top} />
+      <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Aktivnost se ne može učitati"
@@ -212,45 +203,19 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
   listContent: {
     paddingHorizontal: space[4],
   },
   dayHeader: {
-    paddingTop: space[4],
-    paddingBottom: space[2],
-  },
-  dayHeaderText: {
-    fontSize: 12,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    paddingTop: space[2],
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: space[3],
-    minHeight: 60,
-    paddingVertical: space[2],
+    minHeight: 56,
+    paddingVertical: space[1],
+    // Horizontalni razmak nosi lista (listContent), pa red poništava podrazumevani
+    // paddingHorizontal iz <Row> da se ne dupla uvlačenje.
+    paddingHorizontal: 0,
   },
   rowIcon: {
     width: 32,
@@ -258,19 +223,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  rowBody: {
-    flex: 1,
-    gap: 2,
-  },
-  rowTitle: {
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: fontWeight.semibold,
-  },
-  rowSub: {
-    fontSize: 13,
-    lineHeight: 18,
   },
   footer: {
     paddingVertical: space[4],
@@ -282,7 +234,6 @@ const styles = StyleSheet.create({
   skeleton: {
     paddingHorizontal: space[4],
     paddingTop: space[4],
-    gap: space[4],
   },
   skeletonHead: {
     marginBottom: space[1],

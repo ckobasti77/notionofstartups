@@ -16,8 +16,11 @@ import { ChevronDown, MessageSquare } from 'lucide-react-native';
 import { MessageBubble } from '@/components/chat/message-bubble';
 import { MessageActionsSheet } from '@/components/chat/message-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { SkeletonList, SkeletonMessage } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import {
   formatDaySeparator,
   sameDay,
@@ -41,12 +44,14 @@ function errorMessage(error: unknown, fallback: string): string {
 export function MessageList({
   channelId,
   currentProfileId,
+  isAdmin,
   members,
   onReplyTo,
   onEdit,
 }: {
   channelId: Id<'chatChannels'>;
   currentProfileId: Id<'profiles'>;
+  isAdmin: boolean;
   members: ChatMember[] | undefined;
   onReplyTo: (message: ChatMessage) => void;
   onEdit: (message: ChatMessage) => void;
@@ -77,9 +82,10 @@ export function MessageList({
 
   const handleToggleReaction = useCallback(
     (messageId: Id<'chatMessages'>, emoji: string) => {
-      void toggleReaction({ messageId, emoji }).catch((error) =>
-        Alert.alert('Reakcija', errorMessage(error, 'Reakcija nije sačuvana.')),
-      );
+      void toggleReaction({ messageId, emoji }).catch((error) => {
+        haptics.error();
+        Alert.alert('Reakcija', errorMessage(error, 'Reakcija nije sačuvana.'));
+      });
     },
     [toggleReaction],
   );
@@ -88,18 +94,28 @@ export function MessageList({
     const target = actionsFor;
     if (!target) return;
     setActionsFor(null);
-    Alert.alert('Obrisati poruku?', 'Poruka će ostati kao „Poruka je obrisana".', [
-      { text: 'Otkaži', style: 'cancel' },
-      {
-        text: 'Obriši',
-        style: 'destructive',
-        onPress: () =>
-          void deleteMessage({ messageId: target._id }).catch((error) =>
-            Alert.alert('Greška', errorMessage(error, 'Poruka nije obrisana.')),
-          ),
-      },
-    ]);
-  }, [actionsFor, deleteMessage]);
+    const own = target.authorProfileId === currentProfileId;
+    Alert.alert(
+      own ? 'Obrisati poruku?' : 'Obrisati tuđu poruku?',
+      own
+        ? 'Poruka će ostati kao „Poruka je obrisana".'
+        : 'Moderacija: poruka će ostati kao „Poruka je obrisana", a autor neće biti obavešten.',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Obriši',
+          style: 'destructive',
+          onPress: () =>
+            void deleteMessage({ messageId: target._id })
+              .then(() => haptics.success())
+              .catch((error) => {
+                haptics.error();
+                Alert.alert('Greška', errorMessage(error, 'Poruka nije obrisana.'));
+              }),
+        },
+      ],
+    );
+  }, [actionsFor, currentProfileId, deleteMessage]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -140,15 +156,9 @@ export function MessageList({
     [results, byId, memberNameById, colors, currentProfileId, onReplyTo, handleToggleReaction],
   );
 
-  if (status === 'LoadingFirstPage') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
-    );
-  }
+  const loading = status === 'LoadingFirstPage';
 
-  if (results.length === 0) {
+  if (!loading && results.length === 0) {
     return (
       <EmptyState
         icon={<MessageSquare size={40} color={colors.mutedForeground} />}
@@ -160,36 +170,55 @@ export function MessageList({
 
   return (
     <View style={styles.container}>
-      <FlatList
-        ref={listRef}
-        data={results}
-        inverted
-        keyExtractor={(message) => message._id}
-        renderItem={renderItem}
-        onEndReached={() => {
-          if (status === 'CanLoadMore') loadMore(30);
-        }}
-        onEndReachedThreshold={0.4}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        contentContainerStyle={styles.content}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-        ListFooterComponent={
-          status === 'LoadingMore' ? (
-            <View style={styles.loadingOlder}>
-              <ActivityIndicator size="small" color={colors.mutedForeground} />
-            </View>
-          ) : null
-        }
-      />
+      {/* Skeleton: mehurići naizmenično levo/desno — isti raspored koji stiže.
+          Bez pull-to-refresh: lista je `inverted`, pa bi se spinner pojavio na DNU,
+          tamo gde se piše poruka. Nove poruke ionako stižu kroz pretplatu. */}
+      <LoadingSwap
+        loading={loading}
+        skeleton={
+          <SkeletonList
+            count={7}
+            gap={6}
+            style={styles.content}
+            item={(index) => <SkeletonMessage index={index} own={index % 3 === 1} />}
+          />
+        }>
+        {loading ? null : (
+          <FlatList
+            ref={listRef}
+            data={results}
+            inverted
+            keyExtractor={(message) => message._id}
+            renderItem={renderItem}
+            onEndReached={() => {
+              if (status === 'CanLoadMore') loadMore(30);
+            }}
+            onEndReachedThreshold={0.4}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            contentContainerStyle={styles.content}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            ListFooterComponent={
+              status === 'LoadingMore' ? (
+                <View style={styles.loadingOlder}>
+                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                </View>
+              ) : null
+            }
+          />
+        )}
+      </LoadingSwap>
 
       {showJump ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Skoči na najnovije poruke"
-          onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          onPress={() => {
+            haptics.tap();
+            listRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }}
           style={[styles.jump, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <ChevronDown size={22} color={colors.foreground} />
         </Pressable>
@@ -198,6 +227,7 @@ export function MessageList({
       <MessageActionsSheet
         message={actionsFor}
         currentProfileId={currentProfileId}
+        isAdmin={isAdmin}
         onReact={(emoji) => {
           if (actionsFor) handleToggleReaction(actionsFor._id, emoji);
           setActionsFor(null);
@@ -236,11 +266,6 @@ function DaySeparator({ ts, colors }: { ts: number; colors: ColorTokens }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     paddingVertical: 12,

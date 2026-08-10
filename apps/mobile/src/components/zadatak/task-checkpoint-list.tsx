@@ -1,16 +1,29 @@
 import { useMutation, useQuery } from 'convex/react';
-import * as Haptics from 'expo-haptics';
-import { Check, Circle, ListChecks, Lock, Pencil, Plus, Trash2, X } from 'lucide-react-native';
+import {
+  Check,
+  Circle,
+  Link2,
+  Link2Off,
+  ListChecks,
+  Lock,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { MAX_TASK_CHECKPOINTS } from '@/lib/task-meta';
 import type { TaskCheckpoint } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Lista checkpointa zadatka (docs/mobile/02-EKRANI.md §9.2). Ordinali, lanci i
@@ -20,8 +33,10 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/
  * prepravi keširan upit, uz haptiku. Ako server odbije (npr. zaključan lanac),
  * Convex sam vrati optimističku izmenu i prikaže se upozorenje.
  *
- * Ulančavanje koraka (`setChained`) i diskusija po checkpointu su za sada web-only
- * (00-PLAN §2, parity izuzetak) — mobilni poštuje `locked`, ali ne izlaže kontrole.
+ * Ulančavanje koraka (`setChainedToPrevious` / `setAllChained`) je sada i ovde:
+ * ikonica lanca po redu i „Poveži sve / Razveži sve" u zaglavlju sekcije. Autor
+ * briše svoj korak direktno, a tuđi kroz glasanje tima (`requestDeletion`) — isti
+ * put koji web `task-checkpoint-list` nudi.
  */
 export function TaskCheckpointList({
   taskPageId,
@@ -49,17 +64,24 @@ export function TaskCheckpointList({
   const create = useMutation(api.taskCheckpoints.create);
   const updateText = useMutation(api.taskCheckpoints.updateText);
   const archiveOwn = useMutation(api.taskCheckpoints.archiveOwn);
+  const setChained = useMutation(api.taskCheckpoints.setChainedToPrevious);
+  const setAllChained = useMutation(api.taskCheckpoints.setAllChained);
+  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<Id<'taskCheckpoints'> | null>(null);
   const [editingText, setEditingText] = useState('');
 
-  const notifyError = (error: unknown) =>
+  const notifyError = (error: unknown) => {
+    haptics.error();
     Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+  };
 
   const toggle = (item: TaskCheckpoint) => {
-    void Haptics.selectionAsync();
+    // Prekidač je optimističan (vidi `withOptimisticUpdate` gore), pa je i haptika
+    // odmah — potvrda servera ne dodaje drugi signal, samo greška.
+    haptics.select();
     void setCompleted({ checkpointId: item._id, completed: !item.completed }).catch(notifyError);
   };
 
@@ -67,8 +89,10 @@ export function TaskCheckpointList({
     const text = draft.trim();
     if (!text || creating || (checkpoints && checkpoints.length >= MAX_TASK_CHECKPOINTS)) return;
     setCreating(true);
+    haptics.tap();
     try {
       await create({ taskPageId, text });
+      haptics.success();
       setDraft('');
     } catch (error) {
       notifyError(error);
@@ -83,26 +107,73 @@ export function TaskCheckpointList({
       setEditingId(null);
       return;
     }
-    void updateText({ checkpointId: item._id, text }).catch(notifyError);
+    void updateText({ checkpointId: item._id, text })
+      .then(() => haptics.success())
+      .catch(notifyError);
     setEditingId(null);
   };
 
   const remove = (item: TaskCheckpoint) => {
-    Alert.alert('Obriši checkpoint', `„${item.text}"`, [
-      { text: 'Otkaži', style: 'cancel' },
-      {
-        text: 'Obriši',
-        style: 'destructive',
-        onPress: () => void archiveOwn({ checkpointId: item._id }).catch(notifyError),
-      },
-    ]);
+    haptics.warning();
+    // Autor briše direktno; ko nije autor pokreće glasanje tima. Bez druge grane
+    // član tima nije imao NIKAKAV put da traži brisanje tuđeg koraka.
+    const direct = item.canDeleteDirectly;
+    Alert.alert(
+      direct ? 'Obriši checkpoint' : 'Zatraži brisanje checkpointa',
+      direct
+        ? `„${item.text}"`
+        : `„${item.text}" — korak nije tvoj, pa se pokreće glasanje tima o brisanju.`,
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: direct ? 'Obriši' : 'Zatraži',
+          style: 'destructive',
+          onPress: () =>
+            void (direct
+              ? archiveOwn({ checkpointId: item._id })
+              : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
+            )
+              .then(() => haptics.success())
+              .catch(notifyError),
+        },
+      ],
+    );
+  };
+
+  /**
+   * Lanac: korak čeka prethodni. Ordinal 1 nema šta da čeka, pa se kontrola ne
+   * prikazuje na prvom redu (server to i odbija).
+   */
+  const toggleChain = (item: TaskCheckpoint) => {
+    haptics.select();
+    void setChained({
+      checkpointId: item._id,
+      chained: !item.chainedToPrevious,
+    }).catch(notifyError);
+  };
+
+  const chainAll = (chained: boolean) => {
+    haptics.tap();
+    void setAllChained({ taskPageId, chained })
+      .then(() => haptics.success())
+      .catch(notifyError);
   };
 
   if (checkpoints === undefined) {
+    // Oblik liste: zaglavlje sa brojačem, pa tri reda sa kvadratićem i tekstom.
     return (
       <View style={styles.section}>
         <SectionHeader completed={0} total={0} colors={colors} />
-        <View style={[styles.loadingRow, { backgroundColor: colors.muted }]} />
+        <SkeletonList
+          count={3}
+          gap={8}
+          item={(index) => (
+            <View style={styles.skeletonRow}>
+              <Skeleton width={22} height={22} borderRadius={radius.sm} />
+              <Skeleton width={index % 2 === 0 ? '62%' : '48%'} height={15} />
+            </View>
+          )}
+        />
       </View>
     );
   }
@@ -111,9 +182,41 @@ export function TaskCheckpointList({
   const completed = checkpoints.filter((item) => item.completed).length;
   const atLimit = total >= MAX_TASK_CHECKPOINTS;
 
+  // Kontrola „sve" ima smisla tek od dva koraka (prvi se ne može ulančati) i samo
+  // za onoga ko sme da menja strukturu — isti uslov kao `canCreate`.
+  const chainableCount = Math.max(0, total - 1);
+  const allChained =
+    chainableCount > 0 && checkpoints.slice(1).every((item) => item.chainedToPrevious);
+
   return (
     <View style={styles.section}>
       <SectionHeader completed={completed} total={total} colors={colors} />
+
+      {canCreate && chainableCount > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={allChained ? 'Razveži sve korake' : 'Poveži sve korake'}
+          accessibilityHint={
+            allChained
+              ? 'Koraci se posle ovoga mogu završavati bilo kojim redom'
+              : 'Svaki korak posle ovoga čeka prethodni'
+          }
+          onPress={() => chainAll(!allChained)}
+          style={({ pressed }) => [
+            styles.chainAll,
+            { borderColor: colors.border },
+            pressed && { backgroundColor: colors.muted },
+          ]}>
+          {allChained ? (
+            <Link2Off size={16} color={colors.mutedForeground} />
+          ) : (
+            <Link2 size={16} color={colors.mutedForeground} />
+          )}
+          <Text style={[styles.chainAllLabel, { color: colors.mutedForeground }]}>
+            {allChained ? 'Razveži sve' : 'Poveži sve'}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {total > 0 ? (
         <View
@@ -239,6 +342,26 @@ export function TaskCheckpointList({
                   </Text>
                 )}
 
+                {item.canEdit && item.ordinal > 1 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: item.chainedToPrevious }}
+                    accessibilityLabel={
+                      item.chainedToPrevious
+                        ? `Razveži od prethodnog koraka: ${item.text}`
+                        : `Veži za prethodni korak: ${item.text}`
+                    }
+                    onPress={() => toggleChain(item)}
+                    hitSlop={6}
+                    style={styles.rowAction}>
+                    {item.chainedToPrevious ? (
+                      <Link2 size={16} color={colors.primaryText} />
+                    ) : (
+                      <Link2Off size={16} color={colors.subtle} />
+                    )}
+                  </Pressable>
+                ) : null}
+
                 {item.canEdit ? (
                   <Pressable
                     accessibilityRole="button"
@@ -261,10 +384,14 @@ export function TaskCheckpointList({
                   </Pressable>
                 ) : null}
 
-                {item.canDeleteDirectly ? (
+                {item.canDeleteDirectly || item.canRequestDeletion ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Obriši: ${item.text}`}
+                    accessibilityLabel={
+                      item.canDeleteDirectly
+                        ? `Obriši: ${item.text}`
+                        : `Zatraži brisanje: ${item.text}`
+                    }
                     onPress={() => remove(item)}
                     hitSlop={6}
                     style={styles.rowAction}>
@@ -303,6 +430,19 @@ function SectionHeader({
 }
 
 const styles = StyleSheet.create({
+  chainAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  chainAllLabel: {
+    ...text.body,
+    fontWeight: fontWeight.medium,
+  },
   section: {
     gap: 12,
   },
@@ -312,7 +452,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerLabel: {
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.bold,
   },
   countPill: {
@@ -321,7 +461,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   countText: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.bold,
   },
   track: {
@@ -333,10 +473,11 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: radius.full,
   },
-  loadingRow: {
-    height: 44,
-    borderRadius: radius.lg,
-    opacity: 0.6,
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: MIN_TOUCH_TARGET,
   },
   addRow: {
     flexDirection: 'row',
@@ -354,7 +495,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   empty: {
-    fontSize: 13,
+    ...text.body,
     textAlign: 'center',
     paddingVertical: 18,
     paddingHorizontal: 16,
@@ -385,7 +526,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ordinalText: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.bold,
   },
   check: {
@@ -396,7 +537,7 @@ const styles = StyleSheet.create({
   },
   text: {
     flex: 1,
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   editInput: {

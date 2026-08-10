@@ -6,6 +6,8 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET } from '@/theme/tokens';
 
@@ -26,6 +28,7 @@ export type PreviewFile = {
 export function FilePreview({ file, onClose }: { file: PreviewFile | null; onClose: () => void }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
 
   // Memoizovan `source` — nova referenca reloaduje WebView (npr. na promenu teme
   // dok je pregled otvoren). Isti razlog kao na canvas ekranu; ne vraćaj na inline.
@@ -35,7 +38,12 @@ export function FilePreview({ file, onClose }: { file: PreviewFile | null; onClo
   );
 
   return (
-    <Modal visible={file !== null} animationType="slide" onRequestClose={onClose}>
+    // Pregled preko celog ekrana zadržava OS „slide" (nije bottom sheet); kad je
+    // uključeno „smanji pokret", prikaz se prosto zameni.
+    <Modal
+      visible={file !== null}
+      animationType={reduced ? 'none' : 'slide'}
+      onRequestClose={onClose}>
       <View
         style={[
           styles.container,
@@ -56,7 +64,10 @@ export function FilePreview({ file, onClose }: { file: PreviewFile | null; onClo
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Otvori spolja"
-              onPress={() => void WebBrowser.openBrowserAsync(file.url)}
+              onPress={() => {
+                haptics.tap();
+                void WebBrowser.openBrowserAsync(file.url);
+              }}
               style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
               <ExternalLink size={22} color={colors.foreground} />
             </Pressable>

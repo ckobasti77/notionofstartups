@@ -17,7 +17,10 @@ import { ThemedView } from '@/components/themed-view';
 import { usePendingInvite } from '@/context/pending-invite';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useThemeColors } from '@/theme/theme-provider';
+import { fontSize, fontWeight, MIN_TOUCH_TARGET } from '@/theme/tokens';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 
 type Mode = 'signIn' | 'signUp';
 
@@ -26,6 +29,9 @@ export default function SignInScreen() {
   const bootstrapState = useQuery(api.profiles.getBootstrapState);
   const { pending, patchPending } = usePendingInvite();
   const theme = useTheme();
+  // Greška i primarno dugme idu na tokene redizajna; ostatak ekrana je i dalje na
+  // legacy `constants/theme` (zapisano u ZA-POPRAVKU).
+  const colors = useThemeColors();
 
   const inviteCode = pending.inviteCode;
   const needsBootstrap = bootstrapState?.needsBootstrap === true;
@@ -50,6 +56,7 @@ export default function SignInScreen() {
   async function handleSubmit() {
     setPendingSubmit(true);
     setError(null);
+    haptics.tap();
 
     // Kod za registraciju: pozivnica (deep link) ili osnivački kod (bootstrap).
     const codeForSignup = inviteCode ?? (needsBootstrap ? bootstrapCode.trim() : undefined);
@@ -72,7 +79,9 @@ export default function SignInScreen() {
         ...(codeForSignup ? { inviteCode: codeForSignup } : {}),
       });
       // Uspeh: gate u root `_layout.tsx` reaktivno prebacuje ekran. Bez navigacije.
+      haptics.success();
     } catch (caught) {
+      haptics.error();
       setError(
         accessErrorMessage(caught, 'Prijava nije uspela. Proveri podatke i pokušaj ponovo.'),
       );
@@ -121,6 +130,7 @@ export default function SignInScreen() {
                     onChangeText={setDisplayName}
                     placeholder="Kako će te tim videti"
                     placeholderTextColor={theme.textSecondary}
+                    accessibilityLabel="Ime i prezime"
                     autoComplete="name"
                     maxLength={80}
                     style={inputStyle}
@@ -136,6 +146,7 @@ export default function SignInScreen() {
                     onChangeText={setBootstrapCode}
                     placeholder="Kod podešen na serveru"
                     placeholderTextColor={theme.textSecondary}
+                    accessibilityLabel="Osnivački kod"
                     secureTextEntry
                     autoCapitalize="none"
                     maxLength={128}
@@ -154,6 +165,7 @@ export default function SignInScreen() {
                   onChangeText={setEmail}
                   placeholder="ime@startup.com"
                   placeholderTextColor={theme.textSecondary}
+                  accessibilityLabel="Email"
                   autoComplete="email"
                   autoCapitalize="none"
                   keyboardType="email-address"
@@ -168,6 +180,7 @@ export default function SignInScreen() {
                   onChangeText={setPassword}
                   placeholder={mode === 'signIn' ? 'Tvoja lozinka' : 'Najmanje 12 znakova'}
                   placeholderTextColor={theme.textSecondary}
+                  accessibilityLabel="Lozinka"
                   secureTextEntry
                   autoCapitalize="none"
                   autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'}
@@ -181,12 +194,17 @@ export default function SignInScreen() {
               </ThemedView>
 
               {error ? (
-                <ThemedText type="small" style={[styles.error, { color: '#e5484d' }]}>
+                <ThemedText
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                  style={[styles.error, { color: colors.destructive }]}>
                   {error}
                 </ThemedText>
               ) : null}
 
               <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: pendingSubmit, busy: pendingSubmit }}
                 onPress={handleSubmit}
                 disabled={pendingSubmit}
                 style={({ pressed }) => [
@@ -194,7 +212,7 @@ export default function SignInScreen() {
                   { backgroundColor: theme.text },
                   (pressed || pendingSubmit) && styles.pressed,
                 ]}>
-                <ThemedText type="smallBold" style={{ color: theme.background }}>
+                <ThemedText style={[styles.buttonLabel, { color: theme.background }]}>
                   {pendingSubmit
                     ? 'Proveravam…'
                     : mode === 'signIn'
@@ -206,21 +224,27 @@ export default function SignInScreen() {
               <ThemedView style={styles.switchRow}>
                 {mode === 'signIn' && canCreateAccount ? (
                   <Pressable
+                    accessibilityRole="button"
+                    style={styles.switchButton}
                     onPress={() => {
+                      haptics.select();
                       setMode('signUp');
                       setError(null);
                     }}>
-                    <ThemedText type="smallBold">
+                    <ThemedText style={styles.switchLabel}>
                       {needsBootstrap ? 'Kreiraj osnivački nalog' : 'Prihvati pozivnicu'}
                     </ThemedText>
                   </Pressable>
                 ) : mode === 'signUp' ? (
                   <Pressable
+                    accessibilityRole="button"
+                    style={styles.switchButton}
                     onPress={() => {
+                      haptics.select();
                       setMode('signIn');
                       setError(null);
                     }}>
-                    <ThemedText type="smallBold">Već imaš nalog? Prijavi se</ThemedText>
+                    <ThemedText style={styles.switchLabel}>Već imaš nalog? Prijavi se</ThemedText>
                   </Pressable>
                 ) : (
                   <ThemedText type="small" themeColor="textSecondary">
@@ -273,6 +297,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pressed: { opacity: 0.7 },
+  // Glavni CTA cele aplikacije — 16px je mobilni minimum (bio je 14px).
+  buttonLabel: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+  },
+  // Prekidač prijava/registracija bio je go tekst: dodirna meta visine jednog reda.
+  switchButton: {
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.two,
+  },
+  switchLabel: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+  },
   switchRow: {
     marginTop: Spacing.three,
     alignItems: 'center',

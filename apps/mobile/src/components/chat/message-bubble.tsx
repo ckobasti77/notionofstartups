@@ -6,11 +6,11 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import * as Haptics from 'expo-haptics';
 import { Clock, Reply } from 'lucide-react-native';
 
 import { MessageAttachment } from '@/components/chat/message-attachment';
 import { Avatar } from '@/components/ui/avatar';
+import { haptics } from '@/lib/haptics';
 import {
   formatMessageTime,
   isOptimisticId,
@@ -19,7 +19,7 @@ import {
 } from '@/lib/chat';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const AVATAR = 32;
 const REPLY_THRESHOLD = 56;
@@ -59,9 +59,7 @@ export function MessageBubble({
   const sending = isOptimisticId(message._id);
 
   const fireReply = () => onReply(message);
-  const fireHaptic = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
+  const fireHaptic = () => haptics.threshold();
 
   // Svajp-desno-za-odgovor. `activeOffsetX` traži horizontalni pomak (ne krade
   // tap/long-press), `failOffsetY` prepušta vertikalni skrol listi, a ivični
@@ -146,9 +144,26 @@ export function MessageBubble({
             ) : null}
 
             <Pressable
-              accessibilityRole="text"
+              // Bio je `role="text"` na elementu koji ima dugi pritisak — čitač
+              // ekrana ga je najavljivao kao običan tekst, pa akcije nisu bile
+              // otkrive. Svajp-odgovor je gest koji VoiceOver/TalkBack presreću,
+              // zato obe radnje stoje u rotoru.
+              accessibilityRole="button"
+              accessibilityHint={message.deleted ? undefined : 'Dugi pritisak otvara akcije poruke'}
+              accessibilityActions={
+                message.deleted
+                  ? undefined
+                  : [
+                      { name: 'reply', label: 'Odgovori' },
+                      { name: 'menu', label: 'Akcije poruke' },
+                    ]
+              }
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'reply') fireReply();
+                if (event.nativeEvent.actionName === 'menu') onLongPress(message);
+              }}
               onLongPress={() => {
-                void Haptics.selectionAsync();
+                haptics.select();
                 onLongPress(message);
               }}
               delayLongPress={280}
@@ -183,7 +198,7 @@ export function MessageBubble({
                             key={index}
                             style={[
                               styles.mention,
-                              { color: isOwn ? colors.primaryForeground : colors.primary },
+                              { color: isOwn ? colors.primaryForeground : colors.primaryText },
                             ]}>
                             {segment.value}
                           </Text>
@@ -236,7 +251,7 @@ export function MessageBubble({
                     <Text
                       style={[
                         styles.pillCount,
-                        { color: reaction.mine ? colors.primary : colors.mutedForeground },
+                        { color: reaction.mine ? colors.primaryText : colors.mutedForeground },
                       ]}>
                       {reaction.count}
                     </Text>
@@ -266,7 +281,7 @@ function ReplyPreview({
       ? 'Poruka je obrisana'
       : repliedTo.body || 'prilog'
     : 'Odgovor na poruku';
-  const accent = isOwn ? colors.primaryForeground : colors.primary;
+  const accent = isOwn ? colors.primaryForeground : colors.primaryText;
   const textColor = isOwn ? colors.primaryForeground : colors.mutedForeground;
 
   return (
@@ -288,9 +303,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   systemText: {
-    fontSize: 13,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
     textAlign: 'center',
-    lineHeight: 18,
   },
   row: {
     paddingHorizontal: 10,
@@ -323,7 +338,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   author: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
     marginLeft: 4,
   },
@@ -338,21 +353,19 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   replyText: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   body: {
-    fontSize: 16,
-    lineHeight: 22,
+    ...text.body,
   },
   mention: {
     fontWeight: fontWeight.semibold,
     textDecorationLine: 'underline',
   },
   deleted: {
-    fontSize: 16,
+    ...text.body,
     fontStyle: 'italic',
-    lineHeight: 22,
   },
   meta: {
     flexDirection: 'row',
@@ -383,7 +396,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   pillCount: {
-    fontSize: 12,
+    ...text.meta,
     fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },

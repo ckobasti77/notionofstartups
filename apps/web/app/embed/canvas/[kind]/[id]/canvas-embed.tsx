@@ -7,10 +7,14 @@ import {
   ReactFlowProvider,
   useNodesInitialized,
   useReactFlow,
-  useStoreApi,
   type Edge,
 } from "@xyflow/react";
-import { ConvexProvider, ConvexReactClient, usePaginatedQuery, useQuery } from "convex/react";
+import {
+  ConvexProvider,
+  ConvexReactClient,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -286,7 +290,6 @@ function EmbedFlow({
 }) {
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
-  const storeApi = useStoreApi();
   const didFitRef = useRef(false);
 
   // Handleri MORAJU da budu memoizovani: xyflow ih drži u store-u i ponovo registruje
@@ -324,25 +327,6 @@ function EmbedFlow({
     didFitRef.current = true;
     void fitView({ padding: 0.2, maxZoom: 1.2, duration: motionDuration(300) });
   }, [nodesInitialized, nodes.length, fitView]);
-
-  // PRIVREMENA DIJAGNOSTIKA (samo dev): jednom javi native logu da li su čvorovi
-  // stigli do xyflow store-a i do DOM-a. Briše se čim se uzrok praznog grafa potvrdi.
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    const timer = setTimeout(() => {
-      const state = storeApi.getState();
-      postNative({
-        type: "debug",
-        nodesLen: nodes.length,
-        storeNodeCount: state.nodeLookup.size,
-        domNodeCount: document.querySelectorAll(".react-flow__node").length,
-        containerW: Math.round(state.width),
-        containerH: Math.round(state.height),
-        transform: state.transform.map((n) => Math.round(n * 100) / 100),
-      });
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [nodes.length, storeApi]);
 
   return (
     // `role="application"` + ime idu na sam `<ReactFlow>` (koji ga i tako postavlja i

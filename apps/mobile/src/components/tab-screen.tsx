@@ -1,24 +1,26 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { AppHeader } from '@/components/app-header';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight } from '@/theme/tokens';
 
 export type TabScreenProps = {
   title: string;
-  /** Akcije desno od naslova (ikonice/dugmad). */
+  /** Akcije levo od pretrage i avatara u zaglavlju. */
   actions?: React.ReactNode;
+  /** Red ispod naslova, unutar istog zaglavlja (npr. segmentna kontrola). */
+  below?: React.ReactNode;
   children: React.ReactNode;
 };
 
-/** Doslednи okvir taba: puna pozadina, naslov ekrana i prostor za sadržaj. */
-export function TabScreen({ title, actions, children }: TabScreenProps) {
+/**
+ * Okvir taba: JEDNO zaglavlje (`AppHeader` — kontekst startupa, naslov, akcije)
+ * i sadržaj ispod. Donji safe-area pokriva tab bar.
+ */
+export function TabScreen({ title, actions, below, children }: TabScreenProps) {
   const colors = useThemeColors();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.titleRow}>
-        <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
-        {actions ? <View style={styles.actions}>{actions}</View> : null}
-      </View>
+      <AppHeader title={title} actions={actions} below={below} />
       <View style={styles.body}>{children}</View>
     </View>
   );
@@ -27,25 +29,6 @@ export function TabScreen({ title, actions, children }: TabScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-    minHeight: 44,
-  },
-  title: {
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: fontWeight.bold,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
   },
   body: {
     flex: 1,

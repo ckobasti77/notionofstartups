@@ -1,54 +1,29 @@
 import { Stack } from 'expo-router';
 
-import { AppHeader } from '@/components/app-header';
 import { ActiveStartupProvider } from '@/context/active-startup';
+import { useStackAnimation } from '@/hooks/use-stack-animation';
 import { usePushRegistration } from '@/lib/notifications/register';
 import { useNotificationTargetNavigation } from '@/lib/notifications/use-notification-target';
 
 /**
  * Zaštićeni segment aplikacije. Gate u root `_layout.tsx` prikazuje ovaj segment
- * samo kad postoji aktivan profil. Header (startup switcher) je zajednički za sve
- * tabove, pa stoji ovde iznad `(tabs)` grupe.
+ * samo kad postoji aktivan profil. Svaki ekran nosi SVOJE (jedno) zaglavlje —
+ * `AppHeader` za tabove, `ScreenHeader` za stack ekrane — pa Stack ne crta nijedno.
  */
 export default function AppLayout() {
   // Tek po prijavi: registruj uređaj za push i (na Androidu) napravi kanale.
   usePushRegistration();
+  const screenOptions = useStackAnimation();
 
   return (
     <ActiveStartupProvider>
       {/* Otvara zapamćeni cilj obaveštenja — mora unutar ActiveStartupProvider-a. */}
       <NotificationTargetNavigator />
-      <Stack screenOptions={{ header: () => <AppHeader /> }}>
+      <Stack screenOptions={screenOptions}>
         <Stack.Screen name="(tabs)" />
-        {/* Razgovor je full-screen (van tabova) i nosi sopstveni header. */}
-        <Stack.Screen name="razgovor/[id]" options={{ headerShown: false }} />
-        {/* Detalj zadatka — full-screen, sopstveni header sa „nazad". */}
-        <Stack.Screen name="zadatak/[id]" options={{ headerShown: false }} />
-        {/* Editor stranice (placeholder do Faze 3) — full-screen, sopstveni header. */}
-        <Stack.Screen name="stranica/[id]" options={{ headerShown: false }} />
-        {/* Podešavanja obaveštenja — full-screen, sopstveni header sa „nazad". */}
-        <Stack.Screen name="podesavanja-obavestenja" options={{ headerShown: false }} />
-        {/* Puls — sedmični pregled, full-screen, sopstveni header. */}
-        <Stack.Screen name="puls" options={{ headerShown: false }} />
-        {/* Aktivnost — hronološka lista, full-screen, sopstveni header. */}
-        <Stack.Screen name="aktivnost" options={{ headerShown: false }} />
-        {/* Pretraga — full-screen, otvara se iz ikonice u `AppHeader`. */}
-        <Stack.Screen name="pretraga" options={{ headerShown: false }} />
-        {/* Odobrenja — full-screen, otvara se iz taba „Više". */}
-        <Stack.Screen name="odobrenja" options={{ headerShown: false }} />
-        {/* Canvas (WebView) — full-screen; swipe-back isključen da se ne bije sa
-            horizontalnim pan-om WebView-a (§9.3), „nazad" je dugme u headeru. */}
-        <Stack.Screen
-          name="canvas/[kind]/[id]"
-          options={{ headerShown: false, gestureEnabled: false }}
-        />
-        {/* Ideje — native lista + glasanje, canvas kroz WebView. */}
-        <Stack.Screen name="ideje" options={{ headerShown: false }} />
-        {/* Admin: članovi tima i pozivnice (ulaz skriven ne-adminima u „Više"). */}
-        <Stack.Screen name="clanovi" options={{ headerShown: false }} />
-        <Stack.Screen name="pozivnice" options={{ headerShown: false }} />
-        {/* Merni prototip editora (Faza 3, §5.1) — privremeno; briše se posle merenja. */}
-        <Stack.Screen name="editor-spike" options={{ headerShown: false }} />
+        {/* Canvas (WebView) — swipe-back isključen da se ne bije sa horizontalnim
+            pan-om WebView-a (§9.3); „nazad" je dugme u zaglavlju. */}
+        <Stack.Screen name="canvas/[kind]/[id]" options={{ gestureEnabled: false }} />
       </Stack>
     </ActiveStartupProvider>
   );

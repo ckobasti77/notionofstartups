@@ -1,29 +1,25 @@
 import { useAudioPlayer } from 'expo-audio';
-import { useRouter } from 'expo-router';
+import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
-  ChevronLeft,
   Info,
   Moon,
   Play,
   Smartphone,
+  TriangleAlert,
 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery } from 'convex/react';
 
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { Row } from '@/components/ui/row';
 import { api } from '@/convex/_generated/api';
+import { EmptyState } from '@/components/empty-state';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { Sheet } from '@/components/ui/sheet';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { haptics } from '@/lib/haptics';
 import type { ChannelBase } from '@/convex/lib/notificationChannels';
 import type { NotificationType } from '@/convex/lib/notifications';
 import {
@@ -83,14 +79,21 @@ export default function NotificationSettingsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Header colors={colors} topInset={insets.top} onBack={() => router.back()} />
-      {settings === undefined ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : (
-        <SettingsForm initial={settings} colors={colors} bottomInset={insets.bottom} />
-      )}
+      <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
+      {/* Skeleton je u obliku forme koja stiže: naslov grupe pa redovi sa prekidačem. */}
+      <LoadingSwap
+        loading={settings === undefined}
+        skeleton={
+          <SkeletonList
+            count={6}
+            style={styles.content}
+            item={(index) => <SkeletonRow index={index} subtitle trailing="value" />}
+          />
+        }>
+        {settings ? (
+          <SettingsForm initial={settings} colors={colors} bottomInset={insets.bottom} />
+        ) : null}
+      </LoadingSwap>
     </View>
   );
 }
@@ -131,6 +134,7 @@ function SettingsForm({
         quietHoursEnd: next.quietHoursEnd,
       });
     } catch (error) {
+      haptics.error();
       // Vrati na server-stanje da UI ne laže o onome što je zaista sačuvano.
       setMutedTypes(initial.mutedTypes);
       setQuietStart(initial.quietHoursStart);
@@ -143,12 +147,14 @@ function SettingsForm({
   }
 
   function onToggleRow(row: SettingsRow, enabled: boolean) {
+    haptics.select();
     const next = toggleRow(row, mutedTypes, enabled);
     setMutedTypes(next);
     void persist({ mutedTypes: next, quietHoursStart: quietStart, quietHoursEnd: quietEnd });
   }
 
   function onToggleQuiet(enabled: boolean) {
+    haptics.select();
     const nextStart = enabled ? quietStart ?? DEFAULT_QUIET_START : null;
     const nextEnd = enabled ? quietEnd ?? DEFAULT_QUIET_END : null;
     setQuietStart(nextStart);
@@ -211,17 +217,15 @@ function SettingsForm({
               TIHI SATI
             </Text>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={[styles.row, styles.rowFirst]}>
-                <Moon size={20} color={colors.foreground} />
-                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Uključeno</Text>
-                <Switch
-                  value={quietOn}
-                  onValueChange={onToggleQuiet}
-                  trackColor={{ true: colors.primary, false: colors.muted }}
-                  thumbColor={colors.card}
-                  accessibilityLabel="Tihi sati"
-                />
-              </View>
+              <Row
+                variant="toggle"
+                style={[styles.row, styles.rowFirst]}
+                icon={<Moon size={20} color={colors.foreground} />}
+                title="Uključeno"
+                checked={quietOn}
+                onToggle={onToggleQuiet}
+                accessibilityLabel="Tihi sati"
+              />
 
               {quietOn ? (
                 <>
@@ -281,44 +285,10 @@ function SettingsForm({
         label={picker === 'start' ? 'Od kada' : 'Do kada'}
         value={(picker === 'start' ? quietStart : quietEnd) ?? DEFAULT_QUIET_START}
         colors={colors}
-        bottomInset={bottomInset}
         onChange={onPickTime}
         onClose={() => setPicker(null)}
       />
     </>
-  );
-}
-
-function Header({
-  colors,
-  topInset,
-  onBack,
-}: {
-  colors: ColorTokens;
-  topInset: number;
-  onBack: () => void;
-}) {
-  return (
-    <View
-      style={[
-        styles.header,
-        {
-          paddingTop: topInset + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
-        Obaveštenja i zvuci
-      </Text>
-    </View>
   );
 }
 
@@ -342,48 +312,41 @@ function ToggleRow({
   const hasSound = row.previewSound !== null;
   const previewReady = hasSoundPreview(row.previewSound);
   return (
-    <View
+    <Row
+      variant="toggle"
       style={[
         styles.row,
         first ? styles.rowFirst : styles.rowDivider,
         !first && { borderTopColor: colors.border },
-      ]}>
-      <View style={styles.rowText}>
-        <Text style={[styles.rowLabel, { color: colors.foreground }]}>{row.label}</Text>
-        {row.description ? (
-          <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-            {row.description}
-          </Text>
-        ) : null}
-      </View>
-      {hasSound ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !previewReady }}
-          accessibilityLabel={
-            previewReady
-              ? `Probaj zvuk: ${row.label}`
-              : `Zvuk se uskoro dodaje: ${row.label}`
-          }
-          disabled={!previewReady}
-          onPress={onPreview}
-          style={({ pressed }) => [
-            styles.previewBtn,
-            { borderColor: colors.border },
-            !previewReady && styles.previewBtnDisabled,
-            pressed && previewReady && { backgroundColor: colors.muted },
-          ]}>
-          <Play size={16} color={colors.primary} fill={colors.primary} />
-        </Pressable>
-      ) : null}
-      <Switch
-        value={enabled}
-        onValueChange={onToggle}
-        trackColor={{ true: colors.primary, false: colors.muted }}
-        thumbColor={colors.card}
-        accessibilityLabel={row.label}
-      />
-    </View>
+      ]}
+      title={row.label}
+      subtitle={row.description || undefined}
+      value={
+        hasSound ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !previewReady }}
+            accessibilityLabel={
+              previewReady
+                ? `Probaj zvuk: ${row.label}`
+                : `Zvuk se uskoro dodaje: ${row.label}`
+            }
+            disabled={!previewReady}
+            onPress={onPreview}
+            style={({ pressed }) => [
+              styles.previewBtn,
+              { borderColor: colors.border },
+              !previewReady && styles.previewBtnDisabled,
+              pressed && previewReady && { backgroundColor: colors.muted },
+            ]}>
+            <Play size={16} color={colors.primary} fill={colors.primary} />
+          </Pressable>
+        ) : undefined
+      }
+      checked={enabled}
+      onToggle={onToggle}
+      accessibilityLabel={row.label}
+    />
   );
 }
 
@@ -422,7 +385,6 @@ function TimePickerSheet({
   label,
   value,
   colors,
-  bottomInset,
   onChange,
   onClose,
 }: {
@@ -430,7 +392,6 @@ function TimePickerSheet({
   label: string;
   value: number;
   colors: ColorTokens;
-  bottomInset: number;
   onChange: (minutes: number) => void;
   onClose: () => void;
 }) {
@@ -438,57 +399,44 @@ function TimePickerSheet({
   const selectedMinute = value % 60;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={styles.backdrop}
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        onPress={onClose}
-      />
-      <View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: bottomInset + space[3],
-          },
-        ]}>
-        <Text style={[styles.sheetTitle, { color: colors.mutedForeground }]}>{label}</Text>
-        <View style={styles.pickerColumns}>
-          <PickerColumn
-            data={HOURS}
-            selected={selectedHour}
-            colors={colors}
-            format={pad}
-            unit="Sat"
-            active={visible}
-            onSelect={(hour) => onChange(hour * 60 + selectedMinute)}
-          />
-          <Text style={[styles.pickerColon, { color: colors.foreground }]}>:</Text>
-          <PickerColumn
-            data={MINUTES}
-            selected={selectedMinute}
-            colors={colors}
-            format={pad}
-            unit="Minut"
-            active={visible}
-            onSelect={(minute) => onChange(selectedHour * 60 + minute)}
-          />
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Gotovo"
-          onPress={onClose}
-          style={({ pressed }) => [
-            styles.doneBtn,
-            { backgroundColor: colors.primary },
-            pressed && { opacity: 0.85 },
-          ]}>
-          <Text style={[styles.doneLabel, { color: colors.primaryForeground }]}>Gotovo</Text>
-        </Pressable>
+    <Sheet visible={visible} onClose={onClose} style={styles.sheet}>
+      <Text style={[styles.sheetTitle, { color: colors.mutedForeground }]}>{label}</Text>
+      <View style={styles.pickerColumns}>
+        <PickerColumn
+          data={HOURS}
+          selected={selectedHour}
+          colors={colors}
+          format={pad}
+          unit="Sat"
+          active={visible}
+          onSelect={(hour) => onChange(hour * 60 + selectedMinute)}
+        />
+        <Text style={[styles.pickerColon, { color: colors.foreground }]}>:</Text>
+        <PickerColumn
+          data={MINUTES}
+          selected={selectedMinute}
+          colors={colors}
+          format={pad}
+          unit="Minut"
+          active={visible}
+          onSelect={(minute) => onChange(selectedHour * 60 + minute)}
+        />
       </View>
-    </Modal>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Gotovo"
+        onPress={() => {
+          haptics.tap();
+          onClose();
+        }}
+        style={({ pressed }) => [
+          styles.doneBtn,
+          { backgroundColor: colors.primary },
+          pressed && { opacity: 0.85 },
+        ]}>
+        <Text style={[styles.doneLabel, { color: colors.primaryForeground }]}>Gotovo</Text>
+      </Pressable>
+    </Sheet>
   );
 }
 
@@ -563,34 +511,34 @@ function PickerColumn({
   );
 }
 
+/**
+ * `notificationSettings.get` prolazi kroz `requireProfile` i baca kad sesija
+ * istekne — bez granice ekran pada, a ovo je jedini put do isključivanja zvuka.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <PodesavanjaErrorState message={error.message} onRetry={retry} />;
+}
+
+function PodesavanjaErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const colors = useThemeColors();
+  const router = useRouter();
+  return (
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
+      <EmptyState
+        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        title="Podešavanja se ne mogu učitati"
+        description={message || 'Došlo je do greške pri učitavanju podešavanja.'}
+        actionLabel="Pokušaj ponovo"
+        onAction={onRetry}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     padding: space[4],
@@ -623,19 +571,6 @@ const styles = StyleSheet.create({
   },
   rowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
-  rowLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  rowDescription: {
-    fontSize: 13,
-    lineHeight: 18,
   },
   previewBtn: {
     width: MIN_TOUCH_TARGET,
@@ -698,23 +633,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: space[4],
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: space[3],
     paddingHorizontal: space[4],
   },
   sheetTitle: {

@@ -1,15 +1,22 @@
 import { useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, TriangleAlert, Users } from 'lucide-react-native';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { TriangleAlert, Users } from 'lucide-react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { Pill } from '@/components/ui/pill';
+import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 
 /**
  * Gornja granica čitanja članova. `listMembers` nema paginaciju na mobilnom, pa
@@ -17,6 +24,16 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/
  * umesto tihog odsecanja (rn-review).
  */
 const MEMBERS_LIMIT = 50;
+
+/** Srpska množina za brojač članova u zaglavlju. */
+function membersWord(count: number): string {
+  const absolute = Math.abs(count);
+  const lastDigit = absolute % 10;
+  const lastTwo = absolute % 100;
+  if (lastDigit === 1 && lastTwo !== 11) return 'član';
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) return 'člana';
+  return 'članova';
+}
 
 /**
  * Članovi tima (M4.4, admin). Ulaz je skriven u tabu „Više" ako korisnik nije
@@ -36,20 +53,22 @@ export default function ClanoviScreen() {
 
   const loading = activeStartupId !== null && members === undefined;
   const capped = members !== undefined && members.length === MEMBERS_LIMIT;
+  const count = members?.length ?? 0;
+  const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Članovi tima" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader
+        title="Članovi tima"
+        onBack={() => router.back()}
+        eyebrow={count > 0 ? `${capped ? `${count}+` : count} ${membersWord(count)}` : undefined}
+      />
       {activeStartupId === null ? (
         <EmptyState
           icon={<Users size={40} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Članovi se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje članova" />
-        </View>
       ) : members && members.length === 0 ? (
         <EmptyState
           icon={<Users size={40} color={colors.mutedForeground} />}
@@ -57,51 +76,72 @@ export default function ClanoviScreen() {
           description="Ovaj startup još nema aktivnih članova."
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-          showsVerticalScrollIndicator={false}>
-          {(members ?? []).map((member) => (
-            <View
-              key={member.membershipId}
-              style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Avatar name={member.profile.displayName} uri={member.profile.avatarUrl} size={40} />
-              <View style={styles.body}>
-                <Text numberOfLines={1} style={[styles.name, { color: colors.foreground }]}>
-                  {member.profile.displayName}
-                </Text>
-                <Text numberOfLines={1} style={[styles.email, { color: colors.mutedForeground }]}>
-                  {member.profile.email}
-                </Text>
+        <LoadingSwap
+          loading={loading}
+          // Ista kartica sa vlas-linijama: avatar 36 + ime + email.
+          skeleton={
+            <View style={styles.list}>
+              <View
+                style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <SkeletonList
+                  count={5}
+                  item={(index) => <SkeletonRow index={index} leading="circle" subtitle />}
+                />
               </View>
             </View>
-          ))}
-          {capped ? (
-            <Text style={[styles.cappedNote, { color: colors.mutedForeground }]}>
-              Prikazano prvih {MEMBERS_LIMIT}.
-            </Text>
+          }>
+          {members ? (
+            <ScrollView
+              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              {/* Jedna kartica sa vlas-linijama umesto niza odvojenih kartica — ista
+                  informacija na osetno manje piksela. */}
+              <View
+                style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <StaggerGroup>
+                  {members.map((member, index) => (
+                    <StaggerItem key={member.membershipId} index={index}>
+                      <Row
+                        style={[
+                          styles.row,
+                          index > 0 && {
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                            borderTopColor: colors.border,
+                          },
+                        ]}
+                        icon={
+                          <Avatar
+                            name={member.profile.displayName}
+                            uri={member.profile.avatarUrl}
+                            size={36}
+                          />
+                        }
+                        title={member.profile.displayName}
+                        subtitle={member.profile.email}
+                        showChevron={false}
+                        accessibilityLabel={`${member.profile.displayName}, ${member.profile.email}${
+                          member.profile.role === 'admin' ? ', administrator' : ''
+                        }`}
+                        value={
+                          member.profile.role === 'admin' ? (
+                            <Pill label="Admin" tone="accent" />
+                          ) : undefined
+                        }
+                      />
+                    </StaggerItem>
+                  ))}
+                </StaggerGroup>
+              </View>
+              {capped ? (
+                <Text style={[styles.cappedNote, { color: colors.mutedForeground }]}>
+                  Prikazano prvih {MEMBERS_LIMIT}.
+                </Text>
+              ) : null}
+            </ScrollView>
           ) : null}
-        </ScrollView>
+        </LoadingSwap>
       )}
-    </View>
-  );
-}
-
-function Header({ title, onBack, colors }: { title: string; onBack: () => void; colors: ColorTokens }) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={[
-        styles.header,
-        { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text style={[styles.headerTitle, { color: colors.foreground }]}>{title}</Text>
     </View>
   );
 }
@@ -115,7 +155,7 @@ function ClanoviError({ message, onRetry }: { message: string; onRetry: () => vo
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Članovi tima" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Članovi tima" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Članovi se ne mogu učitati"
@@ -129,55 +169,22 @@ function ClanoviError({ message, onRetry }: { message: string; onRetry: () => vo
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginLeft: 2,
-  },
   list: {
     padding: 16,
+    paddingTop: 8,
     gap: 8,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    minHeight: 60,
-    borderRadius: radius.lg,
+  group: {
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
-  body: {
-    flex: 1,
-    gap: 2,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  email: {
-    fontSize: 16,
+  row: {
+    paddingHorizontal: 12,
   },
   cappedNote: {
-    fontSize: 16,
+    ...text.meta,
     textAlign: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
 });

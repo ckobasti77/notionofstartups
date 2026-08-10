@@ -11,23 +11,32 @@ import {
   FileVideo,
   ImagePlus,
   Paperclip,
+  Pencil,
   Plus,
-  Sheet,
+  // Ikonica tabele; alias jer `Sheet` je i naš bottom-sheet primitiv.
+  Sheet as SheetIcon,
   Trash2,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { FilePreview, type PreviewFile } from '@/components/stranica/file-preview';
+import { Button } from '@/components/ui/button';
+import { FAB } from '@/components/ui/fab';
+import { Input } from '@/components/ui/input';
+import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, SHADOW_COLOR, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
 
 type FileCategory = 'image' | 'video' | 'pdf' | 'audio' | 'sheet' | 'document';
 
@@ -36,7 +45,7 @@ const CATEGORY_META: Record<FileCategory, { icon: LucideIcon; label: string }> =
   video: { icon: FileVideo, label: 'Video' },
   pdf: { icon: FileText, label: 'PDF' },
   audio: { icon: FileAudio, label: 'Audio' },
-  sheet: { icon: Sheet, label: 'Tabela' },
+  sheet: { icon: SheetIcon, label: 'Tabela' },
   document: { icon: FileIcon, label: 'Dokument' },
 };
 
@@ -61,10 +70,15 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   const generateUploadUrl = useMutation(api.pageFiles.generateUploadUrl);
   const attach = useMutation(api.pageFiles.attach);
   const remove = useMutation(api.pageFiles.remove);
+  const rename = useMutation(api.pageFiles.rename);
 
   const [uploading, setUploading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewFile | null>(null);
+  const [renaming, setRenaming] = useState<{ fileId: Id<'pageFiles'>; name: string } | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   async function upload(input: PickInput) {
     setUploading(true);
@@ -158,6 +172,38 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
     }
   }
 
+  /**
+   * Preimenovanje priloga — pandan `pageFiles.rename` sa weba
+   * (`page-files-panel.tsx`). `Alert.prompt` postoji samo na iOS-u, pa Android
+   * dobija isti tok kroz mali sheet umesto da radnja fali na pola platformi.
+   */
+  function startRename(fileId: Id<'pageFiles'>, name: string) {
+    haptics.tap();
+    setRenaming({ fileId, name });
+  }
+
+  async function submitRename(next: string) {
+    const target = renaming;
+    if (target === null) return;
+    const clean = next.trim();
+    if (!clean) {
+      setRenameError('Naziv ne sme biti prazan.');
+      return;
+    }
+    setRenameBusy(true);
+    try {
+      await rename({ fileId: target.fileId, name: clean });
+      haptics.success();
+      setRenaming(null);
+      setRenameError(null);
+    } catch (error) {
+      haptics.error();
+      setRenameError(accessErrorMessage(error, 'Prilog nije preimenovan.'));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   function confirmRemove(fileId: Id<'pageFiles'>, name: string) {
     Alert.alert('Obriši prilog', `„${name}" biće trajno obrisan.`, [
       { text: 'Otkaži', style: 'cancel' },
@@ -176,10 +222,13 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   }
 
   if (files === undefined) {
+    // Oblik reda priloga: ikonica vrste 40 + naziv + veličina.
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje priloga" />
-      </View>
+      <SkeletonList
+        count={4}
+        style={styles.list}
+        item={(index) => <SkeletonRow index={index} leading="square" subtitle />}
+      />
     );
   }
 
@@ -203,32 +252,42 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
             const Icon = CATEGORY_META[file.category].icon;
             return (
               <View key={file._id} style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Otvori ${file.name}`}
+                <Row
+                  style={styles.rowMain}
+                  icon={
+                    <View style={[styles.iconChip, { backgroundColor: colors.accent }]}>
+                      <Icon size={20} color={colors.primary} />
+                    </View>
+                  }
+                  title={file.name}
+                  subtitle={`${CATEGORY_META[file.category].label}${
+                    formatFileSize(file.size) ? ` · ${formatFileSize(file.size)}` : ''
+                  }`}
                   onPress={() => openFile(file)}
-                  style={({ pressed }) => [styles.rowMain, pressed && { backgroundColor: colors.muted }]}>
-                  <View style={[styles.iconChip, { backgroundColor: colors.accent }]}>
-                    <Icon size={20} color={colors.primary} />
-                  </View>
-                  <View style={styles.meta}>
-                    <Text numberOfLines={1} style={[styles.name, { color: colors.foreground }]}>
-                      {file.name}
-                    </Text>
-                    <Text style={[styles.sub, { color: colors.mutedForeground }]}>
-                      {CATEGORY_META[file.category].label}
-                      {formatFileSize(file.size) ? ` · ${formatFileSize(file.size)}` : ''}
-                    </Text>
-                  </View>
-                </Pressable>
+                  showChevron={false}
+                  accessibilityLabel={`Otvori ${file.name}`}
+                />
                 {file.canManage ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Obriši ${file.name}`}
-                    onPress={() => confirmRemove(file._id, file.name)}
-                    style={({ pressed }) => [styles.deleteBtn, pressed && { backgroundColor: colors.muted }]}>
-                    <Trash2 size={18} color={colors.destructive} />
-                  </Pressable>
+                  <>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Preimenuj ${file.name}`}
+                      onPress={() => {
+                        setRenameDraft(file.name);
+                        setRenameError(null);
+                        startRename(file._id, file.name);
+                      }}
+                      style={({ pressed }) => [styles.deleteBtn, pressed && { backgroundColor: colors.muted }]}>
+                      <Pencil size={18} color={colors.mutedForeground} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Obriši ${file.name}`}
+                      onPress={() => confirmRemove(file._id, file.name)}
+                      style={({ pressed }) => [styles.deleteBtn, pressed && { backgroundColor: colors.muted }]}>
+                      <Trash2 size={18} color={colors.destructive} />
+                    </Pressable>
+                  </>
                 ) : null}
               </View>
             );
@@ -237,29 +296,70 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
       )}
 
       {showAdd ? (
-        <Pressable
-          accessibilityRole="button"
+        <FAB
+          icon={Plus}
           accessibilityLabel="Dodaj prilog"
-          onPress={() => setMenuOpen(true)}
-          disabled={uploading}
-          style={[styles.fab, { backgroundColor: colors.primary, bottom: insets.bottom + 16 }]}>
-          {uploading ? (
-            <ActivityIndicator color={colors.primaryForeground} />
-          ) : (
-            <Plus size={26} color={colors.primaryForeground} />
-          )}
-        </Pressable>
+          busy={uploading}
+          onPress={() => {
+            haptics.tap();
+            setMenuOpen(true);
+          }}
+          style={{ bottom: insets.bottom + 16 }}
+        />
       ) : null}
 
       <AddMenu
         open={menuOpen}
         colors={colors}
-        insetBottom={insets.bottom}
         onLibrary={pickFromLibrary}
         onCamera={pickFromCamera}
         onDocument={pickDocument}
         onClose={() => setMenuOpen(false)}
       />
+
+      <Sheet
+        visible={renaming !== null}
+        onClose={() => setRenaming(null)}
+        avoidKeyboard
+        style={styles.renameSheet}>
+        <Text accessibilityRole="header" style={[styles.renameHeading, { color: colors.foreground }]}>
+          Preimenuj prilog
+        </Text>
+        {renameError === null ? null : (
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.renameError, { color: colors.destructive }]}>
+            {renameError}
+          </Text>
+        )}
+        <Input
+          value={renameDraft}
+          onChangeText={(next) => {
+            setRenameDraft(next);
+            if (renameError !== null) setRenameError(null);
+          }}
+          autoFocus
+          editable={!renameBusy}
+          accessibilityLabel="Naziv priloga"
+          returnKeyType="done"
+          onSubmitEditing={() => void submitRename(renameDraft)}
+        />
+        <View style={styles.renameActions}>
+          <Button
+            label="Otkaži"
+            variant="ghost"
+            disabled={renameBusy}
+            onPress={() => setRenaming(null)}
+            style={styles.renameBtn}
+          />
+          <Button
+            label="Sačuvaj"
+            loading={renameBusy}
+            onPress={() => void submitRename(renameDraft)}
+            style={styles.renameBtn}
+          />
+        </View>
+      </Sheet>
 
       <FilePreview file={preview} onClose={() => setPreview(null)} />
     </View>
@@ -269,7 +369,6 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
 function AddMenu({
   open,
   colors,
-  insetBottom,
   onLibrary,
   onCamera,
   onDocument,
@@ -277,67 +376,70 @@ function AddMenu({
 }: {
   open: boolean;
   colors: ColorTokens;
-  insetBottom: number;
   onLibrary: () => void;
   onCamera: () => void;
   onDocument: () => void;
   onClose: () => void;
 }) {
+  const pick = (action: () => void) => () => {
+    haptics.tap();
+    action();
+  };
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
+    // Tri reda bez skrola — prevlačenje hvata ceo sheet.
+    <Sheet visible={open} onClose={onClose} dragAnywhere>
+      <Row
+        icon={<ImagePlus size={22} color={colors.foreground} />}
+        title="Iz galerije"
+        onPress={pick(onLibrary)}
+        showChevron={false}
       />
-      <View
-        style={[
-          styles.menu,
-          { backgroundColor: colors.popover, borderColor: colors.border, paddingBottom: insetBottom + 12 },
-        ]}>
-        <MenuRow icon={ImagePlus} label="Iz galerije" onPress={onLibrary} colors={colors} />
-        <MenuRow icon={Camera} label="Slikaj kamerom" onPress={onCamera} colors={colors} />
-        <MenuRow icon={FileIcon} label="Iz dokumenata" onPress={onDocument} colors={colors} />
-      </View>
-    </Modal>
-  );
-}
-
-function MenuRow({
-  icon: Icon,
-  label,
-  onPress,
-  colors,
-}: {
-  icon: LucideIcon;
-  label: string;
-  onPress: () => void;
-  colors: ColorTokens;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: colors.muted }]}>
-      <Icon size={22} color={colors.foreground} />
-      <Text style={[styles.menuLabel, { color: colors.foreground }]}>{label}</Text>
-    </Pressable>
+      <Row
+        icon={<Camera size={22} color={colors.foreground} />}
+        title="Slikaj kamerom"
+        onPress={pick(onCamera)}
+        showChevron={false}
+      />
+      <Row
+        icon={<FileIcon size={22} color={colors.foreground} />}
+        title="Iz dokumenata"
+        onPress={pick(onDocument)}
+        showChevron={false}
+      />
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
+  renameSheet: {
+    paddingHorizontal: space[5],
+    gap: space[2],
+  },
+  renameHeading: {
+    fontSize: 18,
+    fontWeight: fontWeight.semibold,
+  },
+  renameError: {
+    ...text.body,
+  },
+  renameActions: {
+    flexDirection: 'row',
+    gap: space[2],
+    paddingTop: space[1],
+  },
+  renameBtn: {
+    flex: 1,
+  },
   flex: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: {
     padding: 16,
-    gap: 8,
+    paddingTop: 8,
+    gap: 4,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radius.lg,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   rowMain: {
@@ -345,29 +447,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingLeft: 12,
     paddingRight: 8,
-    minHeight: 60,
-    borderRadius: radius.lg,
+    minHeight: 56,
+    borderRadius: radius.card,
   },
   iconChip: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  meta: {
-    flex: 1,
-    gap: 2,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  sub: {
-    fontSize: 16,
   },
   deleteBtn: {
     width: MIN_TOUCH_TARGET,
@@ -375,51 +466,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 4,
-    borderRadius: radius.md,
-  },
-  fab: {
-    position: 'absolute',
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: SHADOW_COLOR,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
-    paddingHorizontal: 12,
-  },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    minHeight: 56,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-  },
-  menuLabel: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
+    borderRadius: radius.control,
   },
 });

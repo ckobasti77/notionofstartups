@@ -1,0 +1,243 @@
+import { usePaginatedQuery } from 'convex/react';
+import { useRouter } from 'expo-router';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react-native';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+
+import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { Pill } from '@/components/ui/pill';
+import { Row } from '@/components/ui/row';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
+import { api } from '@/convex/_generated/api';
+import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
+import { pageKindColor, pageKindMeta } from '@/lib/page-kinds';
+import { useThemeColors } from '@/theme/theme-provider';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
+
+/**
+ * „Podstranice" — kolapsibilna sekcija unutar ekrana stranice (M3.2, KORAK 3).
+ * Otkad tap u Prostoru otvara samu stranicu (umesto da roni u podstranice), deca
+ * stranice žive OVDE: lista + „Nova podstranica". Skupljena je podrazumevano da
+ * editor dobije prostor; broj dece stoji u zaglavlju. Reaktivno (Convex) — nova
+ * podstranica se pojavi sama posle `pages.create`.
+ *
+ * Namerno NE ide u `ScrollView` sa editorom (WebView editor sam skroluje); stoji kao
+ * traka iznad sadržaja. `startupId`/`areaId` dolaze iz `pages.get` roditelja.
+ */
+export function SubpagesSection({
+  pageId,
+  startupId,
+  areaId,
+}: {
+  pageId: Id<'pages'>;
+  startupId: Id<'startups'>;
+  areaId: Id<'startupAreas'>;
+}) {
+  const colors = useThemeColors();
+  const router = useRouter();
+  // Razvijena lista se ograničava na deo ekrana i skroluje interno — inače bi
+  // duga lista gurnula sadržaj (editor/tabela/fajl) van ekrana bez skrola (rn-review).
+  const { height: windowHeight } = useWindowDimensions();
+  const [expanded, setExpanded] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.pages.listChildren,
+    { startupId, areaId, parentPageId: pageId },
+    { initialNumItems: 20 },
+  );
+
+  const loading = status === 'LoadingFirstPage';
+  const hasMore = status === 'CanLoadMore' || status === 'LoadingMore';
+  const countLabel = loading ? '' : hasMore ? `${results.length}+` : String(results.length);
+
+  return (
+    <View style={[styles.wrap, { borderBottomColor: colors.border }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`Podstranice${countLabel ? `, ${countLabel}` : ''}`}
+        onPress={() => {
+          haptics.select();
+          setExpanded((v) => !v);
+        }}
+        style={({ pressed }) => [styles.header, pressed && { backgroundColor: colors.muted }]}>
+        {expanded ? (
+          <ChevronDown size={18} color={colors.mutedForeground} />
+        ) : (
+          <ChevronRight size={18} color={colors.mutedForeground} />
+        )}
+        <Text style={[styles.title, { color: colors.foreground }]}>Podstranice</Text>
+        {loading ? (
+          <ActivityIndicator size="small" color={colors.mutedForeground} />
+        ) : (
+          <Pill label={countLabel} />
+        )}
+      </Pressable>
+
+      {expanded ? (
+        <View style={styles.body}>
+          {/* Dok prva strana stiže: redovi u obliku podstranica, pa crossfade. */}
+          <LoadingSwap
+            loading={loading}
+            fill={false}
+            skeleton={
+              <SkeletonList
+                count={3}
+                style={styles.list}
+                item={(index) => <SkeletonRow index={index} leading="icon" />}
+              />
+            }>
+          {loading ? null : (
+          <ScrollView
+            style={{ maxHeight: Math.round(windowHeight * 0.42) }}
+            nestedScrollEnabled
+            contentContainerStyle={styles.list}
+            keyboardShouldPersistTaps="handled">
+            {results.map((item) => {
+              const Icon = pageKindMeta(item.kind).icon;
+              const tint = pageKindColor(colors, item.kind);
+              return (
+                <Row
+                  key={item._id}
+                  title={item.title}
+                  titleNumberOfLines={2}
+                  accessibilityLabel={`Otvori ${item.title}`}
+                  onPress={() =>
+                    router.push(
+                      item.kind === 'task'
+                        ? { pathname: '/zadatak/[id]', params: { id: item._id } }
+                        : { pathname: '/stranica/[id]', params: { id: item._id } },
+                    )
+                  }
+                  style={styles.row}
+                  icon={
+                    <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+                      <Icon size={16} color={tint} />
+                    </View>
+                  }
+                />
+              );
+            })}
+          </ScrollView>
+          )}
+          </LoadingSwap>
+
+          {status === 'LoadingMore' ? (
+            <View style={styles.more}>
+              <ActivityIndicator
+                size="small"
+                color={colors.mutedForeground}
+                accessibilityLabel="Učitavanje"
+              />
+            </View>
+          ) : status === 'CanLoadMore' ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Učitaj još podstranica"
+              onPress={() => loadMore(20)}
+              style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.muted }]}>
+              <Text style={[styles.moreText, { color: colors.primaryText }]}>Učitaj još</Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Nova podstranica"
+            onPress={() => {
+              haptics.tap();
+              setCreateOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.addBtn,
+              { borderColor: colors.border },
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <Plus size={16} color={colors.mutedForeground} />
+            <Text style={[styles.addText, { color: colors.mutedForeground }]}>Nova podstranica</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <PageCreateSheet
+        open={createOpen}
+        startupId={startupId}
+        areaId={areaId}
+        parentPageId={pageId}
+        onClose={() => setCreateOpen(false)}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: 16,
+  },
+  title: {
+    flex: 1,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
+  },
+  body: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    gap: 2,
+  },
+  list: {
+    gap: 2,
+  },
+  row: {
+    paddingHorizontal: 2,
+    minHeight: 52,
+    borderRadius: radius.control,
+  },
+  iconChip: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  more: {
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  moreText: {
+    ...text.body,
+    fontWeight: fontWeight.medium,
+  },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    marginTop: 4,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: 'dashed',
+  },
+  addText: {
+    ...text.body,
+    fontWeight: fontWeight.medium,
+  },
+});

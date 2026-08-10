@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Alert,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -23,10 +22,13 @@ import {
 } from 'lucide-react-native';
 
 import { Avatar } from '@/components/ui/avatar';
+import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import { channelDisplayName, type ChatChannel } from '@/lib/chat';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 type NotificationLevel = 'all' | 'mentions' | 'none';
 
@@ -57,6 +59,10 @@ function subtitle(channel: ChatChannel): string {
  * Header ekrana razgovora: back, ikona/naslov/podnaslov, „otvori entitet" za
  * threadove zakačene za stranicu, i `⋯` meni sa nivoom obaveštenja. `onMeasure`
  * javlja visinu ekranu (za `keyboardVerticalOffset` na iOS).
+ *
+ * NAMERNO nije `ScreenHeader` sa `display` naslovom: u razgovoru lista poruka
+ * nosi ekran, pa zaglavlje ostaje jednoredno i nisko (kao u svakom messengeru).
+ * Tipografija i radijusi su ipak isti tokeni kao svugde.
  */
 export function ConversationHeader({
   channel,
@@ -132,51 +138,35 @@ export function ConversationHeader({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Opcije razgovora"
-        onPress={() => setMenuOpen(true)}
+        onPress={() => {
+          haptics.tap();
+          setMenuOpen(true);
+        }}
         style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
         <MoreVertical size={22} color={colors.foreground} />
       </Pressable>
 
-      <Modal
-        visible={menuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuOpen(false)}>
-        <Pressable
-          style={styles.backdrop}
-          accessibilityLabel="Zatvori"
-          onPress={() => setMenuOpen(false)}
-        />
-        <View
-          style={[
-            styles.menu,
-            {
-              backgroundColor: colors.popover,
-              borderColor: colors.border,
-              paddingBottom: insets.bottom + 12,
-            },
-          ]}>
-          <Text style={[styles.menuTitle, { color: colors.mutedForeground }]}>Obaveštenja</Text>
-          {LEVELS.map(({ level, label, Icon }) => (
-            <Pressable
+      {/* Meni nema unutrašnji skrol — prevlači se bilo gde po njemu. */}
+      <Sheet visible={menuOpen} onClose={() => setMenuOpen(false)} dragAnywhere>
+        <Text style={[styles.menuTitle, { color: colors.mutedForeground }]}>Obaveštenja</Text>
+        {LEVELS.map(({ level, label, Icon }) => {
+          const active = activeLevel === level;
+          return (
+            <Row
               key={level}
-              accessibilityRole="button"
-              accessibilityLabel={label}
-              accessibilityState={{ selected: activeLevel === level }}
-              onPress={() => void changeLevel(level)}
-              style={({ pressed }) => [
-                styles.menuRow,
-                pressed && { backgroundColor: colors.muted },
-              ]}>
-              <Icon size={20} color={colors.foreground} />
-              <Text style={[styles.menuLabel, { color: colors.foreground }]}>{label}</Text>
-              {activeLevel === level ? (
-                <Check size={18} color={colors.primary} />
-              ) : null}
-            </Pressable>
-          ))}
-        </View>
-      </Modal>
+              icon={<Icon size={20} color={colors.foreground} />}
+              title={label}
+              value={active ? <Check size={18} color={colors.primary} /> : undefined}
+              onPress={() => {
+                haptics.select();
+                void changeLevel(level);
+              }}
+              showChevron={false}
+              accessibilityLabel={active ? `${label}, izabrano` : label}
+            />
+          );
+        })}
+      </Sheet>
     </View>
   );
 }
@@ -219,12 +209,12 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   iconBox: {
     width: 36,
     height: 36,
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -233,48 +223,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   subtitle: {
-    fontSize: 12,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
+    ...text.meta,
+    fontWeight: fontWeight.regular,
   },
   menuTitle: {
-    fontSize: 12,
-    fontWeight: fontWeight.semibold,
+    ...text.meta,
+    fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     paddingHorizontal: 20,
     paddingBottom: 6,
-  },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    minHeight: MIN_TOUCH_TARGET + 4,
-    paddingHorizontal: 20,
-  },
-  menuLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
   },
 });

@@ -1,19 +1,12 @@
 import { useEffect, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Sheet } from '@/components/ui/sheet';
+import { haptics } from '@/lib/haptics';
 import { MAX_TABLE_CELL_LENGTH, MAX_TABLE_LABEL_LENGTH } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius } from '@/theme/tokens';
 
 /**
  * Bottom sheet za izmenu jedne ćelije (spec §9.4: „tap na ćeliju → sheet za
@@ -40,7 +33,6 @@ export function CellEditSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const [text, setText] = useState(value);
 
   // Otvaranje sheet-a (ili promena ćelije) puni polje trenutnom vrednošću.
@@ -49,82 +41,65 @@ export function CellEditSheet({
   }, [open, value]);
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
+    <Sheet visible={open} onClose={onClose} avoidKeyboard style={styles.sheet}>
+      <Text numberOfLines={1} style={[styles.label, { color: colors.mutedForeground }]}>
+        {columnLabel}
+      </Text>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        multiline
+        autoFocus
+        maxLength={MAX_TABLE_CELL_LENGTH}
+        placeholder="Vrednost ćelije"
+        placeholderTextColor={colors.mutedForeground}
+        selectionColor={colors.primary}
+        style={[
+          styles.input,
+          { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+        ]}
       />
-      <KeyboardAvoidingView
-        // `padding` na oba OS-a: Expo SDK 57 edge-to-edge (Android) razbija OS
-        // `adjustResize` unutar Modal-a (isto kao `quick-add-sheet`/`razgovor`).
-        behavior="padding"
-        style={styles.avoider}
-        pointerEvents="box-none">
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: colors.popover,
-              borderColor: colors.border,
-              paddingBottom: insets.bottom + 12,
-            },
+      <Text style={[styles.counter, { color: colors.mutedForeground }]}>
+        {text.length}/{MAX_TABLE_CELL_LENGTH}
+      </Text>
+
+      <View style={styles.actions}>
+        <Button
+          label="Otkaži"
+          variant="ghost"
+          onPress={onClose}
+          style={styles.flexBtn}
+          disabled={saving}
+        />
+        <Button
+          label="Sačuvaj"
+          onPress={() => {
+            haptics.tap();
+            onSave(text);
+          }}
+          loading={saving}
+          style={styles.flexBtn}
+        />
+      </View>
+
+      {canDeleteRow ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Obriši red"
+          disabled={saving}
+          onPress={() => {
+            haptics.warning();
+            onDeleteRow();
+          }}
+          style={({ pressed }) => [
+            styles.deleteRow,
+            pressed && { backgroundColor: colors.muted },
+            saving && { opacity: 0.5 },
           ]}>
-          <Text numberOfLines={1} style={[styles.label, { color: colors.mutedForeground }]}>
-            {columnLabel}
-          </Text>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            multiline
-            autoFocus
-            maxLength={MAX_TABLE_CELL_LENGTH}
-            placeholder="Vrednost ćelije"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[
-              styles.input,
-              { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
-            ]}
-          />
-          <Text style={[styles.counter, { color: colors.mutedForeground }]}>
-            {text.length}/{MAX_TABLE_CELL_LENGTH}
-          </Text>
-
-          <View style={styles.actions}>
-            <Button
-              label="Otkaži"
-              variant="ghost"
-              onPress={onClose}
-              style={styles.flexBtn}
-              disabled={saving}
-            />
-            <Button
-              label="Sačuvaj"
-              onPress={() => onSave(text)}
-              loading={saving}
-              style={styles.flexBtn}
-            />
-          </View>
-
-          {canDeleteRow ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Obriši red"
-              disabled={saving}
-              onPress={onDeleteRow}
-              style={({ pressed }) => [
-                styles.deleteRow,
-                pressed && { backgroundColor: colors.muted },
-                saving && { opacity: 0.5 },
-              ]}>
-              <Text style={[styles.deleteLabel, { color: colors.destructive }]}>Obriši red</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+          <Text style={[styles.deleteLabel, { color: colors.destructive }]}>Obriši red</Text>
+        </Pressable>
+      ) : null}
+    </Sheet>
   );
 }
 
@@ -137,6 +112,9 @@ export function ColumnEditSheet({
   open,
   label,
   saving,
+  canMoveLeft = false,
+  canMoveRight = false,
+  onMove,
   onRename,
   onRemove,
   onClose,
@@ -144,12 +122,16 @@ export function ColumnEditSheet({
   open: boolean;
   label: string;
   saving: boolean;
+  /** Krajnja kolona nema kuda dalje — dugme se onemogućava, ne sakriva. */
+  canMoveLeft?: boolean;
+  canMoveRight?: boolean;
+  /** Pandan `pageTables.moveColumn`; web to nudi u meniju kolone. */
+  onMove?: (direction: -1 | 1) => void;
   onRename: (label: string) => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const [text, setText] = useState(label);
 
   useEffect(() => {
@@ -157,93 +139,84 @@ export function ColumnEditSheet({
   }, [open, label]);
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+    <Sheet visible={open} onClose={onClose} avoidKeyboard style={styles.sheet}>
+      <Text style={[styles.label, { color: colors.mutedForeground }]}>Naziv kolone</Text>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        autoFocus
+        maxLength={MAX_TABLE_LABEL_LENGTH}
+        placeholder="Naziv kolone"
+        placeholderTextColor={colors.mutedForeground}
+        selectionColor={colors.primary}
+        style={[
+          styles.inputSingle,
+          { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+        ]}
+      />
+      <View style={styles.actions}>
+        <Button
+          label="Otkaži"
+          variant="ghost"
+          onPress={onClose}
+          style={styles.flexBtn}
+          disabled={saving}
+        />
+        <Button
+          label="Sačuvaj"
+          onPress={() => {
+            haptics.tap();
+            onRename(text);
+          }}
+          loading={saving}
+          style={styles.flexBtn}
+        />
+      </View>
+      {onMove === undefined ? null : (
+        <View style={styles.actions}>
+          <Button
+            label="← Pomeri levo"
+            variant="secondary"
+            disabled={saving || !canMoveLeft}
+            onPress={() => {
+              haptics.tap();
+              onMove(-1);
+            }}
+            style={styles.flexBtn}
+          />
+          <Button
+            label="Pomeri desno →"
+            variant="secondary"
+            disabled={saving || !canMoveRight}
+            onPress={() => {
+              haptics.tap();
+              onMove(1);
+            }}
+            style={styles.flexBtn}
+          />
+        </View>
+      )}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Zatvori"
-        style={styles.backdrop}
-        onPress={onClose}
-      />
-      <KeyboardAvoidingView
-        // `padding` na oba OS-a: Expo SDK 57 edge-to-edge (Android) razbija OS
-        // `adjustResize` unutar Modal-a (isto kao `quick-add-sheet`/`razgovor`).
-        behavior="padding"
-        style={styles.avoider}
-        pointerEvents="box-none">
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: colors.popover,
-              borderColor: colors.border,
-              paddingBottom: insets.bottom + 12,
-            },
-          ]}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Naziv kolone</Text>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            autoFocus
-            maxLength={MAX_TABLE_LABEL_LENGTH}
-            placeholder="Naziv kolone"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            style={[
-              styles.inputSingle,
-              { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
-            ]}
-          />
-          <View style={styles.actions}>
-            <Button
-              label="Otkaži"
-              variant="ghost"
-              onPress={onClose}
-              style={styles.flexBtn}
-              disabled={saving}
-            />
-            <Button
-              label="Sačuvaj"
-              onPress={() => onRename(text)}
-              loading={saving}
-              style={styles.flexBtn}
-            />
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Obriši kolonu"
-            disabled={saving}
-            onPress={onRemove}
-            style={({ pressed }) => [
-              styles.deleteRow,
-              pressed && { backgroundColor: colors.muted },
-              saving && { opacity: 0.5 },
-            ]}>
-            <Text style={[styles.deleteLabel, { color: colors.destructive }]}>Obriši kolonu</Text>
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        accessibilityLabel="Obriši kolonu"
+        disabled={saving}
+        onPress={() => {
+          haptics.warning();
+          onRemove();
+        }}
+        style={({ pressed }) => [
+          styles.deleteRow,
+          pressed && { backgroundColor: colors.muted },
+          saving && { opacity: 0.5 },
+        ]}>
+        <Text style={[styles.deleteLabel, { color: colors.destructive }]}>Obriši kolonu</Text>
+      </Pressable>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  avoider: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
     paddingHorizontal: 20,
     gap: 10,
   },

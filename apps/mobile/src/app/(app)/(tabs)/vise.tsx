@@ -5,28 +5,33 @@ import {
   Bell,
   Brain,
   ChartColumn,
-  ChevronRight,
   FlaskConical,
   Lightbulb,
   Mail,
   Monitor,
   Moon,
+  Palette,
   Settings,
   Sun,
+  UserRound,
   Users,
+  TriangleAlert,
   Vote,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
-import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
+import { haptics } from '@/lib/haptics';
+import { useAppTheme, useThemeColors, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
 /** Tipizovana ruta expo-routera (isti tip koji `router.push` prima). */
@@ -53,6 +58,7 @@ const MENU: MenuItem[][] = [
     { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
   ],
   [
+    { icon: UserRound, label: 'Moj profil', route: '/profil' },
     { icon: Users, label: 'Članovi tima', route: '/clanovi', adminOnly: true },
     { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
     { icon: Settings, label: 'Podešavanja', soon: true },
@@ -101,6 +107,7 @@ export default function ViseScreen() {
   // aktivan startup, pa se ne može upisati kao statični `route` u MENU (kao ideje.tsx).
   const openThoughts = () => {
     if (!activeStartupId) return;
+    haptics.tap();
     router.push({
       pathname: '/canvas/[kind]/[id]',
       params: { kind: 'thoughts', id: activeStartupId },
@@ -122,7 +129,10 @@ export default function ViseScreen() {
                   key={option.value}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  onPress={() => setPreference(option.value)}
+                  onPress={() => {
+                    if (!active) haptics.select();
+                    setPreference(option.value);
+                  }}
                   style={[
                     styles.segment,
                     active && { backgroundColor: colors.card, borderColor: colors.border },
@@ -153,78 +163,131 @@ export default function ViseScreen() {
               const topBorder =
                 itemIndex > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border };
 
-              // Stavka bez ekrana: nedodirljiva (View, ne Pressable), prigušena,
-              // bez chevron-a, sa oznakom „uskoro" — da izgleda tačno onako kako se
-              // ponaša (rn-review: mrtva stavka u meniju).
+              // Stavka bez ekrana: `disabled` Row — prigušen, bez chevron-a, bez
+              // pressed efekta, sa oznakom „uskoro" (rn-review: mrtva stavka u meniju).
               if (item.soon) {
                 return (
-                  <View
+                  <Row
                     key={item.label}
-                    accessibilityRole="text"
+                    disabled
+                    icon={<Icon size={20} color={colors.mutedForeground} />}
+                    title={item.label}
+                    value={
+                      <View style={[styles.soonPill, { backgroundColor: colors.muted }]}>
+                        <Text style={[styles.soonText, { color: colors.mutedForeground }]}>uskoro</Text>
+                      </View>
+                    }
                     accessibilityLabel={`${item.label} — uskoro, nedostupno`}
-                    style={[styles.row, topBorder, styles.rowDisabled]}>
-                    <Icon size={20} color={colors.mutedForeground} />
-                    <Text style={[styles.rowLabel, { color: colors.mutedForeground }]}>{item.label}</Text>
-                    <View style={[styles.soonPill, { backgroundColor: colors.muted }]}>
-                      <Text style={[styles.soonText, { color: colors.mutedForeground }]}>uskoro</Text>
-                    </View>
-                  </View>
+                    style={topBorder || undefined}
+                  />
                 );
               }
 
               return (
-                <Pressable
+                <Row
                   key={item.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
+                  icon={<Icon size={20} color={colors.foreground} />}
+                  title={item.label}
+                  value={badge ? <Badge label={badge} variant="destructive" /> : undefined}
                   onPress={() => {
-                    if (item.label === 'Misli') openThoughts();
-                    else if (item.route) router.push(item.route);
+                    if (item.label === 'Misli') {
+                      openThoughts();
+                      return;
+                    }
+                    if (item.route) {
+                      haptics.tap();
+                      router.push(item.route);
+                    }
                   }}
-                  style={({ pressed }) => [
-                    styles.row,
-                    topBorder,
-                    pressed && { backgroundColor: colors.muted },
-                  ]}>
-                  <Icon size={20} color={colors.foreground} />
-                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>{item.label}</Text>
-                  {badge ? <Badge label={badge} variant="destructive" /> : null}
-                  <ChevronRight size={18} color={colors.mutedForeground} />
-                </Pressable>
+                  accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
+                  style={topBorder || undefined}
+                />
               );
             })}
           </Card>
         ))}
 
         {/* TODO(Faza 3, §5.1): privremeni ulaz u merni prototip editora.
-            Izbriši ovaj blok (i rutu `editor-spike` + ekran) posle merenja. */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Editor spike (merenje)"
-          onPress={() => {
-            const spikeRoute: string = '/editor-spike';
-            router.push(spikeRoute as AppRoute);
-          }}
-          style={({ pressed }) => [
-            styles.spike,
-            { borderColor: colors.border },
-            pressed && { backgroundColor: colors.muted },
-          ]}>
-          <FlaskConical size={18} color={colors.mutedForeground} />
-          <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
-            Editor spike (merenje)
-          </Text>
-        </Pressable>
+            Samo u dev buildu — isti tretman kao dizajn katalog ispod; dev alat u
+            produkcijskom meniju je bio nalaz revizije. Izbriši ovaj blok (i rutu
+            `editor-spike` + ekran) posle merenja. */}
+        {__DEV__ ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Editor proba (merenje)"
+            onPress={() => {
+              const spikeRoute: string = '/editor-spike';
+              router.push(spikeRoute as AppRoute);
+            }}
+            style={({ pressed }) => [
+              styles.spike,
+              { borderColor: colors.border },
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <FlaskConical size={18} color={colors.mutedForeground} />
+            <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
+              Editor proba (merenje)
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {/* Dizajn katalog — samo u dev buildu. Privremeno tokom redizajna. */}
+        {__DEV__ ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dizajn katalog (dev)"
+            onPress={() => {
+              const route: string = '/dizajn-katalog';
+              router.push(route as AppRoute);
+            }}
+            style={({ pressed }) => [
+              styles.spike,
+              { borderColor: colors.border },
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <Palette size={18} color={colors.mutedForeground} />
+            <Text style={[styles.spikeLabel, { color: colors.mutedForeground }]}>
+              Dizajn katalog (dev)
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Button
           label="Odjavi se"
           variant="ghost"
+          // Odjava izbacuje iz aplikacije — upozoravajuća haptika, ne obična potvrda.
           onPress={() => {
+            haptics.warning();
             void signOut();
           }}
           style={styles.signOut}
         />
       </ScrollView>
+    </TabScreen>
+  );
+}
+
+/**
+ * Tri upita ovog taba (`collaboration.overview`, `areasV2.listNestingInbox`,
+ * `profiles.getCurrent`) prolaze kroz `requireStartupMember` i bacaju kad je
+ * `activeStartupId` zastareo ili je korisnik uklonjen iz tima. Bez granice ekran
+ * bi pao bez puta nazad — a „Više" je jedini ulaz u odjavu.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return <ViseErrorState message={error.message} onRetry={retry} />;
+}
+
+function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <TabScreen title="Više">
+      <EmptyState
+        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        title="Meni se ne može učitati"
+        description={message || 'Došlo je do greške pri učitavanju menija.'}
+        actionLabel="Pokušaj ponovo"
+        onAction={onRetry}
+      />
     </TabScreen>
   );
 }
@@ -269,22 +332,6 @@ const styles = StyleSheet.create({
     padding: 0,
     gap: 0,
     overflow: 'hidden',
-  },
-  row: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  rowDisabled: {
-    opacity: 0.5,
-  },
-  rowLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
   },
   soonPill: {
     paddingHorizontal: 10,

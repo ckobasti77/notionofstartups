@@ -1,19 +1,17 @@
-import { Check } from 'lucide-react-native';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Avatar } from '@/components/ui/avatar';
+import { DatePickerSheet, formatDueDate } from '@/components/ui/date-picker-sheet';
+import { OptionChip } from '@/components/ui/option-chip';
+import { Sheet } from '@/components/ui/sheet';
+import {
+  AssigneePickerList,
+  assigneeCountLabel,
+  assigneeLimitHint,
+} from '@/components/zadatak/assignee-picker';
 import { dueDayDiff } from '@/lib/deadline';
 import {
   dueDateInDays,
-  MAX_TASK_ASSIGNEES,
   priorityColor,
   statusColor,
   TASK_PRIORITY_META,
@@ -87,11 +85,10 @@ export function TaskActionsSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
 
-  const assignedIds = new Set(assignees.map((a) => a.profileId));
+  const assigneeIds = assignees.map((a) => a.profileId);
+  const assignedIds = new Set(assigneeIds);
   const isSelfAssigned = currentProfileId !== null && assignedIds.has(currentProfileId);
-  const atAssigneeLimit = assignedIds.size >= MAX_TASK_ASSIGNEES;
 
   const dueDayDiffValue =
     task && task.dueDate !== null ? dueDayDiff(task.dueDate, now) : null;
@@ -101,28 +98,19 @@ export function TaskActionsSheet({
     return dueDayDiffValue === preset.days;
   };
 
-  const toggleMember = (profileId: Id<'profiles'>) => {
-    const next = new Set(assignedIds);
-    if (next.has(profileId)) next.delete(profileId);
-    else {
-      if (next.size >= MAX_TASK_ASSIGNEES) return; // klijentska brana pre server errora
-      next.add(profileId);
-    }
-    onSetAssignees([...next]);
-  };
+  const [pickingDate, setPickingDate] = useState(false);
+  // „Proizvoljno" je aktivno kad rok postoji ali ga nijedan preset ne pokriva —
+  // tada čip nosi sam datum umesto generičke reči.
+  const isCustomDue =
+    task !== null &&
+    task.dueDate !== null &&
+    !DUE_PRESETS.some((preset) => preset.days !== null && activeDuePreset(preset));
+  const customDueLabel =
+    isCustomDue && task?.dueDate != null ? formatDueDate(task.dueDate) : 'Drugi dan…';
 
   return (
-    <Modal visible={task !== null} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Zatvori" style={styles.backdrop} onPress={onClose} />
-      <View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.popover,
-            borderColor: colors.border,
-            paddingBottom: insets.bottom + 12,
-          },
-        ]}>
+    <>
+      <Sheet visible={task !== null} onClose={onClose}>
         {task ? (
           <ScrollView
             style={styles.scroll}
@@ -142,7 +130,6 @@ export function TaskActionsSheet({
                     active={task.taskStatus === status}
                     disabled={!canChangeStatus}
                     onPress={() => onStatus(status)}
-                    colors={colors}
                   />
                 ))}
               </View>
@@ -163,7 +150,6 @@ export function TaskActionsSheet({
                         active={(task.taskPriority ?? 'medium') === priority}
                         disabled={!canEditAll}
                         onPress={() => onPriority(priority)}
-                        colors={colors}
                       />
                     ))}
                   </View>
@@ -183,65 +169,29 @@ export function TaskActionsSheet({
                         onPress={() =>
                           onDue(preset.days === null ? null : dueDateInDays(preset.days))
                         }
-                        colors={colors}
                       />
                     ))}
+                    {/* Četiri preseta ne pokrivaju „za tri nedelje" — bez ovog
+                        čipa se takav rok mogao uneti samo na webu. */}
+                    <OptionChip
+                      label={customDueLabel}
+                      active={isCustomDue}
+                      disabled={!canEditAll}
+                      onPress={() => setPickingDate(true)}
+                    />
                   </View>
                 </Section>
 
                 <Section
-                  label={
-                    canEditAll
-                      ? `Izvršioci  ${assignedIds.size}/${MAX_TASK_ASSIGNEES}`
-                      : 'Izvršioci'
-                  }
-                  hint={
-                    canEditAll && atAssigneeLimit
-                      ? `Dostignut maksimum od ${MAX_TASK_ASSIGNEES} izvršilaca.`
-                      : undefined
-                  }
+                  label={canEditAll ? assigneeCountLabel(assignedIds.size) : 'Izvršioci'}
+                  hint={canEditAll ? assigneeLimitHint(assignedIds.size) : undefined}
                   colors={colors}>
-                  {canEditAll && members === undefined ? (
-                    <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-                      Učitavanje članova…
-                    </Text>
-                  ) : canEditAll && members && members.length === 0 ? (
-                    <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-                      Nema članova u ovom startupu.
-                    </Text>
-                  ) : canEditAll && members ? (
-                    <View style={styles.members}>
-                      {members.map((member) => {
-                        const active = assignedIds.has(member.profile._id);
-                        const memberDisabled = !active && atAssigneeLimit;
-                        return (
-                          <Pressable
-                            key={member.membershipId}
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: active, disabled: memberDisabled }}
-                            accessibilityLabel={member.profile.displayName}
-                            disabled={memberDisabled}
-                            onPress={() => toggleMember(member.profile._id)}
-                            style={({ pressed }) => [
-                              styles.memberRow,
-                              memberDisabled && { opacity: 0.4 },
-                              pressed && !memberDisabled && { backgroundColor: colors.muted },
-                            ]}>
-                            <Avatar
-                              name={member.profile.displayName}
-                              uri={member.profile.avatarUrl}
-                              size={32}
-                            />
-                            <Text
-                              numberOfLines={1}
-                              style={[styles.memberName, { color: colors.foreground }]}>
-                              {member.profile.displayName}
-                            </Text>
-                            {active ? <Check size={18} color={colors.primary} /> : null}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                  {canEditAll ? (
+                    <AssigneePickerList
+                      members={members}
+                      selectedIds={assigneeIds}
+                      onChange={onSetAssignees}
+                    />
                   ) : (
                     <Pressable
                       accessibilityRole="button"
@@ -261,8 +211,20 @@ export function TaskActionsSheet({
             )}
           </ScrollView>
         ) : null}
-      </View>
-    </Modal>
+      </Sheet>
+      {/* Sestrinski `Modal`, ne ugnježden: dva ugnježdena `Modal`-a na iOS-u daju
+          crn ekran i pojedu gest za zatvaranje. Roditeljski sheet ostaje otvoren
+          ispod, pa se posle izbora datuma korisnik vraća na isti meni. */}
+      <DatePickerSheet
+        visible={pickingDate}
+        value={task?.dueDate ?? null}
+        onSelect={(dueDate) => {
+          setPickingDate(false);
+          onDue(dueDate);
+        }}
+        onClose={() => setPickingDate(false)}
+      />
+    </>
   );
 }
 
@@ -286,68 +248,7 @@ function Section({
   );
 }
 
-function OptionChip({
-  label,
-  dotColor,
-  active,
-  disabled,
-  onPress,
-  colors,
-}: {
-  label: string;
-  dotColor?: string;
-  active: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-  colors: ColorTokens;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: active, disabled }}
-      accessibilityLabel={label}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        {
-          backgroundColor: active ? colors.accent : colors.secondary,
-          borderColor: active ? colors.primary : 'transparent',
-          opacity: disabled ? 0.4 : pressed ? 0.85 : 1,
-        },
-      ]}>
-      {dotColor ? <View style={[styles.chipDot, { backgroundColor: dotColor }]} /> : null}
-      <Text
-        style={[
-          styles.chipLabel,
-          { color: active ? colors.accentForeground : colors.foreground },
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '82%',
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
-  },
   scroll: {
     flexGrow: 0,
   },
@@ -373,46 +274,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   hint: {
-    fontSize: 12,
+    // Bilo 12px: ovo je objašnjenje ZAŠTO je opcija onemogućena, ne bedž.
+    fontSize: 16,
     lineHeight: 16,
   },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  chipDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  chipLabel: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  members: {
-    gap: 2,
-  },
-  memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: MIN_TOUCH_TARGET + 4,
-    paddingHorizontal: 8,
-    borderRadius: radius.md,
-  },
-  memberName: {
-    flex: 1,
-    fontSize: 16,
   },
   selfRow: {
     minHeight: MIN_TOUCH_TARGET,

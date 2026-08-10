@@ -2,7 +2,6 @@ import { useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
   Brain,
-  ChevronLeft,
   Lightbulb,
   MessageSquareText,
   Search,
@@ -12,25 +11,31 @@ import {
 } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { SectionHeader } from '@/components/ui/section-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, text as textStyles, type ColorTokens } from '@/theme/tokens';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 300;
@@ -98,16 +103,23 @@ export default function PretragaScreen() {
     otherPages.length + tasks.length + ideas.length + thoughts.length + msgs.length;
 
   const openPage = (id: Id<'pages'>, kind: PageKind) => {
+    haptics.tap();
     if (kind === 'task') router.push({ pathname: '/zadatak/[id]', params: { id } });
     else router.push({ pathname: '/stranica/[id]', params: { id } });
   };
-  const openChannel = (id: Id<'chatChannels'>) =>
+  const openChannel = (id: Id<'chatChannels'>) => {
+    haptics.tap();
     router.push({ pathname: '/razgovor/[id]', params: { id } });
+  };
   // Nema deep-linka do čvora (ruta prima startupId, ne node id): ideja vodi na
   // native listu ideja, misao na kanvas misli (embed misli je još placeholder).
-  const openIdeas = () => router.push({ pathname: '/ideje' });
+  const openIdeas = () => {
+    haptics.tap();
+    router.push({ pathname: '/ideje' });
+  };
   const openThoughts = () => {
     if (activeStartupId === null) return;
+    haptics.tap();
     router.push({
       pathname: '/canvas/[kind]/[id]',
       params: { kind: 'thoughts', id: activeStartupId },
@@ -116,42 +128,37 @@ export default function PretragaScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View
-        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-        style={[
-          styles.header,
-          { paddingTop: insets.top + 6, backgroundColor: colors.background, borderBottomColor: colors.border },
-        ]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Nazad"
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-          <ChevronLeft size={24} color={colors.foreground} />
-        </Pressable>
-        <View style={[styles.searchBox, { backgroundColor: colors.muted }]}>
-          <Search size={18} color={colors.mutedForeground} />
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            autoFocus
-            accessibilityLabel="Polje za pretragu"
-            placeholder="Pretraži beleške, zadatke, ideje…"
-            placeholderTextColor={colors.mutedForeground}
-            selectionColor={colors.primary}
-            returnKeyType="search"
-            style={[styles.input, { color: colors.foreground }]}
-          />
-          {text.length > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Obriši pretragu"
-              onPress={() => setText('')}
-              style={styles.clearBtn}>
-              <X size={18} color={colors.mutedForeground} />
-            </Pressable>
-          ) : null}
-        </View>
+      <View onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+        <ScreenHeader
+          title="Pretraga"
+          onBack={() => router.back()}
+          // Polje je glavna kontrola ekrana — deo je zaglavlja, ne treća traka.
+          below={
+            <View style={[styles.searchBox, { backgroundColor: colors.muted }]}>
+              <Search size={18} color={colors.mutedForeground} />
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                autoFocus
+                accessibilityLabel="Polje za pretragu"
+                placeholder="Beleške, zadaci, ideje, poruke…"
+                placeholderTextColor={colors.mutedForeground}
+                selectionColor={colors.primary}
+                returnKeyType="search"
+                style={[styles.input, { color: colors.foreground }]}
+              />
+              {text.length > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Obriši pretragu"
+                  onPress={() => setText('')}
+                  style={styles.clearBtn}>
+                  <X size={18} color={colors.mutedForeground} />
+                </Pressable>
+              ) : null}
+            </View>
+          }
+        />
       </View>
 
       <KeyboardAvoidingView
@@ -175,73 +182,90 @@ export default function PretragaScreen() {
           title="Izaberi startup"
           description="Pretraga radi u okviru jednog startupa. Izaberi ga iz zaglavlja pa pokušaj ponovo."
         />
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Pretražujem" />
-        </View>
-      ) : total === 0 ? (
+      ) : !loading && total === 0 ? (
         <EmptyState
           icon={<Search size={40} color={colors.mutedForeground} />}
           title="Nema rezultata"
           description={`Ništa ne odgovara upitu „${trimmed}". Probaj kraći izraz.`}
         />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.results, { paddingBottom: insets.bottom + 24 }]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag">
-          {otherPages.length > 0 ? (
-            <Section title="Stranice" colors={colors}>
-              {otherPages.map((p) => (
-                <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
-              ))}
-            </Section>
-          ) : null}
-          {tasks.length > 0 ? (
-            <Section title="Zadaci" colors={colors}>
-              {tasks.map((p) => (
-                <PageRow key={p._id} page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
-              ))}
-            </Section>
-          ) : null}
-          {ideas.length > 0 ? (
-            <Section title="Ideje" colors={colors}>
-              {ideas.map((n) => (
-                <NodeRow
-                  key={n._id}
-                  node={n}
-                  tint={colors.warning}
-                  icon={Lightbulb}
-                  openHint="otvori listu ideja"
-                  colors={colors}
-                  onPress={openIdeas}
-                />
-              ))}
-            </Section>
-          ) : null}
-          {thoughts.length > 0 ? (
-            <Section title="Misli" colors={colors}>
-              {thoughts.map((n) => (
-                <NodeRow
-                  key={n._id}
-                  node={n}
-                  tint={colors.primary}
-                  icon={Brain}
-                  openHint="otvori kanvas misli"
-                  colors={colors}
-                  onPress={openThoughts}
-                />
-              ))}
-            </Section>
-          ) : null}
-          {msgs.length > 0 ? (
-            <Section title="Poruke" colors={colors}>
-              {msgs.map((m) => (
-                <MessageRow key={m._id} message={m} colors={colors} onPress={() => openChannel(m.channelId)} />
-              ))}
-            </Section>
-          ) : null}
-        </ScrollView>
+        // Bez pull-to-refresh: rezultati zavise od upita u polju, ne od vremena —
+        // povlačenje nadole ovde služi zatvaranju tastature (`keyboardDismissMode`).
+        <LoadingSwap loading={loading} skeleton={<SearchSkeleton />}>
+          {loading ? null : (
+            <ScrollView
+              contentContainerStyle={[styles.results, { paddingBottom: insets.bottom + 24 }]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag">
+              {/* Svaki novi upit je novo punjenje liste. */}
+              <StaggerGroup resetKey={debounced}>
+                {otherPages.length > 0 ? (
+                  <Section title="Stranice" count={otherPages.length}>
+                    {otherPages.map((p, index) => (
+                      <StaggerItem key={p._id} index={index}>
+                        <PageRow page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {tasks.length > 0 ? (
+                  <Section title="Zadaci" count={tasks.length}>
+                    {tasks.map((p, index) => (
+                      <StaggerItem key={p._id} index={index}>
+                        <PageRow page={p} colors={colors} onPress={() => openPage(p._id, p.kind)} />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {ideas.length > 0 ? (
+                  <Section title="Ideje" count={ideas.length}>
+                    {ideas.map((n, index) => (
+                      <StaggerItem key={n._id} index={index}>
+                        <NodeRow
+                          node={n}
+                          tint={colors.warning}
+                          icon={Lightbulb}
+                          openHint="otvori listu ideja"
+                          colors={colors}
+                          onPress={openIdeas}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {thoughts.length > 0 ? (
+                  <Section title="Misli" count={thoughts.length}>
+                    {thoughts.map((n, index) => (
+                      <StaggerItem key={n._id} index={index}>
+                        <NodeRow
+                          node={n}
+                          tint={colors.primary}
+                          icon={Brain}
+                          openHint="otvori kanvas misli"
+                          colors={colors}
+                          onPress={openThoughts}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+                {msgs.length > 0 ? (
+                  <Section title="Poruke" count={msgs.length}>
+                    {msgs.map((m, index) => (
+                      <StaggerItem key={m._id} index={index}>
+                        <MessageRow
+                          message={m}
+                          colors={colors}
+                          onPress={() => openChannel(m.channelId)}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </Section>
+                ) : null}
+              </StaggerGroup>
+            </ScrollView>
+          )}
+        </LoadingSwap>
       )}
       </KeyboardAvoidingView>
     </View>
@@ -256,20 +280,40 @@ type PageResult = {
   startup: { name: string } | null;
 };
 
+/** Oblik rezultata: naslov sekcije, pa redovi sa ikonicom-čipom i dve linije. */
+function SearchSkeleton() {
+  return (
+    <View style={styles.results} accessibilityLabel="Pretražujem">
+      <Skeleton width="28%" height={13} style={styles.skeletonHeader} />
+      <SkeletonList
+        count={6}
+        gap={12}
+        item={(index) => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={32} height={32} borderRadius={radius.control} />
+            <View style={styles.skeletonBody}>
+              <Skeleton width={index % 2 === 0 ? '66%' : '52%'} height={15} />
+              <Skeleton width="40%" height={12} />
+            </View>
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
 function Section({
   title,
-  colors,
+  count,
   children,
 }: {
   title: string;
-  colors: ColorTokens;
+  count: number;
   children: React.ReactNode;
 }) {
   return (
     <View style={styles.section}>
-      <Text accessibilityRole="header" style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-        {title}
-      </Text>
+      <SectionHeader title={title} count={count} style={styles.sectionHeader} />
       {children}
     </View>
   );
@@ -287,23 +331,19 @@ function PageRow({
   const Icon = pageKindMeta(page.kind).icon;
   const tint = pageKindColor(colors, page.kind);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori ${page.title}`}
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+          <Icon size={18} color={tint} />
+        </View>
+      }
+      title={page.title}
+      subtitle={`${page.area?.label ?? 'Oblast'} · ${page.startup?.name ?? 'Startup'}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-        <Icon size={18} color={tint} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={1} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {page.title}
-        </Text>
-        <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
-          {page.area?.label ?? 'Oblast'} · {page.startup?.name ?? 'Startup'}
-        </Text>
-      </View>
-    </Pressable>
+      showChevron={false}
+      accessibilityLabel={`Otvori ${page.title}`}
+    />
   );
 }
 
@@ -317,24 +357,20 @@ function MessageRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori razgovor ${message.channelName}`}
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${colors.info}22` }]}>
+          <MessageSquareText size={18} color={colors.info} />
+        </View>
+      }
+      title={message.body || 'Prilog'}
+      titleNumberOfLines={2}
+      subtitle={`${message.channelName}${message.author ? ` · ${message.author.displayName}` : ''}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChip, { backgroundColor: `${colors.info}22` }]}>
-        <MessageSquareText size={18} color={colors.info} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {message.body || 'Prilog'}
-        </Text>
-        <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
-          {message.channelName}
-          {message.author ? ` · ${message.author.displayName}` : ''}
-        </Text>
-      </View>
-    </Pressable>
+      showChevron={false}
+      accessibilityLabel={`Otvori razgovor ${message.channelName}`}
+    />
   );
 }
 
@@ -361,25 +397,20 @@ function NodeRow({
   // MessageRow, jer je tada sadržaj a ne kratak naslov).
   const primary = title || body || 'Bez naslova';
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${primary} — ${openHint}`}
+    <Row
+      style={styles.row}
+      icon={
+        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+          <Icon size={18} color={tint} />
+        </View>
+      }
+      title={primary}
+      titleNumberOfLines={title ? 1 : 2}
+      subtitle={title && body ? body : undefined}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
-      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-        <Icon size={18} color={tint} />
-      </View>
-      <View style={styles.rowBody}>
-        <Text numberOfLines={title ? 1 : 2} style={[styles.rowTitle, { color: colors.foreground }]}>
-          {primary}
-        </Text>
-        {title && body ? (
-          <Text numberOfLines={1} style={[styles.rowSub, { color: colors.mutedForeground }]}>
-            {body}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
+      showChevron={false}
+      accessibilityLabel={`${primary} — ${openHint}`}
+    />
   );
 }
 
@@ -390,19 +421,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 function PretragaError({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 6, borderBottomColor: colors.border }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Nazad"
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.muted }]}>
-          <ChevronLeft size={24} color={colors.foreground} />
-        </Pressable>
-        <Text style={[styles.errorTitle, { color: colors.foreground }]}>Pretraga</Text>
-      </View>
+      <ScreenHeader title="Pretraga" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Pretraga ne radi"
@@ -417,36 +438,18 @@ function PretragaError({ message, onRetry }: { message: string; onRetry: () => v
 const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
   searchBox: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 12,
-    marginRight: 8,
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
   },
   input: {
     flex: 1,
     height: MIN_TOUCH_TARGET,
-    fontSize: fontSize.base,
+    ...textStyles.body,
     paddingVertical: 0,
   },
   clearBtn: {
@@ -455,51 +458,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-  },
   results: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   section: {
-    marginTop: 12,
     gap: 2,
   },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginLeft: 6,
-    marginBottom: 4,
+  sectionHeader: {
+    marginTop: 4,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     minHeight: 56,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    borderRadius: radius.md,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    borderRadius: radius.control,
   },
   iconChip: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
+    width: 32,
+    height: 32,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rowBody: {
+  skeletonHeader: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  skeletonBody: {
     flex: 1,
-    gap: 2,
-  },
-  rowTitle: {
-    fontSize: 16,
-    fontWeight: fontWeight.medium,
-  },
-  rowSub: {
-    fontSize: 16,
+    gap: 8,
   },
 });

@@ -1,19 +1,24 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { ChevronLeft, ChevronRight, ClipboardX, TriangleAlert } from 'lucide-react-native';
+import {
+  CalendarDays,
+  CircleDot,
+  ClipboardX,
+  Ellipsis,
+  Flag,
+  TriangleAlert,
+  Users,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AssigneeStack } from '@/components/danas/assignee-stack';
@@ -21,21 +26,31 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
 import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
+import { RelationsSection } from '@/components/stranica/relations-section';
+import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
+import { IconButton } from '@/components/ui/icon-button';
+import { Row } from '@/components/ui/row';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonCard, SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { haptics } from '@/lib/haptics';
 import {
   formatShortDate,
   statusColor,
+  TASK_PRIORITY_META,
   TASK_STATUS_META,
   type TaskPriority,
   type TaskStatus,
 } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Detalj zadatka — full-screen, van tabova (docs/mobile/02-EKRANI.md §9.2).
@@ -52,6 +67,13 @@ export default function ZadatakScreen() {
   const insets = useSafeAreaInsets();
   const [now] = useState(() => Date.now());
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Izvršioci imaju svoj sheet (deljen sa kreiranjem zadatka) — duža lista članova
+  // ne mora da deli prostor sa statusom/prioritetom/rokom.
+  const [assigneesOpen, setAssigneesOpen] = useState(false);
+  // Zadatak je `pages` dokument kao i stranica, pa deli isti „…" sheet
+  // (premesti / ugnjezdi / izdvoji / poveži) — web mu nudi iste akcije.
+  // `null` = sheet je zatvoren; vrednost je korak na kom se otvara.
+  const [actionsView, setActionsView] = useState<SheetView | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
 
   const page = useQuery(api.pages.get, { pageId });
@@ -67,19 +89,19 @@ export default function ZadatakScreen() {
   const leave = useMutation(api.taskAssignees.leave);
   const setAssignees = useMutation(api.taskAssignees.setAssignees);
 
-  const notifyError = (error: unknown) =>
+  const notifyError = (error: unknown) => {
+    haptics.error();
     Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+  };
   const run = (promise: Promise<unknown>) => {
-    void promise.catch(notifyError);
+    void promise.then(() => haptics.success()).catch(notifyError);
   };
 
   if (page === undefined || profile === undefined) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <TaskHeader title="Zadatak" onBack={() => router.back()} colors={colors} />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
+        <ScreenHeader title="Zadatak" onBack={() => router.back()} />
+        <TaskSkeleton />
       </View>
     );
   }
@@ -87,7 +109,7 @@ export default function ZadatakScreen() {
   if (page.kind !== 'task') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <TaskHeader title={page.title} onBack={() => router.back()} colors={colors} />
+        <ScreenHeader title={page.title} titleNumberOfLines={2} onBack={() => router.back()} />
         <EmptyState
           icon={<ClipboardX size={40} color={colors.mutedForeground} />}
           title="Ovo nije zadatak"
@@ -125,14 +147,25 @@ export default function ZadatakScreen() {
     run(updateMetadata({ pageId, instructions: text }));
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <View style={styles.container}>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <TaskHeader
-          title={page.title}
-          onBack={() => router.back()}
-          colors={colors}
-          onMeasure={setHeaderHeight}
-        />
+        {/* Visina zaglavlja je offset za `KeyboardAvoidingView` — meri se ovde,
+            jer `ScreenHeader` sam uračunava safe-area i menja visinu po uređaju. */}
+        <View onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
+          <ScreenHeader
+            title={page.title}
+            titleNumberOfLines={2}
+            eyebrow={TASK_STATUS_META[status].label}
+            onBack={() => router.back()}
+            actions={
+              <IconButton
+                accessibilityLabel="Akcije zadatka"
+                onPress={() => setActionsView('menu')}>
+                <Ellipsis size={20} color={colors.foreground} />
+              </IconButton>
+            }
+          />
+        </View>
 
         <KeyboardAvoidingView
           style={styles.flex}
@@ -146,36 +179,78 @@ export default function ZadatakScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <MetaRow label="Status" onPress={openSheet} colors={colors}>
-              <View style={styles.statusValue}>
-                <View style={[styles.statusDot, { backgroundColor: statusColor(colors, status) }]} />
-                <Text style={[styles.valueText, { color: colors.foreground }]}>
-                  {TASK_STATUS_META[status].label}
-                </Text>
-              </View>
-            </MetaRow>
-            <Divider colors={colors} />
-            <MetaRow label="Prioritet" onPress={openSheet} colors={colors}>
-              <PriorityDot priority={page.taskPriority} showLabel />
-            </MetaRow>
-            <Divider colors={colors} />
-            <MetaRow label="Rok" onPress={openSheet} colors={colors}>
-              {page.dueDate === null ? (
-                <Text style={[styles.valueText, { color: colors.mutedForeground }]}>Bez roka</Text>
-              ) : (
-                <View style={styles.rokValue}>
-                  <Text style={[styles.valueText, { color: colors.foreground }]}>
-                    {formatShortDate(page.dueDate)}
-                  </Text>
-                  <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
-                </View>
-              )}
-            </MetaRow>
-            <Divider colors={colors} />
-            <MetaRow label="Izvršioci" onPress={openSheet} colors={colors}>
-              <AssigneeStack assignees={assigneeList} max={5} />
-            </MetaRow>
-          </View>
+              <Row
+                variant="value"
+                title="Status"
+                onPress={openSheet}
+                accessibilityLabel={`Izmeni status, trenutno ${TASK_STATUS_META[status].label}`}
+                style={styles.metaRow}
+                icon={<CircleDot size={20} color={colors.mutedForeground} />}
+                value={
+                  <View style={styles.statusValue}>
+                    <View style={[styles.statusDot, { backgroundColor: statusColor(colors, status) }]} />
+                    <Text style={[styles.valueText, { color: colors.foreground }]}>
+                      {TASK_STATUS_META[status].label}
+                    </Text>
+                  </View>
+                }
+              />
+              <Divider colors={colors} />
+              <Row
+                variant="value"
+                title="Prioritet"
+                onPress={openSheet}
+                accessibilityLabel={`Izmeni prioritet, trenutno ${TASK_PRIORITY_META[page.taskPriority ?? 'medium'].label}`}
+                style={styles.metaRow}
+                icon={<Flag size={20} color={colors.mutedForeground} />}
+                value={<PriorityDot priority={page.taskPriority} showLabel />}
+              />
+              <Divider colors={colors} />
+              <Row
+                variant="value"
+                title="Rok"
+                onPress={openSheet}
+                accessibilityLabel={`Izmeni rok, trenutno ${
+                  page.dueDate === null ? 'bez roka' : formatShortDate(page.dueDate)
+                }`}
+                style={styles.metaRow}
+                icon={<CalendarDays size={20} color={colors.mutedForeground} />}
+                value={
+                  page.dueDate === null ? (
+                    <Text style={[styles.valueText, { color: colors.mutedForeground }]}>Bez roka</Text>
+                  ) : (
+                    <View style={styles.rokValue}>
+                      <Text style={[styles.valueText, { color: colors.foreground }]}>
+                        {formatShortDate(page.dueDate)}
+                      </Text>
+                      <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
+                    </View>
+                  )
+                }
+              />
+              <Divider colors={colors} />
+              <Row
+                variant="value"
+                title="Izvršioci"
+                // Kreator bira pun spisak (deljeni piker); ko nije kreator dobija
+                // „priključi se / napusti" iz `TaskActionsSheet`.
+                onPress={canEditAll ? () => setAssigneesOpen(true) : openSheet}
+                accessibilityLabel={`Izmeni izvršioce, trenutno ${
+                  assigneeList.length === 0 ? 'bez izvršilaca' : assigneeList.length
+                }`}
+                style={styles.metaRow}
+                icon={<Users size={20} color={colors.mutedForeground} />}
+                // Dok `listForTask` traje, `assigneeList` je prazan — bez ovoga bi
+                // dodeljen zadatak nakratko pokazao „Nedodeljeno" placeholder.
+                value={
+                  assignees === undefined ? (
+                    <Skeleton width={26} height={26} borderRadius={radius.full} />
+                  ) : (
+                    <AssigneeStack assignees={assigneeList} max={5} />
+                  )
+                }
+              />
+            </View>
 
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <InstructionsSection
@@ -187,6 +262,16 @@ export default function ZadatakScreen() {
 
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TaskCheckpointList taskPageId={pageId} canCreate={canEditAll} />
+          </View>
+
+          <View style={[styles.card, styles.flush, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <RelationsSection
+              pageId={pageId}
+              startupId={page.startupId}
+              areaId={page.areaId}
+              onConnect={() => setActionsView('relate')}
+              showDivider={false}
+            />
           </View>
 
             <DiscussionLink pageId={pageId} startupId={page.startupId} />
@@ -208,74 +293,57 @@ export default function ZadatakScreen() {
           onSetAssignees={applySetAssignees}
           onClose={() => setSheetOpen(false)}
         />
+
+        <AssigneePickerSheet
+          open={assigneesOpen}
+          members={members}
+          selectedIds={assigneeList.map((a) => a.profileId)}
+          onChange={applySetAssignees}
+          onClose={() => setAssigneesOpen(false)}
+        />
+
+        <PageActionsSheet
+          open={actionsView !== null}
+          initialView={actionsView ?? 'menu'}
+          page={page}
+          onClose={() => setActionsView(null)}
+        />
       </View>
-    </GestureHandlerRootView>
-  );
-}
-
-function TaskHeader({
-  title,
-  onBack,
-  colors,
-  onMeasure,
-}: {
-  title: string;
-  onBack: () => void;
-  colors: ColorTokens;
-  onMeasure?: (height: number) => void;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      onLayout={onMeasure ? (event) => onMeasure(event.nativeEvent.layout.height) : undefined}
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + 6,
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Nazad"
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-        <ChevronLeft size={24} color={colors.foreground} />
-      </Pressable>
-      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.foreground }]}>
-        {title}
-      </Text>
     </View>
-  );
-}
-
-function MetaRow({
-  label,
-  onPress,
-  colors,
-  children,
-}: {
-  label: string;
-  onPress: () => void;
-  colors: ColorTokens;
-  children: React.ReactNode;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Izmeni: ${label}`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.metaRow, pressed && { backgroundColor: colors.muted }]}>
-      <Text style={[styles.metaLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <View style={styles.metaValue}>{children}</View>
-      <ChevronRight size={18} color={colors.mutedForeground} />
-    </Pressable>
   );
 }
 
 function Divider({ colors }: { colors: ColorTokens }) {
   return <View style={[styles.divider, { backgroundColor: colors.border }]} />;
+}
+
+/**
+ * Skeleton u obliku detalja zadatka: kartica meta-redova (status/prioritet/rok/
+ * izvršioci), pa blok instrukcija i lista podzadataka — iste mere kao pravi ekran,
+ * pa dolazak podataka ne pomera raspored.
+ */
+function TaskSkeleton() {
+  const colors = useThemeColors();
+  return (
+    <View style={styles.content} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje zadatka">
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
+        <SkeletonList
+          count={4}
+          item={(index) => <SkeletonRow index={index} leading="icon" trailing="value" />}
+        />
+      </SkeletonCard>
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
+        <Skeleton width="35%" height={16} />
+        <Skeleton width="100%" height={14} />
+        <Skeleton width="72%" height={14} />
+      </SkeletonCard>
+      <SkeletonCard style={[styles.card, { backgroundColor: colors.card }]}>
+        <Skeleton width="42%" height={16} />
+        <Skeleton width="88%" height={14} />
+        <Skeleton width="64%" height={14} />
+      </SkeletonCard>
+    </View>
+  );
 }
 
 /**
@@ -291,7 +359,7 @@ function TaskErrorState({ message, onRetry }: { message: string; onRetry: () => 
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <TaskHeader title="Zadatak" onBack={() => router.back()} colors={colors} />
+      <ScreenHeader title="Zadatak" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Zadatak se ne može učitati"
@@ -310,63 +378,31 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    marginRight: 8,
-  },
   content: {
     padding: 16,
-    gap: 12,
+    paddingTop: 8,
+    gap: 8,
     paddingBottom: 40,
   },
   card: {
-    borderRadius: radius.xl,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
+    padding: 12,
     gap: 4,
   },
+  // Kartica čiji sadržaj sam nosi svoj padding (npr. „Povezane stavke").
+  flush: {
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    overflow: 'hidden',
+  },
+  // Row unutar kartice (padding 12) — bez dodatnog horizontalnog paddinga.
   metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: MIN_TOUCH_TARGET,
-    borderRadius: radius.md,
     paddingHorizontal: 4,
-  },
-  metaLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    width: 84,
-  },
-  metaValue: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: radius.control,
   },
   valueText: {
-    fontSize: 15,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   statusValue: {

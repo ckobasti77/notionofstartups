@@ -1,0 +1,13 @@
+Radiš na Devotion monorepou. Sve na srpskom. Nenadzirano izvršavanje.
+Ovo je završna provera celog noćnog lanca.
+
+1. Pokreni agenta parity-check (.claude/agents/parity-check.md): uporedi CEO
+   apps/web i apps/mobile, ekran po ekran. Svaka razlika je PROPUST ili IZUZETAK.
+2. Pokreni agenta rn-review nad svim izmenama u apps/mobile.
+3. Pokreni skill design:accessibility-review nad glavnim mobilnim ekranima.
+4. Popravi sve PROPUSTE koje možeš bez novih backend funkcija.
+   IZUZETKE zapiši u docs/mobile/02-EKRANI.md sa razlogom.
+5. Sve što nisi stigao ili nisi smeo — u docs/mobile/ZA-POPRAVKU.md, iskreno,
+   sa razlogom. Ne prećutkuj ništa.
+
+Na kraju: npm run check i npm test.

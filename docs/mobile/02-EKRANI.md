@@ -143,6 +143,50 @@ Najvažniji ekran. Odgovara na „šta me čeka", isto kao desktop `command-cent
 **Ovde nema kanbana.** Kanban sa četiri kolone i drag-and-drop-om na telefonu ne
 radi. Umesto toga: grupisana lista sa svajpom. Isti podaci, upotrebljiv oblik.
 
+### Uvodna kartica („Zdravo, …") — pandan web `home-view`
+
+Web ima dve odvojene rute za isti trenutak: `home` (pozdrav, brojači, mreža
+oblasti, tim) i `today` (trijaža). Na telefonu se **ne pravi šesti ekran** —
+`home-view` se svodi na uvodnu karticu na vrhu taba „Danas", jer je sve ostalo iz
+njega već negde:
+
+| Deo `home-view` | Gde je na mobilnom |
+|---|---|
+| Pozdrav + naziv startupa | `DaySummary` — vrh taba „Danas" |
+| Brojači (otvoreno / kasni / hitno) | `DaySummary` |
+| Mreža oblasti | Tab **Prostor**, Nivo 1 |
+| „Sledeći zadaci" | sama lista taba „Danas" |
+| Spisak tima | traka opterećenja tima (ispod) i **Više → Članovi** |
+
+Kartica skroluje sa listom, pa ne uzima stalan prostor, i broji **isti skup**
+zadataka koji je u listi (segment „Moji zadaci" sužava i nju).
+
+### Opterećenje tima — pandan web `workload-strip`
+
+Horizontalno skrolabilna traka čipova između segmenata i liste, samo u segmentu
+„Pregled": **Svi**, pa svaki član, pa (kad postoji posao bez izvršioca)
+**Nedodeljeno**. Čip nosi avatar, ime i brojače `otvoreno / kasni / hitno`. Tap
+filtrira listu, ponovni tap na aktivni čip gasi filter — isto ponašanje kao na
+webu.
+
+Traka **stoji van skrola liste**: kad filter isprazni listu, dugme kojim se filter
+gasi mora ostati na ekranu. Prazno stanje tada glasi „Za izabranog člana nema
+otvorenih zadataka." sa akcijom „Prikaži sve".
+
+Brojači po članu se računaju iz **svih** otvorenih zadataka, ne iz filtriranih, da
+se ne menjaju dok se filter prebacuje. Zadatak sa više izvršilaca ulazi u
+opterećenje svakog od njih, pa je zbir po članovima veći od broja zadataka (isto
+kao web).
+
+U segmentu „Moji zadaci" trake nema — filter po članu nad listom koja je već
+svedena na jednog čoveka ne znači ništa.
+
+**Izuzetak — „Napredak (%)" se ne prenosi.** Procenat traži i završene zadatke, a
+`tasks.commandCenter` vraća samo otvorene. Web ga računa iz prvih 100 zadataka
+(`tasks.listForStartup`) i sam ga označava zvezdicom kao procenu; druga paginirana
+pretplata na telefonu ne zaslužuje približan broj. Traži se agregatni upit —
+zapisano u `ZA-POPRAVKU.md`.
+
 ---
 
 ## 5. Tab 2 — Prostor
@@ -188,6 +232,23 @@ Ugnježdene stranice se otvaraju sve dublje — `parentPageId` lanac. Header pri
 breadcrumb koji se skraćuje: `Dev › … › Redizajn`.
 
 Nazad koristi `pageBackRoute` logiku koja već postoji.
+
+### Brifing oblasti — pandan web `area-briefing-dock`
+
+Iznad liste stranica stoji kolapsibilna sekcija **„Brifing oblasti"** (na webu je
+to dock zakucan na vrh `area-view`). Sadržaj i dozvola dolaze iz
+`areasV2.getAreaCanvasByArea` → `scope.briefing`; upis ide kroz
+`areasV2.updateAreaBody` sa istom `expectedRevision` zaštitom od konflikta.
+
+Razlike koje mobilni nameće:
+
+- **Skupljena je podrazumevano**, a telo se montira tek na razvijanje — jedini
+  postojeći upit vraća ceo canvas payload oblasti, što je preskupa pretplata za
+  jedno tekstualno polje. (Jeftin upit je tražen u `ZA-POPRAVKU.md`.)
+- Snima se na izlazak iz polja **i** dugmetom „Sačuvaj brifing" — na telefonu se
+  fokus gubi nevidljivo, pa dugme mora da postoji.
+- Ko ne sme da uređuje (svi osim kreatora startupa) dobija tekst za čitanje, ne
+  zaključano polje.
 
 ---
 
@@ -320,6 +381,20 @@ nego na desktopu, jer se glasa u pokretu.
 administracija članova (`startups.addMember`, `removeMember`) samo za
 `role === "admin"` (`requireAdmin`).
 
+### Moj profil — pandan web `profile-dialog`
+
+Ruta `/profil`, dva ulaza: avatar u zaglavlju (`AppHeader`) i **Više → Moj
+profil**. Na telefonu je **ekran, ne sheet** — biranje slike ionako otvara
+sistemski birač preko celog ekrana, pa bi sheet ispod njega bio suvišan sloj.
+
+- Slika: `expo-image-picker` iz galerije **ili** kamerom (web ima samo `<input
+  type=file>`), kvadratno kadriranje, pa `storage.generateAvatarUploadUrl` →
+  upload → `storage.setAvatar`. Granica od 5 MB se proverava i na klijentu, da se
+  velika slika ne pošalje pa odbije na serveru.
+- Ime: `profiles.updateCurrent`, snima se na blur/`done` i dugmetom.
+- Email i uloga su samo za čitanje, sa objašnjenjem zašto — na webu je email
+  onemogućeno polje bez ijedne reči.
+
 ---
 
 ## 9. Teški ekrani
@@ -344,6 +419,18 @@ administracija članova (`startups.addMember`, `removeMember`) samo za
 - **Kritično:** toolbar mora da bude iznad tastature (`KeyboardAvoidingView`),
   inače je editor neupotrebljiv
 - `[⋯]` meni: premesti u oblast, poveži stranicu, prilozi, arhiviraj
+
+**Povezane stavke — pandan web `page-relations`.** Kolapsibilna sekcija ispod
+„Podstranica" (i na ekranu zadatka, unutar kartice): spisak veza ka drugim
+stranicama, tap otvara drugu stranu, dugme desno uklanja vezu. Svoju vezu brišeš
+odmah (`areasV2.deleteRelation`), za tuđu se pokreće glasanje
+(`collaboration.requestDeletion`, `page_relation`) — server šalje `canDelete` /
+`canRequestDeletion`, klijent ih samo poštuje.
+
+**Pravljenje veze se NE duplira**: već postoji u „…" meniju („Poveži sa…"), pa
+dugme u podnožju sekcije otvara isti sheet direktno na tom koraku. Web padajući
+izbornik kandidata sa grupama po oblasti ostaje sheet sa listom — na telefonu je
+lista čitljivija od `Select`-a sa sto stavki.
 
 ### 9.2 Detalj zadatka
 
@@ -402,6 +489,29 @@ Tap na node šalje `postMessage` u native, koji otvara bottom sheet sa detaljem 
 tako se editovanje sadržaja radi native, a samo layout ostaje u WebView-u.
 
 `[⛶]` rotira u landscape za više prostora.
+
+### 9.3.1 Ekran ideje i diskusija — pandan web `idea-discussion-dialog`
+
+Ruta `/ideja/[id]`. Ulazi: tap na karticu u listi **Ideje** i dugme „Diskusija" u
+sheet-u čvora na canvasu. Dotad ideja na telefonu nije imala detalj, pa se
+diskusija tima nije videla nigde.
+
+Ekran, ne sheet: nit ima kompozer i uređivanje teksta, a tastatura i sheet nad
+WebView-om se tuku za istu polovinu ekrana.
+
+- Ideja se čita iz `ideas.list` — iste pretplate koju lista i canvas već drže, pa
+  detalj ne košta nov upit.
+- Nit: `collaboration.listContributionsPaginated` (+ `addContribution`,
+  `updateContribution`, `moderateContribution`, `deleteOwnContribution`,
+  `requestDeletion`). Status moderacije (Odobreno / Odbijeno / Na čekanju) stoji uz
+  svaki tekst, kao na webu.
+- **Razlika 1:** web sam doučitava sve strane u `useEffect`-u; mobilni ima dugme
+  „Učitaj još" — tiho povlačenje stotina poruka troši bateriju i podatke.
+- **Razlika 2:** web briše odmah pa nudi „Undo" u toast-u; mobilni **pita pre
+  brisanja**, jer toast koji se sam skloni na telefonu promakne. Zato se
+  `collaboration.restoreOwnContribution` na mobilnom ne koristi.
+- Tekst se čuva kao HTML (nastao na webu) i prikazuje kroz `noteHtmlToText` —
+  mobilni ne renderuje HTML izvan editora.
 
 ### 9.4 Tabele
 
@@ -486,3 +596,99 @@ Razlike koje mobilni nameće:
 | 14 | Canvasi (WebView) | 4 |
 | 15 | Ideje | 4 |
 | 16 | Admin: članovi, pozivnice | 4 |
+
+---
+
+## 13. Izuzeci — web prikazi koji NEMAJU mobilni pandan
+
+Pravilo iz `CLAUDE.md` je da svaka funkcija postoji na oba klijenta, a izuzetak se
+**izričito zapisuje**. Ovo je taj spisak. Nije lista zaostalog posla — ovo su
+odluke da se nešto ne pravi, sa razlogom.
+
+### `workspace-history.tsx` — undo/redo stek
+
+**Šta je na webu.** Uprkos imenu, ovo nije istorija kretanja kroz aplikaciju.
+`WorkspaceHistoryProvider` drži dva steka u memoriji kartice i vezuje globalni
+`window.addEventListener("keydown")` na **Ctrl/Cmd+Z**, **Ctrl+Shift+Z** i
+**Ctrl+Y**. Svaki unos je par `{ undo, redo }` — dve suprotne Convex mutacije koje
+pozivaoc sam upisuje.
+
+**Zašto se ne prenosi.**
+
+1. **Nema okidača.** Ceo prikaz je prečica na tastaturi. Na telefonu nema
+   `keydown`-a; RN nema `window`. Ostalo bi dugme „nazad-radnja" koje niko ne traži
+   jer ga u mobilnim aplikacijama nema.
+2. **Nema proizvođača.** `pushHistory` zovu isključivo canvas prikazi
+   (`area-canvas-view`, `ideas-canvas-view`, `thoughts-canvas-view`, `ideas-view`)
+   — premeštanje čvorova, povezivanje, brisanje ivica. Na mobilnom canvasi žive u
+   WebView embed-u, koji je po `00-PLAN.md` §5.2 namerno **za pregled, navigaciju i
+   dodavanje**, ne za preuređivanje layouta. Stek bi ostao prazan.
+3. **Stek nije trajan.** Živi u memoriji kartice; refresh ga briše. Na telefonu se
+   ekrani odmontiraju i aplikacija ode u pozadinu češće nego što se stek napuni, pa
+   bi „Poništi" ponekad radilo, a ponekad ne — gore od toga da ga nema.
+
+**Šta mobilni radi umesto toga.** Zaštita ide **pre** radnje, ne posle:
+destruktivne akcije traže potvrdu (`Alert`), a brisanje tuđeg sadržaja ionako ide
+kroz glasanje tima (`deletionRequests`), koje se povlači (`withdrawDeletion`).
+
+**Kad bi imalo smisla.** Ako se jednog dana doda uređivanje canvasa na telefonu,
+ispravan mobilni oblik nije globalan stek nego **snackbar „Poništi" odmah posle
+radnje** (po radnji, par sekundi). To traži obrnutu mutaciju po pozivaocu — isto
+što web provider već dobija — ali ne i ovaj prikaz.
+
+---
+
+### Uređivanje layouta kanvasa — pomeranje, veličina, ivice, viewport
+
+**Šta je na webu.** `area-canvas-view`, `ideas-canvas-view` i `thoughts-canvas-view`
+nude pun `@xyflow` uređivač: prevlačenje čvorova (`updatePositions`, `moveNodes`,
+`movePages`), promena veličine kartice (`resizePage`, `updateLayout`,
+`resetLayoutSize`, `resetNodeLayoutSize`), povlačenje ivica (`connect`,
+`disconnect`, `createEdge`, `updateEdgeLabel`, `connectPages`, `disconnectPages`,
+`taskCheckpointCanvasEdges.*`) i pamćenje pan/zoom-a (`saveViewport`).
+
+**Zašto se ne prenosi.** Ovo je **ergonomska** odluka, ne tehnička prepreka —
+kaže je `00-PLAN.md` §5.2: mobilni kanvas je za **pregled, navigaciju i dodavanje
+čvora**. Ista odluka je i sprovedena, ne samo zapisana: embed renderuje ReactFlow
+sa `nodesDraggable={false}` i `nodesConnectable={false}`
+(`apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`), i **ne zove nijednu
+mutaciju** — samo upite. Precizno preuređivanje grafa prstom na 6 inča daje lošiji
+rezultat od nikakvog: čvor se pomeri slučajno, a tim to vidi kao stvarnu izmenu.
+
+**Šta mobilni radi umesto toga.** Rail na dnu: uvećaj/umanji, centriraj sve,
+otvori čvor, dodaj čvor. Sadržaj čvora (naslov, tekst, boja, glasovi, brisanje)
+menja se **native**, u sheet-u — samo raspored ostaje web-only.
+
+**Kad bi imalo smisla.** Ako se ikad doda, ispravan mobilni oblik nije slobodno
+prevlačenje nego **„pomeri u pravcu" na izabranom čvoru** (isti obrazac koji je
+kolona tabele dobila u ovoj reviziji: dva dugmeta umesto drag-a).
+
+---
+
+### Izbor članova privatnog kanala pri kreiranju
+
+**Šta je na webu.** `chat/new-conversation.tsx` u istom dijalogu nudi naziv,
+prekidač „privatan" i listu članova za izbor (`createChannel.memberProfileIds`).
+
+**Zašto se ne prenosi u celini.** Mobilni `NewConversationSheet` pravi kanal sa
+nazivom i privatnošću, ali bez izbora članova — to bi bio treći korak u sheet-u
+za radnju koja se u životu tima izvede nekoliko puta ukupno. Kanal se pravi
+prazan; članovi se dodaju na webu.
+
+**Ograničenje koje treba znati.** Privatan kanal napravljen sa telefona vidi samo
+onaj ko ga je napravio dok mu se članovi ne dodaju. Sheet to i piše na licu mesta
+(„Članove privatnog kanala za sada dodaje administrator na webu"), da niko ne
+otkrije tek posle.
+
+---
+
+### Drag-and-drop premeštanje stranica
+
+**Šta je na webu.** `page-tree.tsx` i `workspace-shell.tsx` premeštaju stranicu u
+drugu oblast ili pod drugog roditelja prevlačenjem.
+
+**Zašto se ne prenosi.** Nijedna **sposobnost** ne fali — `areasV2.movePage`,
+`requestNesting` i `detachPage` postoje na mobilnom, u `PageActionsSheet`. Fali
+samo **gest**, a drag-and-drop kroz ugnježdene skrol-liste na telefonu se tuče sa
+skrolom i sa swipe-back gestom sistema. Meni ciljeva je pouzdaniji i dostupan
+čitaču ekrana, što drag nikad nije.

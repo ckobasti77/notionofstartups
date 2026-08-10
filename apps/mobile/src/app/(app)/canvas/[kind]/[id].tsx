@@ -19,8 +19,9 @@ import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-url';
+import { haptics } from '@/lib/haptics';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
@@ -176,7 +177,7 @@ export default function CanvasScreen() {
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[]; message?: string };
+      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[] };
       try {
         msg = JSON.parse(event.nativeEvent.data);
       } catch {
@@ -186,6 +187,9 @@ export default function CanvasScreen() {
         console.log('[canvas] ← primljeno:', msg.type);
       }
       if (msg.type === 'node:open' && msg.node) {
+        // Dodir je bio unutar WebView-a, pa native mora sam da potvrdi da je stigao
+        // — inače otvaranje detalja deluje kao da se desilo samo od sebe.
+        haptics.tap();
         // Detalj stiže uz poruku — otvori sheet po vrsti, bez čekanja/upita.
         if (isIdeas) setOpenIdea(msg.node as IdeaDetail);
         else if (isThoughts) setOpenThought(msg.node as ThoughtDetail);
@@ -264,7 +268,10 @@ export default function CanvasScreen() {
             accessibilityRole="button"
             accessibilityLabel={landscape ? 'Vrati u uspravan prikaz' : 'Rotiraj u položeni prikaz'}
             accessibilityState={{ selected: landscape }}
-            onPress={() => void toggleOrientation()}
+            onPress={() => {
+              haptics.select();
+              void toggleOrientation();
+            }}
             style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
             {landscape ? (
               <Minimize2 size={22} color={colors.foreground} />
@@ -416,10 +423,15 @@ function Header({
           borderBottomColor: colors.border,
         },
       ]}>
+      {/* Kanvas je JEDINI ekran bez swipe-back gesta (WebView uzima horizontalni
+          pan — §9.3), pa je ovo dugme jedini put nazad. */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Nazad"
-        onPress={onBack}
+        onPress={() => {
+          haptics.tap();
+          onBack();
+        }}
         style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
         <ChevronLeft size={24} color={colors.foreground} />
       </Pressable>
@@ -494,12 +506,14 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: radius.control,
   },
+  // NAMERNO `title`, ne `display`: canvas ekran rotira u landscape i WebView mu je
+  // ceo sadržaj — krupno zaglavlje bi mu pojelo vidno polje. Zato i nije
+  // `ScreenHeader` (koji ne zna za bočne insete u položenom prikazu).
   headerTitle: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginRight: 8,
   },
   webWrap: {

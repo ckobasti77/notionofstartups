@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 
@@ -37,7 +38,11 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={option.label}
-            onPress={() => onChange(option.id)}
+            // Haptika je u primitivu, ne po ekranu: promena segmenta svuda znači isto.
+            onPress={() => {
+              if (!active) haptics.select();
+              onChange(option.id);
+            }}
             style={[
               styles.segment,
               active && { backgroundColor: colors.card, borderColor: colors.border },

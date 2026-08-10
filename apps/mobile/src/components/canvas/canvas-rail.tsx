@@ -2,8 +2,9 @@ import { Crosshair, ZoomIn, ZoomOut } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Kontekstualna primarna akcija rail-a: bez selekcije je „Nova ideja", a kad je na
@@ -65,7 +66,10 @@ export function CanvasRail({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={primaryAction.label}
-          onPress={primaryAction.onPress}
+          onPress={() => {
+            haptics.tap();
+            primaryAction.onPress();
+          }}
           style={({ pressed }) => [
             styles.createBtn,
             { backgroundColor: colors.primary },
@@ -98,7 +102,11 @@ function RailIcon({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      onPress={onPress}
+      // Zoom/centriranje su podešavanje pogleda, ne akcija — najtiši signal.
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.railIcon,
         { borderColor: colors.border },
@@ -122,13 +130,15 @@ const styles = StyleSheet.create({
   group: {
     flexDirection: 'row',
     gap: 8,
+    // Ikonice su fiksne 44pt dodirne mete — nikad se ne skupljaju.
+    flexShrink: 0,
   },
   railIcon: {
     width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   createBtn: {
@@ -137,10 +147,17 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 16,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
+    // U RN je podrazumevani `flexShrink` 0, pa bi se dugme na uskom ekranu (360dp) ili
+    // uz uvećan sistemski font prelilo VAN ekrana umesto da se skrati — deo dodirne
+    // mete bi tada bio nedodirljiv. `minWidth: 0` je uslov da `numberOfLines={1}`
+    // na labeli uopšte pređe u eliptiranje.
+    flexShrink: 1,
+    minWidth: 0,
   },
   createLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
+    flexShrink: 1,
   },
 });

@@ -10,11 +10,21 @@ export type IconButtonProps = Omit<PressableProps, 'children'> & {
 };
 
 /** Kvadratno dugme-ikonica sa dodirnom metom ≥ 44pt. */
-export function IconButton({ children, style, ...rest }: IconButtonProps) {
+export function IconButton({
+  children,
+  style,
+  disabled,
+  accessibilityState,
+  ...rest
+}: IconButtonProps) {
   const colors = useThemeColors();
   return (
     <Pressable
       accessibilityRole="button"
+      // `disabled` se sam prevodi u a11y stanje — bez ovoga čitač ekrana najavljuje
+      // onemogućeno dugme kao dostupno, pa korisnik ne razume zašto tap ne radi.
+      accessibilityState={{ ...accessibilityState, disabled: Boolean(disabled) }}
+      disabled={disabled}
       style={(state) => [
         styles.button,
         state.pressed && { backgroundColor: colors.muted },

@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight } from '@/theme/tokens';
+import { text } from '@/theme/tokens';
 
 export type EmptyStateProps = {
   /** Ikonica iznad naslova (npr. iz `lucide-react-native`). */
@@ -47,14 +47,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     textAlign: 'center',
   },
   description: {
-    fontSize: 16,
-    lineHeight: 24,
+    ...text.body,
     textAlign: 'center',
   },
   action: {

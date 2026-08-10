@@ -8,12 +8,15 @@ import { EmptyState } from '@/components/empty-state';
 import { CellEditSheet, ColumnEditSheet } from '@/components/stranica/cell-edit-sheet';
 import { TableImportSheet } from '@/components/stranica/table-import-sheet';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const ROW_HEIGHT = 48;
 const HEADER_HEIGHT = 44;
@@ -52,13 +55,10 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
   const addColumn = useMutation(api.pageTables.addColumn);
   const renameColumn = useMutation(api.pageTables.renameColumn);
   const removeColumn = useMutation(api.pageTables.removeColumn);
+  const moveColumn = useMutation(api.pageTables.moveColumn);
 
   if (meta === undefined || status === 'LoadingFirstPage') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje tabele" />
-      </View>
-    );
+    return <TableSkeleton />;
   }
 
   const columns = meta.columns as Column[];
@@ -66,14 +66,21 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
   // Klijentske provere limita (ogledalo `lib/validators.ts`); server ostaje autoritet.
   const atColumnLimit = columns.length >= MAX_TABLE_COLUMNS;
   const atRowLimit = meta.rowCount >= MAX_TABLE_ROWS;
+  // Pozicija kolone koja se uređuje — `moveColumn` prima ciljni indeks, ne pomeraj.
+  const editingColumnIndex =
+    editingColumn === null
+      ? -1
+      : columns.findIndex((column) => column.id === editingColumn.columnId);
 
   async function run(action: () => Promise<unknown>, fallback: string) {
     setBusy(true);
     try {
       await action();
+      haptics.success();
       setEditingCell(null);
       setEditingColumn(null);
     } catch (error) {
+      haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, fallback));
     } finally {
       setBusy(false);
@@ -138,6 +145,20 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
             void run(
               () => renameColumn({ pageId, columnId: editingColumn.columnId, label }),
               'Kolona nije preimenovana.',
+            )
+          }
+          canMoveLeft={editingColumnIndex > 0}
+          canMoveRight={editingColumnIndex >= 0 && editingColumnIndex < columns.length - 1}
+          onMove={(direction) =>
+            editingColumn &&
+            void run(
+              () =>
+                moveColumn({
+                  pageId,
+                  columnId: editingColumn.columnId,
+                  toIndex: editingColumnIndex + direction,
+                }),
+              'Kolona nije pomerena.',
             )
           }
           onRemove={() => editingColumn && confirmDeleteColumn(editingColumn.columnId)}
@@ -301,7 +322,7 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
               { borderColor: colors.border },
               pressed && { backgroundColor: colors.muted },
             ]}>
-            <Text style={[styles.loadMoreLabel, { color: colors.primary }]}>Učitaj još redova</Text>
+            <Text style={[styles.loadMoreLabel, { color: colors.primaryText }]}>Učitaj još redova</Text>
           </Pressable>
         ) : status === 'LoadingMore' ? (
           <View style={styles.loadMore}>
@@ -335,6 +356,20 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
           void run(
             () => renameColumn({ pageId, columnId: editingColumn.columnId, label }),
             'Kolona nije preimenovana.',
+          )
+        }
+        canMoveLeft={editingColumnIndex > 0}
+        canMoveRight={editingColumnIndex >= 0 && editingColumnIndex < columns.length - 1}
+        onMove={(direction) =>
+          editingColumn &&
+          void run(
+            () =>
+              moveColumn({
+                pageId,
+                columnId: editingColumn.columnId,
+                toIndex: editingColumnIndex + direction,
+              }),
+            'Kolona nije pomerena.',
           )
         }
         onRemove={() => editingColumn && confirmDeleteColumn(editingColumn.columnId)}
@@ -443,9 +478,51 @@ function ToolbarButton({
   );
 }
 
+/**
+ * Oblik tabele: traka alatki, red zaglavlja i redovi ćelija — istih visina kao
+ * prava tabela (`HEADER_HEIGHT` / `ROW_HEIGHT`), pa prelaz ne pomera ništa.
+ */
+function TableSkeleton() {
+  const colors = useThemeColors();
+  return (
+    <View style={styles.flex} accessibilityLabel="Učitavanje tabele">
+      <View style={[styles.toolbar, { borderBottomColor: colors.border }]}>
+        <Skeleton width={110} height={40} borderRadius={radius.control} />
+        <Skeleton width={92} height={40} borderRadius={radius.control} />
+      </View>
+      <View style={styles.skeletonHeaderRow}>
+        <Skeleton width={COL_WIDTH - 24} height={14} />
+        <Skeleton width={COL_WIDTH - 48} height={14} />
+      </View>
+      <SkeletonList
+        count={6}
+        item={() => (
+          <View style={styles.skeletonRow}>
+            <Skeleton width={COL_WIDTH - 32} height={14} />
+            <Skeleton width={COL_WIDTH - 60} height={14} />
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  skeletonHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+    height: HEADER_HEIGHT,
+    paddingHorizontal: 12,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+    height: ROW_HEIGHT,
+    paddingHorizontal: 12,
+  },
   toolbar: {
     flexDirection: 'row',
     gap: 8,
@@ -458,17 +535,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   toolbarLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   limitCaption: {
     // Objašnjava zašto je dugme onemogućeno — puna veličina osnovnog teksta.
-    fontSize: 16,
+    ...text.body,
     paddingHorizontal: 12,
     paddingTop: 8,
   },
@@ -500,11 +577,11 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
   },
   headerText: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
   cellText: {
-    fontSize: 16,
+    ...text.body,
   },
   emptyRows: {
     alignItems: 'center',
@@ -513,7 +590,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   emptyText: {
-    fontSize: 16,
+    ...text.body,
     textAlign: 'center',
   },
   addFirstRow: {
@@ -522,11 +599,11 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 16,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   addFirstLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.medium,
   },
   loadMore: {
@@ -535,11 +612,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   loadMoreLabel: {
-    fontSize: 16,
+    ...text.body,
     fontWeight: fontWeight.semibold,
   },
 });

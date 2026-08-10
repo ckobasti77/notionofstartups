@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, type ViewProps, type TextProps } from 'react-native';
 
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 
 export type CardProps = ViewProps;
 
@@ -12,7 +12,7 @@ export function Card({ style, ...rest }: CardProps) {
     <View
       style={[
         styles.card,
-        { backgroundColor: colors.card, borderColor: colors.border },
+        { backgroundColor: colors.surface, borderColor: colors.border },
         style,
       ]}
       {...rest}
@@ -26,7 +26,7 @@ export function CardHeader({ style, ...rest }: ViewProps) {
 
 export function CardTitle({ style, ...rest }: TextProps) {
   const colors = useThemeColors();
-  return <Text style={[styles.title, { color: colors.cardForeground }, style]} {...rest} />;
+  return <Text style={[styles.title, { color: colors.foreground }, style]} {...rest} />;
 }
 
 export function CardDescription({ style, ...rest }: TextProps) {
@@ -46,7 +46,7 @@ export function CardFooter({ style, ...rest }: ViewProps) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.xl,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 16,
     gap: 12,
@@ -55,14 +55,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   title: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   description: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: fontWeight.regular,
+    ...text.body,
   },
   content: {
     gap: 8,
