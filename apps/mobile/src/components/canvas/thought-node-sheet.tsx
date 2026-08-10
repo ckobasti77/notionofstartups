@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -14,6 +15,7 @@ import {
   THOUGHT_SWATCH,
   type ThoughtColor,
 } from '@/lib/thought-colors';
+import { pushThoughtUndo } from '@/lib/thought-undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -40,9 +42,22 @@ export type ThoughtDetail = {
 export function ThoughtNodeSheet({
   thought,
   onClose,
+  onOpenDetail,
+  onBeforeArchive,
+  onArchived,
+  onArchiveFailed,
 }: {
   thought: ThoughtDetail | null;
   onClose: () => void;
+  /** Kanvas: red „Otvori detalj" vodi na pun ekran misli (`/misao/[id]`). */
+  onOpenDetail?: (nodeId: Id<'thoughtNodes'>) => void;
+  /**
+   * Detalj misli: prebaci svoj upit na `skip` PRE arhiviranja — pretplata inače
+   * baci „Misao nije pronađena." pre `router.back()` (trka sa ErrorBoundary).
+   */
+  onBeforeArchive?: () => void;
+  onArchived?: () => void;
+  onArchiveFailed?: () => void;
 }) {
   const colors = useThemeColors();
   const updateNode = useMutation(api.thoughts.updateNode);
@@ -99,11 +114,17 @@ export function ThoughtNodeSheet({
         style: 'destructive',
         onPress: async () => {
           setBusy(true);
+          onBeforeArchive?.();
           try {
             await archiveNodes({ nodeIds: [thought._id] });
+            // Traka „Poništi" (`restoreNodes`) je jedini put nazad — backend nema
+            // upit za arhivirane misli (PARITET A6).
+            pushThoughtUndo({ label: 'Misao je arhivirana.', nodeIds: [thought._id] });
             haptics.success();
             onClose();
+            onArchived?.();
           } catch (error) {
+            onArchiveFailed?.();
             haptics.error();
             Alert.alert('Greška', accessErrorMessage(error, 'Misao nije obrisana.'));
           } finally {
@@ -125,12 +146,15 @@ export function ThoughtNodeSheet({
         style={styles.scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        <Text style={[styles.heading, { color: colors.foreground }]}>Misao</Text>
+        <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
+          Misao
+        </Text>
         <TextInput
           value={title}
           onChangeText={setTitle}
           maxLength={MAX_TITLE}
           placeholder="Naslov"
+          accessibilityLabel="Naslov misli"
           placeholderTextColor={colors.mutedForeground}
           selectionColor={colors.primary}
           editable={!busy}
@@ -142,6 +166,7 @@ export function ThoughtNodeSheet({
           multiline
           maxLength={MAX_TEXT}
           placeholder="Tekst (opciono)"
+          accessibilityLabel="Tekst misli"
           placeholderTextColor={colors.mutedForeground}
           selectionColor={colors.primary}
           editable={!busy}
@@ -152,6 +177,17 @@ export function ThoughtNodeSheet({
           ]}
         />
         <ColorRow value={color} onChange={setColor} disabled={busy} colors={colors} />
+        {onOpenDetail && thought ? (
+          // Embed detalj (`node:open`) ne nosi x/y ni roditelja — pune akcije
+          // (veze, grupa, veličina, konverzija) žive na ekranu `/misao/[id]`.
+          <Row
+            title="Otvori detalj"
+            subtitle="Veze, grupa i slanje u Ideje"
+            onPress={() => onOpenDetail(thought._id)}
+            disabled={busy}
+            style={styles.detailRow}
+          />
+        ) : null}
       </ScrollView>
 
       <View style={styles.actions}>
@@ -244,6 +280,10 @@ const styles = StyleSheet.create({
   colorRow: {
     flexDirection: 'row',
     gap: 8,
+    marginTop: 2,
+  },
+  detailRow: {
+    paddingHorizontal: 0,
     marginTop: 2,
   },
   swatchHit: {

@@ -46,9 +46,9 @@ const DEBOUNCE_MS = 300;
  * „Misli" iz `search.ideasAndThoughts`, „Poruke" iz `chat.searchMessages`.
  * Debounce na unosu, autofokus, dva prazna stanja (pre kucanja / bez rezultata).
  *
- * Navigacija je na nivou sekcije (nema deep-linka do čvora): ideja → lista
- * `/ideje`, misao → kanvas misli. Napomena: embed misli još nije povezan, pa tap
- * na misao trenutno sleti na „nije povezan" placeholder (vidi NOCNI-LOG).
+ * Misao vodi pravo na svoj detalj (`/misao/[id]` — rezultat nosi pravi `_id`, a
+ * pretraga vraća samo tvoje nearhivirane misli, iste uslove kao detalj). Ideja
+ * ostaje na nivou sekcije (lista `/ideje` — ekran ideje traži `ideas.list` skup).
  */
 export default function PretragaScreen() {
   const colors = useThemeColors();
@@ -111,19 +111,14 @@ export default function PretragaScreen() {
     haptics.tap();
     router.push({ pathname: '/razgovor/[id]', params: { id } });
   };
-  // Nema deep-linka do čvora (ruta prima startupId, ne node id): ideja vodi na
-  // native listu ideja, misao na kanvas misli (embed misli je još placeholder).
+  // Ideja nema deep-link (ekran ideje čita iz `ideas.list` skupa) — vodi na listu.
   const openIdeas = () => {
     haptics.tap();
     router.push({ pathname: '/ideje' });
   };
-  const openThoughts = () => {
-    if (activeStartupId === null) return;
+  const openThought = (id: Id<'thoughtNodes'>) => {
     haptics.tap();
-    router.push({
-      pathname: '/canvas/[kind]/[id]',
-      params: { kind: 'thoughts', id: activeStartupId },
-    });
+    router.push({ pathname: '/misao/[id]', params: { id } });
   };
 
   return (
@@ -241,9 +236,9 @@ export default function PretragaScreen() {
                           node={n}
                           tint={colors.primary}
                           icon={Brain}
-                          openHint="otvori kanvas misli"
+                          openHint="otvori misao"
                           colors={colors}
-                          onPress={openThoughts}
+                          onPress={() => openThought(n._id)}
                         />
                       </StaggerItem>
                     ))}
@@ -385,8 +380,8 @@ function NodeRow({
   node: { title: string | null; text: string };
   tint: string;
   icon: LucideIcon;
-  // Tap ne vodi do čvora nego do sekcije — label imenuje ODREDIŠTE (kao
-  // MessageRow: „Otvori razgovor …"), da ekran-čitač ne obeća deep-link.
+  // Label imenuje ODREDIŠTE (misao → njen detalj, ideja → lista ideja), da
+  // ekran-čitač tačno zna kuda tap vodi (kao MessageRow: „Otvori razgovor …").
   openHint: string;
   colors: ColorTokens;
   onPress: () => void;

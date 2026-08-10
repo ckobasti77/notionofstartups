@@ -50,6 +50,12 @@ export type RowProps = {
   /** „Uskoro" i sl. — prigušeno, bez pressed efekta, nedodirljivo. */
   disabled?: boolean;
   onPress?: () => void;
+  /**
+   * Sekundarna akcija na dugi pritisak (npr. akcioni sheet nad stavkom liste).
+   * Radi SAMO uz `onPress` — bez njega red pada u statičnu `View` granu. Kad je
+   * zadat, opiši ga kroz `accessibilityHint` da ne ostane nevidljiv čitaču ekrana.
+   */
+  onLongPress?: () => void;
   /** `toggle` varijanta — vrednost prekidača. */
   checked?: boolean;
   onToggle?: (next: boolean) => void;
@@ -77,6 +83,7 @@ export function Row({
   showChevron,
   disabled = false,
   onPress,
+  onLongPress,
   checked,
   onToggle,
   accessibilityLabel,
@@ -186,6 +193,7 @@ export function Row({
       accessibilityLabel={resolvedLabel}
       accessibilityHint={accessibilityHint}
       onPress={onPress}
+      onLongPress={onLongPress}
       style={({ pressed }) => [styles.base, pressed && { backgroundColor: colors.muted }, style]}>
       {body}
     </Pressable>

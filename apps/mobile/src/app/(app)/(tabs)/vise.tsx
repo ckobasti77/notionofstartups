@@ -54,7 +54,7 @@ const MENU: MenuItem[][] = [
     { icon: Vote, label: 'Odobrenja', route: '/odobrenja' },
     { icon: ChartColumn, label: 'Puls', route: '/puls' },
     { icon: Lightbulb, label: 'Ideje', route: '/ideje' },
-    { icon: Brain, label: 'Misli' },
+    { icon: Brain, label: 'Misli', route: '/misli' },
     { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
   ],
   [
@@ -101,17 +101,6 @@ export default function ViseScreen() {
       return approvalsCount > 0 ? String(approvalsCount) : undefined;
     }
     return item.badge;
-  };
-
-  // „Misli" vodi na canvas misli (privatne po vlasniku). Ruta je dinamička i traži
-  // aktivan startup, pa se ne može upisati kao statični `route` u MENU (kao ideje.tsx).
-  const openThoughts = () => {
-    if (!activeStartupId) return;
-    haptics.tap();
-    router.push({
-      pathname: '/canvas/[kind]/[id]',
-      params: { kind: 'thoughts', id: activeStartupId },
-    });
   };
 
   return (
@@ -190,10 +179,6 @@ export default function ViseScreen() {
                   title={item.label}
                   value={badge ? <Badge label={badge} variant="destructive" /> : undefined}
                   onPress={() => {
-                    if (item.label === 'Misli') {
-                      openThoughts();
-                      return;
-                    }
                     if (item.route) {
                       haptics.tap();
                       router.push(item.route);

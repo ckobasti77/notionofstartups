@@ -296,25 +296,29 @@ provere.
 **Posledica koju treba znati.** Ideja se na telefonu doteruje do kraja, ali se
 „zaključava" na laptopu.
 
-### 5.5 Misli: veze, hijerarhija, duplikat, „pošalji u Ideje"
+### 5.5 Misli: veze, hijerarhija, duplikat, „pošalji u Ideje" — REŠENO (A1, 10.08.)
 
-**Stanje.** Mobilni ima `thoughts.listNodes`, `listEdges`, `createNode`,
-`updateNode`, `archiveNodes` (kroz `thought-node-sheet`). Nema `createEdge`,
-`updateEdge`, `archiveEdges`, `restoreEdges`, `nestNode`, `detachNode`,
-`toggleNodeParent`, `duplicateNodes`, `restoreNodes`, `convertToIdeas`,
-`getConnectedGroup`, `getCanvas`.
+**Rešeno na grani `paritet-20260810-0252`:** svih 18 funkcija iz PARITET A1 sada
+ima stvarno mesto poziva na mobilnom — native lista `/misli` (radi bez WebView-a),
+detalj `/misao/[id]` (napajan `getConnectedGroup`), `thought-actions-sheet`
+(poveži/ugnjezdi/izdvoji/glavna/dupliraj/veličina/arhiviraj), `thought-edge-sheet`
+(naziv + prekid veze), `thought-conversion-sheet` (misao → ideja; ulazi sa detalja,
+liste i multi-selekcije na kanvasu) i traka „Poništi" (`thought-undo-bar` +
+`lib/thought-undo.ts`). Dokazi po funkciji: PARITET.md A1.
 
-**Zašto nije popravljeno.** Većina je uređivanje grafa i pada pod zapisani izuzetak
-iz `02-EKRANI.md` §13 („Uređivanje layouta kanvasa"). Ali **dve stvari nisu**, i to
-treba reći otvoreno:
+**Šta je svesno drugačije od weba:**
 
-- **`convertToIdeas`** — jedini most misli → ideje. Bez njega je mobilni kanvas
-  misli ćorsokak. Nije uređivanje layouta, nego tok.
-- **`restoreNodes`** — web ima undo posle brisanja misli, mobilni ima samo potvrdu
-  pre. Ako korisnik potvrdi, nema puta nazad.
-
-**USLOV.** Oba su realan posao od pola dana; nisu urađena jer je prioritet bio na
-tabu koji uopšte nije radio (Obaveštenja). Sledeći na redu.
+- **Vraćanje ide kroz in-memory traku „Poništi" (8s + ✕), ne kroz ekran arhive** —
+  backend NEMA upit za arhivirane misli (`listNodes` tvrdo filtrira
+  `archivedAt: null`), a backend se u ovom koraku nije dirao. Web radi isto
+  (`workspace-history.tsx`). Ekran „Arhiva misli" traži novu backend query
+  (indeks već postoji) — zapisati kao zaseban posao ako zatreba.
+- **`moveNodes`/`saveViewport` su izloženi kao „Sredi raspored"** (mreža u
+  pozitivnom kvadrantu, samo top-level, ≤50) — drag raspoređivanje ostaje
+  desktop posao (`02-EKRANI.md` §13). Već otvoren kanvas ne „skače": sačuvani
+  viewport važi od sledećeg otvaranja (web bootstrap ga čita jednom).
+- **`convertToPages` NIJE izložen** — backend ga namerno onemogućava
+  („Misli se prvo šalju u Ideje.", `thoughts.ts:1454`).
 
 ### 5.6 Breadcrumb na ekranu stranice (`pages.getBreadcrumbs`) — REŠENO (Faza UX)
 

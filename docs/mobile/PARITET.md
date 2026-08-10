@@ -77,6 +77,13 @@ sve vreme se testiralo protiv pogrešnog servera.
 
 ## A1. Misli (thoughts) — 18 funkcija, najveća rupa
 
+> **ZATVORENO 10.08. (grana `paritet-20260810-0252`).** Svih 18 funkcija sada ima
+> stvarno mesto poziva na mobilnom: native lista `/misli` (radi bez WebView-a),
+> detalj `/misao/[id]`, akcioni sheet, edge sheet, konverzioni sheet i traka
+> „Poništi". Stavka „Misli" u `vise.tsx` sada vodi na LISTU (`route: '/misli'`),
+> a kanvas ostaje dostupan iz zaglavlja liste (isti dualitet kao `ideje.tsx`);
+> pretraga vodi pravo na `/misao/[id]` (deep-link sada postoji).
+
 Web ima pun sistem: `thoughts-canvas-view.tsx`, `thought-editor-dialog.tsx`,
 `thought-conversion-dialog.tsx`, `thought-destination-picker.tsx`.
 Mobilni ima samo `thought-create-sheet.tsx` i `thought-node-sheet.tsx`.
@@ -88,14 +95,37 @@ Embed ruta (`canvas-embed.tsx:292`) **podržava `kind === "thoughts"`**, pa se g
 crta kroz WebView — treba ti native akcije okolo, ne nov graf.
 
 - [x] Ulazna tačka za Misli u `vise.tsx` — POSTOJI, provereno na emulatoru
-- [ ] `thoughts.listNodes` / `listEdges` / `getCanvas` — lista misli kao alternativa grafu
-- [ ] `thoughts.createEdge` / `updateEdge` / `archiveEdges` / `restoreEdges` — veze
-- [ ] `thoughts.moveNodes` / `updateNodeLayout` / `resetNodeLayoutSize` / `saveViewport`
-- [ ] `thoughts.nestNode` / `toggleNodeParent` / `detachNode` — ugnježdavanje
-- [ ] `thoughts.duplicateNodes`
-- [ ] `thoughts.getConnectedGroup` — izbor povezane grupe
-- [ ] `thoughts.convertToIdeas` — pretvaranje misli u ideje (uzor `thought-conversion-dialog.tsx`)
-- [ ] `thoughts.restoreNodes` — vraćanje obrisane misli
+- [x] `thoughts.listNodes` / `listEdges` / `getCanvas` — lista misli kao alternativa grafu
+      — `apps/mobile/src/app/(app)/misli.tsx:63` (listNodes, paginirano) / `:72`
+      (listEdges, brojači veza) / `:79` (getCanvas, zoom za „Sredi raspored");
+      listNodes/listEdges i u pikerima sheet-a (`thought-actions-sheet.tsx:107`, `:113`)
+- [x] `thoughts.createEdge` / `updateEdge` / `archiveEdges` / `restoreEdges` — veze
+      — `thought-actions-sheet.tsx:96` (createEdge, prikaz „Poveži sa misli…");
+      `thought-edge-sheet.tsx:44` (updateEdge, naziv veze) / `:45` (archiveEdges,
+      „Prekini vezu"); `thought-undo-bar.tsx:45` (restoreEdges, traka „Poništi")
+- [x] `thoughts.moveNodes` / `updateNodeLayout` / `resetNodeLayoutSize` / `saveViewport`
+      — `misli.tsx:82`/`:83` (moveNodes+saveViewport: „Sredi raspored" — mreža u
+      pozitivnom kvadrantu, samo top-level ≤50, čuva zoom iz getCanvas);
+      `thought-actions-sheet.tsx:101`/`:102` (updateNodeLayout/resetNodeLayoutSize:
+      prikaz „Veličina oblačića" sa presetima 264×196/360×280/520×420 kao web)
+- [x] `thoughts.nestNode` / `toggleNodeParent` / `detachNode` — ugnježdavanje
+      — `thought-actions-sheet.tsx:97` (nestNode, prikaz „Ugnjezdi u…") / `:99`
+      (toggleNodeParent, „Proglasi glavnom") / `:98` (detachNode, „Izdvoji iz grupe")
+- [x] `thoughts.duplicateNodes` — `thought-actions-sheet.tsx:100` („Dupliraj",
+      ofset 38×38 kao web)
+- [x] `thoughts.getConnectedGroup` — izbor povezane grupe
+      — `apps/mobile/src/app/(app)/misao/[id].tsx:71`: napaja CEO detalj misli
+      (reaktivno; sekcije „Veze" i „Povezana grupa" + „Pošalji grupu u Ideje")
+- [x] `thoughts.convertToIdeas` — pretvaranje misli u ideje (uzor `thought-conversion-dialog.tsx`)
+      — `thought-conversion-sheet.tsx:78`; ulazi: detalj („Pošalji u Ideje" +
+      grupa), akcioni sheet sa liste, i multi-selekcija na kanvasu („U Ideje (N)",
+      `canvas/[kind]/[id].tsx` trosmerna primarna akcija rail-a)
+- [x] `thoughts.restoreNodes` — vraćanje obrisane misli
+      — `thought-undo-bar.tsx:44`; posle svakog arhiviranja (lista/detalj/kanvas)
+      traka „Poništi" stoji 8s + eksplicitno ✕; redosled restoreNodes→restoreEdges
+      je ugovor backenda. Backend NEMA upit za arhivirane misli (`listNodes` tvrdo
+      filtrira `archivedAt: null`), pa je in-memory undo jedini put bez izmene
+      backenda — isto radi i web (`workspace-history.tsx`).
 
 ## A2. Administracija startupa — 9 funkcija
 
@@ -147,8 +177,14 @@ nema izlaz. Ovo je jedna od najgorih UX rupa u aplikaciji.
 - [ ] `ideas.restoreOwn`
 - [ ] `taskCheckpoints.restoreOwn`
 - [ ] `collaboration.restoreOwnContribution`
-- [ ] `thoughts.restoreNodes` / `restoreEdges`
+- [x] `thoughts.restoreNodes` / `restoreEdges` — traka „Poništi" posle arhiviranja
+      misli/veze, na listi, detalju i kanvasu (`components/misli/thought-undo-bar.tsx:44`/`:45`,
+      store `lib/thought-undo.ts`; push mesta: `thought-actions-sheet.tsx`,
+      `thought-edge-sheet.tsx`, `thought-node-sheet.tsx`)
 - [ ] Ujednačen obrazac: posle arhiviranja prikaži traku „Poništi" nekoliko sekundi
+      — obrazac je USPOSTAVLJEN za misli (`thought-undo-bar.tsx`: postojana traka
+      8s + ✕, modul-store preživljava `router.back()`); ideje/checkpointi/doprinosi
+      još ne idu kroz njega
 
 ## A7. Chat
 

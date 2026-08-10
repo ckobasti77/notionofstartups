@@ -2,9 +2,9 @@ import { useAuthToken } from '@convex-dev/auth/react';
 import { useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { ChevronLeft, Maximize2, Minimize2, Plus, TriangleAlert } from 'lucide-react-native';
+import { ChevronLeft, Maximize2, Minimize2, Plus, Send, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
@@ -15,6 +15,8 @@ import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
 import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { ThoughtConversionSheet } from '@/components/misli/thought-conversion-sheet';
+import { ThoughtUndoBar } from '@/components/misli/thought-undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -25,6 +27,8 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/
 
 const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
+/** Backend `MAX_BULK_ITEMS` — `convertToIdeas` prima najviše 50 misli. */
+const MAX_BULK = 50;
 
 // Konstantni WebView prop — van komponente da ne bude nov niz na svaki render
 // (isti razlog kao memoizovan `source` niže: promena reference reloaduje stranicu).
@@ -61,6 +65,8 @@ export default function CanvasScreen() {
   // Otvoreni detalj po vrsti (bottom sheet na `node:open` / „Otvori" akciju).
   const [openIdea, setOpenIdea] = useState<IdeaDetail | null>(null);
   const [openThought, setOpenThought] = useState<ThoughtDetail | null>(null);
+  // Multi-selekcija misli → „U Ideje (N)" (samo id-jevi — `selection` ne nosi detalje).
+  const [conversionIds, setConversionIds] = useState<Id<'thoughtNodes'>[] | null>(null);
   // Selekcija na kanvasu (menja primarnu akciju rail-a). `selectedNode` je detalj
   // koji embed pošalje uz `selection` kad je izabran baš jedan čvor (oblik zavisi od vrste).
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -224,9 +230,25 @@ export default function CanvasScreen() {
       ? { label: 'Otvori ideju', icon: openIcon, onPress: () => setOpenIdea(selectedNode as IdeaDetail) }
       : { label: 'Nova ideja', icon: newIcon, onPress: () => setCreateOpen(true) };
   } else if (isThoughts) {
+    // Trosmerno: jedan čvor → otvori; više čvorova → „U Ideje (N)" (jedina bulk
+    // akcija koju read-only embed dozvoljava — selekcija stiže kroz most); inače novo.
     primaryAction = hasSingleSelection
       ? { label: 'Otvori misao', icon: openIcon, onPress: () => setOpenThought(selectedNode as ThoughtDetail) }
-      : { label: 'Nova misao', icon: newIcon, onPress: () => setCreateOpen(true) };
+      : selectedNodeIds.length > 1
+        ? {
+            label: `U Ideje (${selectedNodeIds.length})`,
+            icon: <Send size={18} color={colors.primaryForeground} />,
+            onPress: () => {
+              if (selectedNodeIds.length > MAX_BULK) {
+                haptics.warning();
+                Alert.alert('Previše misli', `Odaberi najviše ${MAX_BULK} misli za slanje u Ideje.`);
+                return;
+              }
+              // Id-jevi iz embeda SU `thoughtNodes` id-jevi (flow node id = doc._id).
+              setConversionIds(selectedNodeIds as Id<'thoughtNodes'>[]);
+            },
+          }
+        : { label: 'Nova misao', icon: newIcon, onPress: () => setCreateOpen(true) };
   } else if (isArea && activeStartupId) {
     // Tap čvora već otvara stranicu (node:open), pa je primarna akcija samo kreiranje.
     primaryAction = { label: 'Nova stranica', icon: newIcon, onPress: () => setCreateOpen(true) };
@@ -370,7 +392,27 @@ export default function CanvasScreen() {
               if (openThought) postToWeb({ type: 'focus', nodeId: openThought._id });
               setOpenThought(null);
             }}
+            onOpenDetail={(nodeId) => {
+              setOpenThought(null);
+              router.push({ pathname: '/misao/[id]', params: { id: nodeId } });
+            }}
           />
+          <ThoughtConversionSheet
+            open={conversionIds !== null}
+            startupId={id as Id<'startups'>}
+            nodes={(conversionIds ?? []).map((nodeId) => ({ _id: nodeId }))}
+            onClose={() => setConversionIds(null)}
+            // Originali se pri konverziji NE arhiviraju, pa bi selekcija ostala i
+            // dalje nudila „U Ideje (N)" — slučajan drugi tap pravi duplikate.
+            // (Vizuelna selekcija u WebView-u ostaje — most nema poruku za brisanje
+            // selekcije; rail se ipak vraća na „Nova misao".)
+            onConverted={() => {
+              setSelectedNodeIds([]);
+              setSelectedNode(null);
+            }}
+          />
+          {/* Iznad rail-a (44pt ikonice + 16 paddinga) — „Poništi" ne sme pod dugmad. */}
+          <ThoughtUndoBar bottomOffset={60} />
         </>
       ) : null}
 
