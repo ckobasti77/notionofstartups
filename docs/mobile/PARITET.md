@@ -241,8 +241,17 @@ Otvoren prebacivač startupa (tap na avatar) → pritisak na Android dugme Nazad
 „otvoren" u pozadini. Ovo je najgori bag koji sam našao: na Androidu je Nazad
 osnovni gest, a ovde te izbacuje iz aplikacije usred rada.
 
-- [ ] Svaki sheet mora da presretne hardversko Nazad i da se samo zatvori
-      (`BackHandler` ili `onRequestClose`), na SVIM sheet-ovima, ne samo ovom
+- [x] Svaki sheet mora da presretne hardversko Nazad i da se samo zatvori
+      (`BackHandler` ili `onRequestClose`), na SVIM sheet-ovima, ne samo ovom —
+      NE reprodukuje se na svežem bundle-u (bag bio artefakt zastarelog bundle-a);
+      svi sheet-ovi idu kroz jedini primitiv `ui/sheet.tsx` (RN `Modal` +
+      `onRequestClose`), kod netaknut. Testirano 11 na emulatoru: switcher,
+      quick-add, task-actions (statusOnly i pun), date-picker (ugnježden preko
+      task-actions — Nazad skida samo gornji sloj), assignee-picker, page-actions,
+      new-conversation, message-actions, create-area, idea-node (canvas, WebView);
+      posle svakog `topResumedActivity=com.devotion.app`. Dokazi:
+      `dokazi-ux/e1-*-p2.png`. Izuzetak: `file-preview` (jedini drugi Modal, isti
+      `onRequestClose`) nije testiran — u dev bazi nema nijednog priloga.
 
 ## E2. „Danas": traka filtera jede 40% ekrana i ne skroluje
 
