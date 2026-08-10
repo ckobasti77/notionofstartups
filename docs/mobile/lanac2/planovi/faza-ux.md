@@ -423,3 +423,45 @@ dokaza na disku.
    standardno Material FAB ponašanje (i Gmail ga ima). Test iz §6 („sa
    dovoljno zadataka, skrol do dna") je merodavan — proveren sa listom koja
    preskače ekran.
+
+---
+
+## Odstupanja — 2. runda (10.08. uveče, posle reset commita `8231751`)
+
+Commit `8231751` je namerno odčekirao sve E kvadratiće i dodao ISPRAVKU na vrh
+sekcije E; ova runda je zato **verifikaciona**: svaki bag ponovo viđen na svežem
+bundle-u, dokazi sa sufiksom `-p2` (stari PNG-ovi prve runde netaknuti), čekirano
+uz svež dokaz. Kod aplikacije NIJE menjan ni u jednom koraku.
+
+7. **K0 preskočen u celosti** — ISPRAVKA je tačna: `ui-nocni-20260809-0931` JE
+   predak HEAD-a (`git merge-base --is-ancestor` exit 0), merge iz K0 bi bio
+   dupli. Sekcija 0 ovog plana je pisana na pogrešnoj premisi (proveravala je
+   `git branch --contains` na commit-u `a9ea881` umesto vrha grane).
+8. **E1 se NE reprodukuje ni u 2. rundi** — testirano 11 sheet-ova (switcher,
+   quick-add, task-actions statusOnly + pun, date-picker ugnježden preko
+   task-actions — Nazad skida samo gornji sloj, assignee-picker, page-actions,
+   new-conversation, message-actions, create-area, idea-node na canvasu);
+   posle svakog `topResumedActivity=com.devotion.app`. Kod netaknut (lestvica
+   korak 2). `file-preview` nije testiran — u dev bazi ne postoji nijedan
+   prilog; to je jedini drugi Modal i ima isti `onRequestClose`.
+9. **E10 — `paddingRight` NIJE dodat** (odluka na ekranu, korak K10.2):
+   poslednja vidljiva ikonica prirodno viri preko desne ivice (afordansa
+   skrola), a na kraju skrola „Ponovi" stoji ceo iza separatora undo/redo
+   grupe — prazan prostor bi tu bio višak.
+10. **Zamka test alata (adb), koštala dva JS reload-a:** `adb shell input text`
+    šalje hardverske key evente, pa string sa dva slova `r` u brzom nizu
+    („E7 rok proba") okida RN-ov **double-tap-R reload** u dev režimu — beli
+    ekran pa povratak na početnu rutu, bez ikakvog crash zapisa. Naslov test
+    zadatka zato promenjen u „E7 zadatak sa datumom" (nula `r`). Pravilo za
+    sledeće runde: tekst koji se kuca kroz `input text` ne sme imati `r`, ili
+    se kuca iz dva poziva.
+11. **Gboard, ne aplikacija, blokirao E10 dokaz:** IME je bio u „floating
+    toolbar" režimu (tastatura se ne crta, samo plutajuća traka), pa „tastatura
+    u kadru" nije bila moguća; `pm clear` Gboard-a ostavio IME u stanju
+    `mInputShown=false`, rešio tek reboot emulatora. Traka editora je sve vreme
+    ispravno pratila `keyboardVisible` (nije se prikazivala bez tastature —
+    očekivano ponašanje koda).
+12. **Bazne kapije zelene i PRE i POSLE runde** (tsc mobile 0, tsc web 0,
+    `npm run lint` exit 0 uz 2 zatečena upozorenja u `packages/backend`
+    (`no-unused-vars` u `areasV2.ts` i `chat.ts`) — backend se po pravilima ne
+    dira, upozorenja su postojala i pre runde; testovi 37/37 fajlova, 321/321).
