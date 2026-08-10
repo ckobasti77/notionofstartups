@@ -164,3 +164,17 @@ test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
 - `lint`: prolazi
 - `test`: prolazi
 - Commit: `323973d` · dirnuto fajlova: 3
+- Trajanje: 1 min
+
+## Faza 3 - Zadaci i stranica
+
+**Cilj:** Vidiš sve zadatke startupa sa filterima, i stranicu možeš arhivirati i znaš gde si u stablu.
+
+| Korak | Model | Effort | Režim |
+|---|---|---|---|
+| PLAN | `` | `max` | bez izmena koda |
+| IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
+| REVIZIJA | `` | `max` | bez izmena koda |
+
+- Start: 2026-08-10T05:03:36
+- PLAN: **nije napisan** - implementacija ide bez plana
