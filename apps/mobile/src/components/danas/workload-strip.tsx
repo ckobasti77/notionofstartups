@@ -60,6 +60,10 @@ export function WorkloadStrip({
   return (
     <ScrollView
       horizontal
+      // RN `ScrollView` podrazumevano ima `flexGrow: 1` — u koloni „Danas" ekrana
+      // (traka stoji van skrola liste) to ju je rastezalo na slobodnu visinu, a
+      // chipovi su se izdužili preko celog tog prostora.
+      style={styles.scroll}
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.strip}
       accessibilityRole="tablist"
@@ -170,8 +174,13 @@ function Chip({
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flexGrow: 0,
+  },
   strip: {
     flexDirection: 'row',
+    // Chip ne sme da se rastegne po visini kontejnera (default je `stretch`).
+    alignItems: 'flex-start',
     gap: 8,
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -181,7 +190,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     minHeight: MIN_TOUCH_TARGET + 12,
-    maxWidth: 220,
+    // 180: na 360dp ekranu „Svi" + član + peek sledećeg ≥ 30dp (E3).
+    maxWidth: 180,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radius.card,
