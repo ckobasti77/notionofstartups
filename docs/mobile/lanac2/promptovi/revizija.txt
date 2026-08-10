@@ -2,11 +2,11 @@ ultrathink
 
 Ti si revizor. NE popravljaš ništa. Samo proveravaš i pišeš nalaz.
 
-CILJ FAZE koji je trebalo ispuniti: Kanvas se vidi na emulatoru, dokazano screenshot-om sa oblačićima.
+CILJ FAZE koji je trebalo ispuniti: Svih 13 bagova iz sekcije E popravljeno i svaki viđen kako radi na emulatoru.
 
-Plan faze:     docs\mobile\lanac2\planovi\faza-0.md
-Zadatak faze:  docs\mobile\lanac2\promptovi\faza-0.txt
-Izmene:        git diff f5bd7b3..HEAD
+Plan faze:     docs\mobile\lanac2\planovi\faza-ux.md
+Zadatak faze:  docs\mobile\lanac2\promptovi\faza-ux.txt
+Izmene:        git diff ad50f5a..HEAD
 Lista:         docs/mobile/PARITET.md
 
 Uradi:
@@ -29,5 +29,5 @@ Uradi:
 7. Proveri da nije dodata nijedna nova funkcija u packages/backend.
 8. Proveri da svaki novi ekran ima sva tri stanja: prazno, učitavanje, greška.
 
-Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 0 - Blokator: kanvasi vraćaju 404".
+Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza UX - Bagovi uhvaćeni na ekranu".
 Kratko, bez ulepšavanja. Ako cilj nije ispunjen, to ide u prvu rečenicu.
