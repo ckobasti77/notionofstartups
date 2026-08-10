@@ -134,7 +134,7 @@ Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
 Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
 - [ ] `areasV2.archivePage` — arhiviranje stranice
-- [ ] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si)
+- [x] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si) — rešeno u Fazi UX kroz E12 (`breadcrumbs-eyebrow.tsx`)
 - [ ] `pages.addEntry` — dodavanje unosa u stranicu (web `page-editor-view.tsx`)
 - [ ] `areasV2.createPage` — mobilni koristi `pages.create`; proveri da li se ponašaju isto i ujednači
 - [ ] `pageFiles.prune` — čišćenje nevezanih priloga
@@ -288,7 +288,7 @@ otvara.** Funkcija je napisana pa nedostupna.
 
 Na beleški „oze" stoji u zaglavlju i odmah ispod kao izmenjiv naslov.
 
-- [ ] Jedan naslov. Ako je izmenjiv, zaglavlje neka bude putanja, ne isto ime
+- [x] Jedan naslov. Ako je izmenjiv, zaglavlje neka bude putanja, ne isto ime — beleška: title=„Beleška", eyebrow=putanja, ime samo u editoru (izmenjivo); tabela/prilog zadržavaju naslov u zaglavlju (telo ga ne ponavlja); `dokazi-ux/e9-pre.png` → `e9-posle.png`
 
 ## E10. Traka za formatiranje odsečena na desnoj ivici
 
@@ -309,7 +309,7 @@ Na „Danas" plavo dugme prekriva desni deo poslednjeg zadatka u listi.
 U detalju zadatka iznad naslova stoji „Backlog" — to je status, ne putanja.
 Posle dva-tri nivoa ugnježdavanja ne znaš gde si, a nemaš sidebar kao na webu.
 
-- [ ] `pages.getBreadcrumbs` u zaglavlju detalja (vidi i A5)
+- [x] `pages.getBreadcrumbs` u zaglavlju detalja (vidi i A5) — `breadcrumbs-eyebrow.tsx` na oba detalja; status na zadatku više NIJE eyebrow (ostaje u meta kartici); koren = ime oblasti (`e9-posle.png`: „Dev"), ugnježden = „Dev › oze" (`e12-zadatak.png`), reaktivno na ugnježdavanje; lokalni ErrorBoundary čuva ekran
 
 ## E13. U oblasti nema dugmeta za novu stranicu
 

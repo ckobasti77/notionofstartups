@@ -316,16 +316,15 @@ treba reći otvoreno:
 **USLOV.** Oba su realan posao od pola dana; nisu urađena jer je prioritet bio na
 tabu koji uopšte nije radio (Obaveštenja). Sledeći na redu.
 
-### 5.6 Breadcrumb na ekranu stranice (`pages.getBreadcrumbs`)
+### 5.6 Breadcrumb na ekranu stranice (`pages.getBreadcrumbs`) — REŠENO (Faza UX)
 
-**Stanje.** Web pokazuje pun put oblast → roditelj → stranica. Mobilni ima
-`router.back()` i sekciju „Podstranice".
+**Rešeno u Fazi UX (E12):** `components/breadcrumbs-eyebrow.tsx` — putanja
+„Oblast › Roditelj › …" u eyebrow-u zaglavlja i stranice i zadatka, sa lokalnim
+ErrorBoundary-jem (arhiviran roditeljski lanac ne obara detalj, svede se na ime
+oblasti). Segmenti nisu dodirljivi (orijentacija, ne navigacija).
 
-**Zašto nije popravljeno.** Vidi se tek na duboko ugnježdenim stranicama
-otvorenim spolja (iz pretrage ili obaveštenja) — a upravo je taj put u ovoj
-reviziji **popravljen na drugom mestu**: `/stranica/[id]` sad preusmerava zadatak
-na svoj ekran, pa se bar ne završava u ćorsokaku. Breadcrumb ostaje poboljšanje
-orijentacije, ne rupa u funkcionalnosti.
+**Prvobitno stanje.** Web pokazuje pun put oblast → roditelj → stranica. Mobilni
+je imao samo `router.back()` i sekciju „Podstranice".
 
 ### 5.7 Potpisani doprinosi na stranici i na oblasti
 

@@ -5,6 +5,7 @@ import { Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { BreadcrumbsEyebrow } from '@/components/breadcrumbs-eyebrow';
 import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
 import { NoteEditor } from '@/components/stranica/note-editor';
@@ -68,9 +69,18 @@ export default function StranicaScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
-        title={page.title}
+        // Beleška ima IZMENJIV naslov u editoru — isto ime i u zaglavlju je bio
+        // bag E9; zaglavlje zato nosi vrstu („Beleška"), a eyebrow putanju (E12).
+        // Tabela/prilog telo ne ponavljaju naslov, pa on ostaje u zaglavlju.
+        title={page.kind === 'note' ? pageKindLabel(page.kind) : page.title}
         titleNumberOfLines={2}
-        eyebrow={pageKindLabel(page.kind)}
+        eyebrow={
+          <BreadcrumbsEyebrow
+            pageId={page._id}
+            startupId={page.startupId}
+            areaId={page.areaId}
+          />
+        }
         onBack={() => router.back()}
         actions={
           <>
@@ -128,7 +138,7 @@ function PageContent({
       {/* Diskusija uz stranicu — isti `chat.channelForAnchor`/`sendToAnchor` koji
           web `EntityDiscussionPanel` koristi za SVE tipove stranica, ne samo za
           zadatak. Komponenta je `anchorType`-agnostična, samo nije bila montirana. */}
-      <DiscussionLink pageId={page._id} startupId={page.startupId} />
+      <DiscussionLink pageId={page._id} startupId={page.startupId} pageKind={page.kind} />
       <View style={styles.kindContent}>
         {page.kind === 'note' ? (
           <NoteEditor

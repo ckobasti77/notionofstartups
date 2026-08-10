@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BreadcrumbsEyebrow } from '@/components/breadcrumbs-eyebrow';
 import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
@@ -155,7 +156,15 @@ export default function ZadatakScreen() {
           <ScreenHeader
             title={page.title}
             titleNumberOfLines={2}
-            eyebrow={TASK_STATUS_META[status].label}
+            // Putanja umesto statusa (E12): status već stoji kao prvi red meta
+            // kartice ispod, a „gde sam" se bez sidebara nema odakle videti.
+            eyebrow={
+              <BreadcrumbsEyebrow
+                pageId={pageId}
+                startupId={page.startupId}
+                areaId={page.areaId}
+              />
+            }
             onBack={() => router.back()}
             actions={
               <IconButton
@@ -242,9 +251,14 @@ export default function ZadatakScreen() {
                 icon={<Users size={20} color={colors.mutedForeground} />}
                 // Dok `listForTask` traje, `assigneeList` je prazan — bez ovoga bi
                 // dodeljen zadatak nakratko pokazao „Nedodeljeno" placeholder.
+                // Učitano-prazno stanje kaže rečima: prazan krug liči na spiner (E7).
                 value={
                   assignees === undefined ? (
                     <Skeleton width={26} height={26} borderRadius={radius.full} />
+                  ) : assigneeList.length === 0 ? (
+                    <Text style={[styles.valueText, { color: colors.mutedForeground }]}>
+                      Niko nije dodeljen
+                    </Text>
                   ) : (
                     <AssigneeStack assignees={assigneeList} max={5} />
                   )
@@ -274,7 +288,7 @@ export default function ZadatakScreen() {
             />
           </View>
 
-            <DiscussionLink pageId={pageId} startupId={page.startupId} />
+            <DiscussionLink pageId={pageId} startupId={page.startupId} pageKind="task" />
           </ScrollView>
         </KeyboardAvoidingView>
 
