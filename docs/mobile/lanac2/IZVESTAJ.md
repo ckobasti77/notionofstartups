@@ -183,3 +183,4 @@ test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Commit: `257290e` · dirnuto fajlova: 3
