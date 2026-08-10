@@ -295,8 +295,8 @@ Na beleški „oze" stoji u zaglavlju i odmah ispod kao izmenjiv naslov.
 B / I / S / `<>` / link / H1 / H2 / H3 — poslednja ikonica presečena ivicom
 ekrana, bez naznake da traka skroluje.
 
-- [ ] Skrolabilna sa peek-om, ili prelom u dva reda
-- [ ] Proveri sa OTVORENOM tastaturom da traka stoji iznad nje, ne ispod
+- [x] Skrolabilna sa peek-om, ili prelom u dva reda — poslednja ikonica viri na desnoj ivici (poziv na skrol), skrol stiže do „Ponovi": `dokazi-ux/e10-posle.png` + `e10-kraj-trake.png`
+- [x] Proveri sa OTVORENOM tastaturom da traka stoji iznad nje, ne ispod — BILA JE ISPOD: ugnježdeni `KeyboardAvoidingView` je mešao relativne/apsolutne koordinate (podigao ~40dp umesto ~340dp); zamenjen eksplicitnim pomakom iz keyboard eventa (`use-keyboard-inset.ts`); tastatura u kadru na oba dokaza
 
 ## E11. FAB „+" preklapa sadržaj poslednje kartice
 

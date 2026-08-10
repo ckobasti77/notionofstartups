@@ -12,7 +12,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -21,6 +20,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 
 import { NoteLinkSheet } from '@/components/stranica/note-link-sheet';
 import { NoteReader } from '@/components/stranica/note-reader';
@@ -108,6 +109,7 @@ export function NoteEditor({
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const keyboardInset = useKeyboardInset();
   const updatePage = useMutation(api.areasV2.updatePage);
 
   const [title, setTitle] = useState(remoteTitle);
@@ -499,15 +501,15 @@ export function NoteEditor({
       {bodyEditable ? (
         <>
           <RichText editor={editor} onLoad={handleEditorLoad} />
-          <KeyboardAvoidingView
-            // `padding` na oba OS-a: Expo SDK 57 edge-to-edge razbija Android
-            // `adjustResize` (isti razlog kao u `cell-edit-sheet`). Kad prozor
-            // ipak bude promenjen, izračunata visina padne na 0 — nema dupliranja.
-            behavior="padding"
-            style={styles.toolbarWrap}
+          {/* NE `KeyboardAvoidingView`: ugnježden ovako duboko meša relativne i
+              apsolutne koordinate i podigne traku ~40dp umesto pune visine
+              tastature — traka završi ISPOD nje (E10). Pomak ide iz samog
+              keyboard eventa; detalji u `use-keyboard-inset.ts`. */}
+          <View
+            style={[styles.toolbarWrap, { bottom: keyboardInset }]}
             pointerEvents="box-none">
             <NoteToolbar editor={editor} onRequestLink={setLinkRequest} />
-          </KeyboardAvoidingView>
+          </View>
         </>
       ) : (
         <NoteReader
