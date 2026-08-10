@@ -162,15 +162,19 @@ function PustiKlod {
     $opisEfforta = if ($FLAG_EFFORT_IME) { $Effort } else { "kljucna rec u promptu" }
     Write-Host "      [model $opisModela | effort $opisEfforta]" -ForegroundColor DarkGray
 
-    # PowerShell cev umesto Start-Process: preusmeravanje ulaza kroz Start-Process
-    # na Windows-u zna da otkaze bez ijedne poruke i ostavi prazan log.
+    # PowerShell cev umesto Start-Process. Argumenti se prenose kao JEDAN string
+    # razdvojen tabom, pa se unutar posla ponovo razlazu u niz - Start-Job inace
+    # spljosti niz u jedan argument i claude javi "unknown option".
+    $spojeni = $lista -join "`t"
+
     $job = Start-Job -ScriptBlock {
-        param($pf, $lg, $wd, $al)
+        param($pf, $lg, $wd, $spojeniArg)
         Set-Location $wd
+        $al = $spojeniArg -split "`t"
         $tekst = Get-Content -LiteralPath $pf -Raw
         $tekst | & claude @al 2>&1 | Out-File -FilePath $lg -Append -Encoding UTF8
         if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-    } -ArgumentList $PromptFajl, $Log, (Get-Location).Path, (, $lista)
+    } -ArgumentList $PromptFajl, $Log, (Get-Location).Path, $spojeni
 
     $gotov = Wait-Job $job -Timeout $Rok
     if (-not $gotov) {
@@ -188,6 +192,15 @@ function PustiKlod {
     if ($vel -eq 0) {
         Write-Host "    !! UPOZORENJE: log je prazan - claude nije vratio nista" -ForegroundColor Red
         return 125
+    }
+    $rep = Get-Content -LiteralPath $Log -Raw -ErrorAction SilentlyContinue
+    if ($rep -and ($rep -match "unknown option|unknown argument|error: unknown")) {
+        Write-Host ""
+        Write-Host "PREKID: claude odbija argumente koje mu saljem." -ForegroundColor Red
+        Write-Host "Poslato: claude $($lista -join ' ')" -ForegroundColor Red
+        Write-Host "Nema smisla nastaviti - ceo lanac bi radio u prazno." -ForegroundColor Red
+        Write-Host "Detalji u: $Log" -ForegroundColor Yellow
+        exit 1
     }
     if ($null -eq $rc) { return 0 }
     return [int]$rc

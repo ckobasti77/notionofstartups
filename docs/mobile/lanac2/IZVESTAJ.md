@@ -43,3 +43,10 @@ na disku pa se ujutru vidi šta je nameravao naspram onoga što je stvarno uradi
 
 - Start: 2026-08-10T02:43:41
 - PLAN: **nije napisan** - implementacija ide bez plana
+- IZVRŠI: **PAO** (izlazni kod 1)
+- `tsc mobilni`: prolazi
+- `tsc web`: **PADA**
+- `lint`: prolazi
+- `test`: prolazi
+- popravka 1 : i dalje pada (tsc web)
+- popravka 2 : i dalje pada (tsc web)

@@ -1,0 +1,68 @@
+ultrathink
+
+Radiš na Devotion monorepou: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvršavanje - ne pitaj,
+odlučuj i radi.
+
+PRVO pročitaj, uvek, pre bilo čega:
+  docs/mobile/PARITET.md      <- tvoja lista i tvoja memorija
+  docs/mobile/ZA-POPRAVKU.md  <- naučene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+
+PRAVILA KOJA VAŽE U SVAKOJ FAZI:
+- Paritet je FUNKCIONALNI, ne vizuelni. Ne prekopavaj web layout. Za svaku
+  funkciju pitaj se kako se isti ishod postiže prstom na malom ekranu, pa to
+  napravi. Tabela prevoda obrazaca je u PARITET.md.
+- Backend NE menjaj. Sve funkcije već postoje. Ako ti stvarno nešto fali, stani
+  i zapiši u docs/mobile/ZA-POPRAVKU.md umesto da izmišljaš.
+- Svaki novi red kroz apps/mobile/src/components/ui/row.tsx. Ne piši ručno nove
+  flexDirection:'row' blokove.
+- Tekst min 16px osim pravog meta-teksta. Dodirna meta min 44pt. Safe area.
+  busy lock na svakoj mutaciji. Prazno, učitavanje i greška - sva tri stanja.
+- ČEKIRAJ [x] u docs/mobile/PARITET.md čim nešto završiš, u ISTOM commit-u sa
+  kodom. Ako odlučiš da nešto ne ide na telefon, upiši red u sekciju Z sa
+  razlogom. Prazan razlog ne važi.
+- U sekciji 'ŠTA JE VEĆ URAĐENO" fajla PARITET.md je spisak stvari koje RADE.
+  Ne diraj ih i ne pravi ih ponovo.
+- Ako menjaš apps/mobile/package.json, dopiši red u docs/mobile/lanac2/NATIVE-BUILD.md
+  (napravi fajl ako ne postoji) - to znači da ujutru treba nov native build.
+FAZA 0 - BLOKATOR: SVI KANVASI VRAĆAJU 404 (sekcija 0 u PARITET.md)
+
+Ovo je jedina faza koja mora da uspe pre ostalih. Dokazi su u sekciji 0 fajla
+docs/mobile/PARITET.md - pročitaj ih pre nego što išta uradiš.
+
+Ukratko: na portu 3000 radi NEKI DRUGI Next.js projekat, ne Devotion. Zato svaka
+/embed/* ruta vraća 404, pa kanvas, Misli i editor preko WebView-a ne rade i ne
+mogu ni da se testiraju. Ruta apps/web/app/embed/canvas/[kind]/[id]/page.tsx
+postoji na disku i ispravna je - problem nije u kodu.
+
+Uradi redom, sa dokazom za svaki korak:
+1. netstat -ano ^| findstr :3000   pa   tasklist /FI "PID eq <pid>"
+   Zapiši šta je zauzimalo port.
+2. Ugasi taj proces. Pokreni npm run dev iz root-a notion-clone.
+3. Potvrdi: http://localhost:3000/embed/canvas/ideas/proba renderuje Devotion
+   embed, a ne Next 404 stranicu.
+4. Otvori kanvas u aplikaciji na emulatoru i napravi SCREENSHOT sa vidljivim
+   oblačićima. Bez te slike faza nije gotova.
+5. Ako i posle ispravnog servera kanvas ne crta - TADA je bag u kodu. Bisektuj
+   po metodu iz PROMPT-KANVAS-GOAL.md (K1-K5) i popravi.
+6. Zapiši nalaz u docs/mobile/KANVAS-DIJAGNOZA.md: šta je zauzimalo port, kako si
+   to utvrdio, i kako se ubuduće u deset sekundi proverava da je pravi server na
+   3000. Dodaj tu proveru i u docs/mobile/ZA-POPRAVKU.md kao naučenu zamku.
+
+Ne prelazi dalje dok kanvas ne bude vidljiv na screenshot-u.
+=====================================================================
+CILJ FAZE: Kanvas se vidi na emulatoru, dokazano screenshot-om sa oblačićima.
+=====================================================================
+
+Plan za ovu fazu je već napisan i nalazi se u docs\mobile\lanac2\planovi\faza-0.md
+Pročitaj ga PRVO i sprovedi ga. Ako naiđeš na nešto što plan nije predvideo,
+odstupi - ali dopiši u plan šta si promenio i zašto, da se ujutru vidi.
+
+Faza je gotova tek kad je cilj iznad ispunjen, a ne kad si prošao kroz spisak.
+NA KRAJU FAZE, obavezno, ovim redom:
+  cd apps/mobile && npx tsc --noEmit
+  cd apps/web    && npx tsc --noEmit
+  npm run lint
+  npm test
+Popravi sve što padne. Ne ostavljaj nijednu grešku sledećoj fazi.
