@@ -43,3 +43,8 @@ na disku pa se ujutru vidi šta je nameravao naspram onoga što je stvarno uradi
 
 - Start: 2026-08-10T02:52:42
 - PLAN: napisan (`docs\mobile\lanac2\planovi\faza-0.md`)
+- IZVRŠI: prošlo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi
