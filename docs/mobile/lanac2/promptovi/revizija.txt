@@ -2,11 +2,11 @@ ultrathink
 
 Ti si revizor. NE popravljaš ništa. Samo proveravaš i pišeš nalaz.
 
-CILJ FAZE koji je trebalo ispuniti: tsc, lint, build i testovi prolaze bez ijedne greške i bez ijednog upozorenja.
+CILJ FAZE koji je trebalo ispuniti: Sve iz liste C prođeno na ekranu, na malom i velikom telefonu, bez ijedne greške u konzoli.
 
-Plan faze:     docs\mobile\lanac2\planovi\faza-5.md
-Zadatak faze:  docs\mobile\lanac2\promptovi\faza-5.txt
-Izmene:        git diff f3dd43f..HEAD
+Plan faze:     docs\mobile\lanac2\planovi\faza-6.md
+Zadatak faze:  docs\mobile\lanac2\promptovi\faza-6.txt
+Izmene:        git diff d783d5c..HEAD
 Lista:         docs/mobile/PARITET.md
 
 Uradi:
@@ -29,5 +29,5 @@ Uradi:
 7. Proveri da nije dodata nijedna nova funkcija u packages/backend.
 8. Proveri da svaki novi ekran ima sva tri stanja: prazno, učitavanje, greška.
 
-Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 5 - Nula grešaka".
+Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 6 - Runtime i responzivnost".
 Kratko, bez ulepšavanja. Ako cilj nije ispunjen, to ide u prvu rečenicu.
