@@ -227,3 +227,36 @@ nađi metu („Više" tab dole desno; stavka „Ideje"; LayoutGrid ikona gore de
 rail dugme) → `[adb] shell input tap <x> <y>` → nova slika za potvrdu.
 Koordinate se čitaju sa svake slike iznova (ekran 1080×2424); između korakā ~2 s,
 posle otvaranja kanvasa do 3 pokušaja sa po ~5 s.
+
+## 7. Odstupanja tokom izvršenja (2026-08-10, ~03:10–03:30)
+
+Faza IZVRŠENA i kapija ispunjena (`posle.png` — 3 oblačića + veze; bonus
+`posle-misli.png`). Commit `e1b77d8`. Šta je išlo drugačije nego u planu:
+
+1. **D2/`monkey` relaunch nije dovoljan.** Posle `force-stop` dev-client ne
+   nastavlja na poslednji bundle nego stane na launcher ekran „Development
+   Servers", a tap po listi ume da pogodi zastarelu LAN adresu (unosi se
+   pomeraju). Rešenje koje radi deterministički: deep link
+   `[adb] shell am start -a android.intent.action.VIEW -d
+   "devotion://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8081"`
+   (šema je `devotion`, iz `app.json` — `com.devotion.app://` NE radi).
+2. **I1 prošireno: uljez se regeneriše.** Između D1 i I1 server-dete `alati`-ja
+   se samo zamenilo (PID 19484 → 24924) — `next dev` master respawn-uje ubijeno
+   dete. `Stop-Process` po PID-u sa porta nije dovoljan; ugašeno celo stablo
+   `taskkill /PID <npm-run-dev> /T /F` (lanac: npm → cmd → next master → server).
+3. **P2 bez force-stop.** Umesto `force-stop` + relaunch (koji bi opet otkačio
+   Metro, vidi 1), iskorišćeno postojeće dugme „Pokušaj ponovo" na error ekranu
+   kanvasa — WebView se remount-uje i učita svež embed. §4(f) fallback nije
+   zatrebao. Usput: greška na ekranu u međuvremenu postane
+   `net::ERR_CONNECTION_REFUSED` (WebView sam retry-uje dok su portovi prazni) —
+   to je očekivano stanje prelaza, ne nov kvar.
+4. **Expo dev-menu FAB preklapa LayoutGrid ikonu** u zaglavlju Ideja (gore
+   desno) — tap na ikonu otvori dev meni. FAB se skloni prevlačenjem
+   (`input swipe`) pa se tek onda tapne ikona. Samo dev-build smetnja.
+5. **I6 potvrdio pin porta** (glasan pad, exit 1, ništa na 3001) — izmena
+   `-p 3000` OSTAJE.
+6. **`npm run check`**: prolazi; 2 zatečena eslint upozorenja u
+   `packages/backend` (`areasV2.ts` neiskorišćen import,
+   `chat.ts:1037` neiskorišćena promenljiva) — nevezana za fazu, backend se ne
+   dira, zapisano u KANVAS-DIJAGNOZA §Tok popravke. Završne provere: mobile
+   tsc ✓, web tsc ✓, lint ✓ (ta 2 upozorenja), testovi 321/321 ✓.
