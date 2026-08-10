@@ -1,11 +1,14 @@
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { TriangleAlert, Users } from 'lucide-react-native';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Trash2, TriangleAlert, UserPlus, Users } from 'lucide-react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AddMemberSheet } from '@/components/admin/add-member-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
+import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
@@ -14,9 +17,12 @@ import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
+import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius, text } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /**
  * Gornja granica čitanja članova. `listMembers` nema paginaciju na mobilnom, pa
@@ -36,9 +42,18 @@ function membersWord(count: number): string {
 }
 
 /**
- * Članovi tima (M4.4, admin). Ulaz je skriven u tabu „Više" ako korisnik nije
- * admin. Podaci iz `startups.listMembers` (dozvoljen svakom članu; admin gejt je
- * na ulazu). Read-only pregled — dodavanje ide kroz pozivnice.
+ * Članovi tima (M4.4, admin; PARITET A2 dodaje dodavanje/uklanjanje). Ulaz je
+ * skriven u tabu „Više" ako korisnik nije admin. `listMembers` je dozvoljen
+ * svakom članu (admin gejt je na ulazu) — uklanjanje (`removeMember`) je
+ * mutacija iza `requireAdmin` pa ne-admin koji nekako stigne ovde dobija
+ * običan `Alert` iz `.catch()`, ekran ostaje čitljiv.
+ *
+ * Dodavanje je drugačije: `AddMemberSheet` čita `profiles.listAll`, koja je
+ * TAKOĐE iza `requireAdmin`, ali kao QUERY — Convex baca tokom rendera, pa bi
+ * ne-admin koji otvori sheet oborio ceo ekran (uključujući listu koju sme da
+ * vidi) na `ErrorBoundary`. Zato dugme „Dodaj člana" ovde IMA eksplicitnu
+ * `profile.role === 'admin'` proveru — jedini klijentski gejt u ovom fajlu,
+ * dodat namerno da spreči taj rušilački put, ne kao opšte pravilo.
  */
 export default function ClanoviScreen() {
   const colors = useThemeColors();
@@ -46,15 +61,48 @@ export default function ClanoviScreen() {
   const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
 
+  const profile = useQuery(api.profiles.getCurrent, {});
+  const isAdmin = profile?.role === 'admin';
   const members = useQuery(
     api.startups.listMembers,
     activeStartupId ? { startupId: activeStartupId, limit: MEMBERS_LIMIT } : 'skip',
   );
+  const removeMember = useMutation(api.startups.removeMember);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [removingId, setRemovingId] = useState<Id<'profiles'> | null>(null);
 
   const loading = activeStartupId !== null && members === undefined;
   const capped = members !== undefined && members.length === MEMBERS_LIMIT;
   const count = members?.length ?? 0;
   const refreshControl = useListRefresh();
+  const existingProfileIds = new Set(members?.map((member) => member.profile._id) ?? []);
+
+  const confirmRemove = (profileId: Id<'profiles'>, displayName: string) => {
+    if (!activeStartupId) return;
+    haptics.warning();
+    Alert.alert(
+      `Ukloniti ${displayName}?`,
+      'Odmah gubi pristup ovom startupu i skida se sa svih zadataka gde je izvršilac — zadaci ostaju, samo bez njega/nje.',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Ukloni',
+          style: 'destructive',
+          onPress: () => {
+            setRemovingId(profileId);
+            void removeMember({ startupId: activeStartupId, profileId })
+              .then(() => haptics.success())
+              .catch((error: unknown) => {
+                haptics.error();
+                Alert.alert('Greška', accessErrorMessage(error, 'Član nije uklonjen.'));
+              })
+              .finally(() => setRemovingId(null));
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -62,6 +110,18 @@ export default function ClanoviScreen() {
         title="Članovi tima"
         onBack={() => router.back()}
         eyebrow={count > 0 ? `${capped ? `${count}+` : count} ${membersWord(count)}` : undefined}
+        actions={
+          activeStartupId && isAdmin ? (
+            <IconButton
+              accessibilityLabel="Dodaj člana"
+              onPress={() => {
+                haptics.tap();
+                setAddOpen(true);
+              }}>
+              <UserPlus size={22} color={colors.foreground} />
+            </IconButton>
+          ) : undefined
+        }
       />
       {activeStartupId === null ? (
         <EmptyState
@@ -126,7 +186,25 @@ export default function ClanoviScreen() {
                         value={
                           member.profile.role === 'admin' ? (
                             <Pill label="Admin" tone="accent" />
-                          ) : undefined
+                          ) : (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Ukloni ${member.profile.displayName} iz startupa`}
+                              disabled={removingId !== null}
+                              onPress={() => confirmRemove(member.profile._id, member.profile.displayName)}
+                              hitSlop={8}
+                              style={({ pressed }) => [
+                                styles.removeBtn,
+                                pressed && { backgroundColor: colors.muted },
+                                removingId !== null && removingId !== member.profile._id && styles.dimmed,
+                              ]}>
+                              {removingId === member.profile._id ? (
+                                <ActivityIndicator size="small" color={colors.danger} />
+                              ) : (
+                                <Trash2 size={18} color={colors.danger} />
+                              )}
+                            </Pressable>
+                          )
                         }
                       />
                     </StaggerItem>
@@ -142,6 +220,15 @@ export default function ClanoviScreen() {
           ) : null}
         </LoadingSwap>
       )}
+
+      {activeStartupId ? (
+        <AddMemberSheet
+          open={addOpen}
+          startupId={activeStartupId}
+          existingProfileIds={existingProfileIds}
+          onClose={() => setAddOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -181,6 +268,16 @@ const styles = StyleSheet.create({
   },
   row: {
     paddingHorizontal: 12,
+  },
+  removeBtn: {
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.control,
+  },
+  dimmed: {
+    opacity: 0.4,
   },
   cappedNote: {
     ...text.meta,

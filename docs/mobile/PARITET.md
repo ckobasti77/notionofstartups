@@ -129,16 +129,77 @@ crta kroz WebView — treba ti native akcije okolo, ne nov graf.
 
 ## A2. Administracija startupa — 9 funkcija
 
-Web `admin-dialog.tsx` sve to ima. Mobilni ima samo pozivnice i **listu članova
-bez ijedne akcije**.
+> **ZATVORENO (grana `paritet-20260810-0252`).** Novi ekran „Administracija
+> startupa" (`admin-startup.tsx`) + dva sheet-a
+> (`components/admin/create-startup-sheet.tsx`,
+> `components/admin/add-member-sheet.tsx`) + akcije dodate u postojeći
+> `clanovi.tsx`. Ulaz je nova `adminOnly` stavka u `vise.tsx` — isti
+> dvostruki gejt kao za Članove/Pozivnice (meni sakriva ulaz, `requireAdmin`
+> na serveru je stvarna brana, `ErrorBoundary` na svakom ekranu hvata
+> odbijanje). Backend NIJE dirán — svih 9 funkcija je već postojalo i već je
+> bilo iza `requireAdmin` (izuzetak niže).
 
-- [ ] `startups.create` — pravljenje novog startupa
-- [ ] `startups.update` — ime, opis
-- [ ] `startups.setLogo` / `removeLogo` / `generateLogoUploadUrl` — logo
-- [ ] `startups.addMember` / `removeMember` — dodavanje i uklanjanje člana
-- [ ] `startups.reorderAreas` — redosled oblasti (na telefonu: „gore/dole", ne drag)
-- [ ] `profiles.listAll` — izbor korisnika pri dodavanju člana
-- [ ] Sve iza `requireAdmin`, i sakriveno u meniju ako korisnik nije admin
+Web `admin-dialog.tsx` sve to ima. Mobilni je imao samo pozivnice i **listu
+članova bez ijedne akcije**.
+
+- [x] `startups.create` — pravljenje novog startupa
+      — `components/admin/create-startup-sheet.tsx:37` (mutacija), `:52`
+      (poziv u `submit()`); ulaz: red „Napravi novi startup" u
+      `admin-startup.tsx:246-256`, uvek vidljiv (radi i bez izabranog
+      startupa — bootstrap slučaj); uspeh prebacuje `activeStartupId` na novi
+      startup (`admin-startup.tsx:334`, `onCreated`)
+- [x] `startups.update` — ime, opis
+      — `admin-startup.tsx:73` (mutacija), `:103-107` (poziv u
+      `saveStartup()`); polja naziv/opis, dugme „Sačuvaj" busy-locked
+      (`busySave`)
+- [x] `startups.setLogo` / `removeLogo` / `generateLogoUploadUrl` — logo
+      — `admin-startup.tsx:74-76` (mutacije), `:128` (`generateLogoUploadUrl`),
+      `:136` (`setLogo`), `:195` (`removeLogo`, iza potvrde „Ukloniti logo?");
+      `expo-image-picker` (već instaliran) — galerija/kamera po uzoru na
+      `profil.tsx`; limit 2 MB (ogleda `validateLogo` na serveru, ne 5 MB kao
+      avatar); `generateLogoUploadUrl` vraća URL string direktno (bez
+      `token`), pa `setLogo` nema `token` argument — namerna razlika od
+      avatar toka, ne propust
+- [x] `startups.addMember` / `removeMember` — dodavanje i uklanjanje člana
+      — dodavanje: `components/admin/add-member-sheet.tsx:36` (mutacija),
+      `:53` (poziv), `profiles.listAll` minus već-učlanjeni, tap odmah dodaje
+      (nije destruktivno, bez potvrde); uklanjanje: `clanovi.tsx:61`
+      (mutacija), `:85` (poziv u `confirmRemove`/`doRemove`), dugme samo za
+      `role !== 'admin'` članove (ista odluka kao web), `Alert.alert`
+      potvrda sa `style: 'destructive'` koja imenuje posledicu (gubi pristup
+      odmah, skida se sa zadataka gde je izvršilac — zadaci ostaju).
+      Dugme „Dodaj člana" ima klijentski `profile.role === 'admin'` gejt
+      (`clanovi.tsx:105`) — `rn-review` je uhvatio da `profiles.listAll` baca
+      kao QUERY (ne mutacija), pa bi ne-admin koji otvori sheet oborio ceo
+      ekran na `ErrorBoundary` umesto da dobije običan `Alert` kao kod
+      uklanjanja; dugme se zato sakriva pre nego što do toga dođe.
+- [x] `startups.reorderAreas` — redosled oblasti (na telefonu: „gore/dole", ne drag)
+      — `admin-startup.tsx:77` (mutacija), `:220` (poziv u `moveArea()`);
+      dugmad gore/dole po redu oblasti (ne `Row disabled` — svako dugme nosi
+      svoj `disabled`, jer bi `Row disabled` prigušio i dugmad u `value`
+      slotu), prvo/poslednje dugme onemogućeno, svi dugmići zaključani dok je
+      potez u letu (`busyAreaId`)
+- [x] `profiles.listAll` — izbor korisnika pri dodavanju člana
+      — `components/admin/add-member-sheet.tsx:35`; lokalna pretraga po
+      imenu/emailu nad rezultatom
+- [x] Sve iza `requireAdmin`, i sakriveno u meniju ako korisnik nije admin
+      — meni: `vise.tsx:65` (`adminOnly: true` na novoj stavci „Administracija
+      startupa" → `/admin-startup`); backend: svih 8 `startups.*` +
+      `profiles.listAll` poziva već zove `requireAdmin` (`startups.ts`,
+      `profiles.ts`, nepromenjeno).
+      **IZUZETAK:** `startups.reorderAreas` na backendu zove
+      `requireStartupMember`, NE `requireAdmin` (isto ponašanje kao na
+      webu — sidebar drag&drop je tamo dozvoljen svakom članu, van
+      `admin-dialog.tsx`). Zadatak zabranjuje izmenu backenda. Za razliku od
+      `listMembers` u `clanovi.tsx` (gde je čitanje koje pokreće ekran samo
+      po sebi iza `requireStartupMember`, ali ekran ne nudi nijednu pisanu
+      radnju pa nema šta da se zloupotrebi), `reorderAreas` JESTE pisana
+      radnja — bez dodatne provere bi deep-link na `/admin-startup` ne-adminu
+      stvarno dozvolio da pomeri oblasti (uhvatio `parity-check` agent u
+      verifikacionoj rundi). Zato `admin-startup.tsx` zadržava eksplicitnu
+      `profile.role === 'admin'` proveru unutra (`admin-startup.tsx:244`) — jedino mesto
+      u ovom koraku koje odstupa od „samo server gejtuje" obrasca, i to
+      namerno, sa objašnjenjem u doc-komentaru fajla.
 
 ## A3. Zadaci — pregled celog startupa
 
