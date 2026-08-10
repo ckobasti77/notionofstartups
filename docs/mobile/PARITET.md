@@ -133,7 +133,8 @@ Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
 Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
 - [ ] `areasV2.archivePage` — arhiviranje stranice
-- [ ] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si)
+- [x] `pages.getBreadcrumbs` — putanja do korena u zaglavlju (sada ne znaš gde si)
+      — rešeno sa E12 (`breadcrumbs-eyebrow.tsx`, dokazi tamo); backend netaknut
 - [ ] `pages.addEntry` — dodavanje unosa u stranicu (web `page-editor-view.tsx`)
 - [ ] `areasV2.createPage` — mobilni koristi `pages.create`; proveri da li se ponašaju isto i ujednači
 - [ ] `pageFiles.prune` — čišćenje nevezanih priloga
@@ -284,7 +285,9 @@ ima još. Izgleda kao greška iscrtavanja, ne kao poziv da se skroluje.
 Vrh ekrana: „ScanMe ⌄" pa „Danas". Odmah ispod, u kartici: „SCANME" pa
 „Zdravo, Jovan." Ime startupa dvaput u 400px, i dva naslova jedan ispod drugog.
 
-- [ ] Jedno zaglavlje. Pozdrav i statistika bez ponavljanja imena startupa
+- [x] Jedno zaglavlje. Pozdrav i statistika bez ponavljanja imena startupa —
+      eyebrow uklonjen iz `day-summary.tsx` (1. runda); ime startupa samo u
+      `AppHeader` (koji je i prebacivač); svež bundle: `dokazi-ux/e4-posle-p2.png`
 
 ## E5. Editor beleške: placeholder na engleskom
 
@@ -319,7 +322,10 @@ otvara.** Funkcija je napisana pa nedostupna.
 
 Na beleški „oze" stoji u zaglavlju i odmah ispod kao izmenjiv naslov.
 
-- [ ] Jedan naslov. Ako je izmenjiv, zaglavlje neka bude putanja, ne isto ime
+- [x] Jedan naslov. Ako je izmenjiv, zaglavlje neka bude putanja, ne isto ime —
+      beleška: title=„Beleška", eyebrow=putanja, ime („oze") samo u editoru sa
+      „Sačuvano" indikatorom; tabela/prilog zadržavaju naslov u zaglavlju (telo ga
+      ne ponavlja); `dokazi-ux/e9-posle-p2.png`
 
 ## E10. Traka za formatiranje odsečena na desnoj ivici
 
@@ -343,14 +349,24 @@ Na „Danas" plavo dugme prekriva desni deo poslednjeg zadatka u listi.
 U detalju zadatka iznad naslova stoji „Backlog" — to je status, ne putanja.
 Posle dva-tri nivoa ugnježdavanja ne znaš gde si, a nemaš sidebar kao na webu.
 
-- [ ] `pages.getBreadcrumbs` u zaglavlju detalja (vidi i A5)
+- [x] `pages.getBreadcrumbs` u zaglavlju detalja (vidi i A5) —
+      `breadcrumbs-eyebrow.tsx` na oba detalja; ugnježden zadatak: eyebrow
+      „Dev › oze" bez tekuće stranice (`dokazi-ux/e12-zadatak-p2.png`); koren:
+      samo ime oblasti „Dev" (`e12-koren-p2.png`); status više NIJE eyebrow
+      (ostaje u meta kartici); lokalni `TrailBoundary` čuva ekran od arhiviranog
+      roditeljskog lanca
 
 ## E13. U oblasti nema dugmeta za novu stranicu
 
 „Danas" ima FAB, ekran oblasti nema ništa — a to je mesto gde se stranica
 prirodno pravi.
 
-- [ ] Isti FAB, isto ponašanje, na svim ekranima gde kreiranje ima smisla
+- [x] Isti FAB, isto ponašanje, na svim ekranima gde kreiranje ima smisla —
+      `QuickAddFab` (label „Nova stranica") + postojeći `PageCreateSheet` na
+      Nivou 2 Prostora (`dokazi-ux/e13-fab-p2.png`); kreirana beleška „E5 proba"
+      i zadatak „E7 zadatak sa datumom" (rok sutra) — oba realtime u listi, FAB
+      ne preklapa red (`e13-posle-kreiranja-p2.png`); Nivo 1 ne dobija FAB (tamo
+      se pravi oblast, ulaz „Nova oblast" postoji)
 
 ---
 
