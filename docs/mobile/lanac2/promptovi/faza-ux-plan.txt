@@ -1,0 +1,68 @@
+ultrathink
+
+Radiš na Devotion monorepou: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvršavanje - ne pitaj,
+odlučuj i radi.
+
+PRVO pročitaj, uvek, pre bilo čega:
+  docs/mobile/PARITET.md      <- tvoja lista i tvoja memorija
+  docs/mobile/ZA-POPRAVKU.md  <- naučene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+
+PRAVILA KOJA VAŽE U SVAKOJ FAZI:
+- Paritet je FUNKCIONALNI, ne vizuelni. Ne prekopavaj web layout. Za svaku
+  funkciju pitaj se kako se isti ishod postiže prstom na malom ekranu, pa to
+  napravi. Tabela prevoda obrazaca je u PARITET.md.
+- Backend NE menjaj. Sve funkcije već postoje. Ako ti stvarno nešto fali, stani
+  i zapiši u docs/mobile/ZA-POPRAVKU.md umesto da izmišljaš.
+- Svaki novi red kroz apps/mobile/src/components/ui/row.tsx. Ne piši ručno nove
+  flexDirection:'row' blokove.
+- Tekst min 16px osim pravog meta-teksta. Dodirna meta min 44pt. Safe area.
+  busy lock na svakoj mutaciji. Prazno, učitavanje i greška - sva tri stanja.
+- ČEKIRAJ [x] u docs/mobile/PARITET.md čim nešto završiš, u ISTOM commit-u sa
+  kodom. Ako odlučiš da nešto ne ide na telefon, upiši red u sekciju Z sa
+  razlogom. Prazan razlog ne važi.
+- U sekciji 'ŠTA JE VEĆ URAĐENO" fajla PARITET.md je spisak stvari koje RADE.
+  Ne diraj ih i ne pravi ih ponovo.
+- Ako menjaš apps/mobile/package.json, dopiši red u docs/mobile/lanac2/NATIVE-BUILD.md
+  (napravi fajl ako ne postoji) - to znači da ujutru treba nov native build.
+FAZA UX - BAGOVI UHVAĆENI NA EKRANU (sekcija E u PARITET.md)
+
+Trinaest bagova viđenih na emulatoru dok je aplikacija radila. Nisu pretpostavke
+- svaki korisnik ih vidi svaki put. Cela sekcija E u docs/mobile/PARITET.md
+opisuje šta tačno nije u redu.
+
+Redosled po težini:
+- E1 hardversko Nazad zatvara APLIKACIJU umesto sheet-a (najgori, popravi prvi,
+  i to na SVIM sheet-ovima odjednom, ne samo na jednom)
+- E2 traka filtera na 'Danas" jede 40% ekrana i ne skroluje
+- E8 '..." meni ne postoji ni na zadatku ni na beleški, pa je ceo
+  page-actions-sheet.tsx napisan a nedostupan - potraži ima li još takvih
+  slučajeva gde komponenta postoji ali ulaz ne
+- E3, E4, E9, E10, E11, E13 - raspored i odsečeni elementi
+- E5, E6 - engleski placeholder i tekst koji belešku zove zadatkom
+- E7 - prazan spiner umesto praznog stanja
+- E12 - breadcrumbs
+
+Za SVAKI popravljen bag: uradi izmenu, pa je pogledaj na emulatoru, pa čekiraj.
+Imaš computer use. Ne čekiraj ništa što nisi video da radi.
+=====================================================================
+OVO JE KORAK PLANIRANJA. NE MENJAJ NIJEDAN FAJL SA KODOM.
+=====================================================================
+
+Tvoj jedini posao sada je da napišeš plan u fajl docs\mobile\lanac2\planovi\faza-ux.md
+
+CILJ FAZE (po ovome ćeš biti meren): Svih 13 bagova iz sekcije E popravljeno i svaki viđen kako radi na emulatoru.
+
+Plan mora da sadrži, tim redom:
+1. Šta si pročitao i šta si zatekao - konkretno, sa imenima fajlova i linijama.
+   Ako je nešto iz liste VEĆ urađeno, reci to i izbaci iz plana.
+2. Redosled izmena, jedna po jedna, sa fajlom koji se dira i razlogom.
+3. Za svaku izmenu: kako se na telefonu, prstom, postiže isti ishod kao na webu.
+   Ako obrazac sa weba ne radi na malom ekranu, napiši čime ga zamenjuješ.
+4. Šta može da pukne i šta ćeš uraditi ako pukne.
+5. Šta NEĆEŠ raditi u ovoj fazi i zašto (to ide u sekciju Z fajla PARITET.md).
+6. Kako ćeš na kraju dokazati da svaka stavka radi - konkretan test, ne 'proveriću".
+
+Piši kratko i konkretno. Bez opštih rečenica. Ovaj plan će drugi agent sprovesti
+doslovno, pa sve što ne napišeš - neće se desiti.

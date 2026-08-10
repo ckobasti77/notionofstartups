@@ -104,3 +104,17 @@ primenljiva; postojeći canvas ekran (spiner/greška/„Pokušaj ponovo") nije d
 
 **8. Završne provere:** skripta upisala tsc mobilni ✓, tsc web ✓, lint ✓,
 test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
+- Trajanje: 43 min
+
+## Faza UX - Bagovi uhvaćeni na ekranu
+
+**Cilj:** Svih 13 bagova iz sekcije E popravljeno i svaki viđen kako radi na emulatoru.
+
+| Korak | Model | Effort | Režim |
+|---|---|---|---|
+| PLAN | `` | `max` | bez izmena koda |
+| IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
+| REVIZIJA | `` | `max` | bez izmena koda |
+
+- Start: 2026-08-10T03:35:22
+- PLAN: napisan (`docs\mobile\lanac2\planovi\faza-ux.md`)
