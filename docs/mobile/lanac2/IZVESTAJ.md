@@ -224,3 +224,17 @@ test ✓ (321/321 po planu §7). Revizor ih nije ponavljao.
 - `lint`: prolazi
 - `test`: prolazi
 - Commit: `5184510` · dirnuto fajlova: 3
+- Trajanje: 1 min
+
+## Faza 6 - Runtime i responzivnost
+
+**Cilj:** Sve iz liste C prođeno na ekranu, na malom i velikom telefonu, bez ijedne greške u konzoli.
+
+| Korak | Model | Effort | Režim |
+|---|---|---|---|
+| PLAN | `` | `max` | bez izmena koda |
+| IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
+| REVIZIJA | `` | `max` | bez izmena koda |
+
+- Start: 2026-08-10T05:05:37
+- PLAN: **nije napisan** - implementacija ide bez plana
