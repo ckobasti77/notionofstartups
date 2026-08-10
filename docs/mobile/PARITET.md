@@ -260,16 +260,24 @@ oko 300px, sa sitnim tekstom vertikalno centriranim u praznini. Traka je zakucan
 — **ne pomera se pri skrolovanju**, pa na svakom pomeraju liste zauzima skoro
 pola ekrana. Ostane ti oko tri reda zadataka.
 
-- [ ] Visina kartice na sadržaj (~72px), ne rastegnuta
-- [ ] Traka skroluje zajedno sa listom, ili postaje kompaktan red chip-ova
-- [ ] Ako član ima 0 otvorenih, ne troši istu površinu kao onaj sa 4
+- [x] Visina kartice na sadržaj (~72px), ne rastegnuta — uzrok bio RN `ScrollView`
+      default `flexGrow: 1` (gutao visinu); `workload-strip.tsx` ima `flexGrow: 0`
+      + `alignItems: 'flex-start'`; potvrđeno na svežem bundle-u, chipovi ~56–80dp:
+      `dokazi-ux/e2-posle-p2.png`
+- [x] Traka skroluje zajedno sa listom, ili postaje kompaktan red chip-ova —
+      kompaktan red chip-ova, namerno van skrola (filter mora ostati vidljiv kad
+      isprazni listu); isti dokaz
+- [x] Ako član ima 0 otvorenih, ne troši istu površinu kao onaj sa 4 — chip sa 0
+      nema „kasni/hitno" statove i nula je prigušena (`statZero`); isti dokaz
 
 ## E3. Horizontalna traka odsečena na ivici
 
 Treća kartica je presečena na desnoj ivici ekrana, bez paddinga i bez naznake da
 ima još. Izgleda kao greška iscrtavanja, ne kao poziv da se skroluje.
 
-- [ ] `contentContainerStyle` sa paddingom, i peek sledeće kartice
+- [x] `contentContainerStyle` sa paddingom, i peek sledeće kartice —
+      `paddingHorizontal: 16` + chip `maxWidth: 180`; treći chip viri ~50dp preko
+      desne ivice (jasan poziv na skrol): `dokazi-ux/e2-posle-p2.png`
 
 ## E4. Dvostruko zaglavlje na „Danas"
 
@@ -325,7 +333,10 @@ ekrana, bez naznake da traka skroluje.
 
 Na „Danas" plavo dugme prekriva desni deo poslednjeg zadatka u listi.
 
-- [ ] Donji padding liste = visina FAB-a + razmak
+- [x] Donji padding liste = visina FAB-a + razmak — `paddingBottom: 160`
+      (izmereno u 1. rundi, ne smanjivati); na svežem bundle-u sa listom od 5
+      zadataka koja preskače ekran: na dnu skrola poslednja kartica cela, ~22dp
+      iznad FAB-a: `dokazi-ux/e11-posle-p2.png`
 
 ## E12. Nema putanje (breadcrumbs) nigde
 
