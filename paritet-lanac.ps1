@@ -82,6 +82,10 @@ if (-not (Test-Path "docs\mobile\PARITET.md")) {
 
 New-Item -ItemType Directory -Force -Path $LogDir, $PromptDir, $PlanDir | Out-Null
 
+# Stari logovi se BRISU pre pocetka. Detektor gresaka cita ceo fajl, pa bi
+# greska iz proslog pokretanja lazno oborila ovaj lanac.
+Remove-Item "$LogDir\*" -Force -ErrorAction SilentlyContinue
+
 # ---- šta ovaj CLI stvarno podržava (ne pogađamo) -------------------------
 $Pomoc = (& claude --help 2>&1 | Out-String)
 

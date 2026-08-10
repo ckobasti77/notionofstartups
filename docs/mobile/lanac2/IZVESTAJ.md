@@ -12,8 +12,8 @@
 | Effort - popravke | `high` |
 | Kako se effort šalje | preko flag-a `--effort` |
 | Režim dozvola | `--permission-mode bypassPermissions` |
-| Grana | `paritet-20260810-0243` |
-| Početak | 2026-08-10T02:43:40 |
+| Grana | `paritet-20260810-0252` |
+| Početak | 2026-08-10T02:52:42 |
 
 ## Kako svaka faza teče
 
@@ -41,12 +41,5 @@ na disku pa se ujutru vidi šta je nameravao naspram onoga što je stvarno uradi
 | IZVRŠI | `` | `xhigh` | `--permission-mode bypassPermissions` |
 | REVIZIJA | `` | `max` | bez izmena koda |
 
-- Start: 2026-08-10T02:43:41
-- PLAN: **nije napisan** - implementacija ide bez plana
-- IZVRŠI: **PAO** (izlazni kod 1)
-- `tsc mobilni`: prolazi
-- `tsc web`: **PADA**
-- `lint`: prolazi
-- `test`: prolazi
-- popravka 1 : i dalje pada (tsc web)
-- popravka 2 : i dalje pada (tsc web)
+- Start: 2026-08-10T02:52:42
+- PLAN: napisan (`docs\mobile\lanac2\planovi\faza-0.md`)
