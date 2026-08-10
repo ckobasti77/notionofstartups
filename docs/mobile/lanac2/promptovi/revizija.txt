@@ -2,11 +2,11 @@ ultrathink
 
 Ti si revizor. NE popravljaš ništa. Samo proveravaš i pišeš nalaz.
 
-CILJ FAZE koji je trebalo ispuniti: Misao se može napraviti, povezati, ugnjezditi, pretvoriti u ideju i vratiti - sa telefona.
+CILJ FAZE koji je trebalo ispuniti: Admin sa telefona može sve što može sa weba: startup, logo, članovi, redosled oblasti.
 
-Plan faze:     docs\mobile\lanac2\planovi\faza-1.md
-Zadatak faze:  docs\mobile\lanac2\promptovi\faza-1.txt
-Izmene:        git diff 94dedf4..HEAD
+Plan faze:     docs\mobile\lanac2\planovi\faza-2.md
+Zadatak faze:  docs\mobile\lanac2\promptovi\faza-2.txt
+Izmene:        git diff 2163df2..HEAD
 Lista:         docs/mobile/PARITET.md
 
 Uradi:
@@ -29,5 +29,5 @@ Uradi:
 7. Proveri da nije dodata nijedna nova funkcija u packages/backend.
 8. Proveri da svaki novi ekran ima sva tri stanja: prazno, učitavanje, greška.
 
-Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 1 - Misli".
+Nalaz dopiši na kraj fajla docs\mobile\lanac2\IZVESTAJ.md pod naslovom '### Revizija: Faza 2 - Administracija startupa".
 Kratko, bez ulepšavanja. Ako cilj nije ispunjen, to ide u prvu rečenicu.
