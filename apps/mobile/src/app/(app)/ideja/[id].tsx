@@ -251,7 +251,7 @@ export default function IdejaScreen() {
           <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.foreground }]}>
             Diskusija
           </Text>
-          <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+          <Text style={[styles.meta, text.body, { color: colors.mutedForeground }]}>
             Tekst članova ide na odobrenje autoru ideje — dok čeka, stoji označen.
           </Text>
           <ContributionThread target={{ kind: 'idea', id: ideaId }} canAdd />

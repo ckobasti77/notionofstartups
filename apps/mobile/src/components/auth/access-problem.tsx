@@ -1,10 +1,8 @@
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { useThemeColors } from '@/theme/theme-provider';
+import { MIN_TOUCH_TARGET, spacing, text } from '@/theme/tokens';
 
 /**
  * Prikazuje se kad je korisnik prijavljen ali onboarding ne može da se završi
@@ -18,35 +16,37 @@ export function AccessProblem({
   message: string;
   onSignOut: () => void;
 }) {
-  const theme = useTheme();
+  const colors = useThemeColors();
   return (
-    <ThemedView style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="subtitle" style={styles.title}>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.title, text.title, { color: colors.foreground }]}>
             Pristup nije završen
-          </ThemedText>
-          <ThemedText themeColor="textSecondary" style={styles.message}>
+          </Text>
+          <Text style={[styles.message, text.body, { color: colors.mutedForeground }]}>
             {message}
-          </ThemedText>
+          </Text>
           <Pressable
             accessibilityRole="button"
             onPress={onSignOut}
             style={({ pressed }) => [
               styles.button,
-              { backgroundColor: theme.backgroundSelected },
+              { backgroundColor: colors.primary },
               pressed && styles.pressed,
             ]}>
-            <ThemedText style={styles.buttonLabel}>Odjavi se</ThemedText>
+            <Text style={[styles.buttonLabel, { color: colors.primaryForeground }]}>
+              Odjavi se
+            </Text>
           </Pressable>
-        </ThemedView>
+        </View>
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // 16px minimum: ovo je jedina akcija na ekranu greške pristupa (bio je 14px).
+  // 16px minimum: ovo je jedina akcija na ekranu greške pristupa.
   buttonLabel: {
     fontSize: 16,
     fontWeight: '600',
@@ -58,15 +58,16 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.four,
+    paddingHorizontal: spacing.lg,
   },
   card: {
     width: '100%',
     maxWidth: 420,
-    borderRadius: Spacing.four,
-    padding: Spacing.four,
-    gap: Spacing.three,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   title: {
     textAlign: 'center',
@@ -75,11 +76,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   button: {
-    marginTop: Spacing.two,
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Spacing.three,
+    marginTop: spacing.sm,
+    minHeight: MIN_TOUCH_TARGET,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: spacing.md,
     alignItems: 'center',
+    justifyContent: 'center',
     alignSelf: 'stretch',
   },
   pressed: {

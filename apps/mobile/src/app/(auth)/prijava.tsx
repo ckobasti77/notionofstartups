@@ -3,7 +3,6 @@ import { useQuery } from 'convex/react';
 import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -93,7 +92,10 @@ export default function SignInScreen() {
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        // `padding` na obe platforme: Expo SDK 57 edge-to-edge (Android) razbija OS
+        // `adjustResize`, pa tastaturu kompenzujemo u JS-u na obe platforme (isto kao
+        // `admin-startup.tsx`).
+        behavior="padding">
         <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
           <ScrollView
             contentContainerStyle={styles.scroll}

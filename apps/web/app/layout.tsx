@@ -30,6 +30,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: "light dark",
+  // Next.js metadata ne čita CSS custom properties — ručno sinhronizovati sa --background u globals.css.
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f7f8fb" },
     { media: "(prefers-color-scheme: dark)", color: "#151821" },

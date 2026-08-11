@@ -38,7 +38,7 @@ import {
   unsupportedNoteBlocksSentence,
 } from '@/lib/note-content';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 /**
  * Editor beleške (M3.2). Arhitektura: **tentap** — Tiptap koji se izvršava u
@@ -649,6 +649,7 @@ function SaveIndicator({
       }
       accessibilityLiveRegion="polite"
       onPress={onRetry}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       style={({ pressed }) => [styles.state, pressed && { opacity: 0.7 }]}>
       {content}
     </Pressable>
@@ -698,8 +699,7 @@ const styles = StyleSheet.create({
   },
   noticeText: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    ...text.body,
   },
   conflict: {
     gap: 6,
@@ -713,8 +713,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   conflictText: {
-    fontSize: 14,
-    lineHeight: 20,
+    ...text.body,
   },
   conflictActions: {
     flexDirection: 'row',

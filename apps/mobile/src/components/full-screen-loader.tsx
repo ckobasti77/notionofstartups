@@ -1,21 +1,16 @@
-import { ActivityIndicator, StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { useThemeColors } from '@/theme/theme-provider';
+import { spacing, text } from '@/theme/tokens';
 
 export function FullScreenLoader({ label = 'Pripremam radni prostor' }: { label?: string }) {
-  const theme = useTheme();
+  const colors = useThemeColors();
   return (
-    <ThemedView style={styles.container}>
-      <ActivityIndicator size="large" color={theme.text} />
-      {/* `default` = 16px; bio je `small` (14px), a ovo je jedini tekst koji
-          korisnik vidi na svakom hladnom startu. */}
-      <ThemedText themeColor="textSecondary" style={styles.label}>
-        {label}
-      </ThemedText>
-    </ThemedView>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ActivityIndicator size="large" color={colors.foreground} />
+      {/* Ovo je jedini tekst koji korisnik vidi na svakom hladnom startu — 16px minimum. */}
+      <Text style={[styles.label, text.body, { color: colors.mutedForeground }]}>{label}</Text>
+    </View>
   );
 }
 
@@ -24,7 +19,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.three,
+    gap: spacing.md,
   },
   label: {
     textAlign: 'center',

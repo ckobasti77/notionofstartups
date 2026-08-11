@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { Hash, MessageSquarePlus, Plus, UserPlus } from "lucide-react";
+import { Hash, LoaderCircle, MessageSquarePlus, Plus, UserPlus } from "lucide-react";
 
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import type {
@@ -177,7 +177,11 @@ function NewDirectMessageDialog({
                 onClick={() => void start(member.profile._id)}
                 className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent disabled:opacity-60"
               >
-                <ProfileAvatar profile={member.profile} className="size-8" />
+                {busyId === member.profile._id ? (
+                  <LoaderCircle className="size-8 shrink-0 animate-spin text-muted-foreground" />
+                ) : (
+                  <ProfileAvatar profile={member.profile} className="size-8" />
+                )}
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   {member.profile.displayName}
                 </span>
@@ -332,6 +336,7 @@ function NewChannelDialog({
             disabled={busy || !name.trim()}
             onClick={() => void submit()}
           >
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
             Kreiraj kanal
           </Button>
         </DialogFooter>

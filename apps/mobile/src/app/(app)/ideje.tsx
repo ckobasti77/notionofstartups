@@ -315,6 +315,14 @@ function IdeaRow({
       accessibilityRole="button"
       accessibilityLabel={`Otvori ideju: ${title}`}
       accessibilityHint="Dugi pritisak otvara akcije ideje."
+      accessibilityActions={[
+        { name: 'vote_up', label: 'Glasaj za' },
+        { name: 'vote_down', label: 'Glasaj protiv' },
+      ]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'vote_up') void cast('up');
+        else if (event.nativeEvent.actionName === 'vote_down') void cast('down');
+      }}
       onPress={() => {
         haptics.tap();
         router.push({ pathname: '/ideja/[id]', params: { id: idea._id } });

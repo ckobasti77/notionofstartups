@@ -145,6 +145,7 @@ export function MessageComposer({
   const [recording, setRecording] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [keyboardUp, setKeyboardUp] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Kad je tastatura otvorena, ne dodaji `insets.bottom` (home indicator je pod
   // tastaturom) — inače ostaje prazan razmak između unosa i tastature.
@@ -201,12 +202,14 @@ export function MessageComposer({
   async function submit() {
     const body = draft.trim();
     if (!body) return;
+    if (submitting) return;
 
     // Slanje je primarna akcija ovog ekrana — haptika ide ODMAH, ne po potvrdi
     // servera: poruka se optimistički već pojavila u listi.
     haptics.tap();
 
     if (editing) {
+      setSubmitting(true);
       try {
         await editMessage({ messageId: editing._id, body });
         setDraft('');
@@ -214,6 +217,8 @@ export function MessageComposer({
       } catch (error) {
         haptics.error();
         Alert.alert('Greška', errorMessage(error, 'Izmena nije sačuvana.'));
+      } finally {
+        setSubmitting(false);
       }
       return;
     }
@@ -419,7 +424,7 @@ export function MessageComposer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={editing ? 'Sačuvaj izmenu' : 'Pošalji poruku'}
-            disabled={uploading}
+            disabled={uploading || submitting}
             onPress={() => void submit()}
             style={[styles.sendBtn, { backgroundColor: colors.primary }]}>
             <Send size={18} color={colors.primaryForeground} />

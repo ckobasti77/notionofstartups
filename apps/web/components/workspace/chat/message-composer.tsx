@@ -309,6 +309,9 @@ function VoiceRecorder({
 
   return (
     <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1">
+      <span className="sr-only" role="status">
+        Snimanje poruke počelo.
+      </span>
       <span
         className={cn("size-2 rounded-full bg-destructive", "animate-pulse")}
         aria-hidden="true"

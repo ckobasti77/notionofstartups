@@ -221,7 +221,7 @@ Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
       — nov `components/zadaci/tasks-filter-sheet.tsx` (4 sekcije, `OptionChip`,
       primena odmah); status/izvršilac server-side (`zadaci.tsx:90-106`),
       prioritet/rok/nedodeljeno klijentski nad `classifyDeadline`
-      (`zadaci.tsx:132-159`, `@/lib/deadline`); mont. `zadaci.tsx:415`
+      (`zadaci.tsx:132-159`, `@/lib/deadline`); mont. `zadaci.tsx:427`
 - [x] Grupisanje po statusu, sa brojem u zaglavlju grupe
       — `zadaci.tsx:161-170` (`grouped`, samo kad je status filter „Svi"),
       `SectionHeader` (deljena komponenta) `zadaci.tsx:376`; kad je status filter
@@ -373,16 +373,19 @@ Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
 Ovo nije „popravi ako naiđeš". Ovo je uslov za završetak.
 
-- [ ] `npx tsc --noEmit` u `apps/mobile` — nula grešaka
-- [ ] `npx tsc --noEmit` u `apps/web` — nula grešaka
-- [ ] `npm run lint` — nula grešaka i nula upozorenja
-- [ ] `npm run build` — prolazi
-- [ ] `npm test` — svi testovi prolaze
-- [ ] Metro konzola pri prolasku kroz sve ekrane — nula crvenih grešaka, nula žutih upozorenja koja se ponavljaju
-- [ ] Convex dashboard logovi tokom testiranja — nijedan `Server Error`
-- [ ] Nijedan `console.log` dijagnostike ostavljen u kodu
-- [ ] Nijedan `TODO` bez zapisa u `ZA-POPRAVKU.md`
-- [ ] Nijedna komponenta koja vraća `null` kao placeholder
+- [x] `npx tsc --noEmit` u `apps/mobile` — nula grešaka
+- [x] `npx tsc --noEmit` u `apps/web` — nula grešaka
+- [ ] `npm run lint` — nula grešaka i nula upozorenja — **0 grešaka, 2 upozorenja**
+      zatečena u `packages/backend/convex/` (`areasV2.ts:9`, `chat.ts:1037`);
+      backend se ne dira u fazama pariteta (pravilo važi apsolutno). Uslov za
+      čekiranje: `ZA-POPRAVKU.md §6`.
+- [x] `npm run build` — prolazi
+- [x] `npm test` — svi testovi prolaze (37 fajlova, 321 test)
+- [ ] Metro konzola pri prolasku kroz sve ekrane — nula crvenih grešaka, nula žutih upozorenja koja se ponavljaju — zahteva uređaj/emulator sesiju uživo, van dometa headless faze; nijedna faza noćnog lanca ovo još nije radila (`ZA-POPRAVKU.md §5.12`)
+- [ ] Convex dashboard logovi tokom testiranja — nijedan `Server Error` — isto, zahteva uživo testiranje
+- [x] Nijedan `console.log` dijagnostike ostavljen u kodu — jedina 2 pogotka (`canvas/[kind]/[id].tsx:158,193`) su `__DEV__`-gated, namerna
+- [x] Nijedan `TODO` bez zapisa u `ZA-POPRAVKU.md` — jedini pogodak (`vise.tsx:199-202`) već pokriven `ZA-POPRAVKU.md §2`
+- [x] Nijedna komponenta koja vraća `null` kao placeholder — svi pogoci su legitimni guard/konvencija (Faza 6 plan §1.2)
 
 ---
 
@@ -635,3 +638,12 @@ Prazan razlog ne važi. „Nije bitno" nije razlog.
 | `taskCheckpoints.resetCanvasSize` | Isto — reset dimenzija oblačića na kanvasu; veličina se na telefonu ni ne postavlja. |
 | `taskCheckpointCanvasEdges.connect` | Vizuelne strelice toka na page kanvasu (spajaju i checkpoint↔stranicu), imaju smisao samo u koordinatnom prostoru kanvasa. Stvarna zavisnost koraka je native kroz `setChainedToPrevious`/`setAllChained` (task-checkpoint-list.tsx). Crtanje dijagrama je posao za veliki ekran. |
 | `taskCheckpointCanvasEdges.disconnect` | Isto; uz to glasanje o brisanju tuđe canvas veze već radi na mobilnom (odobrenja.tsx, `task_checkpoint_edge`), pa tim tokovima ništa ne fali. |
+| `areasV2.getCanvas` | Šira desktop-samo pretplata (ceo startup odjednom — `area-canvas-view.tsx`, `area-view.tsx`, `page-workspace-view.tsx`, `workspace-shell.tsx`). Mobilni embed (`canvas/[kind]/[id].tsx` → `canvas-embed.tsx`) zove UŽE resolvere po meti: `getAreaCanvasByArea`/`getPageCanvasByPage` — funkcionalno zamenjuju `getCanvas` za tačno onaj scope koji se prikazuje, ne rupa. |
+| `areasV2.getPageCanvasByPage` | Nije "web-only" u pravom smislu — poziva ga `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`, DELJENI kod koji mobilni učitava kroz WebView (00-PLAN §5.2). Grep metod ga vidi kao web-only jer broji samo `apps/web/components`+`app`. |
+| `areasV2.movePages` | Prevlačenje/pozicioniranje stranica na kanvasu oblasti — čisto uređivanje layouta. Mobilni kanvas je pregled (00-PLAN §5.2), embed je read-only. Ista kategorija kao `taskCheckpoints.saveCanvasPlacement`. |
+| `areasV2.resizePage` | Isto — promena dimenzija kartice stranice na kanvasu. |
+| `areasV2.resetPageSize` | Isto — reset dimenzija na podrazumevane. |
+| `areasV2.saveViewport` | Čuva zum/poziciju kanvasa oblasti za sledeće otvaranje — postavlja se isključivo ručnim pomeranjem na desktop kanvasu. |
+| `areasV2.connectPages` | Crtanje veza između stranica na kanvasu — vizuelna radnja u koordinatnom prostoru kanvasa. |
+| `areasV2.disconnectPages` | Isto, obrnuta radnja. |
+| `activity.listForStartup` | Mobilni koristi `activity.listPaginated` (bez tvrdog limita 50, sa nastavkom) — funkcionalno superiorna zamena, ne rupa. Obrnut paritet, već objašnjeno u ZA-POPRAVKU §5.8. |

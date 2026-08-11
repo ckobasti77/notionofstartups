@@ -20,6 +20,7 @@ import {
   ActivityIndicator,
   BackHandler,
   FlatList,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -197,7 +198,13 @@ export default function ProstorScreen() {
   const frameKey = `area:${top.areaId}`;
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      // `padding` na obe platforme: Expo SDK 57 edge-to-edge (Android) razbija OS
+      // `adjustResize`, pa tastaturu kompenzujemo u JS-u na obe platforme (isto kao
+      // `admin-startup.tsx`). Ekran je plitak (header + brifing + lista), pa je KAV
+      // oko celog ekrana bezbedan — nema ugnježđenog KAV-a koji bi izazvao E10 bag.
+      behavior="padding">
       {/* Isto zaglavlje kao Nivo 1, samo sa „nazad" i imenom oblasti kao naslovom —
           Prostor ide jedan nivo duboko, pa breadcrumb nema šta da nabraja. */}
       <AppHeader
@@ -265,7 +272,7 @@ export default function ProstorScreen() {
           onClose={() => setCreatingPage(false)}
         />
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

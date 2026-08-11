@@ -374,7 +374,7 @@ export default function ZadaciScreen() {
           />
         ) : (
           <ScrollView
-            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 96 }]}
+            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 160 }]}
             showsVerticalScrollIndicator={false}
             refreshControl={refreshControl}>
             <StaggerGroup

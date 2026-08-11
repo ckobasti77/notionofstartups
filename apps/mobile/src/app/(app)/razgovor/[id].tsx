@@ -97,7 +97,7 @@ export default function ConversationScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <MinimalHeader title="Razgovor" onBack={() => router.back()} colors={colors} />
         <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje razgovora" />
         </View>
       </View>
     );

@@ -151,7 +151,7 @@ function Metric({
   budget: number;
 }) {
   const tone =
-    value === null ? "text-muted-foreground" : value < budget ? "text-green-600" : "text-red-600";
+    value === null ? "text-muted-foreground" : value < budget ? "text-success" : "text-destructive";
   return (
     <span className="font-semibold tabular-nums">
       {label}: <span className={tone}>{value === null ? "—" : `${value} ms`}</span>

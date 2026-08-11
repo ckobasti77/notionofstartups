@@ -710,3 +710,27 @@ DODATNIH funkcija van te liste koje svesno izostavljam bez zapisa.
 7. Upisati u `IZVESTAJ.md` red za Fazu 6 (skripta to radi, ne agent) — samo
    potvrditi da su `tsc mobilni`/`tsc web`/`lint`/`test` polja tačna prema
    koraku 2 gore.
+
+---
+
+## 6. Odstupanja od plana (upisano tokom sprovođenja)
+
+Sve izmene 2.1–2.15 sprovedene tačno kao u planu, sa dva dodatka koje je
+otkrio `rn-review`/`parity-check` posle koda (korak 5 reda provere), oba
+sitna i u istom duhu kao ostatak faze (mehanička ispravka, nula nove
+funkcionalnosti):
+
+1. **`access-problem.tsx` dugme „Odjavi se" — dodat `minHeight: MIN_TOUCH_TARGET`.**
+   Plan 2.6 nije eksplicitno tražio garanciju dodirne mete na ovom dugmetu
+   (fokus je bio na zameni legacy teme). `rn-review` je posle prepisa fajla
+   uočio da `paddingVertical: spacing.md` (12) + `fontSize: 16` bez
+   `lineHeight` daje visinu ~40–44px, na ivici/ispod minimuma — dok svaki
+   drugi ručni dodirni element dirnut u ovoj rundi eksplicitno nosi
+   `minHeight: MIN_TOUCH_TARGET`. Dodato `minHeight: MIN_TOUCH_TARGET` +
+   `justifyContent: 'center'` na `styles.button`; `tsc` i dalje 0 grešaka.
+2. **`PARITET.md:224` dokazna linija ispravljena `zadaci.tsx:415` → `:427`.**
+   Nije nastalo u ovoj fazi (drift od Faze 4/5, `zadaci.tsx` u Fazi 6 nije
+   dirán), ali `parity-check` ga je uočio dok je proveravao da mehaničke
+   izmene 2.2/2.9 ne zastarevaju postojeće citate. Pošto se `PARITET.md` već
+   menja u istom koraku (2.14), ispravljeno usput umesto ostavljeno za
+   sledeću fazu — `grep -n "TasksFilterSheet" zadaci.tsx` potvrđuje `:427`.

@@ -495,6 +495,29 @@ identifikatora; tek tada PARITET sekcija B sme da čekira „nula upozorenja".
 
 ---
 
+## 7. Broj registrovanih uređaja za push (`expoPushTokens.myDeviceCount`) nije izložen na mobilnom
+
+**Kontekst.** `packages/backend/convex/expoPushTokens.ts:119` izvozi
+`myDeviceCount` (broj Expo push tokena registrovanih za trenutni profil,
+komentar: „za ekran podešavanja") — `apps/mobile/src` ga nigde ne poziva.
+Web ima analogni ALI ODVOJENI `pushSubscriptions.myDeviceCount` (web push
+pretplate, drugi mehanizam — već IZUZETAK u PARITET.md Z tabeli), prikazan u
+`notifications-panel.tsx:341`.
+
+**Zašto mobilni to nema.** Funkcija postoji i spremna je; dodavanje broja
+uređaja na ekran podešavanja obaveštenja je NOVA funkcionalnost (nov red u
+UI-ju), van opsega Faze 5 (nije bila u planu) i Faze 6 (nula nove
+funkcionalnosti).
+
+**USLOV za zatvaranje.** Sledeći put kad se ekran podešavanja obaveštenja
+menja: dodati red „Registrovano na N uređaja" pozivom
+`useQuery(api.expoPushTokens.myDeviceCount, {})`, po uzoru na web red iz
+`notifications-panel.tsx:341`.
+
+**Nalaz:** `parity-check` agent, plan Faze 6 (2026-08-11).
+
+---
+
 # Naučene zamke — ne ponavljaj
 
 Ove nisu „čeka se na uslov" — već rešene greške koje se lako vrate. Zapisane da
