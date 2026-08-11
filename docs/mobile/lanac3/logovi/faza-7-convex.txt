@@ -19,3 +19,7 @@ Watching logs for dev deployment deafening-otter-504...
 8/11/2026, 10:34:00 AM [CONVEX Q(pages:listChildren)] Uncaught Error: Roditeljska stranica mora biti u istoj oblasti.
     at async handler (../packages/backend/convex/pages.ts:132:13)
 
+8/11/2026, 10:59:33 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/11/2026, 11:01:08 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/11/2026, 11:59:24 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/11/2026, 12:01:00 PM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
