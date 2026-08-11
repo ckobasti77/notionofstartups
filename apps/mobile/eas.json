@@ -7,7 +7,11 @@
     },
     "preview": {
       "distribution": "internal",
-      "ios": { "simulator": false }
+      "ios": { "simulator": false },
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://quirky-vulture-47.eu-west-1.convex.cloud",
+        "EXPO_PUBLIC_WEB_URL": "https://notionofstartups.vercel.app"
+      }
     },
     "production": {
       "autoIncrement": true
