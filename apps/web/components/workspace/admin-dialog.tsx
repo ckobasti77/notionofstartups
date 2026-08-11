@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import {
   Copy,
   ImageUp,
+  KeyRound,
   LoaderCircle,
   MailPlus,
   Plus,
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { MemberPasswordDialog } from "@/components/workspace/member-password-dialog";
 import type { StartupWithAreas } from "@/components/workspace/types";
 import { ProfileAvatar, StartupLogo } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
@@ -73,6 +75,7 @@ export function AdminDialog({
     api.invites.list,
     open && startup ? { startupId: startup._id, limit: 50 } : "skip",
   );
+  const current = useQuery(api.profiles.getCurrent, open ? {} : "skip");
   const [name, setName] = useState(startup?.name ?? "");
   const [description, setDescription] = useState(startup?.description ?? "");
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -81,6 +84,10 @@ export function AdminDialog({
   const [profileId, setProfileId] = useState<string>("");
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [passwordTarget, setPasswordTarget] = useState<{
+    profileId: Id<"profiles">;
+    displayName: string;
+  } | null>(null);
   const [now] = useState(() => Date.now());
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -185,6 +192,7 @@ export function AdminDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto p-0">
         <DialogHeader className="border-b px-6 py-5">
@@ -204,7 +212,7 @@ export function AdminDialog({
           ) : null}
         </DialogHeader>
         <Tabs defaultValue="startup" className="px-6 pb-6">
-          <TabsList className="mt-5 grid w-full grid-cols-3">
+          <TabsList className="mt-5 grid w-full grid-cols-4">
             <TabsTrigger value="startup">Startup</TabsTrigger>
             <TabsTrigger value="members" disabled={!startup}>
               Članovi
@@ -212,6 +220,7 @@ export function AdminDialog({
             <TabsTrigger value="invites" disabled={!startup}>
               Pozivi
             </TabsTrigger>
+            <TabsTrigger value="passwords">Lozinke</TabsTrigger>
           </TabsList>
           <TabsContent value="startup" className="mt-5">
             <form className="space-y-4" onSubmit={saveStartup}>
@@ -459,8 +468,67 @@ export function AdminDialog({
               })}
             </div>
           </TabsContent>
+          <TabsContent value="passwords" className="mt-5">
+            <p className="mb-3 text-xs leading-5 text-muted-foreground">
+              Postavi novu lozinku bilo kom članu iz svih startupova. Član se
+              odmah prijavljuje novom lozinkom; sve njegove/njene ranije prijave se
+              poništavaju.
+            </p>
+            <div className="space-y-2">
+              {profiles?.map((profile) => {
+                const isSelf = current?._id === profile._id;
+                return (
+                  <div
+                    key={profile._id}
+                    className="flex min-h-14 items-center gap-3 rounded-xl border border-border/70 px-3"
+                  >
+                    <ProfileAvatar profile={profile} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">
+                        {profile.displayName}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {profile.email}
+                      </span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {profile.role === "admin" ? "Admin" : "Član"}
+                    </span>
+                    {isSelf ? (
+                      <span className="text-xs text-muted-foreground">Ti</span>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setPasswordTarget({
+                            profileId: profile._id,
+                            displayName: profile.displayName,
+                          })
+                        }
+                      >
+                        <KeyRound /> Promeni lozinku
+                      </Button>
+                    )}
+                  </div>
+                );
+              }) ?? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  <UsersRound className="mx-auto mb-2 size-5" /> Učitavanje
+                  članova…
+                </p>
+              )}
+            </div>
+          </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>
+    <MemberPasswordDialog
+      target={passwordTarget}
+      onOpenChange={(next) => {
+        if (!next) setPasswordTarget(null);
+      }}
+    />
+    </>
   );
 }

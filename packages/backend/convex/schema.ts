@@ -1202,6 +1202,7 @@ export default defineSchema({
       v.literal("nesting_resolved"),
       v.literal("content_recovered"),
       v.literal("content_soft_deleted"),
+      v.literal("member_password_changed"),
     ),
     targetType: v.union(
       v.literal("startup"),

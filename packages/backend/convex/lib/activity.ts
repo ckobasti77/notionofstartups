@@ -23,7 +23,8 @@ type ActivityAction =
   | "nesting_requested"
   | "nesting_resolved"
   | "content_recovered"
-  | "content_soft_deleted";
+  | "content_soft_deleted"
+  | "member_password_changed";
 
 type ActivityTargetType =
   | "startup"

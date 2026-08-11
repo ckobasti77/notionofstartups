@@ -32,6 +32,7 @@ const activityActionValidator = v.union(
   v.literal("nesting_resolved"),
   v.literal("content_recovered"),
   v.literal("content_soft_deleted"),
+  v.literal("member_password_changed"),
 );
 
 const activityTargetTypeValidator = v.union(

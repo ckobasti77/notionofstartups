@@ -646,3 +646,51 @@ kanvasa i konverzija misli u stranicu.
 `canvasPlacement.getAvailableCanvasPosition` — pozicija se traži od kanvasa, ne
 pretpostavlja. Ako neki pozivalac poziciju bira sam, to mora biti eksplicitna namera
 (npr. drop na tačnu koordinatu), a ne difolt koji je neko zaboravio da prepiše.
+
+## Z6. Ručni reset lozinke člana (ako dugme „Promeni lozinku" pukne)
+
+Admin postavlja novu lozinku članu kroz `adminAuth.adminSetPassword` (web:
+„Lozinke" tab u `admin-dialog.tsx`; mobilni: ekran `/lozinke`, ulaz „Lozinke" u
+tabu „Više"). Ako taj put ikad otkaže, evo kako se ista stvar radi ručno — i
+zašto se lozinka nigde ne vidi kao tekst.
+
+**Preporučeno (CLI — odradi heširanje umesto tebe).**
+
+    npx convex run adminAuth:resetAdminPassword '{"email":"<član-email>","newPassword":"<nova-lozinka>"}'
+
+Pokreće se iz KORENA repoa (root `convex.json` cilja `packages/backend/convex`).
+`resetAdminPassword` je `internalAction` (nije u javnom API-ju, ne može sa
+klijenta) i — uprkos imenu — radi za BILO KOJI nalog, ne samo adminov: prima
+email i novu lozinku, provuče ih kroz `validatePasswordRequirements` i pozove
+`modifyAccountCredentials`. Ovaj Scrypt-uje novu lozinku i upiše je u
+`authAccounts.secret`; `profiles`/`users` ne dira.
+
+> Ako je taj deo `adminAuth.ts` u međuvremenu obrisan (komentar `resetAdminPassword`
+> kaže „obrisati posle upotrebe"), vrati jednolinijski `internalAction` koji zove
+> `modifyAccountCredentials(ctx, { provider: "password", account: { id:
+> normalizeEmail(email), secret: newPassword } })`. Ništa više nije potrebno.
+
+**Zašto NE editovati `authAccounts.secret` ručno u Convex dashboard-u.**
+
+`secret` je Scrypt heš (jednosmeran), a ne čist tekst. Zato:
+
+1. **Ne vidiš ničiju lozinku tamo.** Polje nikad ne pokazuje lozinku kao tekst —
+   samo heš. To je i poenta: lozinke se čuvaju tako da ih ni admin ni baza ne
+   znaju.
+2. **Ne možeš da zalepiš čist tekst.** Prijava poredi `Scrypt(uneto)` sa
+   sačuvanim hešom; ako u `secret` upišeš plaintext, poređenje nikad ne prolazi
+   → niko se ne prijavi. Zato ide `modifyAccountCredentials`, koji odradi heš.
+
+Nalog za člana se u tabeli `authAccounts` nalazi po `provider = "password"` i
+`providerAccountId = <normalizovan email člana>` (index `providerAndAccountId`).
+Email u `profiles.email` je već normalizovan (trim + lowercase) i jednak je
+`providerAccountId`.
+
+**Ručno izbacivanje sesija (ono što dugme radi automatski).**
+
+`adminSetPassword` posle promene poziva `invalidateSessions(ctx, { userId })` —
+sve žive sesije mete van, da samo neko ko zna NOVU lozinku može da uđe.
+`modifyAccountCredentials` (i CLI put gore) to NE radi sam. Ručno u dashboard-u:
+obriši sve redove u `authSessions` po indeksu `userId` za `userId =
+profiles.userId` tog člana, pa i pripadajuće `authRefreshTokens` (po `sessionId`).
+Bez toga stara sesija (na staroj lozinci) ostaje živa do isteka.
