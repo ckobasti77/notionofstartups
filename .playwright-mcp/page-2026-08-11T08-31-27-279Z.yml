@@ -1,0 +1,205 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e94]:
+    - complementary [ref=e95]:
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e106]:
+            - paragraph [ref=e107]: Devotion
+            - paragraph [ref=e108]: Tim u jednom toku
+          - button "Sakrij bočnu navigaciju" [ref=e109] [cursor=pointer]
+        - generic [ref=e110]:
+          - generic [ref=e112]:
+            - 'button "Izabrani startup: ScanMe. Promeni startup." [ref=e114] [cursor=pointer]':
+              - generic [ref=e115]: S
+              - generic [ref=e117]:
+                - generic [ref=e118]: Startup
+                - generic [ref=e119]: ScanMe
+            - generic [ref=e123]:
+              - button "Pretraži" [ref=e124] [cursor=pointer]
+              - button "Obaveštenja" [ref=e129] [cursor=pointer]
+              - button "Početna" [ref=e134] [cursor=pointer]
+              - button "Chat" [ref=e139] [cursor=pointer]
+              - button "Moje misli" [ref=e143] [cursor=pointer]:
+                - generic [ref=e153]: Samo ti
+              - button "Ideje" [ref=e154] [cursor=pointer]:
+                - generic [ref=e158]: Glasanje
+              - button "Odobrenja" [ref=e159] [cursor=pointer]
+              - button "Danas" [ref=e164] [cursor=pointer]
+              - button "Moji zadaci" [ref=e169] [cursor=pointer]
+              - button "Aktivnost" [ref=e174] [cursor=pointer]
+              - button "Puls" [ref=e178] [cursor=pointer]:
+                - generic [ref=e183]: Nedeljno
+          - separator "Promeni visinu glavne navigacije i oblasti" [ref=e184]
+          - generic [ref=e186]:
+            - generic [ref=e187]:
+              - paragraph [ref=e188]: Oblasti
+              - button "Nova oblast" [ref=e189] [cursor=pointer]
+            - generic [ref=e191]:
+              - generic [ref=e193]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e194]
+                - button "Prikaži Dev" [ref=e202] [cursor=pointer]
+                - button "Dev" [ref=e205] [cursor=pointer]
+                - generic [ref=e212]:
+                  - button "Izmeni naziv Dev" [ref=e213] [cursor=pointer]
+                  - button "Dodaj stranicu u Dev" [ref=e214] [cursor=pointer]
+              - generic [ref=e216]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e217]
+                - button "Prikaži Marketing notes" [ref=e225] [cursor=pointer]
+                - button "Marketing notes" [ref=e228] [cursor=pointer]
+                - generic [ref=e234]:
+                  - button "Izmeni naziv Marketing notes" [ref=e235] [cursor=pointer]
+                  - button "Dodaj stranicu u Marketing notes" [ref=e236] [cursor=pointer]
+              - generic [ref=e238]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e239]
+                - button "Prikaži Sales notes" [ref=e247] [cursor=pointer]
+                - button "Sales notes" [ref=e250] [cursor=pointer]
+                - generic [ref=e256]:
+                  - button "Izmeni naziv Sales notes" [ref=e257] [cursor=pointer]
+                  - button "Dodaj stranicu u Sales notes" [ref=e258] [cursor=pointer]
+              - generic [ref=e260]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e261]
+                - button "Prikaži Other notes" [ref=e269] [cursor=pointer]
+                - button "Other notes" [ref=e272] [cursor=pointer]
+                - generic [ref=e279]:
+                  - button "Izmeni naziv Other notes" [ref=e280] [cursor=pointer]
+                  - button "Dodaj stranicu u Other notes" [ref=e281] [cursor=pointer]
+              - generic [ref=e283]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e284]
+                - button "Prikaži Design" [ref=e292] [cursor=pointer]
+                - button "Design" [ref=e295] [cursor=pointer]
+                - generic [ref=e301]:
+                  - button "Izmeni naziv Design" [ref=e302] [cursor=pointer]
+                  - button "Dodaj stranicu u Design" [ref=e303] [cursor=pointer]
+              - generic [ref=e446]:
+                - generic [ref=e447]:
+                  - generic "Prevuci da promeniš redosled oblasti" [ref=e448]
+                  - button "Sakrij F7 Oblast" [expanded] [ref=e666] [cursor=pointer]
+                  - button "F7 Oblast" [ref=e459] [cursor=pointer]
+                  - generic [ref=e465]:
+                    - button "Izmeni naziv F7 Oblast" [ref=e466] [cursor=pointer]
+                    - button "Dodaj stranicu u F7 Oblast" [ref=e467] [cursor=pointer]
+                - generic [ref=e667]:
+                  - generic [ref=e1405]:
+                    - button "Prikaži podstranice za F7W zadatak web" [ref=e1406] [cursor=pointer]
+                    - button "F7W zadatak web" [ref=e1409] [cursor=pointer]
+                    - button "Dodaj podstranicu u F7W zadatak web" [ref=e1414] [cursor=pointer]
+                  - generic [ref=e971]:
+                    - button "Prikaži podstranice za F7 zadatak telefon" [ref=e972] [cursor=pointer]
+                    - button "F7 zadatak telefon" [ref=e975] [cursor=pointer]
+                    - button "Dodaj podstranicu u F7 zadatak telefon" [ref=e980] [cursor=pointer]
+                  - generic [ref=e982]:
+                    - button "Prikaži podstranice za F7W beleska web" [ref=e983] [cursor=pointer]
+                    - button "F7W beleska web" [ref=e986] [cursor=pointer]
+                    - button "Dodaj podstranicu u F7W beleska web" [ref=e991] [cursor=pointer]
+              - generic [ref=e489]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e490]
+                - button "Prikaži F7 Oblast B" [ref=e1439] [cursor=pointer]
+                - button "F7 Oblast B" [ref=e501] [cursor=pointer]
+                - generic [ref=e507]:
+                  - button "Izmeni naziv F7 Oblast B" [ref=e508] [cursor=pointer]
+                  - button "Dodaj stranicu u F7 Oblast B" [ref=e509] [cursor=pointer]
+        - button "Meni profila" [ref=e305] [cursor=pointer]:
+          - generic [ref=e306]: KM
+          - generic [ref=e308]:
+            - generic [ref=e309]: Kod Majstora
+            - generic [ref=e310]: Član tima
+      - separator "Promeni širinu bočne navigacije" [ref=e314]
+    - main [ref=e1440]:
+      - generic [ref=e1441]:
+        - generic [ref=e1442]:
+          - navigation "Putanja stranice" [ref=e1443]:
+            - button "Nazad na F7 Oblast B" [ref=e1444] [cursor=pointer]
+            - generic [ref=e1445]: ScanMe
+            - button "F7 Oblast B" [ref=e1448] [cursor=pointer]
+            - generic [ref=e1449]: F7 beleska Telefon
+          - article [ref=e1453]:
+            - generic [ref=e1455]:
+              - generic [ref=e1460]:
+                - textbox "Naslov stranice" [disabled]: F7 beleska Telefon
+                - generic [ref=e1461]:
+                  - generic [ref=e1462]: Osnovni sadržaj menja samo kreator
+                  - generic [ref=e1466]: Ažurirao/la Jovan Milojević
+              - button "Zatraži brisanje stranice" [ref=e1467] [cursor=pointer]
+            - generic [ref=e1468]:
+              - generic "Sadržaj stranice" [ref=e1471]:
+                - paragraph [ref=e1472]: Ovo je proba sa telefona za fazu sedam.
+              - region [ref=e1474]:
+                - generic [ref=e1488]:
+                  - heading "Povezane stavke" [level=2] [ref=e1489]
+                  - paragraph [ref=e1490]: Beleška se povezuje sa stavkom iz bilo koje oblasti.
+                - generic [ref=e1492]:
+                  - paragraph [ref=e1493]: Još nema povezanih stavki.
+                  - paragraph [ref=e1494]: Izaberi stavku ispod da bi kontekst i izvršenje ostali povezani.
+                - generic [ref=e1496]:
+                  - combobox "Izaberi stavku za povezivanje" [ref=e1497] [cursor=pointer]:
+                    - generic: Izaberi stavku…
+                  - button "Poveži" [disabled]
+              - region "Diskusija" [ref=e1501]:
+                - generic [ref=e1508]:
+                  - heading "Diskusija" [level=3] [ref=e1509]
+                  - paragraph [ref=e1510]: Započni razgovor tima o ovoj stavci.
+                - generic [ref=e1511]:
+                  - textbox "Napiši prvu poruku…" [ref=e1512]
+                  - button "Pošalji poruku" [disabled]
+              - generic [ref=e1513]:
+                - generic [ref=e1514]:
+                  - heading "Potpisani doprinosi članova (0)" [level=3] [ref=e1515]
+                  - generic [ref=e1516]: Svaki član ima svoj označen blok sa avatarom i vremenom
+                - generic [ref=e1517]: Još nema izmena članova.
+                - generic [ref=e1519]:
+                  - generic [ref=e1520]: "Dodaj svoj doprinos na ovoj stranici (sa tvojim avatarom i vremenom):"
+                  - textbox "Napiši tvoj deo teksta, zapažanja ili izmene..." [ref=e1521]
+                  - generic [ref=e1522]:
+                    - button "Objavi moj unos" [disabled]
+            - generic [ref=e1523]:
+              - generic [ref=e1524]:
+                - generic [ref=e1525]: JM
+                - generic [ref=e1527]:
+                  - text: Kreirao/la
+                  - strong [ref=e1528]: Jovan Milojević
+              - button "Podstranica" [ref=e1530] [cursor=pointer]
+        - region [ref=e1531]:
+          - generic [ref=e1532]:
+            - generic [ref=e1533]:
+              - paragraph [ref=e1534]: Zaseban kanvas
+              - heading "Podstavke za F7 beleska Telefon" [level=2] [ref=e1535]
+              - paragraph [ref=e1536]: Beleške i zadaci ispod ove stavke dele isti kontekst. Otvori karticu za njen kanvas ili detalje za brzo uređivanje.
+            - generic "Izaberi prikaz podstavki" [ref=e1538]:
+              - button "Kanvas" [pressed] [ref=e1539] [cursor=pointer]
+              - button "Lista" [ref=e1540] [cursor=pointer]
+          - generic [ref=e1541]:
+            - 'application "Kanvas F7 beleska Telefon: beleške i zadaci" [ref=e1542]':
+              - generic "Kontrole kanvasa poslovne oblasti" [ref=e1545]:
+                - button "Uvećaj prikaz" [ref=e1546] [cursor=pointer]
+                - button "Umanji prikaz" [ref=e1549] [cursor=pointer]
+                - button "Prikaži sve kartice" [ref=e1552] [cursor=pointer]
+              - img "Minimapa poslovne oblasti" [ref=e1556]
+              - generic [ref=e1558]:
+                - button "Poništi poslednju promenu" [disabled]
+                - button "Ponovi promenu" [disabled]
+                - generic [ref=e1559]: Dostupno je 0 poništavanja i 0 ponavljanja.
+              - toolbar "Akcije kanvasa F7 beleska Telefon" [ref=e1561]:
+                - generic "F7 beleska Telefon kanvas, 0 stavki" [ref=e1562]: "0"
+                - group "Kreiranje" [ref=e1568]:
+                  - 'button "Novo: Beleška" [ref=e1569] [cursor=pointer]'
+                  - 'button "Novo: Zadatak" [ref=e1574] [cursor=pointer]'
+                  - 'button "Novo: Fajl" [ref=e1579] [cursor=pointer]'
+                  - 'button "Novo: Tabela" [ref=e1583] [cursor=pointer]'
+                - radiogroup "Prikaz stavki na kanvasu" [ref=e1588]:
+                  - radio "Sve" [checked] [ref=e1589] [cursor=pointer]
+                  - radio "Beleška" [ref=e1596] [cursor=pointer]
+                  - radio "Zadatak" [ref=e1600] [cursor=pointer]
+                  - radio "Fajl" [ref=e1604] [cursor=pointer]
+                  - radio "Tabela" [ref=e1607] [cursor=pointer]
+              - generic [ref=e1611]:
+                - text: Prevuci karticu preko druge i pusti za ugnježđavanje · spoji tačke za vezu
+                - generic [ref=e1615]: 100%
+            - generic [ref=e1617]:
+              - heading "Kanvas je spreman za prvu karticu" [level=3] [ref=e1624]
+              - paragraph [ref=e1625]: Kreiraj prvu karticu u kanvasu F7 beleska Telefon. Kasnije je prevuci, poveži i otvori njen podkanvas.
+              - generic [ref=e1626]:
+                - button "Prvi zadatak" [ref=e1627] [cursor=pointer]
+                - button "Prva beleška" [ref=e1628] [cursor=pointer]
+  - region "Obaveštenja alt+T"
+  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]
+  - alert [ref=e93]

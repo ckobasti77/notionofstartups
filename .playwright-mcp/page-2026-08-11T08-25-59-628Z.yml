@@ -1,0 +1,355 @@
+- generic:
+  - generic:
+    - complementary:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - paragraph: Devotion
+              - paragraph: Tim u jednom toku
+          - button
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button:
+                  - generic: S
+                  - generic:
+                    - generic: Startup
+                    - generic: ScanMe
+              - generic:
+                - button:
+                  - generic: Pretraži
+                - button:
+                  - generic: Obaveštenja
+                - button:
+                  - generic: Početna
+                - button:
+                  - generic: Chat
+                - button:
+                  - generic: Moje misli
+                  - generic: Samo ti
+                - button:
+                  - generic: Ideje
+                  - generic: Glasanje
+                - button:
+                  - generic: Odobrenja
+                - button:
+                  - generic: Danas
+                - button:
+                  - generic: Moji zadaci
+                - button:
+                  - generic: Aktivnost
+                - button:
+                  - generic: Puls
+                  - generic: Nedeljno
+          - separator
+          - generic:
+            - generic:
+              - paragraph: Oblasti
+              - button
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Dev
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Marketing notes
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Sales notes
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Other notes
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Design
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button [expanded]
+                    - button:
+                      - generic: F7 Oblast
+                    - generic:
+                      - button
+                      - button
+                  - generic:
+                    - generic:
+                      - generic:
+                        - button
+                        - button:
+                          - generic: F7W zadatak web
+                        - button
+                    - generic:
+                      - generic:
+                        - button
+                        - button:
+                          - generic: F7 zadatak telefon
+                        - button
+                    - generic:
+                      - generic:
+                        - button
+                        - button:
+                          - generic: F7W beleska web
+                        - button
+                    - generic:
+                      - generic:
+                        - button
+                        - button:
+                          - generic: F7 beleska Telefon
+                        - button
+                - generic:
+                  - generic:
+                    - button [expanded]
+                    - button:
+                      - generic: F7 Oblast B
+                    - generic:
+                      - button
+                      - button
+                  - button: Prva stranica
+        - generic:
+          - button:
+            - generic: KM
+            - generic:
+              - generic: Kod Majstora
+              - generic: Član tima
+      - separator
+    - generic:
+      - main:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - paragraph: ScanMe
+                - generic:
+                  - heading [level=1]: F7 Oblast B
+                - paragraph: Korisnički definisana oblast startupa
+            - generic:
+              - button: Nova oblast
+          - generic:
+            - region "Glavni kontekst za F7 Oblast B":
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - paragraph: Briefing oblasti
+                      - heading [level=2]: Glavni kontekst za F7 Oblast B
+                  - generic: Briefing uređuje kreator startupa
+                - textbox:
+                  - /placeholder: Kreator startupa još nije dodao briefing za ovu oblast.
+            - region:
+              - generic:
+                - generic:
+                  - paragraph: Timski kontekst
+                  - heading [level=3]: Potpisani doprinosi za F7 Oblast B
+                - paragraph: Svaki unos zadržava autora i vreme.
+              - generic:
+                - generic: Još nema doprinosa članova u ovoj oblasti.
+                - generic:
+                  - generic: Dodaj svoj potpisani kontekst
+                  - textbox:
+                    - /placeholder: Dodaj zapažanje, odluku ili kontekst koji treba da vidi ceo tim…
+                  - generic:
+                    - button [disabled]: Objavi moj doprinos
+          - region "Sadržaj oblasti":
+            - generic:
+              - generic:
+                - paragraph: Radni prostor oblasti
+                - heading [level=2]: Beleške, zadaci i njihove veze
+              - generic:
+                - generic:
+                  - button [pressed]: Kanvas
+                  - button: Lista
+            - generic:
+              - 'application "Kanvas F7 Oblast B: beleške i zadaci"':
+                - generic:
+                  - button
+                  - button
+                  - button
+                - generic:
+                  - generic:
+                    - button [disabled]
+                    - button [disabled]
+                    - generic: Dostupno je 0 poništavanja i 0 ponavljanja.
+                - generic:
+                  - toolbar:
+                    - generic: "0"
+                    - group:
+                      - button
+                      - button
+                      - button
+                      - button
+                    - generic:
+                      - radiogroup:
+                        - radio [checked]
+                        - radio
+                        - radio
+                        - radio
+                        - radio
+                - generic:
+                  - generic:
+                    - text: Prevuci karticu preko druge i pusti za ugnježđavanje · spoji tačke za vezu
+                    - generic: 100%
+              - generic [ref=e644]:
+                - heading [level=3] [ref=e995]: Kanvas je spreman za prvu karticu
+                - paragraph [ref=e652]: Kreiraj prvu karticu u kanvasu F7 Oblast B. Kasnije je prevuci, poveži i otvori njen podkanvas.
+                - generic [ref=e653]:
+                  - button [ref=e996] [cursor=pointer]: Prvi zadatak
+                  - button [ref=e997] [cursor=pointer]: Prva beleška
+  - region "Obaveštenja alt+T":
+    - list:
+      - listitem:
+        - button "Close toast"
+        - generic: Checkpoint je dodat.
+  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]
+  - alert
+  - dialog [ref=e1132]:
+    - generic [ref=e1133]:
+      - generic [ref=e1134]:
+        - heading "Detalji sadržaja" [level=2] [ref=e1135]
+        - paragraph [ref=e1136]: Pročitaj i izmeni belešku ili zadatak bez napuštanja trenutnog prikaza.
+      - generic [ref=e1137]: Detalji stavke
+      - group "Veličina oblačića" [ref=e1142]:
+        - generic [ref=e1144]:
+          - button "Kompaktan" [ref=e1145] [cursor=pointer]
+          - button "Standard" [ref=e1147] [cursor=pointer]
+          - button "Velik" [ref=e1149] [cursor=pointer]
+        - button "Vrati početnu veličinu" [ref=e1151] [cursor=pointer]
+      - button "Puni prikaz" [ref=e1152] [cursor=pointer]
+    - generic [ref=e1154]:
+      - navigation "Putanja stranice" [ref=e1155]:
+        - generic [ref=e1156]: ScanMe
+        - button "F7 Oblast" [ref=e1159] [cursor=pointer]
+        - generic [ref=e1160]: F7W zadatak web
+      - article [ref=e1164]:
+        - generic [ref=e1165]:
+          - generic [ref=e1166]:
+            - generic [ref=e1171]:
+              - textbox "Naslov stranice" [ref=e1172]: F7W zadatak web
+              - generic [ref=e1173]:
+                - generic [ref=e1174]: Sačuvano
+                - generic [ref=e1177]: Ažurirao/la Kod Majstora
+            - button "Arhiviraj stranicu" [ref=e1178] [cursor=pointer]
+          - generic [ref=e1179]:
+            - generic [ref=e1180]:
+              - generic [ref=e1181]: Status
+              - combobox "Status zadatka" [ref=e1182] [cursor=pointer]:
+                - generic: U toku
+            - generic [ref=e1185]:
+              - generic [ref=e1186]: Prioritet
+              - combobox "Prioritet zadatka" [ref=e1187] [cursor=pointer]:
+                - generic: Visok
+            - generic [ref=e1190]:
+              - generic [ref=e1191]: Izvršioci
+              - 'button "Izvršioci: Kod Majstora" [ref=e1343] [cursor=pointer]':
+                - generic "Kod Majstora" [ref=e1344]:
+                  - generic [ref=e1345]: KM
+                  - generic [ref=e1349]: "Dodeljeno: Kod Majstora"
+            - generic [ref=e1194]:
+              - generic [ref=e1195]: Rok
+              - textbox "Rok" [ref=e1196]: 2026-08-12
+        - generic [ref=e1197]:
+          - generic [ref=e1199]:
+            - generic [ref=e1200]:
+              - generic [ref=e1201]:
+                - heading "Instrukcije" [level=3] [ref=e1203]
+                - generic [ref=e1204]: 48/20.000
+              - generic [ref=e1205]:
+                - textbox "Instrukcije zadatka" [ref=e1206]:
+                  - /placeholder: Napiši šta treba uraditi i koji rezultat se očekuje…
+                  - text: Uraditi pregled i objaviti rezime timu do sutra.
+                - generic [ref=e1207]: Instrukcije su sačuvane.
+            - region "Checkpointi zadatka" [ref=e1209]:
+              - generic [ref=e1210]:
+                - generic [ref=e1211]:
+                  - generic [ref=e1215]: Podzadaci / Checkpointi
+                  - generic [ref=e1216]: 0/2
+                - generic [ref=e1350]:
+                  - button "Poveži sve" [ref=e1364] [cursor=pointer]
+                  - progressbar "Napredak checkpointa" [ref=e1351]
+              - generic [ref=e1217]:
+                - generic [ref=e1218]:
+                  - textbox "Novi checkpoint" [active] [ref=e1219]:
+                    - /placeholder: Dodaj novi checkpoint...
+                  - button "Dodaj" [disabled]
+                - generic [ref=e1352]:
+                  - 'article "Checkpoint broj 1: Pregled materijala" [ref=e1354]':
+                    - generic [ref=e1355]:
+                      - generic [ref=e1356]: "#1"
+                      - 'button "Završi checkpoint broj 1: Pregled materijala" [ref=e1357] [cursor=pointer]'
+                      - paragraph [ref=e1360]: Pregled materijala
+                      - 'button "Dodaj doprinos: Pregled materijala" [ref=e1361] [cursor=pointer]'
+                      - 'button "Uredi checkpoint: Pregled materijala" [ref=e1362] [cursor=pointer]'
+                      - 'button "Obriši checkpoint: Pregled materijala" [ref=e1363] [cursor=pointer]'
+                  - 'article "Checkpoint broj 2: Rezime za tim" [ref=e1366]':
+                    - generic [ref=e1367]:
+                      - generic [ref=e1368]: "#2"
+                      - 'button "Završi checkpoint broj 2: Rezime za tim" [ref=e1369] [cursor=pointer]'
+                      - paragraph [ref=e1372]: Rezime za tim
+                      - 'button "Dodaj doprinos: Rezime za tim" [ref=e1373] [cursor=pointer]'
+                      - button "Veži checkpoint broj 2 za prethodni" [ref=e1374] [cursor=pointer]
+                      - 'button "Uredi checkpoint: Rezime za tim" [ref=e1375] [cursor=pointer]'
+                      - 'button "Obriši checkpoint: Rezime za tim" [ref=e1376] [cursor=pointer]'
+          - region [ref=e1222]:
+            - generic [ref=e1236]:
+              - heading "Povezane stavke" [level=2] [ref=e1237]
+              - paragraph [ref=e1238]: Zadatak se povezuje sa stavkom iz bilo koje oblasti.
+            - generic [ref=e1240]:
+              - paragraph [ref=e1241]: Još nema povezanih stavki.
+              - paragraph [ref=e1242]: Izaberi stavku ispod da bi kontekst i izvršenje ostali povezani.
+            - generic [ref=e1244]:
+              - combobox "Izaberi stavku za povezivanje" [ref=e1245] [cursor=pointer]:
+                - generic: Izaberi stavku…
+              - button "Poveži" [disabled]
+          - region "Diskusija" [ref=e1249]:
+            - generic [ref=e1256]:
+              - heading "Diskusija" [level=3] [ref=e1257]
+              - paragraph [ref=e1258]: Započni razgovor tima o ovoj stavci.
+            - generic [ref=e1259]:
+              - textbox "Napiši prvu poruku…" [ref=e1260]
+              - button "Pošalji poruku" [disabled]
+          - generic [ref=e1261]:
+            - generic [ref=e1262]:
+              - heading "Potpisani doprinosi članova (0)" [level=3] [ref=e1263]
+              - generic [ref=e1264]: Svaki član ima svoj označen blok sa avatarom i vremenom
+            - generic [ref=e1265]: Još nema izmena članova.
+            - generic [ref=e1267]:
+              - generic [ref=e1268]: "Dodaj svoj doprinos na ovoj stranici (sa tvojim avatarom i vremenom):"
+              - textbox "Napiši tvoj deo teksta, zapažanja ili izmene..." [ref=e1269]
+              - generic [ref=e1270]:
+                - button "Objavi moj unos" [disabled]
+    - contentinfo [ref=e1271]:
+      - generic [ref=e1272]:
+        - generic [ref=e1273]: KM
+        - generic [ref=e1275]:
+          - text: Kreirao/la
+          - strong [ref=e1276]: Kod Majstora
+      - generic [ref=e1277]:
+        - button "Premesti F7W zadatak web u drugu oblast" [ref=e1278] [cursor=pointer]: Premesti u…
+        - button "Podstranica" [ref=e1279] [cursor=pointer]
+    - button "Zatvori" [ref=e1280] [cursor=pointer]

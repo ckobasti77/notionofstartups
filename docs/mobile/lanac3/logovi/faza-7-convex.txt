@@ -1,0 +1,6 @@
+▌ Showing logs of deployment:
+▌ [Development] ckobasti77:notion-clone:dev/jovan-milojevic (dev) (dashboard: https://dashboard.convex.dev/t/ckobasti77/notion-clone/deafening-otter-504)
+▌ └─ https://deafening-otter-504.eu-west-1.convex.cloud
+Watching logs for dev deployment deafening-otter-504...
+8/11/2026, 9:58:55 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: modifyAccount'
+8/11/2026, 9:59:01 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: modifyAccount'

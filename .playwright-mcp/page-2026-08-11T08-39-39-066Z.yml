@@ -1,0 +1,140 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e94]:
+    - complementary [ref=e95]:
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e106]:
+            - paragraph [ref=e107]: Devotion
+            - paragraph [ref=e108]: Tim u jednom toku
+          - button "Sakrij bočnu navigaciju" [ref=e109] [cursor=pointer]
+        - generic [ref=e110]:
+          - generic [ref=e112]:
+            - 'button "Izabrani startup: ScanMe. Promeni startup." [ref=e114] [cursor=pointer]':
+              - generic [ref=e115]: S
+              - generic [ref=e117]:
+                - generic [ref=e118]: Startup
+                - generic [ref=e119]: ScanMe
+            - generic [ref=e123]:
+              - button "Pretraži" [ref=e124] [cursor=pointer]
+              - button "Obaveštenja" [ref=e129] [cursor=pointer]:
+                - generic [ref=e2553]: "2"
+              - button "Početna" [ref=e134] [cursor=pointer]
+              - button "Chat" [ref=e139] [cursor=pointer]
+              - button "Moje misli" [ref=e143] [cursor=pointer]:
+                - generic [ref=e153]: Samo ti
+              - button "Ideje" [ref=e154] [cursor=pointer]:
+                - generic [ref=e158]: Glasanje
+              - button "Odobrenja" [ref=e159] [cursor=pointer]
+              - button "Danas" [ref=e164] [cursor=pointer]
+              - button "Moji zadaci" [ref=e169] [cursor=pointer]
+              - button "Aktivnost" [ref=e174] [cursor=pointer]
+              - button "Puls" [ref=e178] [cursor=pointer]:
+                - generic [ref=e183]: Nedeljno
+          - separator "Promeni visinu glavne navigacije i oblasti" [ref=e184]
+          - generic [ref=e186]:
+            - generic [ref=e187]:
+              - paragraph [ref=e188]: Oblasti
+              - button "Nova oblast" [ref=e189] [cursor=pointer]
+            - generic [ref=e191]:
+              - generic [ref=e193]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e194]
+                - button "Prikaži Dev" [ref=e202] [cursor=pointer]
+                - button "Dev" [ref=e205] [cursor=pointer]
+                - generic [ref=e212]:
+                  - button "Izmeni naziv Dev" [ref=e213] [cursor=pointer]
+                  - button "Dodaj stranicu u Dev" [ref=e214] [cursor=pointer]
+              - generic [ref=e216]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e217]
+                - button "Prikaži Marketing notes" [ref=e225] [cursor=pointer]
+                - button "Marketing notes" [ref=e228] [cursor=pointer]
+                - generic [ref=e234]:
+                  - button "Izmeni naziv Marketing notes" [ref=e235] [cursor=pointer]
+                  - button "Dodaj stranicu u Marketing notes" [ref=e236] [cursor=pointer]
+              - generic [ref=e238]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e239]
+                - button "Prikaži Sales notes" [ref=e247] [cursor=pointer]
+                - button "Sales notes" [ref=e250] [cursor=pointer]
+                - generic [ref=e256]:
+                  - button "Izmeni naziv Sales notes" [ref=e257] [cursor=pointer]
+                  - button "Dodaj stranicu u Sales notes" [ref=e258] [cursor=pointer]
+              - generic [ref=e260]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e261]
+                - button "Prikaži Other notes" [ref=e269] [cursor=pointer]
+                - button "Other notes" [ref=e272] [cursor=pointer]
+                - generic [ref=e279]:
+                  - button "Izmeni naziv Other notes" [ref=e280] [cursor=pointer]
+                  - button "Dodaj stranicu u Other notes" [ref=e281] [cursor=pointer]
+              - generic [ref=e283]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e284]
+                - button "Prikaži Design" [ref=e292] [cursor=pointer]
+                - button "Design" [ref=e295] [cursor=pointer]
+                - generic [ref=e301]:
+                  - button "Izmeni naziv Design" [ref=e302] [cursor=pointer]
+                  - button "Dodaj stranicu u Design" [ref=e303] [cursor=pointer]
+              - generic [ref=e446]:
+                - generic [ref=e447]:
+                  - generic "Prevuci da promeniš redosled oblasti" [ref=e448]
+                  - button "Sakrij F7 Oblast" [expanded] [ref=e666] [cursor=pointer]
+                  - button "F7 Oblast" [ref=e459] [cursor=pointer]
+                  - generic [ref=e465]:
+                    - button "Izmeni naziv F7 Oblast" [ref=e466] [cursor=pointer]
+                    - button "Dodaj stranicu u F7 Oblast" [ref=e467] [cursor=pointer]
+                - generic [ref=e667]:
+                  - generic [ref=e2557]:
+                    - button "Prikaži podstranice za F7W roditelj" [ref=e2558] [cursor=pointer]
+                    - button "F7W roditelj" [ref=e2561] [cursor=pointer]
+                    - button "Dodaj podstranicu u F7W roditelj" [ref=e2566] [cursor=pointer]
+                  - generic [ref=e1405]:
+                    - button "Prikaži podstranice za F7W zadatak web" [ref=e1406] [cursor=pointer]
+                    - button "F7W zadatak web" [ref=e1409] [cursor=pointer]
+                    - button "Dodaj podstranicu u F7W zadatak web" [ref=e1414] [cursor=pointer]
+                  - generic [ref=e971]:
+                    - button "Prikaži podstranice za F7 zadatak telefon" [ref=e972] [cursor=pointer]
+                    - button "F7 zadatak telefon" [ref=e975] [cursor=pointer]
+                    - button "Dodaj podstranicu u F7 zadatak telefon" [ref=e980] [cursor=pointer]
+              - generic [ref=e489]:
+                - generic "Prevuci da promeniš redosled oblasti" [ref=e490]
+                - button "Prikaži F7 Oblast B" [ref=e1439] [cursor=pointer]
+                - button "F7 Oblast B" [ref=e501] [cursor=pointer]
+                - generic [ref=e507]:
+                  - button "Izmeni naziv F7 Oblast B" [ref=e508] [cursor=pointer]
+                  - button "Dodaj stranicu u F7 Oblast B" [ref=e509] [cursor=pointer]
+        - button "Meni profila" [ref=e305] [cursor=pointer]:
+          - generic [ref=e306]: KM
+          - generic [ref=e308]:
+            - generic [ref=e309]: Kod Majstora
+            - generic [ref=e310]: Član tima
+      - separator "Promeni širinu bočne navigacije" [ref=e314]
+    - main [ref=e2567]:
+      - generic [ref=e2568]:
+        - generic [ref=e2570]:
+          - generic [ref=e2571]:
+            - paragraph [ref=e2572]: Timske odluke
+            - heading "Odobrenja" [level=1] [ref=e2573]
+            - paragraph [ref=e2574]: Ovde nema administratorskog prečaca. Tuđ sadržaj se uklanja tek kada svi članovi iz početnog biračkog tela glasaju ZA.
+          - generic [ref=e2575]: Sve je rešeno
+        - generic [ref=e2576]:
+          - tablist [ref=e2577]:
+            - tab "Za moj glas" [ref=e2578] [cursor=pointer]
+            - tab "Ugnježđavanje" [selected] [ref=e2644] [cursor=pointer]
+            - tab "Moji zahtevi" [ref=e2581] [cursor=pointer]
+            - tab "Oporavljeno" [ref=e2582] [cursor=pointer]
+            - tab "Istorija" [ref=e2583] [cursor=pointer]
+          - tabpanel "Ugnježđavanje" [ref=e2645]:
+            - generic [ref=e2599]:
+              - generic [ref=e2607]:
+                - heading "Stranice koje čekaju tvoju odluku" [level=2] [ref=e2608]
+                - paragraph [ref=e2609]: Odobri da stranica uđe u roditeljski kanvas ili odbij zahtev bez pomeranja sadržaja.
+              - generic [ref=e2610]: Nema zahteva za ugnježđavanje stranica.
+            - generic [ref=e2629]:
+              - generic [ref=e2637]:
+                - heading "Zahtevi za tvoj čvor ideje" [level=2] [ref=e2638]
+                - paragraph [ref=e2639]: Odobrenjem kartica fizički ulazi u tvoju karticu i od tada se pomera zajedno sa njom.
+              - generic [ref=e2640]: Nema zahteva za ugnježđavanje.
+  - region "Obaveštenja alt+T":
+    - list:
+      - listitem [ref=e2649]:
+        - button "Close toast" [ref=e2650] [cursor=pointer]
+        - generic [ref=e2657]: Ugnježđavanje stranice je odobreno.
+  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]
+  - alert [ref=e93]

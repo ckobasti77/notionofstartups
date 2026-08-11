@@ -1,0 +1,215 @@
+- generic:
+  - generic:
+    - complementary:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - paragraph: Devotion
+              - paragraph: Tim u jednom toku
+          - button
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button:
+                  - generic: S
+                  - generic:
+                    - generic: Startup
+                    - generic: ScanMe
+              - generic:
+                - button:
+                  - generic: Pretraži
+                - button:
+                  - generic: Obaveštenja
+                - button:
+                  - generic: Početna
+                - button:
+                  - generic: Chat
+                - button:
+                  - generic: Moje misli
+                  - generic: Samo ti
+                - button:
+                  - generic: Ideje
+                  - generic: Glasanje
+                - button:
+                  - generic: Odobrenja
+                - button:
+                  - generic: Danas
+                - button:
+                  - generic: Moji zadaci
+                - button:
+                  - generic: Aktivnost
+                - button:
+                  - generic: Puls
+                  - generic: Nedeljno
+          - separator
+          - generic:
+            - generic:
+              - paragraph: Oblasti
+              - button
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Dev
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Marketing notes
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Sales notes
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Other notes
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: Design
+                    - generic:
+                      - button
+                      - button
+                - generic:
+                  - generic:
+                    - button
+                    - button:
+                      - generic: F7 Oblast
+                    - generic:
+                      - button
+                      - button
+        - generic:
+          - button:
+            - generic: KM
+            - generic:
+              - generic: Kod Majstora
+              - generic: Član tima
+      - separator
+    - generic:
+      - main:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - paragraph: ScanMe
+                - heading [level=1]: Komandni centar
+                - paragraph: "Trijaža za danas: šta gori, šta je na redu i ko je preopterećen."
+              - button: Novi zadatak
+            - generic:
+              - group:
+                - button
+                - button
+          - generic:
+            - group:
+              - button [pressed]:
+                - generic:
+                  - generic: Svi
+                  - generic:
+                    - generic:
+                      - generic: "6"
+                      - text: otvoreno
+              - button:
+                - generic: KM
+                - generic:
+                  - generic: Kod Majstora
+                  - generic:
+                    - generic:
+                      - generic: "0"
+                      - text: otvoreno
+              - button:
+                - generic: JM
+                - generic:
+                  - generic: Jovan Milojević
+                  - generic:
+                    - generic:
+                      - generic: "0"
+                      - text: otvoreno
+              - button:
+                - generic:
+                  - generic: Nedodeljeno
+                  - generic:
+                    - generic:
+                      - generic: "6"
+                      - text: otvoreno
+          - generic:
+            - region:
+              - generic:
+                - heading [level=2]: Gori
+                - generic: "0"
+                - paragraph: Rok je prošao, hitno je ili je blokirano
+              - generic:
+                - paragraph: Ništa ne gori. Tim diše.
+            - region:
+              - generic:
+                - heading [level=2]: Danas
+                - generic: "1"
+                - paragraph: Rok je danas
+              - generic:
+                - generic:
+                  - generic:
+                    - button:
+                      - generic:
+                        - generic: E7 zadatak sa datumom
+                        - generic:
+                          - generic: ·
+                          - generic:
+                            - generic: Nedodeljeno
+                            - generic: Nedodeljeno
+                    - generic:
+                      - time:
+                        - generic: danas
+                      - generic: Srednji
+                      - generic:
+                        - combobox [disabled]:
+                          - generic: Backlog
+                        - textbox [disabled]: 2026-08-11
+                        - button: Priključi se
+            - region:
+              - generic:
+                - heading [level=2]: Ova nedelja
+                - generic: "0"
+                - paragraph: Rok u narednih sedam dana
+              - generic:
+                - paragraph: Slobodna nedelja ispred.
+            - region:
+              - generic:
+                - heading [level=2]: Kasnije i bez roka
+                - generic: "5"
+                - paragraph: Nema roka ili je dalji od nedelje
+                - button: Prikaži
+  - region "Obaveštenja alt+T"
+  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]
+  - alert
+  - dialog [ref=e469]:
+    - generic [ref=e470]:
+      - generic [ref=e471]:
+        - heading [level=2] [ref=e472]
+        - paragraph [ref=e476]: Kreiraj novu oblast u timskom prostoru startupa ScanMe.
+      - generic [ref=e478]:
+        - generic [ref=e479]: Naziv oblasti
+        - textbox "Naziv oblasti" [active] [ref=e480]:
+          - /placeholder: npr. HR, Finansije, Logistika...
+      - generic [ref=e481]:
+        - button "Otkaži" [ref=e482] [cursor=pointer]
+        - button "Kreiraj" [disabled]
+    - button "Zatvori" [ref=e483] [cursor=pointer]

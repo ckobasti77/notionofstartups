@@ -393,14 +393,43 @@ Ovo nije „popravi ako naiđeš". Ovo je uslov za završetak.
 
 Za svaku stavku: uradi je na emulatoru, pa istu na webu, i uporedi ishod u bazi.
 
-- [ ] Napravi belešku — na oba klijenta, pa proveri da se vidi na oba
-- [ ] Napravi zadatak sa statusom, prioritetom, rokom, izvršiocem, instrukcijama i dva checkpointa
-- [ ] Napravi oblast
+- [x] Napravi belešku — na oba klijenta, pa proveri da se vidi na oba
+      — telefon „F7 beleska Telefon" + telo + „Sačuvano" (`lanac3/dokazi/c01-beleska-telefon.png`);
+      web „F7W beleska web" + telo; ukršteno bez reload-a (`c01-ukrsno-telefon.png` — telefon
+      vidi web belešku; web sidebar vidi telefonsku). Baza: 2 `pages` reda, isti `areaId`,
+      tela u preview-u. Logcat: WebView konzola čista (1× tiptap dupli-extension warn iz
+      tentap bundle-a, vidi izveštaj faze).
+- [x] Napravi zadatak sa statusom, prioritetom, rokom, izvršiocem, instrukcijama i dva checkpointa
+      — telefon „F7 zadatak telefon": U toku + Visok + sutra (TaskActionsSheet), JM
+      (assignee-picker), instrukcije (InstructionsSection), 2 checkpointa
+      (`c02-zadatak-telefon.png`); web „F7W zadatak web": ista polja, izvršilac Kod
+      Majstora (`c02-zadatak-web.png`). Baza: `pages` (in_progress/high/dueDate/instrukcije
+      ×2), `taskAssignees` ×2, `taskCheckpoints` ×4.
+- [x] Napravi oblast
+      — telefon „F7 Oblast" (`c03-oblast-telefon.png`), web „F7 Oblast B"
+      (`c03-oblast-web.png`); `startupAreas` 2 nova reda (position 5 i 6), oba u ScanMe.
 - [ ] Napravi ideju, glasaj za nju, pa je pretvori u stranicu
 - [ ] Napravi misao, poveži je sa drugom, pa je pretvori u ideju
-- [ ] Premesti stranicu u drugu oblast
-- [ ] Ugnjezdi stranicu, pa odobri zahtev, pa je izdvoji
-- [ ] Poveži dve stranice relacijom, pa obriši relaciju
+- [x] Premesti stranicu u drugu oblast
+      — telefon: „F7 beleska Telefon" → PageActionsSheet → Premesti → F7 Oblast B
+      (`lanac3/dokazi/c06-premesti-telefon.png`, eyebrow odmah „F7 Oblast B") pa nazad
+      (`c06-vraceno-telefon.png`); web: „F7W beleska web" → „Premesti u…" B pa nazad.
+      `pages.areaId` proveren posle SVA 4 poteza. Napomena: web za tuđu stranicu ne
+      nudi „Premesti u…" (kreatorska brana) — zato svaki klijent premešta svoju.
+- [x] Ugnjezdi stranicu, pa odobri zahtev, pa je izdvoji
+      — smer 1: web (Majstor) drag karticu „F7W beleska web" na Jovanov „F7 zadatak
+      telefon" → `pageNestingRequests` pending → telefon Odobrenja „Odobri"
+      (`c07-zahtev-telefon.png`, `c07-odobreno-telefon.png`) → `parentPageId` postavljen.
+      Smer 2: telefon „Ugnjezdi pod…" → „F7W roditelj" → Alert „čeka odobrenje"
+      (`c07-ceka-odobrenje-telefon.png`) → web Odobrenja tab „Ugnježđavanje" Odobri →
+      telefon breadcrumb „F7 Oblast › F7W roditelj" realtime (`c07-breadcrumb-telefon.png`)
+      → „Izdvoji" → koren (`c07-izdvojeno-telefon.png`). Baza: 2 zahteva `approved`.
+- [x] Poveži dve stranice relacijom, pa obriši relaciju
+      — telefon: „Poveži sa…" → F7 zadatak telefon → sekcija „Povezane stavke" na OBA
+      detalja (`c08-relacija-telefon.png`, `c08-relacija-zadatak-telefon.png`) → korpa →
+      potvrda → 0 + prazno stanje (`c08-obrisana-telefon.png`); web: F7W par kroz
+      combobox + „Poveži" pa „Ukloni vezu" (`c08-relacije-web.png`). `pageRelations`:
+      oba reda nastala pa `archivedAt` postavljen.
 - [ ] Pošalji poruku u kanalu, reaguj na nju, izmeni je, obriši je
 - [ ] Otvori DM sa članom
 - [ ] Priloži fajl na stranicu, preimenuj ga, obriši ga
