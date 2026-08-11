@@ -12,7 +12,7 @@ import {
   ThoughtConversionSheet,
   type ThoughtConversionNode,
 } from '@/components/misli/thought-conversion-sheet';
-import { ThoughtUndoBar } from '@/components/misli/thought-undo-bar';
+import { UndoBar } from '@/components/undo-bar';
 import { FAB } from '@/components/ui/fab';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
@@ -296,7 +296,7 @@ export default function MisliScreen() {
             onClose={() => setConversionNodes(null)}
           />
           {/* Iznad FAB-a (56 + razmak) da „Poništi" ne legne pod dugme. */}
-          <ThoughtUndoBar bottomOffset={72} />
+          <UndoBar bottomOffset={72} />
         </>
       ) : null}
     </View>

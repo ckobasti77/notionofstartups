@@ -9,7 +9,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import { pushThoughtUndo } from '@/lib/thought-undo';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, text } from '@/theme/tokens';
 
@@ -90,7 +90,10 @@ export function ThoughtEdgeSheet({
             await archiveEdges({ edgeIds: [target.edgeId] });
             // Ručno prekinuta veza se NE vraća sama uz čvor — traka „Poništi"
             // (`restoreEdges`) je jedini put nazad.
-            pushThoughtUndo({ label: 'Veza je prekinuta.', edgeIds: [target.edgeId] });
+            pushUndo({
+              label: 'Veza je prekinuta.',
+              action: { kind: 'thoughts', nodeIds: [], edgeIds: [target.edgeId] },
+            });
             haptics.success();
             onClose();
           } catch (error) {

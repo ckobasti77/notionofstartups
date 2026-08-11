@@ -252,7 +252,11 @@ posao od ~1 nedelje iz `00-PLAN.md` §5.1, ne popravka nalaza.
 
 **Ovo nije rubni slučaj.** To je svaka bogatija beleška napisana na laptopu.
 
-### 5.2 Arhiviranje / brisanje stranice ne postoji na mobilnom
+### 5.2 Arhiviranje / brisanje stranice ne postoji na mobilnom — REŠENO (A5, 10.08.)
+
+> **REŠENO:** `page-actions-sheet.tsx` (`archiveOrRequest`: vlasnik →
+> `areasV2.archivePage`, ostali → `collaboration.requestDeletion`); dokazi u
+> PARITET A5. Tekst ispod je istorijat.
 
 **Stanje.** Web `page-editor-view.tsx` ima `archive()`: autor briše direktno,
 ostali pokreću `collaboration.requestDeletion` sa `target.kind: "page"`. Mobilni
@@ -268,7 +272,11 @@ znači prećutati. Zato: zapisano, ne urađeno.
 poziva koja mobilni već radi za ideju i checkpoint (`archive` vs
 `requestDeletion`), plus red u `PageActionsSheet`.
 
-### 5.3 Admin ekran (startupi, logo, članovi) ne postoji na mobilnom
+### 5.3 Admin ekran (startupi, logo, članovi) ne postoji na mobilnom — REŠENO (A2, 10.08.)
+
+> **REŠENO:** ekran `admin-startup.tsx` + `create-startup-sheet` +
+> `add-member-sheet` + akcije u `clanovi.tsx`; dokazi u PARITET A2. Tekst ispod
+> je istorijat.
 
 **Stanje.** Web `admin-dialog.tsx` pokriva `startups.create`, `update`,
 `generateLogoUploadUrl`, `setLogo`, `removeLogo`, `addMember`, `removeMember`,
@@ -282,7 +290,11 @@ tehnički put poznat; nedostaje samo ekran.
 **USLOV.** Zaseban korak, ne repovi noćnog lanca. Redosled po vrednosti:
 kreiranje startupa → izmena naziva/opisa → logo → dodavanje/uklanjanje člana.
 
-### 5.4 Ideja se ne može pretvoriti u stranicu (`ideas.convertToPage`)
+### 5.4 Ideja se ne može pretvoriti u stranicu (`ideas.convertToPage`) — REŠENO (Faza 5, 11.08.)
+
+> **REŠENO:** `idea-convert-sheet.tsx` (vrsta + oblast, navigacija na rezultat),
+> ulaz kroz `idea-actions-sheet.tsx`; dokazi u PARITET A4. Tekst ispod je
+> istorijat.
 
 **Stanje.** Na mobilnom se ideja sada može napraviti, pročitati, izmeniti,
 obrisati, prokomentarisati i za nju glasati — ali ne i **pretvoriti** u zadatak
@@ -303,8 +315,9 @@ ima stvarno mesto poziva na mobilnom — native lista `/misli` (radi bez WebView
 detalj `/misao/[id]` (napajan `getConnectedGroup`), `thought-actions-sheet`
 (poveži/ugnjezdi/izdvoji/glavna/dupliraj/veličina/arhiviraj), `thought-edge-sheet`
 (naziv + prekid veze), `thought-conversion-sheet` (misao → ideja; ulazi sa detalja,
-liste i multi-selekcije na kanvasu) i traka „Poništi" (`thought-undo-bar` +
-`lib/thought-undo.ts`). Dokazi po funkciji: PARITET.md A1.
+liste i multi-selekcije na kanvasu) i traka „Poništi" (od Faze 5 generička:
+`components/undo-bar.tsx` + `lib/undo.ts`; stari `thought-undo-bar` /
+`lib/thought-undo.ts` su obrisani). Dokazi po funkciji: PARITET.md A1.
 
 **Šta je svesno drugačije od weba:**
 
@@ -330,17 +343,29 @@ oblasti). Segmenti nisu dodirljivi (orijentacija, ne navigacija).
 **Prvobitno stanje.** Web pokazuje pun put oblast → roditelj → stranica. Mobilni
 je imao samo `router.back()` i sekciju „Podstranice".
 
-### 5.7 Potpisani doprinosi na stranici i na oblasti
+### 5.7 Potpisani doprinosi na stranici i na oblasti — DELOM REŠENO (ažurirano 11.08.)
 
-**Stanje.** `ContributionThread` na mobilnom prima `{ kind: 'idea' }` i
-`{ kind: 'task_checkpoint' }`. Web nudi isti mehanizam i za `page`
-(`PageAuthorEntries`) i za `area` (`area-signed-contributions.tsx`).
+**Stanje (posle Faze 5).** `ContributionThread` na mobilnom prima
+`{ kind: 'idea' }`, `{ kind: 'task_checkpoint' }` i `{ kind: 'page' }`; `page`
+je REŠEN u A5 (`page-contributions-section.tsx`, montiran na beleški i zadatku).
+Ostaju dve rupe:
 
-**Zašto nije popravljeno.** Backend prima isti `target` diskriminator, pa je posao
-mali (jedan član unije + montiranje sekcije). Nije urađeno zato što bi ekran
-stranice dobio **četvrtu** sklopivu sekciju (Podstranice, Povezane stavke,
-Diskusija — koja je u ovoj reviziji dodata — i Doprinosi), a to traži odluku o
-redosledu i podrazumevanoj skupljenosti, ne samo kod.
+1. **`area` član unije ne postoji** — web ima `area-signed-contributions.tsx`
+   (`target: {kind:"area"}`), mobilni ekran oblasti nema ništa. Posledica: A6-ov
+   `restoreOwnContribution` NIJE na punom paritetu — obrisan tekst na OBLASTI se
+   sa telefona ne može ni obrisati ni vratiti (parity-check Faze 5, nalaz P2).
+2. **Nit po checkpointu se ne montira** — union član `task_checkpoint` postoji,
+   ali ga nijedan ekran ne koristi (web: `CheckpointContributionDialog` u
+   `task-checkpoint-list.tsx`). Mrtva grana tipa (nalaz P1).
+
+**Zašto nije popravljeno.** Isto kao pre: posao je mali, ali traži odluku o
+mestu na već gustim ekranima (četvrta sekcija na oblasti; dijalog po redu
+checkpointa). Faza 5 je namerno ostavila van opsega (plan §4).
+
+**Metodološka pouka (upisati u glavu svakog merenja pariteta).** Ove dve rupe
+grep po imenu funkcije NE vidi: `addContribution`/`restoreOwnContribution` se na
+mobilnom zovu, ali samo za neke `target.kind` vrednosti. Za funkcije sa `target`
+unijom paritet se meri **po vrsti mete**, ne po imenu funkcije.
 
 ### 5.8 Web propusti (obrnut smer) — nisu dirani
 
@@ -420,6 +445,53 @@ Iskreno, da se ne pretpostavi šire pokriće nego što ga ima:
 - **Promena `primary` sa `#6366F1` na `#4F46E5` menja izgled cele aplikacije.**
   Ton je isti, ali je tamniji; ako se to proceni kao pregruba izmena redizajna,
   vraća se jednom linijom u `theme/tokens.ts` (uz svesno prihvatanje pada AA).
+
+### 5.13 Nalazi rn-review / parity-check Faze 5 (11.08.) koji NISU popravljeni
+
+Popravljeno u Fazi 5 na osnovu revizije: Android tastatura na `ideja/[id].tsx`
+(prešao na bezuslovni `behavior="padding"` + headerHeight offset, obrazac iz
+`zadatak/[id].tsx`), `saveEdit` re-entrancy guard, „Otvori ideju" red u
+`idea-edge-sheet.tsx`, netačan podnaslov o boji. Ostalo, sa razlozima:
+
+- **`page-contributions-section.tsx` lokalni `KeyboardAvoidingView` je na
+  Androidu no-op** (`behavior` `undefined` van iOS-a). Na `stranica/[id]` (bez
+  spoljašnjeg KAV-a) kompozer „Dodaj tekst" na Androidu rizikuje da ostane pod
+  tastaturom. NIJE dirnut jer se ista komponenta montira i u `zadatak/[id]`,
+  koji IMA spoljašnji bezuslovni `padding` KAV — bezuslovni lokalni bi tamo
+  duplirao kompenzaciju. Ispravka traži proveru na emulatoru na OBA ekrana
+  (verovatno: skinuti lokalni KAV i dodati spoljašnji na `stranica/[id]`).
+- **Boja ideje se sa telefona ne može izabrati ni promeniti** (kreiranje ne
+  šalje `color`, izmena prosleđuje postojeću; embed kanvas je read-only pa ni
+  tamo ne može). Web ima piker; mobilni obrazac već postoji za misli
+  (`ColorRow` u `thought-node-sheet.tsx`). Mali posao, van opsega Faze 5 (nije
+  PARITET stavka — `ideas.create`/`update` SE zovu, samo bez boje).
+- **`Button size="sm"` renderuje 14px tekst** — sistemski (SIZES.sm u
+  `ui/button.tsx`), koristi se širom aplikacije; menjanje je odluka dizajna,
+  ne popravka jednog ekrana.
+- **`chainAll` u `task-checkpoint-list.tsx` nema busy bravu** — zatečeno
+  (Faza 5 je u tom fajlu dirala samo `remove()`); dupli tap šalje dve
+  idempotentne mutacije, šteta ograničena.
+- **A5 dokazna linija u PARITET.md pomerena** izmenama Faze 5:
+  `PageContributionsSection` mount je sada `stranica/[id].tsx:148` (bilo `:144`)
+  — ispravljeno u PARITET.md u ovom commit-u.
+
+---
+
+## 6. Dva zatečena lint upozorenja u backendu (Faza 5 ih NE dira)
+
+**Stanje.** `npm run lint` prolazi (exit 0) ali javlja 2 upozorenja
+`no-unused-vars`, oba u `packages/backend/convex/`: `areasV2.ts:9`
+(`findAvailableCanvasPosition` uvezen a nekorišćen) i `chat.ts:1037`
+(`profile` destrukturisan a nekorišćen). Provereno kroz `git log -L`: oba su
+zatečena iz ranijih commit-a (`93cd258` monorepo refaktor, `58c9f23` chat
+testovi) — nijedna faza noćnog lanca pariteta ih nije unela.
+
+**Zašto nije popravljeno.** Pravilo faza pariteta je „Backend NE menjaj — nula
+izmena u `packages/backend/convex/**`". Popravka je trivijalna (obrisati uvoz /
+destrukturisanje) ali bi prekršila jače pravilo.
+
+**USLOV.** Prva faza/zadatak kojem je backend u opsegu briše ta dva mrtva
+identifikatora; tek tada PARITET sekcija B sme da čekira „nula upozorenja".
 
 ---
 

@@ -688,6 +688,45 @@ Svesne granice VAN Z tabele (nisu PARITET stavke):
 
 ---
 
+## 4b. Odstupanja pri izvršavanju (dopisano 11.08, posle implementacije)
+
+Sprovedeno po planu; izmerena grep razlika posle faze = **17**, tačno kao
+predviđeno u §1.1. Razlike u odnosu na slovo plana, sa razlozima:
+
+1. **Alert naslovi za gnježdenje (2.5):** plan je tražio zasebne naslove
+   „Ugnježdeno" / „Čeka odobrenje". Implementirano kroz deljeni `runAction`
+   omotač (isti kao misli) čiji je naslov uvek „Gotovo" — ishode razdvajaju
+   PORUKE („Ideja je ugnježdena." / „Predlog ugnježdenja je odmah vidljiv timu —
+   vlasnik kartice ga odobrava u Odobrenjima."). Poseban naslov bi tražio
+   proširenje omotača zbog čiste kozmetike.
+2. **„Izmeni ideju" ide kroz handoff pauzu (320ms)** kao i konverzija, umesto
+   trenutnog otvaranja edit sheet-a (staro ponašanje inline menija). Razlog:
+   isti Android rizik dva istovremena `Modal`-a zbog kog handoff postoji za
+   konverziju (`misli.tsx` komentar) važi i ovde.
+3. **`onConvert` prosleđuje ceo čvor** (`onConvert(idea)`), ne `() => void` —
+   lista mora da zna KOJA ideja ide u konverzioni sheet; detalj argument ignoriše.
+4. **`idea-edge-sheet`:** „Prekini vezu" / „Zatraži brisanje" su dugmad u
+   podnožju (raspored preslikan iz `thought-edge-sheet.tsx`), ne `Row` — plan je
+   rekao „red", ali je uzor-fajl merodavan za formu. „Prekini vezu" ima Alert
+   potvrdu (konvencija: potvrda pre + traka posle, ne umesto).
+5. **`vise.tsx`/ruta nije dirana** — nije ni bilo u planu; zapisano radi
+   potpunosti: nijedna nova ruta, typed-routes regen nije rađen (nema potrebe).
+
+Posle revizije (`rn-review` + `parity-check` agenti), dodato VAN slova plana:
+
+6. **`ideja/[id].tsx` tastatura:** `KeyboardAvoidingView` prešao na bezuslovni
+   `behavior="padding"` + `headerHeight` offset (obrazac `zadatak/[id].tsx`) —
+   Android grana je bila `undefined`, pa bi kompozer Diskusije ostao pod
+   tastaturom; + `saveEdit` re-entrancy guard.
+7. **`idea-edge-sheet.tsx` red „Otvori ideju"** ka drugom kraju veze (paritet sa
+   uzorom `thought-edge-sheet.tsx`, `onOpenOther`).
+8. **Ispravljen netačan podnaslov** „boja se menja na kanvasu" (embed je
+   read-only — taj put ne postoji) i netačno „doprinosi" u Z redu za
+   `saveCanvasPlacement`. Nalazi P1/P2/P3 revizije (checkpoint nit, area
+   doprinosi, boja ideje) su van opsega faze — upisani u ZA-POPRAVKU §5.7/§5.13.
+
+---
+
 ## 5. Redosled provere (posle svake stavke, ne samo na kraju)
 
 1. `cd apps/mobile && npx tsc --noEmit` — nula grešaka posle SVAKE stavke

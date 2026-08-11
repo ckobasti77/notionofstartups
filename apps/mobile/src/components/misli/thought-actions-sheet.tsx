@@ -28,7 +28,7 @@ import {
   THOUGHT_SIZE_PRESETS,
   thoughtDisplayTitle,
 } from '@/lib/thought-layout';
-import { pushThoughtUndo } from '@/lib/thought-undo';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
@@ -175,7 +175,10 @@ export function ThoughtActionsSheet({
             }
             // Traka „Poništi" je jedini put nazad — backend nema upit za arhivu
             // (`restoreNodes` sam vraća i veze pale uz čvor).
-            pushThoughtUndo({ label: 'Misao je arhivirana.', nodeIds: [target._id] });
+            pushUndo({
+              label: 'Misao je arhivirana.',
+              action: { kind: 'thoughts', nodeIds: [target._id], edgeIds: [] },
+            });
             onArchived?.();
             return null;
           }),

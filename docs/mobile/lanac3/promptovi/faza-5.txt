@@ -1,0 +1,58 @@
+ultrathink
+
+Devotion monorepo: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvrsavanje - ne pitaj,
+odlucuj i radi.
+
+PROCITAJ PRVO:
+  docs/mobile/PARITET.md      <- lista i memorija, cekiraj [x] u istom commit-u
+  docs/mobile/ZA-POPRAVKU.md  <- naucene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+
+PRAVILA U SVAKOJ FAZI:
+- Paritet je FUNKCIONALNI, ne vizuelni. Ne prekopavaj web layout - pitaj se kako
+  se isti ishod postize prstom na malom ekranu. Tabela prevoda je u PARITET.md.
+- Backend NE menjaj. Sve funkcije vec postoje. Ako ti nesto fali, stani i zapisi
+  u docs/mobile/ZA-POPRAVKU.md umesto da izmisljas.
+- Svaki novi red kroz apps/mobile/src/components/ui/row.tsx.
+- Tekst min 16px osim meta. Dodirna meta min 44pt. Safe area. busy lock.
+- Prazno, ucitavanje i greska - sva tri stanja na svakom novom ekranu.
+- Uz svaki cekiran kvadratic napisi fajl i liniju kao dokaz.
+- Ako menjas apps/mobile/package.json, zapisi u docs/mobile/lanac3/NATIVE-BUILD.md.
+FAZA 5 - IDEJE, VRACANJE OBRISANOG, CHAT (sekcije A4, A6, A7, A8)
+
+Razlika pariteta posle prethodne faze je oko 28. Posle ove mora oko 12.
+
+A6 je najvazniji deo i sistemska je rupa: mobilni ume da arhivira na vise mesta,
+a NIGDE ne ume da vrati. Korisnik koji pogresi nema izlaz.
+Napravi JEDAN ujednacen obrazac - posle arhiviranja traka "Ponisti" koja stoji
+nekoliko sekundi - i primeni ga na sva mesta iz A6:
+ideas.restoreOwn, taskCheckpoints.restoreOwn, collaboration.restoreOwnContribution.
+(thoughts.restoreNodes/restoreEdges su vec uradjeni u A1 - proveri i cekiraj.)
+
+A4: ideas.convertToPage, collaboration.requestNesting + detachIdea,
+    ideas.connect / disconnect / updateEdgeLabel, ideas.restoreOwn,
+    ideas.updateLayout / resetLayoutSize / updatePositions / saveViewport
+    (poslednje idu kroz WebView - proveri da rade, ne pisi ih ponovo).
+
+A7: chat.archiveChannel. Za notifications.latest sam odluci da li ima smisla kad
+    vec postoji ceo ekran obavestenja - ako nema, u sekciju Z sa razlogom.
+
+A8: checkpointi na kanvasu (saveCanvasPlacement, resetCanvasSize,
+    taskCheckpointCanvasEdges.connect/disconnect). Ako procenis da to ima smisla
+    samo na velikom ekranu, u sekciju Z sa razlogom - ne pravi neupotrebljivo.
+
+Uradi sve necekirane stavke iz A4, A6, A7, A8.
+=====================================================================
+CILJ FAZE: Nista se ne gubi zauvek: svaka arhivirana stvar se moze vratiti, na svakom ekranu, istim obrascem.
+=====================================================================
+Plan je u docs\mobile\lanac3\planovi\faza-5.md - procitaj ga PRVO i sprovedi. Ako odstupis, dopisi u plan
+sta si promenio i zasto.
+
+Faza je gotova tek kad je cilj ispunjen, a ne kad si prosao kroz spisak.
+NA KRAJU FAZE, ovim redom:
+  cd apps/mobile && npx tsc --noEmit
+  cd apps/web    && npx tsc --noEmit
+  npm run lint
+  npm test
+Popravi sve sto padne. Ne ostavljaj gresku sledecoj fazi.

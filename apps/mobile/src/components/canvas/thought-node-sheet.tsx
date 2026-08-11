@@ -15,7 +15,7 @@ import {
   THOUGHT_SWATCH,
   type ThoughtColor,
 } from '@/lib/thought-colors';
-import { pushThoughtUndo } from '@/lib/thought-undo';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -119,7 +119,10 @@ export function ThoughtNodeSheet({
             await archiveNodes({ nodeIds: [thought._id] });
             // Traka „Poništi" (`restoreNodes`) je jedini put nazad — backend nema
             // upit za arhivirane misli (PARITET A6).
-            pushThoughtUndo({ label: 'Misao je arhivirana.', nodeIds: [thought._id] });
+            pushUndo({
+              label: 'Misao je arhivirana.',
+              action: { kind: 'thoughts', nodeIds: [thought._id], edgeIds: [] },
+            });
             haptics.success();
             onClose();
             onArchived?.();

@@ -1,12 +1,24 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { LayoutGrid, Lightbulb, TriangleAlert } from 'lucide-react-native';
+import { LayoutGrid, Lightbulb, TriangleAlert, Wand2 } from 'lucide-react-native';
 import { useState } from 'react';
-import { AccessibilityInfo, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { IdeaActionsSheet, type IdeaListNode } from '@/components/ideja/idea-actions-sheet';
+import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { UndoBar } from '@/components/undo-bar';
 import { Avatar } from '@/components/ui/avatar';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
@@ -19,8 +31,18 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import { tidyGridPosition } from '@/lib/thought-layout';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
+
+/** Backend `MAX_BULK_ITEMS` posredno — „Sredi raspored" šalje najviše 50 poteza. */
+const MAX_BULK = 50;
+/**
+ * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (akcije → konverzija).
+ * Dva istovremena RN `Modal`-a na Androidu umeju da progutaju `onRequestClose`
+ * (vidi `misli.tsx`).
+ */
+const SHEET_HANDOFF_MS = 320;
 
 type IdeaItem = {
   _id: Id<'ideaNodes'>;
@@ -57,11 +79,79 @@ export default function IdejeScreen() {
     api.ideas.list,
     activeStartupId ? { startupId: activeStartupId } : 'skip',
   );
+  const updatePositions = useMutation(api.ideas.updatePositions);
+  const saveViewport = useMutation(api.ideas.saveViewport);
+
+  const [actionNode, setActionNode] = useState<IdeaListNode | null>(null);
+  const [convertIdea, setConvertIdea] = useState<IdeaListNode | null>(null);
+  const [tidyBusy, setTidyBusy] = useState(false);
 
   const openCanvas = () => {
     if (!activeStartupId) return;
     haptics.tap();
     router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'ideas', id: activeStartupId } });
+  };
+
+  /**
+   * „Sredi raspored" (PARITET A4): mobilna zamena za drag raspoređivanje karata
+   * po kanvasu — isti obrazac kao misli (`misli.tsx`). Samo TOP-LEVEL kartice:
+   * ugnježdene imaju relativne koordinate i putuju sa roditeljem, a kartice sa
+   * vidljivim predlogom gnježdenja imaju PROJEKTOVAN roditeljski id, pa su i one
+   * isključene (inače bi `updatePositions` pomerao predlog umesto kartice).
+   */
+  const requestTidy = () => {
+    if (!activeStartupId || tidyBusy || ideas === undefined) return;
+    const topLevel = ideas.nodes.filter((node) => node.parentIdeaId === undefined);
+    if (topLevel.length === 0) {
+      haptics.warning();
+      Alert.alert('Nema šta da se sredi', 'Sve ideje su ugnježdene u druge kartice.');
+      return;
+    }
+    const targets = topLevel.slice(0, MAX_BULK);
+    // Menja ručni raspored korisnika — upozorenje pre, ne posle.
+    haptics.warning();
+    Alert.alert(
+      'Srediti raspored?',
+      `${targets.length} ${ideasWord(targets.length)} (bez ugnježdenih) se raspoređuje u urednu mrežu na kanvasu. Ručni raspored tih kartica se gubi.`,
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Sredi',
+          onPress: () => void runTidy(targets, topLevel.length > targets.length),
+        },
+      ],
+    );
+  };
+
+  const runTidy = async (targets: IdeaListNode[], truncated: boolean) => {
+    if (!activeStartupId || ideas === undefined) return;
+    setTidyBusy(true);
+    haptics.tap();
+    try {
+      await updatePositions({
+        startupId: activeStartupId,
+        updates: targets.map((node, index) => ({
+          id: node._id,
+          ...tidyGridPosition(index, targets.length),
+        })),
+      });
+      // Mreža je u pozitivnom kvadrantu, pa viewport (0,0) prikazuje celu mrežu.
+      // Zoom ostaje korisnikov — `canvasState` je već u pretplati (`ideas.list`),
+      // za razliku od misli ne treba poseban `getCanvas` upit.
+      await saveViewport({ startupId: activeStartupId, x: 0, y: 0, zoom: ideas.canvasState.zoom });
+      haptics.success();
+      Alert.alert(
+        'Raspored je sređen',
+        truncated
+          ? `Raspoređeno je prvih ${targets.length} ideja; ostale su ostale gde su bile. Već otvoren kanvas prikazuje novi raspored, a sačuvan pogled važi od sledećeg otvaranja.`
+          : 'Ideje su raspoređene u mrežu. Već otvoren kanvas prikazuje novi raspored, a sačuvan pogled važi od sledećeg otvaranja.',
+      );
+    } catch (error) {
+      haptics.error();
+      Alert.alert('Greška', accessErrorMessage(error, 'Raspored nije sređen.'));
+    } finally {
+      setTidyBusy(false);
+    }
   };
 
   const loading = activeStartupId !== null && ideas === undefined;
@@ -76,9 +166,23 @@ export default function IdejeScreen() {
         onBack={() => router.back()}
         actions={
           activeStartupId ? (
-            <IconButton accessibilityLabel="Canvas prikaz ideja" onPress={openCanvas}>
-              <LayoutGrid size={22} color={colors.foreground} />
-            </IconButton>
+            <>
+              {count > 1 ? (
+                <IconButton
+                  accessibilityLabel="Sredi raspored ideja u mrežu na kanvasu"
+                  disabled={tidyBusy}
+                  onPress={requestTidy}>
+                  {tidyBusy ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <Wand2 size={22} color={colors.foreground} />
+                  )}
+                </IconButton>
+              ) : null}
+              <IconButton accessibilityLabel="Canvas prikaz ideja" onPress={openCanvas}>
+                <LayoutGrid size={22} color={colors.foreground} />
+              </IconButton>
+            </>
           ) : undefined
         }
       />
@@ -115,7 +219,15 @@ export default function IdejeScreen() {
               <StaggerGroup>
                 {ideas.nodes.map((node, index) => (
                   <StaggerItem key={node._id} index={index}>
-                    <IdeaRow idea={node} startupId={activeStartupId} colors={colors} />
+                    <IdeaRow
+                      idea={node}
+                      startupId={activeStartupId}
+                      colors={colors}
+                      onLongPress={() => {
+                        haptics.select();
+                        setActionNode(node);
+                      }}
+                    />
                   </StaggerItem>
                 ))}
               </StaggerGroup>
@@ -123,6 +235,37 @@ export default function IdejeScreen() {
           ) : null}
         </LoadingSwap>
       )}
+
+      {activeStartupId !== null ? (
+        <>
+          {ideas !== undefined ? (
+            <>
+              <IdeaActionsSheet
+                open={actionNode !== null}
+                idea={actionNode}
+                nodes={ideas.nodes}
+                edges={ideas.edges}
+                currentProfileId={ideas.currentProfileId}
+                startupId={activeStartupId}
+                onClose={() => setActionNode(null)}
+                // Bez `onEdit`: lista nema edit sheet — izmena ide sa detalja.
+                onConvert={(node) => {
+                  setActionNode(null);
+                  setTimeout(() => setConvertIdea(node), SHEET_HANDOFF_MS);
+                }}
+              />
+              <IdeaConvertSheet
+                open={convertIdea !== null}
+                idea={convertIdea}
+                startupId={activeStartupId}
+                onClose={() => setConvertIdea(null)}
+              />
+            </>
+          ) : null}
+          {/* Ideja obrisana sa detalja (`router.back()`) se vraća odavde (A6). */}
+          <UndoBar />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -131,10 +274,13 @@ function IdeaRow({
   idea,
   startupId,
   colors,
+  onLongPress,
 }: {
   idea: IdeaItem;
   startupId: Id<'startups'>;
   colors: ColorTokens;
+  /** Dugi pritisak otvara akcioni sheet ideje (PARITET A4). */
+  onLongPress: () => void;
 }) {
   const router = useRouter();
   const vote = useMutation(api.ideas.vote);
@@ -168,10 +314,12 @@ function IdeaRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Otvori ideju: ${title}`}
+      accessibilityHint="Dugi pritisak otvara akcije ideje."
       onPress={() => {
         haptics.tap();
         router.push({ pathname: '/ideja/[id]', params: { id: idea._id } });
       }}
+      onLongPress={onLongPress}
       style={({ pressed }) => [
         styles.row,
         { backgroundColor: colors.card, borderColor: colors.border },

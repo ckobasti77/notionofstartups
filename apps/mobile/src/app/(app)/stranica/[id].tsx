@@ -15,6 +15,7 @@ import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
+import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -107,6 +108,9 @@ export default function StranicaScreen() {
         onClose={() => setActionsView(null)}
         onArchived={() => router.back()}
       />
+
+      {/* Obrisan doprinos u sekciji „Doprinosi" se vraća odavde (PARITET A6). */}
+      <UndoBar />
     </View>
   );
 }

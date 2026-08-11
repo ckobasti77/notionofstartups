@@ -6,7 +6,11 @@
 
 ## Kako je lista napravljena (ponovi kad sumnjaš)
 
-Nije nastala klikanjem nego poređenjem stvarno pozvanih Convex funkcija:
+Nije nastala klikanjem nego poređenjem stvarno pozvanih Convex funkcija.
+**Zamka metode:** za funkcije sa `target` unijom (`collaboration.*`) grep po
+imenu NE meri paritet — mobilni može da zove funkciju samo za neke `target.kind`
+vrednosti (viđeno: `area` doprinosi, checkpoint nit — ZA-POPRAVKU §5.7). Za njih
+se paritet meri po vrsti mete.
 
 ```bash
 grep -rhoE "api\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+" apps/web/components apps/web/app | sort -u > /tmp/w.txt
@@ -102,7 +106,8 @@ crta kroz WebView — treba ti native akcije okolo, ne nov graf.
 - [x] `thoughts.createEdge` / `updateEdge` / `archiveEdges` / `restoreEdges` — veze
       — `thought-actions-sheet.tsx:96` (createEdge, prikaz „Poveži sa misli…");
       `thought-edge-sheet.tsx:44` (updateEdge, naziv veze) / `:45` (archiveEdges,
-      „Prekini vezu"); `thought-undo-bar.tsx:45` (restoreEdges, traka „Poništi")
+      „Prekini vezu"); `components/undo-bar.tsx:87` (restoreEdges, generička traka
+      „Poništi" — Faza 5 zamenila `thought-undo-bar.tsx`)
 - [x] `thoughts.moveNodes` / `updateNodeLayout` / `resetNodeLayoutSize` / `saveViewport`
       — `misli.tsx:82`/`:83` (moveNodes+saveViewport: „Sredi raspored" — mreža u
       pozitivnom kvadrantu, samo top-level ≤50, čuva zoom iz getCanvas);
@@ -121,11 +126,13 @@ crta kroz WebView — treba ti native akcije okolo, ne nov graf.
       grupa), akcioni sheet sa liste, i multi-selekcija na kanvasu („U Ideje (N)",
       `canvas/[kind]/[id].tsx` trosmerna primarna akcija rail-a)
 - [x] `thoughts.restoreNodes` — vraćanje obrisane misli
-      — `thought-undo-bar.tsx:44`; posle svakog arhiviranja (lista/detalj/kanvas)
-      traka „Poništi" stoji 8s + eksplicitno ✕; redosled restoreNodes→restoreEdges
-      je ugovor backenda. Backend NEMA upit za arhivirane misli (`listNodes` tvrdo
-      filtrira `archivedAt: null`), pa je in-memory undo jedini put bez izmene
-      backenda — isto radi i web (`workspace-history.tsx`).
+      — `components/undo-bar.tsx:86` (Faza 5: generička traka zamenila
+      `thought-undo-bar.tsx`, store `lib/undo.ts`); posle svakog arhiviranja
+      (lista/detalj/kanvas) traka „Poništi" stoji 8s + eksplicitno ✕; redosled
+      restoreNodes→restoreEdges je ugovor backenda. Backend NEMA upit za
+      arhivirane misli (`listNodes` tvrdo filtrira `archivedAt: null`), pa je
+      in-memory undo jedini put bez izmene backenda — isto radi i web
+      (`workspace-history.tsx`).
 
 ## A2. Administracija startupa — 9 funkcija
 
@@ -229,11 +236,52 @@ Web ima i `tasks-view.tsx` + `task-table-view.tsx` nad `tasks.listForStartup`.
 
 ## A4. Ideje — organizacija i konverzija
 
-- [ ] `ideas.convertToPage` — ideja postaje stranica/zadatak
-- [ ] `collaboration.requestNesting` + `detachIdea` — ugnježdavanje ideja
-- [ ] `ideas.connect` / `disconnect` / `updateEdgeLabel` — veze između ideja
-- [ ] `ideas.restoreOwn` — vraćanje sopstvene arhivirane ideje
-- [ ] `ideas.updateLayout` / `resetLayoutSize` / `updatePositions` / `saveViewport` — kroz WebView, proveri da rade
+> **ZATVORENO 11.08. (Faza 5, grana `paritet-nocni-20260811-0711`).** Nov deljeni
+> `components/ideja/idea-actions-sheet.tsx` (ulazi: „…" na detalju ideje —
+> `ideja/[id].tsx:186`, sada bezuslovno — i long-press na kartici liste,
+> `ideje.tsx:228`; mountovi `ideja/[id].tsx:261`, `ideje.tsx:243`), plus
+> `idea-edge-sheet.tsx`, `idea-edges-section.tsx` (sekcija „Veze" na detalju,
+> `ideja/[id].tsx:244`) i `idea-convert-sheet.tsx`. Web gestovi sa kanvasa
+> (drag ručica→ručica, drop-na-karticu) prevedeni u pickere — ista tabela
+> prevoda kao A1.
+
+- [x] `ideas.convertToPage` — ideja postaje stranica/zadatak
+      — `idea-convert-sheet.tsx:53` (mutacija), `:82` (poziv u `submit()`);
+      vrsta (zadatak/beleška) + oblast kao web dijalog, po uspehu direktna
+      navigacija na rezultat; red „Pretvori u stranicu" vidljiv samo
+      `isApproved && !convertedPageId` (`idea-actions-sheet.tsx:269`) — server NE
+      čuva od dvostruke konverzije, vidljivost + `busyId` brava su brana (kao
+      web); detalj ideje posle konverzije dobija red „Pretvorena u stranicu"
+      (`ideja/[id].tsx:225`)
+- [x] `collaboration.requestNesting` + `detachIdea` — ugnježdavanje ideja
+      — `idea-actions-sheet.tsx:109`/`:362` (requestNesting, picker „Ugnjezdi
+      u…", samo svoja kartica; `approved`/`pending` ishodi razdvojeni porukom) /
+      `:110`/`:248` (detachIdea, „Izdvoji iz grupe" po `canDetach` — pokriva i
+      povlačenje/odbijanje predloga); odobravanje tuđeg predloga već postoji u
+      Odobrenjima (`odobrenja.tsx`, `resolveNesting`)
+- [x] `ideas.connect` / `disconnect` / `updateEdgeLabel` — veze između ideja
+      — `idea-actions-sheet.tsx:108`/`:352` (connect, picker „Poveži sa idejom…";
+      već povezane i tuđe-uz-tuđu prigušene sa razlogom) + `undo-bar.tsx:49`/`:95`
+      (connect kao inverz za undo veze); `idea-edge-sheet.tsx:47`/`:92`
+      (disconnect, „Prekini vezu" samo `canDeleteDirectly` — za tuđu vezu je
+      serverski TIH no-op, pa ona ide kroz `requestDeletion`, `idea_edge` prikaz
+      u Odobrenjima već postoji) / `:46`/`:70` (updateEdgeLabel, naziv veze;
+      prazan string briše)
+- [x] `ideas.restoreOwn` — vraćanje sopstvene arhivirane ideje
+      — `undo-bar.tsx:48`/`:90` (traka „Poništi"); push `idea-actions-sheet.tsx:189`
+      posle `ideas.archive`, SAMO kad je `recoveredId === null` — server odbija
+      undo kad su tuđe izmene izdvojene u „Oporavljeno" (web radi isto)
+- [x] `ideas.updateLayout` / `resetLayoutSize` / `updatePositions` / `saveViewport`
+      — **NE kroz WebView — embed je read-only** (zove samo `ideas.list`; provera
+      „da rade kroz WebView" bi pala — vidi plan Faze 5 §1.2). Urađeno NATIVE po
+      A1 presedanu: `idea-actions-sheet.tsx:111`/`:402` (updateLayout, „Veličina
+      oblačića" — preseti su web `ITEM_SIZE_DIMENSIONS`, deljeni sa mislima kroz
+      `lib/thought-layout.ts`) / `:112`/`:432` (resetLayoutSize, „Automatska");
+      `ideje.tsx:82`/`:131` (updatePositions) + `:83`/`:141` (saveViewport):
+      „Sredi raspored" — mreža u pozitivnom kvadrantu, samo top-level ≤50
+      (isključene i kartice sa vidljivim predlogom gnježdenja — `updatePositions`
+      bi pomerao PREDLOG umesto kartice), čuva zoom iz `canvasState` koji je već
+      u pretplati
 
 ## A5. Stranica — što fali u `page-actions-sheet.tsx`
 
@@ -251,7 +299,8 @@ Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
       u `submit()`: `page` → `pages.addEntry`, ostalo → `collaboration.
       addContribution`); nova sekcija `page-contributions-section.tsx` (ograničena
       visina + interni skrol + lokalni `KeyboardAvoidingView`, rn-review nalaz),
-      montirana `stranica/[id].tsx:144` i `zadatak/[id].tsx:293`
+      montirana `stranica/[id].tsx:148` i `zadatak/[id].tsx:294` (linije
+      pomerene mountom UndoBar-a u Fazi 5)
 - [x] `areasV2.createPage` — mobilni koristi `pages.create`; proveri da li se ponašaju isto i ujednači
       — `page-create-sheet.tsx:89` (`useMutation(api.areasV2.createPage)`),
       `:142` (`rootPageId: parentPageId` u pozivu), `:159-164` (Alert „Čeka
@@ -262,31 +311,61 @@ Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
 ## A6. Vraćanje obrisanog — sistemska rupa
 
-Mobilni ume da arhivira, ali **nigde ne ume da vrati**. Korisnik koji pogreši
-nema izlaz. Ovo je jedna od najgorih UX rupa u aplikaciji.
+> **ZATVORENO 11.08. (Faza 5).** Obrazac za misli je generalizovan u
+> `lib/undo.ts` (union `UndoAction` za svih 5 vrsta) + `components/undo-bar.tsx`
+> (jedna traka za celu aplikaciju; serverski `undoUntil` vodi tajmer kad
+> postoji). Stari `lib/thought-undo.ts` i `thought-undo-bar.tsx` su OBRISANI.
+> Traka je montirana na: `misli.tsx:299`, `misao/[id].tsx:342`,
+> `canvas/[kind]/[id].tsx:365` (sada za SVE vrste kanvasa, ne samo misli),
+> `ideje.tsx:266`, `ideja/[id].tsx:305`, `zadatak/[id].tsx:331`,
+> `stranica/[id].tsx:113`.
 
-- [ ] `ideas.restoreOwn`
-- [ ] `taskCheckpoints.restoreOwn`
-- [ ] `collaboration.restoreOwnContribution`
+- [x] `ideas.restoreOwn` — `undo-bar.tsx:48`/`:90`; push
+      `idea-actions-sheet.tsx:189` (samo `recoveredId === null` — vidi A4)
+- [x] `taskCheckpoints.restoreOwn` — `undo-bar.tsx:50`/`:102`; push
+      `task-checkpoint-list.tsx:137` posle `archiveOwn` („Checkpoint je
+      obrisan.", serverski `undoUntil`); vraćeni checkpoint zadržava svoj
+      ordinal i stanje završenosti (server samo skida `archivedAt`)
+- [x] `collaboration.restoreOwnContribution` — `undo-bar.tsx:51`/`:105`; push
+      `contribution-thread.tsx:140` posle `deleteOwnContribution` („Tekst je
+      obrisan."); deljena nit, pa isti potez pokriva diskusiju ideje i
+      „Doprinose" na beleški i zadatku
 - [x] `thoughts.restoreNodes` / `restoreEdges` — traka „Poništi" posle arhiviranja
-      misli/veze, na listi, detalju i kanvasu (`components/misli/thought-undo-bar.tsx:44`/`:45`,
-      store `lib/thought-undo.ts`; push mesta: `thought-actions-sheet.tsx`,
-      `thought-edge-sheet.tsx`, `thought-node-sheet.tsx`)
-- [ ] Ujednačen obrazac: posle arhiviranja prikaži traku „Poništi" nekoliko sekundi
-      — obrazac je USPOSTAVLJEN za misli (`thought-undo-bar.tsx`: postojana traka
-      8s + ✕, modul-store preživljava `router.back()`); ideje/checkpointi/doprinosi
-      još ne idu kroz njega
+      misli/veze, na listi, detalju i kanvasu (`components/undo-bar.tsx:86`/`:87`,
+      store `lib/undo.ts`; push mesta: `thought-actions-sheet.tsx:178`,
+      `thought-edge-sheet.tsx:93`, `thought-node-sheet.tsx:122`)
+- [x] Ujednačen obrazac: posle arhiviranja prikaži traku „Poništi" nekoliko sekundi
+      — JEDAN fajl (`components/undo-bar.tsx`), jedna vizuelna forma (traka 8s +
+      „Poništi" + ✕, `busyRef` brava, `accessibilityLiveRegion`, greška = Alert a
+      traka ostaje), jedan store (`lib/undo.ts`, preživljava `router.back()`,
+      briše se na promenu startupa); svako novo mesto arhiviranja dodaje samo
+      `pushUndo` + granu u `restore()`
 
 ## A7. Chat
 
-- [ ] `chat.archiveChannel` — arhiviranje kanala
-- [ ] `notifications.latest` — brzi pregled poslednjih obaveštenja (odluči: treba li, kad postoji ceo ekran)
+- [x] `chat.archiveChannel` — arhiviranje kanala
+      — `conversation-header.tsx:96` (mutacija), `:127` (poziv u
+      `requestArchive()`, potvrda sa imenom kanala); red „Arhiviraj razgovor" u
+      postojećem ⋮ meniju kanala (tačno gde ga web drži, `conversation-pane.tsx`);
+      klijentski gejt `razgovor/[id].tsx:133`
+      (`profile.role === 'admin' && channel.kind !== 'startup'` — ogleda
+      serverski `chat.ts`), ishod `onArchived={() => router.back()}` (`:136`);
+      korisnik koji je u razgovoru kad ga admin arhivira pada u postojeću granu
+      „Razgovor nije pronađen"
+- [x] `notifications.latest` — IZUZETAK, vidi tabelu Z (web-only in-app toast
+      infrastruktura; na telefonu tu ulogu igraju OS push baner, tab bedž i pun
+      ekran „Obaveštenja")
 
 ## A8. Checkpointi na kanvasu
 
-- [ ] `taskCheckpoints.saveCanvasPlacement` / `resetCanvasSize`
-- [ ] `taskCheckpointCanvasEdges.connect` / `disconnect`
-- [ ] (Ovo možda ima smisla samo na velikom ekranu — ako procenjuješ da nema, u sekciju Z sa razlogom)
+- [x] `taskCheckpoints.saveCanvasPlacement` / `resetCanvasSize` — IZUZETAK, vidi
+      tabelu Z (čisto uređivanje layouta kanvasa; mobilni kanvas je pregled)
+- [x] `taskCheckpointCanvasEdges.connect` / `disconnect` — IZUZETAK, vidi tabelu
+      Z (vizuelne strelice u koordinatnom prostoru kanvasa; STVARNA zavisnost
+      koraka je već native — `setChainedToPrevious`/`setAllChained`)
+- [x] (Ovo možda ima smisla samo na velikom ekranu — ako procenjuješ da nema, u sekciju Z sa razlogom)
+      — procenjeno da nema: sve četiri funkcije upisane u Z sa razlozima
+      („ne pravi neupotrebljivo")
 
 ---
 
@@ -551,3 +630,8 @@ Prazan razlog ne važi. „Nije bitno" nije razlog.
 | `pushSubscriptions.myDeviceCount` | Web push kroz browser; mobilni koristi Expo push, drugi mehanizam. |
 | `areasV2.resolveRoute` | Rutiranje web URL-ova; mobilni ima expo-router. |
 | `pageFiles.prune` | Čisti osirotele priloge UMETNUTE U TELO beleške preko node-view mehanizma; mobilni tentap editor ne ume da ubaci prilog u telo (ZA-POPRAVKU §2/§5.1, gejt i dalje otvoren) — nema koda koji na mobilnom može da napravi taj osiroteli red, pa nema šta da se čisti. Zatvara se zajedno sa proširenjem tentap bundle-a. |
+| `notifications.latest` | Postoji isključivo kao izvor za web in-app toast (`useNotificationToasts`, notifications-panel.tsx — jedini pozivalac u celom webu; backend komentar: „služi samo detekciji novih obaveštenja za toast"). Na telefonu tu ulogu već igraju OS push baner (expo-notifications, kanal/zvuk po tipu), bedž na tabu (unreadCount) i pun ekran „Obaveštenja" (notifications.list). Drugi, in-app toast sloj bi dupliralo OS baner. |
+| `taskCheckpoints.saveCanvasPlacement` | Prevlačenje/dimenzionisanje checkpoint oblačića na page kanvasu — čisto uređivanje layouta kanvasa. Mobilni kanvas je pregled (00-PLAN §5.2), embed je read-only; native unos koordinata bez direktne manipulacije = neupotrebljivo. Semantika checkpointa (tekst, završenost, lančanje, brisanje, glasanja) je već native na detalju zadatka (nit doprinosa PO CHECKPOINTU još nije montirana — ZA-POPRAVKU §5.7, van ove kategorije). Ista kategorija kao areasV2.movePages/resizePage, koji takođe (svesno) nisu na telefonu. |
+| `taskCheckpoints.resetCanvasSize` | Isto — reset dimenzija oblačića na kanvasu; veličina se na telefonu ni ne postavlja. |
+| `taskCheckpointCanvasEdges.connect` | Vizuelne strelice toka na page kanvasu (spajaju i checkpoint↔stranicu), imaju smisao samo u koordinatnom prostoru kanvasa. Stvarna zavisnost koraka je native kroz `setChainedToPrevious`/`setAllChained` (task-checkpoint-list.tsx). Crtanje dijagrama je posao za veliki ekran. |
+| `taskCheckpointCanvasEdges.disconnect` | Isto; uz to glasanje o brisanju tuđe canvas veze već radi na mobilnom (odobrenja.tsx, `task_checkpoint_edge`), pa tim tokovima ništa ne fali. |

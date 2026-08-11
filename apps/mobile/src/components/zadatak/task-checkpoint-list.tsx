@@ -21,6 +21,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { haptics } from '@/lib/haptics';
 import { MAX_TASK_CHECKPOINTS } from '@/lib/task-meta';
+import { pushUndo } from '@/lib/undo';
 import type { TaskCheckpoint } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
@@ -130,7 +131,15 @@ export function TaskCheckpointList({
           style: 'destructive',
           onPress: () =>
             void (direct
-              ? archiveOwn({ checkpointId: item._id })
+              ? archiveOwn({ checkpointId: item._id }).then((result) => {
+                  // Traka „Poništi" (PARITET A6) — tekst = web toast. Serverski
+                  // rok (`undoUntil`) vodi tajmer trake.
+                  pushUndo({
+                    label: 'Checkpoint je obrisan.',
+                    action: { kind: 'checkpoint', checkpointId: result.checkpointId },
+                    undoUntil: result.undoUntil,
+                  });
+                })
               : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
             )
               .then(() => haptics.success())

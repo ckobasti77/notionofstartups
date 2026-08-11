@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation } from 'convex/react';
 import {
+  Archive,
   AtSign,
   Bell,
   BellOff,
@@ -57,8 +59,10 @@ function subtitle(channel: ChatChannel): string {
 
 /**
  * Header ekrana razgovora: back, ikona/naslov/podnaslov, „otvori entitet" za
- * threadove zakačene za stranicu, i `⋯` meni sa nivoom obaveštenja. `onMeasure`
- * javlja visinu ekranu (za `keyboardVerticalOffset` na iOS).
+ * threadove zakačene za stranicu, i `⋯` meni sa nivoom obaveštenja i (za admina)
+ * arhiviranjem razgovora (PARITET A7 — web `conversation-pane.tsx` drži isto u
+ * svom meniju kanala). `onMeasure` javlja visinu ekranu (za
+ * `keyboardVerticalOffset` na iOS).
  *
  * NAMERNO nije `ScreenHeader` sa `display` naslovom: u razgovoru lista poruka
  * nosi ekran, pa zaglavlje ostaje jednoredno i nisko (kao u svakom messengeru).
@@ -66,19 +70,30 @@ function subtitle(channel: ChatChannel): string {
  */
 export function ConversationHeader({
   channel,
+  canArchive,
   onBack,
   onOpenAnchor,
+  onArchived,
   onMeasure,
 }: {
   channel: ChatChannel;
+  /**
+   * Klijentski ogleda serverski gejt (`chat.archiveChannel`: admin, ne „Opšte").
+   * OBAVEZAN — pozivalac mora da odluči, ne sme da se osloni na difolt.
+   */
+  canArchive: boolean;
   onBack: () => void;
   onOpenAnchor?: () => void;
+  /** Po uspešnom arhiviranju (npr. povratak na listu razgovora). OBAVEZAN. */
+  onArchived: () => void;
   onMeasure?: (height: number) => void;
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const setNotificationLevel = useMutation(api.chat.setNotificationLevel);
+  const archiveChannel = useMutation(api.chat.archiveChannel);
 
   const activeLevel: NotificationLevel = channel.notificationLevel ?? 'all';
   const showAnchor = channel.kind === 'thread' && channel.anchorType === 'page' && !!onOpenAnchor;
@@ -93,6 +108,39 @@ export function ConversationHeader({
         error instanceof Error ? error.message : 'Podešavanje nije sačuvano.',
       );
     }
+  }
+
+  function requestArchive() {
+    if (archiving) return;
+    haptics.warning();
+    Alert.alert(
+      'Arhivirati razgovor?',
+      `„${channelDisplayName(channel)}" se sklanja sa liste za ceo tim.`,
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Arhiviraj',
+          style: 'destructive',
+          onPress: async () => {
+            setArchiving(true);
+            try {
+              await archiveChannel({ channelId: channel._id });
+              haptics.success();
+              setMenuOpen(false);
+              onArchived();
+            } catch (error) {
+              haptics.error();
+              Alert.alert(
+                'Greška',
+                error instanceof Error ? error.message : 'Razgovor nije arhiviran.',
+              );
+            } finally {
+              setArchiving(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -166,6 +214,20 @@ export function ConversationHeader({
             />
           );
         })}
+        {canArchive ? (
+          <>
+            <View style={[styles.menuSeparator, { backgroundColor: colors.border }]} />
+            <Row
+              icon={<Archive size={20} color={colors.destructive} />}
+              title="Arhiviraj razgovor"
+              subtitle="Sklanja razgovor sa liste za ceo tim"
+              onPress={requestArchive}
+              disabled={archiving}
+              showChevron={false}
+              value={archiving ? <ActivityIndicator color={colors.primary} /> : undefined}
+            />
+          </>
+        ) : null}
       </Sheet>
     </View>
   );
@@ -237,5 +299,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     paddingHorizontal: 20,
     paddingBottom: 6,
+  },
+  menuSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 6,
+    marginHorizontal: 16,
   },
 });

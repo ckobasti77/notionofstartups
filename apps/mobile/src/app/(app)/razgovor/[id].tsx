@@ -127,8 +127,13 @@ export default function ConversationScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ConversationHeader
           channel={channel}
+          // Klijentski ogleda serverski gejt (`chat.archiveChannel`): samo admin,
+          // a „Opšte" (kind `startup`) se ne arhivira nikad. Oba podatka ekran
+          // već drži — nema novog upita.
+          canArchive={profile.role === 'admin' && channel.kind !== 'startup'}
           onBack={() => router.back()}
           onOpenAnchor={openAnchor}
+          onArchived={() => router.back()}
           onMeasure={setHeaderHeight}
         />
 

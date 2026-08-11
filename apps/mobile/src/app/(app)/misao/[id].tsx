@@ -24,7 +24,7 @@ import {
   type ThoughtConversionNode,
 } from '@/components/misli/thought-conversion-sheet';
 import { ThoughtEdgeSheet, type ThoughtEdgeDetail } from '@/components/misli/thought-edge-sheet';
-import { ThoughtUndoBar } from '@/components/misli/thought-undo-bar';
+import { UndoBar } from '@/components/undo-bar';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
@@ -339,7 +339,7 @@ export default function MisaoScreen() {
             nodes={conversionNodes ?? []}
             onClose={() => setConversionNodes(null)}
           />
-          <ThoughtUndoBar />
+          <UndoBar />
         </>
       ) : null}
     </View>

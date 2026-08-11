@@ -34,6 +34,7 @@ import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { DiscussionLink } from '@/components/zadatak/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
+import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
@@ -325,6 +326,9 @@ export default function ZadatakScreen() {
           onClose={() => setActionsView(null)}
           onArchived={() => router.back()}
         />
+
+        {/* Obrisan checkpoint / doprinos se vraća odavde (PARITET A6). */}
+        <UndoBar />
       </View>
     </View>
   );

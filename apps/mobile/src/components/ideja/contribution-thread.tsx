@@ -14,6 +14,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { noteHtmlToText } from '@/lib/note-content';
 import { formatShortDate } from '@/lib/task-meta';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -133,7 +134,15 @@ export function ContributionThread({
           onPress: () => {
             setBusyId(contributionId);
             const action = direct
-              ? deleteOwn({ contributionId })
+              ? deleteOwn({ contributionId }).then((result) => {
+                  // Traka „Poništi" (PARITET A6) — tekst = web toast; deljena
+                  // komponenta, pa isti potez pokriva ideju, belešku i zadatak.
+                  pushUndo({
+                    label: 'Tekst je obrisan.',
+                    action: { kind: 'contribution', contributionId: result.contributionId },
+                    undoUntil: result.undoUntil,
+                  });
+                })
               : requestDeletion({ target: { kind: 'contribution', id: contributionId } });
             void action
               .then(() => {

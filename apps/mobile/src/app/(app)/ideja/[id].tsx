@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { Ellipsis, Lightbulb, Pencil, Trash2, TriangleAlert } from 'lucide-react-native';
+import { Ellipsis, FileOutput, Lightbulb, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   Alert,
@@ -20,7 +20,12 @@ import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { ContributionThread } from '@/components/ideja/contribution-thread';
+import { IdeaActionsSheet } from '@/components/ideja/idea-actions-sheet';
+import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
+import { IdeaEdgeSheet, type IdeaEdgeDetail } from '@/components/ideja/idea-edge-sheet';
+import { IdeaEdgesSection } from '@/components/ideja/idea-edges-section';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { UndoBar } from '@/components/undo-bar';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonCard, SkeletonList, SkeletonMessage } from '@/components/ui/skeletons';
@@ -33,6 +38,13 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, space, text } from '@/theme/tokens';
 
 /**
+ * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (akcije → edit /
+ * konverzija). Dva istovremena RN `Modal`-a na Androidu umeju da progutaju
+ * `onRequestClose` (vidi `misli.tsx`).
+ */
+const SHEET_HANDOFF_MS = 320;
+
+/**
  * Ekran ideje — pandan web `idea-discussion-dialog.tsx`. Do sad je ideja na
  * telefonu bila samo red u listi (bez detalja), pa se diskusija tima uopšte nije
  * videla.
@@ -42,7 +54,8 @@ import { fontWeight, radius, space, text } from '@/theme/tokens';
  *
  * Podaci: `ideas.list` (ista pretplata koju lista/canvas već drže, pa ideja stiže
  * bez dodatnog upita) + `collaboration.listContributionsPaginated`. Bez nove
- * backend funkcije.
+ * backend funkcije. Akcije (veze, gnježdenje, veličina, konverzija, brisanje sa
+ * undo) žive u deljenom `IdeaActionsSheet` (PARITET A4/A6).
  */
 export default function IdejaScreen() {
   const colors = useThemeColors();
@@ -58,10 +71,11 @@ export default function IdejaScreen() {
   );
   const vote = useMutation(api.ideas.vote);
   const updateIdea = useMutation(api.ideas.update);
-  const archiveIdea = useMutation(api.ideas.archive);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const [voting, setVoting] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [edgeDetail, setEdgeDetail] = useState<IdeaEdgeDetail | null>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftText, setDraftText] = useState('');
@@ -87,10 +101,11 @@ export default function IdejaScreen() {
 
   /**
    * Izmena ideje - pandan `ideas.update` sa weba. Boja se prosleđuje nepromenjena:
-   * paleta boja živi na kanvasu (WebView), a ovde se menja samo tekst.
+   * mobilni još nema piker boje ideje (embed kanvas je read-only), pa se čuva
+   * postojeća vrednost da je `update` ne pregazi.
    */
   async function saveEdit() {
-    if (!activeStartupId || idea === null) return;
+    if (!activeStartupId || idea === null || saving) return;
     const nextTitle = draftTitle.trim();
     const nextText = draftText.trim();
     if (!nextTitle || !nextText) {
@@ -115,45 +130,6 @@ export default function IdejaScreen() {
     } finally {
       setSaving(false);
     }
-  }
-
-  /**
-   * Brisanje: autor briše direktno, ostali pokreću glasanje tima
-   * (`collaboration.requestDeletion`) - isto pravilo koje web `ideas-canvas-view`
-   * primenjuje, i isto koje mobilni već koristi za doprinose i relacije.
-   */
-  function confirmDelete() {
-    if (idea === null || !activeStartupId) return;
-    const direct = idea.canDeleteDirectly;
-    haptics.warning();
-    Alert.alert(
-      direct ? 'Obrisati ideju?' : 'Zatražiti brisanje?',
-      direct
-        ? 'Ideja se uklanja iz kanvasa i liste. Diskusija ostaje sačuvana.'
-        : 'Ideja nije tvoja, pa se pokreće glasanje tima o brisanju.',
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: direct ? 'Obriši' : 'Zatraži',
-          style: 'destructive',
-          onPress: () => {
-            void (direct
-              ? archiveIdea({ startupId: activeStartupId, ideaId })
-              : requestDeletion({ target: { kind: 'idea', id: ideaId } })
-            )
-              .then(() => {
-                haptics.success();
-                if (direct) router.back();
-                else Alert.alert('Poslato', 'Glasanje o brisanju je pokrenuto.');
-              })
-              .catch((error) => {
-                haptics.error();
-                Alert.alert('Greška', accessErrorMessage(error, 'Radnja nije uspela.'));
-              });
-          },
-        },
-      ],
-    );
   }
 
   if (activeStartupId === null) {
@@ -197,25 +173,34 @@ export default function IdejaScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader
-        title={title}
-        onBack={() => router.back()}
-        actions={
-          idea.canEdit || idea.canDeleteDirectly || idea.canRequestDeletion ? (
+      {/* Visina zaglavlja je offset za `KeyboardAvoidingView` — isti obrazac kao
+          `zadatak/[id].tsx`. */}
+      <View onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
+        <ScreenHeader
+          title={title}
+          onBack={() => router.back()}
+          // Bezuslovno: „Poveži sa idejom…" ima svaki član (bar jedna strana veze
+          // mora biti njegova kartica), a brisanje/glasanje takođe ima svako.
+          actions={
             <IconButton
               accessibilityLabel="Akcije ideje"
               onPress={() => {
                 haptics.tap();
-                setMenuOpen(true);
+                setActionsOpen(true);
               }}>
               <Ellipsis size={20} color={colors.foreground} />
             </IconButton>
-          ) : undefined
-        }
-      />
+          }
+        />
+      </View>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        // `padding` na OBA sistema: Expo SDK 57 edge-to-edge (Android) razbija OS
+        // `adjustResize`, pa se tastatura kompenzuje u JS-u (isti obrazac i
+        // komentar kao `zadatak/[id].tsx` / `razgovor/[id].tsx`). Bez ovoga
+        // kompozer „Dodaj tekst" u Diskusiji na Androidu ostaje pod tastaturom.
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           keyboardShouldPersistTaps="handled"
@@ -237,7 +222,31 @@ export default function IdejaScreen() {
               disabled={voting}
               onVote={(next) => void castVote(next)}
             />
+            {idea.convertedPageId ? (
+              // `/stranica/[id]` sama preusmerava zadatak na `/zadatak/[id]`,
+              // pa ne moramo znati vrstu rezultata.
+              <Row
+                icon={<FileOutput size={20} color={colors.mutedForeground} />}
+                title="Pretvorena u stranicu"
+                subtitle="Otvori radnu stavku nastalu iz ove ideje"
+                onPress={() => {
+                  haptics.tap();
+                  router.push({
+                    pathname: '/stranica/[id]',
+                    params: { id: idea.convertedPageId as string },
+                  });
+                }}
+                style={styles.convertedRow}
+              />
+            ) : null}
           </View>
+
+          <IdeaEdgesSection
+            ideaId={ideaId}
+            nodes={data.nodes}
+            edges={data.edges}
+            onOpenEdge={setEdgeDetail}
+          />
 
           <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.foreground }]}>
             Diskusija
@@ -249,33 +258,51 @@ export default function IdejaScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Sheet visible={menuOpen} onClose={() => setMenuOpen(false)} dragAnywhere>
-        {idea.canEdit ? (
-          <Row
-            icon={<Pencil size={20} color={colors.foreground} />}
-            title="Izmeni ideju"
-            showChevron={false}
-            onPress={() => {
-              setMenuOpen(false);
-              setDraftTitle(idea.title ?? '');
-              setDraftText(idea.text);
-              setEditError(null);
-              setEditing(true);
-            }}
-          />
-        ) : null}
-        {idea.canDeleteDirectly || idea.canRequestDeletion ? (
-          <Row
-            icon={<Trash2 size={20} color={colors.destructive} />}
-            title={idea.canDeleteDirectly ? 'Obriši ideju' : 'Zatraži brisanje'}
-            showChevron={false}
-            onPress={() => {
-              setMenuOpen(false);
-              confirmDelete();
-            }}
-          />
-        ) : null}
-      </Sheet>
+      <IdeaActionsSheet
+        open={actionsOpen}
+        idea={actionsOpen ? idea : null}
+        nodes={data.nodes}
+        edges={data.edges}
+        currentProfileId={data.currentProfileId}
+        startupId={activeStartupId}
+        onClose={() => setActionsOpen(false)}
+        onEdit={() => {
+          setActionsOpen(false);
+          setTimeout(() => {
+            setDraftTitle(idea.title ?? '');
+            setDraftText(idea.text);
+            setEditError(null);
+            setEditing(true);
+          }, SHEET_HANDOFF_MS);
+        }}
+        onConvert={() => {
+          setActionsOpen(false);
+          setTimeout(() => setConvertOpen(true), SHEET_HANDOFF_MS);
+        }}
+        onArchived={() => router.back()}
+      />
+
+      <IdeaConvertSheet
+        open={convertOpen}
+        idea={convertOpen ? idea : null}
+        startupId={activeStartupId}
+        onClose={() => setConvertOpen(false)}
+      />
+
+      <IdeaEdgeSheet
+        detail={edgeDetail}
+        startupId={activeStartupId}
+        onClose={() => setEdgeDetail(null)}
+        onOpenOther={(otherId) => {
+          setEdgeDetail(null);
+          haptics.tap();
+          router.push({ pathname: '/ideja/[id]', params: { id: otherId } });
+        }}
+      />
+
+      {/* Obrisana ideja/veza/doprinos se vraća odavde (PARITET A6); traka preživi
+          i `router.back()` sa ovog ekrana (modul-store). */}
+      <UndoBar />
 
       <Sheet
         visible={editing}
@@ -422,5 +449,9 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...text.title,
     marginTop: 8,
+  },
+  convertedRow: {
+    paddingHorizontal: 0,
+    minHeight: 48,
   },
 });

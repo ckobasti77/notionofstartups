@@ -16,7 +16,7 @@ import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { ThoughtConversionSheet } from '@/components/misli/thought-conversion-sheet';
-import { ThoughtUndoBar } from '@/components/misli/thought-undo-bar';
+import { UndoBar } from '@/components/undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -359,6 +359,11 @@ export default function CanvasScreen() {
         primaryAction={primaryAction}
       />
 
+      {/* Traka „Poništi" važi za SVE vrste kanvasa (misli, ideje…): ideja
+          arhivirana sa detalja mora imati traku i kad se korisnik vrati ovamo.
+          Iznad rail-a (44pt ikonice + 16 paddinga) — ne sme pod dugmad. */}
+      <UndoBar bottomOffset={60} />
+
       {isIdeas ? (
         <>
           <IdeaCreateSheet
@@ -411,8 +416,6 @@ export default function CanvasScreen() {
               setSelectedNode(null);
             }}
           />
-          {/* Iznad rail-a (44pt ikonice + 16 paddinga) — „Poništi" ne sme pod dugmad. */}
-          <ThoughtUndoBar bottomOffset={60} />
         </>
       ) : null}
 
