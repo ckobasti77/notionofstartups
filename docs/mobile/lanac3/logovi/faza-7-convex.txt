@@ -4,3 +4,18 @@
 Watching logs for dev deployment deafening-otter-504...
 8/11/2026, 9:58:55 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: modifyAccount'
 8/11/2026, 9:59:01 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: modifyAccount'
+8/11/2026, 10:04:19 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/11/2026, 10:05:57 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: retrieveAccountWithCredentials'
+8/11/2026, 10:05:57 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: signIn'
+8/11/2026, 10:05:58 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/11/2026, 10:19:08 AM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/11/2026, 10:28:51 AM [CONVEX Q(pages:listChildren)] Uncaught Error: Roditeljska stranica mora biti u istoj oblasti.
+    at async handler (../packages/backend/convex/pages.ts:132:13)
+
+8/11/2026, 10:32:35 AM [CONVEX Q(areasV2:getCanvas)] Uncaught Error: Stranica nije pronađena u traženoj oblasti.
+
+8/11/2026, 10:33:07 AM [CONVEX Q(areasV2:getCanvas)] Uncaught Error: Stranica nije pronađena u traženoj oblasti.
+
+8/11/2026, 10:34:00 AM [CONVEX Q(pages:listChildren)] Uncaught Error: Roditeljska stranica mora biti u istoj oblasti.
+    at async handler (../packages/backend/convex/pages.ts:132:13)
+
