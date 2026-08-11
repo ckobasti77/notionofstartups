@@ -81,50 +81,77 @@ function PustiKlod {
     if ($FLAG_EFFORT) { $lista += @($FLAG_EFFORT, $Effort) }
     $lista += ($FLAG_PERM -split ' ')
     Write-Host "      [model $ModelKorak | effort $Effort]" -ForegroundColor DarkGray
-
     $spojeni = $lista -join "`t"
-    $job = Start-Job -ScriptBlock {
-        param($pf, $lg, $wd, $sp)
-        Set-Location $wd
-        $al = $sp -split "`t"
-        (Get-Content -LiteralPath $pf -Raw) | & claude @al 2>&1 |
-            Out-File -FilePath $lg -Append -Encoding UTF8
-        if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-    } -ArgumentList $PromptFajl, $Log, (Get-Location).Path, $spojeni
 
-    $gotov = Wait-Job $job -Timeout $Rok
-    if (-not $gotov) {
-        Write-Host "    !! istekao rok, prekidam" -ForegroundColor Yellow
-        Stop-Job $job; Remove-Job $job -Force; return 124
-    }
-    $rc = Receive-Job $job; Remove-Job $job -Force
-    if ($rc -is [array]) { $rc = $rc[-1] }
+    # Ceka i pokusava ponovo dokle god je uzrok limit potrosnje.
+    # 72 pokusaja x 20 min = do 24h cekanja. Nikad ne odustaje sam.
+    for ($pokusaj = 1; $pokusaj -le 72; $pokusaj++) {
 
-    $vel = 0
-    if (Test-Path $Log) { $vel = (Get-Item $Log).Length }
-    if ($vel -eq 0) {
-        Write-Host "    !! UPOZORENJE: log je prazan" -ForegroundColor Red
-        return 125
+        $preRedova = 0
+        if (Test-Path $Log) {
+            $preRedova = @(Get-Content -LiteralPath $Log -ErrorAction SilentlyContinue).Count
+        }
+
+        $job = Start-Job -ScriptBlock {
+            param($pf, $lg, $wd, $sp)
+            Set-Location $wd
+            $al = $sp -split "`t"
+            (Get-Content -LiteralPath $pf -Raw) | & claude @al 2>&1 |
+                Out-File -FilePath $lg -Append -Encoding UTF8
+            if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        } -ArgumentList $PromptFajl, $Log, (Get-Location).Path, $spojeni
+
+        $gotov = Wait-Job $job -Timeout $Rok
+        if (-not $gotov) {
+            Write-Host "    !! istekao rok, prekidam korak" -ForegroundColor Yellow
+            Stop-Job $job; Remove-Job $job -Force
+            return 124
+        }
+        $rc = Receive-Job $job; Remove-Job $job -Force
+        if ($rc -is [array]) { $rc = $rc[-1] }
+
+        # Samo ono sto je OVAJ pokusaj dopisao u log
+        $sviRedovi = @(Get-Content -LiteralPath $Log -ErrorAction SilentlyContinue)
+        $novo = ($sviRedovi | Select-Object -Skip $preRedova) -join "`n"
+
+        if ($novo -match "unknown option|unknown argument|error: unknown") {
+            Write-Host ""
+            Write-Host "PREKID: claude odbija argumente: claude $($lista -join ' ')" -ForegroundColor Red
+            exit 1
+        }
+
+        if ($novo -match "hit your weekly limit|usage limit|rate limit|Claude usage limit reached") {
+            $kad = ""
+            $m = [regex]::Match($novo, "resets?\s+([^\r\n]{1,40})")
+            if ($m.Success) { $kad = " (resetuje se " + $m.Groups[1].Value.Trim() + ")" }
+            Write-Host ""
+            Write-Host "    LIMIT u $(Get-Date -Format 'HH:mm')$kad" -ForegroundColor Yellow
+            Write-Host "    Cekam 20 min pa pokusavam ISTI korak ponovo (pokusaj $pokusaj/72)." -ForegroundColor Yellow
+            Zapisi "- LIMIT u $(Get-Date -Format 'HH:mm')$kad - cekam 20 min, pokusaj $pokusaj"
+            git add -A 2>&1 | Out-Null
+            git commit -q -m "Cekanje na limit potrosnje (pokusaj $pokusaj)" 2>&1 | Out-Null
+            Start-Sleep -Seconds 1200
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($novo)) {
+            Write-Host "    !! prazan odgovor - cekam 5 min pa ponovo (pokusaj $pokusaj/72)" -ForegroundColor Red
+            Zapisi "- prazan odgovor, ponavljam (pokusaj $pokusaj)"
+            Start-Sleep -Seconds 300
+            continue
+        }
+
+        if ($pokusaj -gt 1) {
+            Write-Host "    nastavljeno posle cekanja (pokusaj $pokusaj)" -ForegroundColor Green
+            Zapisi "- nastavljeno posle cekanja u $(Get-Date -Format 'HH:mm')"
+        }
+        if ($null -eq $rc) { return 0 }
+        return [int]$rc
     }
-    $rep = Get-Content -LiteralPath $Log -Raw -ErrorAction SilentlyContinue
-    if ($rep -match "hit your weekly limit|usage limit|rate limit|Claude usage limit reached") {
-        Write-Host ""
-        Write-Host "PREKID: dostignut limit potrosnje." -ForegroundColor Red
-        Write-Host "Napredak je sacuvan u commit-ovima i u PARITET.md." -ForegroundColor Yellow
-        Write-Host "Kad se limit obnovi:  .\nocni-paritet.ps1 -Od <faza-koja-nije-gotova>" -ForegroundColor Yellow
-        Zapisi ""
-        Zapisi "> **PREKINUTO: dostignut limit potrosnje.** Nastavi sa ``-Od``."
-        git add -A 2>&1 | Out-Null
-        git commit -q -m "Lanac prekinut: limit potrosnje" 2>&1 | Out-Null
-        exit 1
-    }
-    if ($rep -match "unknown option|unknown argument|error: unknown") {
-        Write-Host ""
-        Write-Host "PREKID: claude odbija argumente: claude $($lista -join ' ')" -ForegroundColor Red
-        exit 1
-    }
-    if ($null -eq $rc) { return 0 }
-    return [int]$rc
+
+    Write-Host "    !! 24h cekanja i limit se nije oslobodio - odustajem od koraka" -ForegroundColor Red
+    Zapisi "- **ODUSTAO** posle 24h cekanja na limit"
+    return 126
 }
 
 function PokreniSaRokom([string]$Komanda, [string]$Log, [int]$Rok) {
