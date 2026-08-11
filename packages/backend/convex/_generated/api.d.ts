@@ -56,6 +56,7 @@ import type * as profiles from "../profiles.js";
 import type * as puls from "../puls.js";
 import type * as push from "../push.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
+import type * as pushTest from "../pushTest.js";
 import type * as search from "../search.js";
 import type * as startups from "../startups.js";
 import type * as storage from "../storage.js";
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   puls: typeof puls;
   push: typeof push;
   pushSubscriptions: typeof pushSubscriptions;
+  pushTest: typeof pushTest;
   search: typeof search;
   startups: typeof startups;
   storage: typeof storage;
