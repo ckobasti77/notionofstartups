@@ -130,6 +130,38 @@ export const myDeviceCount = query({
 });
 
 /**
+ * Tokeni prijavljenog korisnika — samo za probno slanje (`pushTest.sendTest`).
+ * Namerno zaobilazi utišane tipove i tihe sate: ovo je dijagnostika isporuke,
+ * ne obaveštenje o događaju. Interni je jer nikome osim toj akciji ne treba.
+ */
+export const myTokensForTest = internalQuery({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("expoPushTokens"),
+      token: v.string(),
+      platform: platformValidator,
+      channelVersion: v.number(),
+      deviceName: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx) => {
+    const profile = await requireProfile(ctx);
+    const rows = await ctx.db
+      .query("expoPushTokens")
+      .withIndex("by_profileId", (q) => q.eq("profileId", profile._id))
+      .take(MAX_EXPO_TOKENS);
+    return rows.map((row) => ({
+      _id: row._id,
+      token: row.token,
+      platform: row.platform,
+      channelVersion: row.channelVersion,
+      deviceName: row.deviceName ?? null,
+    }));
+  },
+});
+
+/**
  * Badge broj za ikonu: nepročitane notifikacije + nepročitane chat poruke,
  * sabrano kroz aktivne startupe korisnika (sekcija 8). Ograničeno čitanje —
  * precizan denormalizovani brojač je naknadno finije rešenje.

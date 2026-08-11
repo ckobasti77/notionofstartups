@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "145272275234",
+    "project_id": "devotion-startups",
+    "storage_bucket": "devotion-startups.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:145272275234:android:8c7e289f83e0d48175a57b",
+        "android_client_info": {
+          "package_name": "com.devotion.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzTNw-N_0RudHI84SpHUidWkmC5m3Ci8Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

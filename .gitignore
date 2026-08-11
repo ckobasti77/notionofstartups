@@ -44,3 +44,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Firebase servisni kljuc (FCM V1) - TRETIRA SE KAO LOZINKA, NIKAD U REPO
+*firebase-adminsdk*.json
+**/service-account*.json
+_to_delete/
