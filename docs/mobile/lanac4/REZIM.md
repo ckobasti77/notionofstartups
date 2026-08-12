@@ -50,12 +50,20 @@ Android preko `document`. Nema drugog kanala i nema handshake-a (ZA-POPRAVKU Z2)
 |---|---|---|
 | `{type:"mode", value:"edit"\|"view"}` | tap na „Uredi raspored" / „Gotovo", i **ponovo posle svakog `onLoadEnd`** ako je režim upaljen | `nodesDraggable`, ručke za veličinu, obod + pilula, tap više ne otvara čvor |
 | `{type:"connect", sourceId: string\|null}` (K3) | „Poveži sa…" u sheet-u čvora, odnosno „Otkaži" / uspeh / izlazak iz režima / `onLoadEnd` | ulazak u biranje cilja: izvor dobija pun prsten, `nodesDraggable` i ručke se GASE, tap na drugi čvor pravi vezu, pilula nestaje |
+| `{type:"checkpoints", taskPageId: string\|null}` (K4) | „Prikaži korake (N)" / „Sakrij korake" u sheet-u kartice, i **ponovo posle `onLoadEnd`** ako je neki zadatak razvijen | embed crta oblačiće koraka tog zadatka u orbiti oko njegove kartice + `taskCheckpointCanvasEdges` tog scope-a; `null` ih sklanja |
 
 Nepoznata `value` = `view`. Režim se pali samo eksplicitno.
 
 `connect` se, za razliku od `mode`, posle `onLoadEnd` **ne obnavlja** nego poništava:
 sveže učitan embed ne zna izvor, pa bi traka „Izaberi karticu za vezu" tražila tap koji
 ne bi ništa uradio.
+
+`checkpoints` se, kao `mode`, **obnavlja** posle `onLoadEnd`: to je čist POGLED — ne
+piše ništa i ne čeka tap, pa dangling stanje ne postoji. Vlasnik stanja je native
+(`expandedTaskId`); embed zadatak čije korake crta saznaje **isključivo** iz ove poruke.
+Na kanvasu SAMOG zadatka je nebitna — tamo su koraci uvek vidljivi (`ownTaskPageId`).
+Poruka se **ne poništava na „Gotovo"**: jednom razvijeni koraci ostaju vidljivi i van
+režima (tada tap na oblačić otvara `/zadatak/<taskPageId>`).
 
 ### WebView → native
 
@@ -64,8 +72,8 @@ ne bi ništa uradio.
 | `{type:"moved", startupId, areaId, rootPageId, count, before:[{pageId,x,y}]}` | posle **uspešnog** `movePages` | `haptics.success()` + traka „Poništi" (`kind:'pageMove'`) |
 | `{type:"viewport", startupId, areaId, rootPageId, x, y, zoom}` | `onMoveEnd` koji je izazvao **korisnik** | prigušen `saveViewport` (800 ms) |
 | `{type:"resized", startupId, areaId, rootPageId, pageId, width, height, previous:{x,y,width,height}}` | posle **uspešnog** `resizePage` iz poteza ručkom (K2) | `haptics.success()`, traka „Poništi" (`kind:'pageResize'`) i osvežena veličina u lokalnom detalju čvora |
-| `{type:"node:actions", nodeId, node}` | **dugi pritisak** na karticu u režimu (`contextmenu`) | otvara native sheet „Akcije kartice" (`page-node-sheet.tsx`: veze K3 + veličina K2) |
-| `{type:"connected", startupId, areaId, rootPageId, edgeId}` (K3) | posle **uspešnog** `connectPages` | `haptics.success()`, izlazak iz biranja i traka „Poništi" (`kind:'pageEdgeConnect'`) |
+| `{type:"node:actions", nodeId, node}` | **dugi pritisak** na čvor u režimu (`contextmenu`) | grana se po `node.nodeKind`: `"page"` → sheet „Akcije kartice" (`page-node-sheet.tsx`), `"checkpoint"` → sheet „Akcije koraka" (`checkpoint-node-sheet.tsx`) |
+| `{type:"connected", startupId, areaId, rootPageId, edgeId, edgeKind:"page"\|"checkpoint"}` (K3, `edgeKind` K4) | posle **uspešnog** `connectPages` odnosno `taskCheckpointCanvasEdges.connect` | `haptics.success()`, izlazak iz biranja i traka „Poništi" — `kind:'pageEdgeConnect'` ili `kind:'checkpointEdgeConnect'` po `edgeKind` |
 | `{type:"toast", level:"error", message}` | `movePages`, `resizePage` ili `connectPages` je pukao | `Alert.alert('Greška', message)`; embed sam vraća kartice na staro |
 | `{type:"toast", level:"info", message}` (K3) | duplikat para, tap na izvor, tap na ghost | `Alert.alert('Obaveštenje', message)` — objašnjenje, ne kvar; **biranje ostaje upaljeno** i mutacija se NE zove |
 
@@ -77,7 +85,20 @@ veličinu, da native sheet posle povlačenja računa „±10%" iz tačne vrednos
 
 **Dugi pritisak nije jedini put do sheet-a.** Ista radnja stoji i kao četvrta
 ikonica native rail-a kad je izabrana jedna svoja kartica — `contextmenu` je na
-WKWebView-u nepouzdan, a ručke se ispod zuma 0.5 uopšte ne crtaju.
+WKWebView-u nepouzdan, a ručke se ispod zuma 0.5 uopšte ne crtaju. Labela te ikonice
+prati vrstu izabranog čvora: „Akcije kartice" ili „Akcije koraka" (K4).
+
+**`nodeKind` je diskriminator, ne dekoracija (K4).** Svaki detalj koji embed pošalje uz
+`node:open` / `node:actions` / `selection` nosi `nodeKind: "page" | "checkpoint"`. Native
+grana **po njemu**, ne po vrsti kanvasa i ne po obliku objekta — inače tap na oblačić
+otvara `/stranica/<checkpointId>` (stranica koja ne postoji), a sheet kartice dobija
+checkpoint detalj.
+
+**Id ČVORA ≠ id dokumenta (K4).** Kartica ima isti `_id` i na platnu i u bazi; korak
+nema — njegov čvor na platnu nosi prefiks (`checkpoint:<id>`, `taskCheckpointNodeId`).
+Zato `CheckpointNodeDetail` nosi **oba** (`_id` i `nodeId`): u `{type:"connect"}` ide
+`nodeId`, u mutacije ide `_id`. Zamena je **tiha** greška: prsten se ne pojavi, tap na
+cilj ne uradi ništa, i nigde nema poruke o grešci.
 
 ---
 

@@ -1,0 +1,230 @@
+K6 — trag testiranja na emulatoru (Pixel_9 / emulator-5554), 12.08.2026, 19:24–19:52
+====================================================================================
+
+OKRUŽENJE (T0)
+--------------
+  curl.exe -s -o NUL -w "%{http_code}" http://localhost:3000/embed/canvas/ideas/proba
+  → 200                                    (Z3 čist — port 3000 drži Devotion)
+  Metro (localhost:8081/status)            → 200
+  adb devices                              → emulator-5554  device
+  wm density                               → 420  (scale 2.625)
+
+  ZATEČENA DVA KVARA OKRUŽENJA — nisu kod, ali su zaustavila testiranje:
+
+  1. Emulator nije mogao da razreši nijedno IME domena:
+       ping 8.8.8.8    → 0% packet loss
+       ping google.com → ping: unknown host google.com
+     Posledica u aplikaciji: „Pripremam radni prostor" u nedogled, a u logcat-u
+       WebSocket closed with code 1006: Unable to resolve host
+       "deafening-otter-504.eu-west-1.convex.cloud"
+     Popravka: restart emulatora sa eksplicitnim DNS-om —
+       emulator.exe -avd Pixel_9 -dns-server 8.8.8.8 -no-snapshot-save
+     Posle restarta: ping google.com → 0% packet loss. Sesija u aplikaciji je
+     PREŽIVELA (expo-secure-store je na disku AVD-a) — nije trebala prijava.
+
+  2. `adb reverse` mapiranja NESTAJU sa restartom emulatora.
+     `EXPO_PUBLIC_WEB_URL=http://localhost:3000` (ne 10.0.2.2), pa kanvas bez
+     tunela javlja `net::ERR_CONNECTION_REFUSED`:
+       adb reverse tcp:3000 tcp:3000
+       adb reverse tcp:8081 tcp:8081
+     Ovo je uslov za SVAKI kanvas test i mora se ponoviti posle svakog restarta.
+
+  Oba su zapisana u ZA-POPRAVKU.md kao zamke Z8 i Z9.
+
+
+T1 — LINT (I1, I2)
+------------------
+  pre:   npm run lint → exit 0, 0 grešaka, 2 upozorenja
+         (areasV2.ts:9 findAvailableCanvasPosition, chat.ts:1037 profile)
+  posle: npm run lint → exit 0, 0 grešaka, 0 upozorenja (prazan ispis)
+
+  P6 (autorizacija nije oslabljena brisanjem destrukturisanja):
+    grep -c "requireStartupMember" packages/backend/convex/chat.ts
+    pre 11 · posle 11
+
+
+T2 — ULAZ SA TELEFONA  (k6-ulaz.png, k6-kanvas.png)
+---------------------------------------------------
+  Detalj zadatka „F7 zadatak telefon" → nova ikonica „Canvas zadatka" u zaglavlju.
+  Zaglavlje kanvasa: „Canvas zadatka" (ne „Stranica").
+  Oblačići „Skica plana (Korak 1 · Otvoren)" i „Podela posla (Korak 2 · Otvoren)"
+  u orbiti oko kartice podstranice.
+
+
+T10 — TAP VAN REŽIMA  (k6-tap-zadatak.png)
+------------------------------------------
+  19:34:03  ← primljeno: node:open
+  Ishod: /zadatak/<taskPageId> („F7 zadatak telefon"), NE /stranica/<checkpointId>.
+
+
+T4 — POTEZ PRSTOM U REŽIMU  (k6-pre.png → k6-posle.png)
+-------------------------------------------------------
+  19:34:34  → poslato:   mode            (ulazak u režim; obod + pilula + „Gotovo")
+  19:34:58  ← primljeno: selection
+  19:34:59  ← primljeno: moved           ← TAČNO JEDNA poruka za ceo potez
+  19:34:59  ← primljeno: selection
+  Traka: „Korak je pomeren."  ← jednina iz movedLabel(0 kartica, 1 korak)
+  Rail: četvrta ikonica postala „…" (Akcije koraka)
+
+  Baza (npx convex data taskCheckpointCanvasPlacements):
+    NOV red q57e1ee2fw2yvn9asxnzk736z58ca5bw
+    x=-82 y=-381  width=(prazno) height=(prazno)
+    createdAt = updatedAt = 1786556101151   ← nastao ovim potezom, nikad dimenzionisan
+
+
+T5 — PLATNO U REŽIMU (P1)  (k6-pan.png)
+---------------------------------------
+  19:43:21  ← primljeno: viewport        ← samo kamera
+  19:43:22  ← primljeno: selection
+  NEMA nijedne `moved` poruke → nijedan saveCanvasPlacement. Promašaj poteza je pan,
+  dakle bezopasan ishod (§4 P1).
+
+
+T6 — VELIČINA + USLOVNI INVERZ  (k6-akcije-koraka.png, k6-velicina.png)
+-----------------------------------------------------------------------
+  Sheet „Akcije koraka" otvoren IZ RAIL-a (četvrta ikonica) — put koji ne zavisi ni
+  od dugog pritiska ni od praga zuma. „Vrati podrazumevanu veličinu" prigušeno
+  (manuallySized = false).
+
+  „Prošireno" → traka „Veličina koraka: 360 × 240."
+  Baza posle: width=360 height=240, updatedAt=1786556358887
+
+  Ponovljeno sa korakom koji NIJE bio dimenzionisan, pa odmah „Poništi":
+  Baza posle poništavanja: width=(prazno) height=(prazno), x=-82 y=-381,
+  updatedAt=1786556467227
+  → inverz je bio saveCanvasPlacement(x,y) PA resetCanvasSize. Da je bio običan
+    saveCanvasPlacement(width,height), red bi ostao ručno dimenzionisan zauvek.
+
+
+T9 — Z7 NIJE RECIDIVIRAO  (k6-z7-sheet.png, k6-z7.png)
+------------------------------------------------------
+  19:40:16  ← primljeno: node:actions    (dugi pritisak na oblačić → native sheet)
+  Sheet pokazuje SVEŽE „Trenutno: 360 × 240" i „Prošireno" prigušeno.
+  Posle „Vrati podrazumevanu veličinu" oblačić se u WebView-u smanjio ODMAH,
+  bez reload-a — prikaz nije ostao zamrznut (ZA-POPRAVKU Z7).
+
+
+T7 — VEZA KORAK → KORAK (P2)  (k6-veza-pre.png → k6-veza-posle.png)
+-------------------------------------------------------------------
+  19:41:46  ← primljeno: node:actions
+  19:41:49  → poslato:   connect          (izvor = checkpoint.nodeId, prefiksiran)
+  19:41:51  ← primljeno: connected
+  19:41:51  → poslato:   connect          (sourceId: null — izlazak iz biranja)
+
+  Traka za biranje: „Izaberi karticu za vezu / Izvor: Skica plana", PUN PRSTEN oko
+  izvornog oblačića → dokaz da je poslat `nodeId`, a ne `_id` (sa `_id` prstena ne
+  bi bilo i tap na cilj ne bi radio ništa, tiho).
+  Traka posle: „Korak je povezan."  ← checkpoint grana, ne „Kartice su povezane."
+
+  Baza: qd7cqc2ja1e99xse6t421zz7fd8cb3v5
+        task_checkpoint ↔ task_checkpoint, archivedAt = null
+
+
+T8 — „PONIŠTI" NAD CHECKPOINT VEZOM (P3)  (k6-undo-veza.png)
+------------------------------------------------------------
+  Druga veza, drugi tip endpointa (korak ↔ KARTICA podstranice):
+  19:42:35  ← primljeno: node:actions
+  19:42:37  → poslato:   connect
+  19:42:40  ← primljeno: connected
+  19:42:40  → poslato:   connect (null)
+  … „Poništi" …
+  Baza: qd7405g57dy2ad9fbpe2yeaxbn8cbn2p
+        page ↔ task_checkpoint, createdAt 1786556561585, archivedAt 1786556564914
+
+  NIJEDAN Alert se nije pojavio. Da grananje po `edgeKind` nije dodato, „Poništi"
+  bi zvao areasV2.disconnectPages sa taskCheckpointCanvasEdges id-jem → serverska
+  greška u licu korisnika. Prethodna veza (T7) je ostala živa — poništena je tačno
+  ona koja treba.
+
+
+T3 — PRIKAZ KORAKA SA KANVASA OBLASTI (T14 iz K4)
+-------------------------------------------------
+  (k6-prikazi-red.png, k6-prikazi.png, k6-sakrij-red.png, k6-sakrij.png)
+  Dugi pritisak na karticu zadatka → sheet „Akcije kartice" sada ima red
+  „Prikaži korake (2)". Pre K6 se taj red NIJE renderovao (traži `onToggleCheckpoints`).
+  19:46:01  → poslato:   checkpoints     → oblačići doskaču u orbitu oko kartice
+  Ponovni dugi pritisak → red kaže „Sakrij korake" (checkpointsExpanded radi)
+  19:51:12  → poslato:   checkpoints     → oblačići nestali
+
+
+T11 — PREŽIVLJAVANJE RELOAD-A  (k6-retry.png)
+---------------------------------------------
+  Tunel na 3000 uklonjen → povratak na kanvas → „Canvas se ne može učitati
+  (net::ERR_CONNECTION_REFUSED)". Rail i dalje radi: režim uključen U STANJU GREŠKE.
+  Tunel vraćen → „Pokušaj ponovo":
+  19:48:07  → poslato:   auth
+  19:48:07  → poslato:   mode            ← onLoadEnd ponovo javlja režim
+  19:48:08  ← primljeno: selection
+
+  OGRANIČENJE KOJE TREBA ZNATI: linija `checkpoints` iz istog `onLoadEnd` bloka
+  NIJE zasebno okinuta na uređaju, jer `reload()` postoji samo u stanju greške, a u
+  stanju greške nema čvorova pa se `expandedTaskId` ne može ni postaviti. Obe linije
+  su u istom bloku sa istim `!failed` guardom (`canvas/[kind]/[id].tsx:732–735`), a
+  slanje poruke `checkpoints` je dokazano u T3. Zapisano kao takvo, ne prećutano.
+
+  Provereno usput: prelazak aplikacije u pozadinu i nazad NE reloaduje WebView
+  (nula poruka u logu) — što je i željeno ponašanje (Z1).
+
+
+T12 — DODIRNE METE, IZMERENE NA UREĐAJU
+---------------------------------------
+  Pun ispis: k6-mete.txt. Sažetak novoga u K6:
+    „Prikaži korake (2)" / „Sakrij korake"   386.7 × 58.3 dp   ≥ 56 ✓
+    svi redovi sheet-a „Akcije koraka"       386.7 × 58.3–58.7 ≥ 56 ✓
+    „Canvas zadatka" (zaglavlje zadatka)      43.8 × 43.8 dp   = „Nazad" i
+                                                                 „Akcije zadatka" ✓
+
+
+T13 — BAZA
+----------
+  Vrednosti su upisane uz T4, T6, T7 i T8 (pre/posle po testu), pa se ne ponavljaju.
+
+
+T14 — DESKTOP NIJE REGRESIRAO
+-----------------------------
+  git status --short -- apps/web/components/ packages/backend/convex/areasV2.ts \
+                        packages/backend/convex/chat.ts
+    M packages/backend/convex/areasV2.ts     ← samo brisanje mrtvog uvoza (I1)
+    M packages/backend/convex/chat.ts        ← samo brisanje destrukturisanja (I2)
+    (nula fajlova u apps/web/components/)
+
+  Nov test apps/web/lib/canvas-node-size.test.ts zakiva četiri granice veličine
+  kartice na brojeve koje je desktop imao INLINE pre lanca
+  (git show 019239d:…/area-flow-node.tsx:284–287 → 240 / 168 / 720 / 1_000),
+  podrazumevanu veličinu poredi sa PRAVIM izvorom (DEFAULT_CANVAS_NODE_WIDTH/HEIGHT
+  iz packages/backend/convex/canvasPlacement.ts), i uz to zakiva mobilnu kopiju i
+  presete oblačića uz desktop TASK_CHECKPOINT_SIZE_PRESETS.
+
+
+T15 — KAPIJE
+------------
+  apps/mobile  npx tsc --noEmit   → exit 0
+  apps/web     npx tsc --noEmit   → exit 0
+  npm run lint                    → exit 0, 0 grešaka, 0 upozorenja
+  npm test                        → 39 fajlova, 333 testa, exit 0
+  npm run build                   → prolazi
+
+
+T16 / T17 — PARITET
+-------------------
+  grep -rhoE "api\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+" apps/web/components apps/web/app | sort -u
+  grep -rhoE "api\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+" apps/mobile/src              | sort -u
+  → web 161 · mobilni 169 · razlika 7
+
+    api.activity.listForStartup
+    api.areasV2.getCanvas
+    api.areasV2.getPageCanvasByPage
+    api.areasV2.resolveRoute
+    api.notifications.latest
+    api.pageFiles.prune
+    api.pushSubscriptions.myDeviceCount
+
+  Z-tabela u PARITET.md ima TAČNO tih 7 redova — uparivanje red po red, ne odokativno.
+
+
+T18 — DESKTOP MIŠEM: NIJE URAĐEN
+--------------------------------
+  Uslov iz plana nije ispunjen (lozinka naloga nije poznata, a `resetAdminPassword`
+  bi je promenio). Ostaje otvoreno u ZA-POPRAVKU.md §10, sa tačnim putem i uslovom.
+  Do tada ne-regresija desktopa stoji na T14 (prazan diff u apps/web/components/
+  + nov test koji zakiva konstante).

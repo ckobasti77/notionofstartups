@@ -1,0 +1,109 @@
+# K6 — dodirne mete IZMERENE NA UREĐAJU (Pixel_9, emulator-5554)
+#
+# Metod: `adb shell uiautomator dump` → parsiranje `bounds` → dp = px / (420/160).
+# Gustina uređaja: `wm density` = 420 (scale 2.625).
+#
+# Prag: red liste ≥ 56 dp (`ui/row.tsx` `minHeight: 56`), ikonica ≥ 44 dp
+# (`MIN_TOUCH_TARGET`). Vrednost 43.8 dp je artefakt zaokruživanja piksela
+# (44 × 2.625 = 115.5 px → 115 px → 43.81 dp) i pojavljuje se na SVIM postojećim
+# ikonicama zaglavlja („Nazad", „Akcije zadatka") — nova „Canvas zadatka" je
+# identična njima, ne uža.
+#
+# NOVO U K6 (ostalo je zatečeno iz K2/K3):
+#   „Prikaži korake (2)" / „Sakrij korake"  386.7 × 58.3 dp   ✓ ≥ 56
+#   „Canvas zadatka" (zaglavlje zadatka)     43.8 ×  43.8 dp   ✓ = ostale ikonice
+#   svi redovi sheet-a „Akcije koraka"      386.7 × 58.3–58.7  ✓ ≥ 56
+
+### Sheet „Akcije kartice" — kanvas OBLASTI, dugi pritisak na karticu zadatka
+F7 zadatak telefon                                     386.7 x   24.8 dp
+Trenutno: 288 × 196                                    386.7 x   18.3 dp
+Prikaži korake (2)                                     386.7 x   58.3 dp
+Prikaži korake (2)                                     338.7 x   22.1 dp
+Koraci se na kanvasu razmeštaju i povezuju             338.7 x   18.3 dp
+Veze                                                   386.7 x   34.3 dp
+Poveži sa…                                             386.7 x   58.3 dp
+Poveži sa…                                             338.7 x   22.1 dp
+Zatim tapni karticu ili korak sa kojim se povezuje     338.7 x   18.3 dp
+F7W zadatak web                                        314.7 x   22.1 dp
+Veza                                                   314.7 x   18.3 dp
+Veličina                                               386.7 x   34.3 dp
+Umanji                                                 386.7 x   58.7 dp
+Umanji                                                 338.7 x   22.1 dp
+Za 10% — najmanje 240 × 168                            338.7 x   18.3 dp
+Uvećaj                                                 386.7 x   58.3 dp
+Uvećaj                                                 338.7 x   22.1 dp
+Za 10% — najviše 720 × 1000                            338.7 x   18.3 dp
+Vrati podrazumevanu veličinu                           386.7 x   58.7 dp
+Vrati podrazumevanu veličinu                           338.7 x   22.1 dp
+288 × 196                                              338.7 x   18.3 dp
+Kartica je već u podrazumevanoj veličini.              386.7 x   38.1 dp
+
+### Sheet „Akcije koraka" — dugi pritisak na oblačić koraka
+Skica plana                                            386.7 x   24.8 dp
+Korak 1 · Otvoren · Trenutno: 164 × 100                386.7 x   18.3 dp
+Veze                                                   386.7 x   34.3 dp
+Poveži sa…                                             386.7 x   58.3 dp
+Poveži sa…                                             338.7 x   22.1 dp
+Zatim tapni korak ili karticu sa kojom se povezuje     338.7 x   18.3 dp
+Nema veza sa ovog koraka.                              386.7 x   38.1 dp
+Veličina                                               386.7 x   34.3 dp
+Kompaktno                                              386.7 x   58.3 dp
+Kompaktno                                              338.7 x   22.1 dp
+164 × 110                                              338.7 x   18.3 dp
+Prošireno                                              386.7 x   58.7 dp
+Prošireno                                              338.7 x   22.1 dp
+360 × 240                                              338.7 x   18.3 dp
+Vrati podrazumevanu veličinu                           386.7 x   58.3 dp
+Vrati podrazumevanu veličinu                           338.7 x   22.1 dp
+Veličina se izvodi iz teksta koraka                    338.7 x   18.3 dp
+Sam tekst koraka, kvačica i lančanje menjaju se na d   386.7 x   44.6 dp
+
+### Zaglavlje detalja zadatka (ulaz „Canvas zadatka")
+Tools                                                   25.9 x   25.9 dp
+Putanja: F7 Oblast                                      57.1 x   18.3 dp
+Nazad                                                   43.8 x   43.8 dp
+F7 zadatak telefon                                     257.9 x   34.3 dp
+Canvas zadatka                                          43.8 x   43.8 dp
+Akcije zadatka                                          43.8 x   43.8 dp
+Izmeni status, trenutno U toku                         354.7 x   56.0 dp
+Status                                                 208.8 x   22.1 dp
+U toku                                                  46.1 x   22.1 dp
+Izmeni prioritet, trenutno Visok                       354.7 x   56.0 dp
+Prioritet                                              221.3 x   22.1 dp
+Visok                                                   35.4 x   19.4 dp
+Izmeni rok, trenutno 12. avg                           354.7 x   56.0 dp
+Rok                                                    145.5 x   22.1 dp
+12. avg                                                 52.2 x   22.1 dp
+Rok je danas                                            65.1 x   19.8 dp
+danas                                                   33.1 x   14.1 dp
+Izmeni izvršioce, trenutno 1                           354.7 x   56.0 dp
+Izvršioci                                              245.0 x   22.1 dp
+Izvršioci: Jovan Milojević                              25.9 x   26.3 dp
+Jovan Milojević                                         25.9 x   26.3 dp
+JM                                                      14.9 x   14.1 dp
+Skupi instrukcije                                      318.5 x   44.2 dp
+Instrukcije                                             76.2 x   22.1 dp
+Uredi instrukcije                                       36.2 x   35.8 dp
+Uvek zapisati plan pa Tek onda menjati kod.            354.7 x   22.1 dp
+Checkpointi                                             86.1 x   22.1 dp
+0/2                                                     20.6 x   18.3 dp
+Poveži sve korake                                      354.7 x   43.8 dp
+Poveži sve                                              76.6 x   22.1 dp
+Napredak checkpointa                                   354.7 x    6.1 dp
+Novi checkpoint                                        302.9 x   46.5 dp
+Dodaj checkpoint                                        44.2 x   44.2 dp
+1                                                        8.0 x   18.3 dp
+Završi: Skica plana                                     43.8 x   43.8 dp
+Skica plana                                            161.9 x   22.1 dp
+Uredi: Skica plana                                      36.2 x   36.2 dp
+Obriši: Skica plana                                     35.8 x   36.2 dp
+2                                                        8.0 x   18.3 dp
+Završi: Podela posla                                    43.8 x   44.2 dp
+Podela posla                                           118.1 x   22.1 dp
+Veži za prethodni korak: Podela posla                   35.8 x   35.8 dp
+Uredi: Podela posla                                     36.2 x   35.8 dp
+Obriši: Podela posla                                    35.8 x   35.8 dp
+Povezane stavke, 0                                     378.7 x   43.8 dp
+Povezane stavke                                        261.0 x   22.1 dp
+0                                                        7.6 x   18.3 dp
+

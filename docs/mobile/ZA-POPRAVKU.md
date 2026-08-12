@@ -477,7 +477,21 @@ Popravljeno u Fazi 5 na osnovu revizije: Android tastatura na `ideja/[id].tsx`
 
 ---
 
-## 6. Dva zatečena lint upozorenja u backendu (Faza 5 ih NE dira)
+## 6. Dva zatečena lint upozorenja u backendu — **REŠENO (K6, 12.08.)**
+
+> **REŠENO.** Uslov ispod je ispunjen: faza K6 je dobila backend u opseg **isključivo za
+> brisanje mrtvog koda**, i to je jedino što je urađeno.
+>
+> - `packages/backend/convex/areasV2.ts:9` — obrisan uvoz `findAvailableCanvasPosition`
+>   (identifikator se u fajlu pojavljivao **tačno jednom**, u samom uvozu).
+>   `getAvailableCanvasPosition` je DRUGA, korišćena funkcija i nije dirana.
+> - `packages/backend/convex/chat.ts:1037` — `const { profile } = await requireStartupMember(...)`
+>   → `await requireStartupMember(...)`. **Obrisano je samo destrukturisanje**; poziv je
+>   provera pristupa, ne mrtav kod — bez njega bi `chat.searchMessages` postao javan.
+>   Provera: broj pogodaka `requireStartupMember` u `chat.ts` je pre i posle **11**.
+>
+> Ishod: `npm run lint` → **0 grešaka, 0 upozorenja**; `PARITET.md` sekcija B je
+> čekirana. Tekst ispod je istorijat.
 
 **Stanje.** `npm run lint` prolazi (exit 0) ali javlja 2 upozorenja
 `no-unused-vars`, oba u `packages/backend/convex/`: `areasV2.ts:9`
@@ -518,9 +532,26 @@ menja: dodati red „Registrovano na N uređaja" pozivom
 
 ---
 
-## 8. Faza K4: native ljuska kanvasa nikad nije povezana (Izmene 11 i 12 nisu sprovedene)
+## 8. Faza K4: native ljuska kanvasa nikad nije povezana — **REŠENO (K6, 12.08.)**
 
-**Stanje.** Commit `ef87e84` („Faza K4 — Checkpointi zadataka na kanvasu") isporučio
+> **REŠENO.** Izmene 11 i 12 iz `docs/mobile/lanac4/planovi/faza-k4.md` su sprovedene u
+> celini, u fazi K6. Šta je konkretno ušlo:
+>
+> | Plan | Gde je sada | Šta radi |
+> |---|---|---|
+> | Izmena 11, `expandedTaskId` | `canvas/[kind]/[id].tsx:333` (`useEffect`) + `:737` (`onLoadEnd`) | Poruka `{type:'checkpoints', taskPageId}` se šalje na svaku promenu i ponovo posle učitavanja; `onToggleCheckpoints` + `checkpointsExpanded` prosleđeni `PageNodeSheet`-u (`:874`, `:879`), pa se red „Prikaži korake (N)" konačno renderuje |
+> | Izmena 11, `node:actions` / rail | `:461` (grananje po `node.nodeKind`) i `:645`–`:652` (`selectedCheckpoint`, labela „Akcije koraka") | `checkpointTarget` se puni, `CheckpointNodeSheet` je montiran (`:886`) |
+> | Izmena 11, `node:open` | `:441` | Tap na oblačić van režima vodi na `/zadatak/<taskPageId>`, ne na `/stranica/<checkpointId>` |
+> | Izmena 11, `connected` | `:480` (grananje po `msg.edgeKind`) | Checkpoint veza dobija `checkpointEdgeConnect` — „Poništi" više ne bi zvao `areasV2.disconnectPages` sa tuđim id-jem |
+> | Izmena 11, `startConnect` / `applyNodeSize` | `:285` / `:371` | Izvor veze je `checkpoint.nodeId` (prefiksiran id ČVORA, ne `_id`); veličina se osvežava u sve tri lokalne kopije |
+> | Izmena 12 | `zadatak/[id].tsx:182` (`openCanvas` `:138`) | Ikonica „Canvas zadatka" u zaglavlju detalja zadatka — jedini ulaz u kanvas na kom su koraci vidljivi bez poruke `checkpoints` |
+>
+> Dokazi po funkciji: `PARITET.md` A8 i sekcija K4 (obe čekirane u istom commit-u).
+> Tekst ispod je istorijat i **pouka koju ne treba zaboraviti**: nijedan gejt ovo nije
+> video, jer se kod kompajlirao i lint je bio čist. `useMutation` u fajlu **nije dokaz**
+> da korisnik do te radnje može da dođe.
+
+**Stanje (istorijat).** Commit `ef87e84` („Faza K4 — Checkpointi zadataka na kanvasu") isporučio
 je ceo embed deo (`canvas-embed.tsx`: checkpoint čvorovi, ivice, potez, veza, poruka
 `checkpoints`), sve nove native delove (`checkpoint-node-sheet.tsx`,
 `node-edges-section.tsx`, `node-size-section.tsx`, `canvas-endpoints.ts`,
@@ -562,6 +593,92 @@ u celini (uz `onLoadEnd` ponovno slanje `checkpoints`, pored postojećeg `mode` 
 Do tada `PARITET.md` A8 ne sme da bude čekiran.
 
 **Nalaz:** provera gejtova posle plana Faze K5 (2026-08-12).
+
+---
+
+## 9. Faza K5 nije urađena — Ideje i Misli nemaju režim „Uredi raspored"
+
+**Stanje.** Commit `6668cb4` nosi poruku „Faza K5 — Ideje i Misli u istom režimu", ali
+K5 **nije ni započet**: to je popravka repa K4 (`movedLabel` sa dva argumenta). Dokaz
+je u samom kodu:
+
+- `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:312–314` doslovno kaže da
+  `IdeasFlow`/`ThoughtsFlow` dobijaju `editMode`/`connectSourceId` **bez handlera**, pa je
+  režim tamo inertan (pravilo 7 iz `lanac4/REZIM.md` — „K5 dodaje samo handler").
+- `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:272` — `supportsEdit = isPageKind`,
+  dakle prekidač režima se na kanvasu ideja i misli **ni ne prikazuje**.
+
+**Zašto brojač pariteta to ne vidi.** `thoughts.moveNodes`, `updateNodeLayout`,
+`resetNodeLayoutSize`, `saveViewport`, `ideas.updatePositions`, `updateLayout`,
+`resetLayoutSize` — sve se **već zovu** sa mobilnog, ali sa LISTI („Sredi raspored",
+„Veličina oblačića": `misli.tsx:82`, `ideje.tsx:131`, `thought-actions-sheet.tsx:101`,
+`idea-actions-sheet.tsx:111`). Grep po imenu funkcije ih broji kao pokrivene. Razlika
+pariteta je 7 i sa K5 i bez njega — **broj 7 se ne sme čitati kao „sve je urađeno"**.
+Ista metodološka zamka kao `target` unija iz §5.7.
+
+**Šta posao stvarno obuhvata** (backend je **ceo već tu**, ništa se ne dodaje):
+
+| Šta | Postojeća funkcija |
+|---|---|
+| Potez prstom (ideje) | `ideas.updatePositions` |
+| Potez prstom (misli) | `thoughts.moveNodes` |
+| Veličina | `ideas.updateLayout` / `resetLayoutSize`, `thoughts.updateNodeLayout` / `resetNodeLayoutSize` |
+| Veze | `ideas.connect` / `disconnect`, `thoughts.createEdge` / `archiveEdges` |
+| Kamera | `ideas.saveViewport`, `thoughts.saveViewport` |
+
+Plus dva nova sheet-a čvora (po uzoru na `page-node-sheet.tsx` / `checkpoint-node-sheet.tsx`,
+deljene sekcije `node-edges-section.tsx` i `node-size-section.tsx` već postoje) i novi
+članovi `UndoAction` u `apps/mobile/src/lib/undo.ts`.
+
+**ZAMKA koju sledeći agent MORA da zna — apsolutne vs relativne koordinate.**
+Ideje i misli podržavaju **ugnježdene čvorove** (`parentId`), a kartice stranica ne. U
+`@xyflow/react` čvor sa `parentId` ima poziciju **relativnu na roditelja**, dok backend
+(`updatePositions` / `moveNodes`) očekuje **apsolutnu**. Ako se `node.position` iz
+`onNodeDragStop` prosledi direktno, ugnježden čvor tiho sleti na pogrešno mesto — i to
+se vidi tek sledećem članu tima. Desktop to već rešava (`ideas-canvas-view.tsx`,
+`thoughts-canvas-view.tsx`) tako što pre upisa dodaje poziciju roditelja; logika mora da
+se izdvoji u zajednički modul, ne da se prepiše po sećanju. Detalji:
+`docs/mobile/lanac4/planovi/faza-k5.md:119–127`.
+
+**USLOV za zatvaranje.** Zasebna faza. Do tada `PARITET.md` sekcija K5 stoji nečekirana.
+
+**Nalaz:** faza K6 (2026-08-12).
+
+---
+
+## 10. Desktop kanvas nikad nije proveren mišem (T9/T17/T18 — otvoreno četvrtu fazu zaredom)
+
+**Stanje.** Lanac 4 je u desktop kod dirnuo **tačno jednu stvar**: četiri granice veličine
+kartice izvučene su iz `apps/web/components/workspace/canvases/area-flow-node.tsx`
+(inline `240/168/720/1_000`) u zajednički modul `apps/web/lib/canvas-node-size.ts`, koji
+od tada koriste i desktop kanvas i mobilni embed. Sve ostalo je novo (`app/embed/…`) i
+uvoz je jednosmeran — ništa van `app/embed/` ne uvozi embed module.
+
+**Šta NIJE urađeno.** Niko nije otvorio `localhost:3000`, prijavio se i mišem prevukao
+karticu na desktop kanvasu. Sve četiri faze lanca su to prenele dalje.
+
+**USLOV.** Potrebni su kredencijali. Put (`ZA-POPRAVKU` Z6 — taj CLI **ne** poziva
+`invalidateSessions`, pa živa mobilna sesija preživi):
+
+```
+npx convex run adminAuth:resetAdminPassword '{"email":"jovanm028@gmail.com","newPassword":"<nova>"}'
+```
+
+Zatim: prijava na `localhost:3000` → isti kanvas → prevuci karticu mišem → `Ctrl+Z` →
+promeni veličinu obodom → proveri da se ponaša kao pre lanca. **Nova lozinka se
+OBAVEZNO upisuje u izveštaj faze.** Ako `resetAdminPassword` više ne postoji u
+`adminAuth.ts` — ne vraćaj ga i ne izmišljaj drugi put, nego zapiši razlog.
+
+**Šta ga zamenjuje do tada** (nije isto, ali nije ni ništa):
+
+1. `apps/web/lib/canvas-node-size.test.ts` (K6) — zakiva sve četiri granice na brojeve
+   koje je desktop imao **inline pre lanca** (`git show 019239d:…area-flow-node.tsx:284–287`),
+   podrazumevanu veličinu poredi sa pravim serverskim izvorom, i uz to čuva mobilnu
+   kopiju i presete oblačića od razlaza sa desktopom.
+2. Statički dokaz: `git status --short -- apps/web/components/` je **prazan** kroz ceo
+   lanac; jedina dva izmenjena backend fajla su brisanja mrtvog koda (§6).
+
+**Nalaz:** faza K6 (2026-08-12) — prestaje da se prenosi prećutno.
 
 ---
 
@@ -816,3 +933,60 @@ browseru ne dolazi uvek u WebView-u ispod native slojeva — a nad `@xyflow/reac
 platnom **ne dolazi ni u bubble fazi**, jer ga d3 preseče. Listener koji mora da vidi
 dodir nad kanvasom ide u capture fazu; ako mu je potreban redosled posle xyflow-a,
 odloži posao, ne fazu.
+
+## Z8. Emulatoru pukne DNS — aplikacija zauvek stoji na „Pripremam radni prostor"
+
+**Simptom.** Aplikacija se otvori i ostane na spineru „Pripremam radni prostor". Nema
+greške na ekranu, nema izuzetka. U `adb logcat` se ponavlja:
+
+```
+WebSocket closed with code 1006: Unable to resolve host
+"deafening-otter-504.eu-west-1.convex.cloud": No address associated with hostname
+Attempting reconnect in 1223ms
+```
+
+**Uzrok.** Emulator ima IP konekciju ali nema razrešavanje IMENA (viđeno na Windows
+hostu posle promene mreže / VPN-a). Provera koja to razdvaja za 10 sekundi:
+
+```
+adb shell ping -c 2 8.8.8.8      → 0% packet loss        (IP radi)
+adb shell ping -c 2 google.com   → ping: unknown host    (DNS ne radi)
+```
+
+**Popravka.** Restart emulatora sa eksplicitnim DNS serverom — `-dns-server` se zadaje
+**pri pokretanju**, ne može posle:
+
+```
+adb emu kill
+"$LOCALAPPDATA/Android/Sdk/emulator/emulator.exe" -avd Pixel_9 -dns-server 8.8.8.8 -no-snapshot-save
+```
+
+**Sesija u aplikaciji preživi restart** (token je u `expo-secure-store`, na disku AVD-a),
+pa se ne traži prijava — što je bitno jer lozinka naloga nije poznata (§10, Z6).
+
+**Ne dijagnostikuj ovo kao „Convex je pao" ni kao „auth je pukao".** Web klijent na
+hostu radi normalno u istom trenutku, pa se lako promaši.
+
+## Z9. `adb reverse` mapiranja nestaju sa restartom emulatora — kanvas onda `ERR_CONNECTION_REFUSED`
+
+**Simptom.** Svaki kanvas javlja „Canvas se ne može učitati — `net::ERR_CONNECTION_REFUSED`",
+a `curl http://localhost:3000/embed/canvas/ideas/proba` sa HOSTA vraća `200`.
+
+**Uzrok.** `apps/mobile/.env.local` drži `EXPO_PUBLIC_WEB_URL=http://localhost:3000`.
+Na emulatoru `localhost` je **sam emulator**, ne host — to radi isključivo zato što
+postoji `adb reverse` tunel. Tunel je vezan za konkretnu ADB sesiju uređaja i **nestaje
+sa svakim restartom emulatora**. `adb reverse --list` tada vraća prazno.
+
+**Popravka (obavezan korak posle svakog restarta emulatora):**
+
+```
+adb reverse tcp:3000 tcp:3000
+adb reverse tcp:8081 tcp:8081
+```
+
+**NE menjaj `EXPO_PUBLIC_WEB_URL` na `10.0.2.2`** da bi „rešio" ovo — promena `.env.local`
+traži Metro restart sa `--clear` i vraća tihi drift opisan u Z3. Tunel je jeftiniji i
+radi i za fizički telefon preko USB-a.
+
+**Kombinuje se sa Z3, pa proveravaj oba:** `200` sa hosta znači samo da server radi;
+da li ga TELEFON vidi je zasebno pitanje.

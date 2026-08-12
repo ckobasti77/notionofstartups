@@ -298,4 +298,82 @@ padne — **ne vraćaj ga i ne izmišljaj drugi put**; zapiši razlog i ostavi T
 
 ## 8. REALIZACIJA — odstupanja od plana i zašto
 
-*(popunjava agent koji izvršava; prazno do tada)*
+Plan je sproveden u celini (I1–I11). Cilj je ispunjen: razlika pariteta **7**, svih 7 u
+Z-tabeli sa svežim obrazloženjem, sve četiri kapije zelene (`lint` sada **0/0**).
+Odstupanja, redom:
+
+### O1 — I5 (test) je proširen preko onoga što je plan tražio
+
+Plan je tražio dve tvrdnje (desktop-era brojevi + serverske granice/podrazumevana
+veličina). Isporučeno je **šest** testova u istom fajlu, jer su dva dodatka besplatna i
+zatvaraju stvarne rupe:
+
+- podrazumevana veličina se poredi sa **pravim izvorom** — `DEFAULT_CANVAS_NODE_WIDTH` /
+  `HEIGHT` uvezeni iz `@/convex/canvasPlacement` (moguće jer taj modul ima samo
+  `import type`, pa se u vitest-u čisto izvršava). MIN/MAX iz `areasV2.ts` **nisu
+  izvezeni**, pa oni ostaju zakucani brojevi uz komentar;
+- **mobilna kopija** (`apps/mobile/src/lib/canvas-node-size.ts`) i **preseti oblačića**
+  (`TASK_CHECKPOINT_SIZE_PRESETS` iz desktop `task-checkpoint-layout.ts`) se porede sa
+  web modulom. To je test koji K2 najavljuje kao „T7" a nikad nije napisan.
+
+Cena: test uvozi jedan fajl iz `apps/mobile` relativnom putanjom. Provereno da ne dira
+nijednu kapiju — `apps/web/tsconfig.json` u `exclude` ima `**/*.test.ts`, pa web `tsc`
+taj fajl ni ne gleda; `next build` ga ne uvlači; `eslint` prolazi.
+
+### O2 — `startConnect` je generalizovan drugačije nego što plan opisuje
+
+Plan (I3.h) kaže „generalizuj na `(source: { nodeId; title })`, pozivalac za karticu
+prosleđuje `page._id`". Urađeno tako, uz jednu dopunu koju plan nije naveo:
+`startConnect` sada gasi **oba** sheet-a (`setNodeTarget(null)` **i**
+`setCheckpointTarget(null)`), a ne samo onaj iz kog je pozvan. Bez toga bi sheet koraka
+ostao otvoren preko trake „Izaberi stavku za vezu". Uz to je i tekst najave za čitač
+ekrana promenjen sa „Izaberi karticu…" na „Izaberi stavku… karticu ili korak", jer izvor
+više nije nužno kartica.
+
+### O3 — `connectSource` je preimenovan `_id` → `nodeId`
+
+Plan to nije tražio, ali je polje **prestalo da bude** `_id`: za korak nosi prefiksiran
+id čvora (`checkpoint:<id>`). Ostaviti ime `_id` značilo bi da sledeći čitalac pomisli da
+sme da ga pošalje u mutaciju — tačno greška P2 iz §4. Preimenovanje je u jednom fajlu i
+ne prelazi granicu komponente.
+
+### O4 — T18 nije odrađen, i nije ni pokušan
+
+Plan ga uslovljava uspehom `adminAuth:resetAdminPassword`. Taj poziv **menja lozinku
+naloga** čija je mobilna sesija jedini put do testiranja u ovom okruženju; korisnik nije
+tu da je primi, a promena bi bila trajna. Procenjeno da je to izmena tuđeg naloga bez
+potrebe, ne test. Zapisano u `ZA-POPRAVKU §10` sa tačnim putem i uslovom, umesto da se
+peti put prećutno prenese dalje. Ne-regresija desktopa stoji na T14 (prazan
+`git status` nad `apps/web/components/`) + nov test iz O1.
+
+### O5 — T11 je ispunjen samo za `mode`
+
+`reload()` u ovom ekranu postoji **isključivo** u stanju greške, a u stanju greške na
+platnu nema čvorova, pa se `expandedTaskId` ne može ni postaviti. Dakle scenario
+„razvijeni koraci prežive Pokušaj ponovo" se na uređaju ne može proizvesti bez izmene
+koda samo radi testa. Odrađeno je ono što se može: režim uključen u stanju greške →
+tunel vraćen → „Pokušaj ponovo" → u logu `onLoadEnd` ponovo šalje `mode`
+(`dokazi/k6-logovi.txt`, 19:48:07). Linija za `checkpoints` je u istom bloku sa istim
+`!failed` guardom, a samo slanje poruke je dokazano u T3. Zapisano kao ograda, ne
+prećutano. Usput provereno i da prelazak u pozadinu **ne** reloaduje WebView.
+
+### O6 — dva kvara okruženja koja plan nije predvideo (i sada su zamke)
+
+§1 plana kaže „emulator radi, dev server radi". Do trenutka izvršavanja **oba su bila
+pokvarena**, na način koji je izgledao kao kvar aplikacije:
+
+1. emulator je izgubio DNS (IP radi, imena ne) → aplikacija zauvek na „Pripremam radni
+   prostor", u logcat-u `Unable to resolve host …convex.cloud`. Rešeno restartom sa
+   `-dns-server 8.8.8.8`; sesija je preživela (`expo-secure-store` je na disku AVD-a);
+2. restart je odneo `adb reverse` mapiranja, pa je svaki kanvas javljao
+   `net::ERR_CONNECTION_REFUSED` iako `curl` sa hosta vraća `200` —
+   `EXPO_PUBLIC_WEB_URL` je `localhost:3000`, što na emulatoru radi **samo** kroz tunel.
+
+Oba su zapisana kao `ZA-POPRAVKU` **Z8** i **Z9**, jer su oba pogrešno dijagnostikovana
+kao „auth je pukao" odnosno „kanvas je slomljen" pre nego što su izmerena.
+
+### O7 — dokumentacija je dobila i ono što I8 nije tražio
+
+Uz poruku `checkpoints` i polja `nodeKind`/`edgeKind` (traženo), u `REZIM.md` je dodato i
+pravilo **„id čvora ≠ id dokumenta"** sa objašnjenjem zašto je zamena tiha greška. To je
+zamka P2 iz §4 ovog plana; da je ostala samo u planu faze, nestala bi sa fazom.

@@ -147,9 +147,13 @@ export default function CanvasScreen() {
   // saznaje isključivo iz poruke `checkpoints`. Na kanvasu SAMOG zadatka je nebitan —
   // tamo su koraci uvek vidljivi.
   const [expandedTaskId, setExpandedTaskId] = useState<Id<'pages'> | null>(null);
-  // Kartica-izvor dok se bira cilj veze (K3). Native je vlasnik ovog stanja, kao i
-  // režima; embed ga saznaje isključivo iz poruke `connect`.
-  const [connectSource, setConnectSource] = useState<{ _id: string; title: string } | null>(null);
+  // Čvor-izvor dok se bira cilj veze (K3; od K4 to može biti i korak zadatka). Native
+  // je vlasnik ovog stanja, kao i režima; embed ga saznaje isključivo iz poruke
+  // `connect`. `nodeId` je id ČVORA NA PLATNU — za korak je prefiksiran
+  // (`checkpoint:<id>`), pa se ne sme slati `_id` iz baze.
+  const [connectSource, setConnectSource] = useState<{ nodeId: string; title: string } | null>(
+    null,
+  );
   // Landscape daje više prostora grafu (maketa §9.3, dugme [⛶]). Rotacija je samo
   // za ovaj ekran — na izlazak se OBAVEZNO vraća portret (cleanup ispod).
   const [landscape, setLandscape] = useState(false);
@@ -268,19 +272,25 @@ export default function CanvasScreen() {
   const supportsEdit = isPageKind;
 
   /**
-   * Ulazak u biranje cilja veze. Sheet se zatvara (traka i sheet ne smeju da stoje
-   * jedno preko drugog), a embed dobija id izvora kroz most — od tog trenutka se u
-   * WebView-u ništa ne povlači, izvor nosi pun prsten, a tap na drugu karticu pravi
+   * Ulazak u biranje cilja veze. Oba sheet-a se zatvaraju (traka i sheet ne smeju da
+   * stoje jedno preko drugog), a embed dobija id izvora kroz most — od tog trenutka se
+   * u WebView-u ništa ne povlači, izvor nosi pun prsten, a tap na drugu stavku pravi
    * vezu. Vlasnik stanja je native: embed sam iz biranja NIKAD ne izlazi.
+   *
+   * Prima id ČVORA, ne dokumenta: kartica ih ima iste (`page._id`), a korak nema —
+   * njegov čvor na platnu nosi prefiks (`checkpoint:<id>`, `CheckpointNodeTarget.nodeId`).
+   * Slanje `_id` za korak bi tiho promašilo: prsten se ne bi pojavio, tap na cilj ne bi
+   * radio ništa, i to bez ijedne greške.
    */
   const startConnect = useCallback(
-    (page: PageNodeTarget) => {
+    (source: { nodeId: string; title: string }) => {
       setNodeTarget(null);
-      setConnectSource({ _id: page._id, title: page.title || 'Stranica bez naslova' });
-      postToWeb({ type: 'connect', sourceId: page._id });
+      setCheckpointTarget(null);
+      setConnectSource(source);
+      postToWeb({ type: 'connect', sourceId: source.nodeId });
       haptics.tap();
       AccessibilityInfo.announceForAccessibility(
-        'Izaberi karticu za vezu. Tapni karticu sa kojom se povezuje.',
+        'Izaberi stavku za vezu. Tapni karticu ili korak sa kojim se povezuje.',
       );
     },
     [postToWeb],
@@ -310,6 +320,19 @@ export default function CanvasScreen() {
     );
   }, [editMode, postToWeb, cancelConnect]);
 
+  /**
+   * „Prikaži korake (N)" / „Sakrij korake" (K4). Native je vlasnik: embed zadatak čije
+   * korake crta saznaje isključivo iz ove poruke. Za razliku od biranja cilja veze ovo
+   * se posle učitavanja OBNAVLJA (vidi `onLoadEnd`) — prikaz koraka je pogled, ne
+   * radnja koja čeka tap, pa dangling stanje ovde ne postoji.
+   *
+   * Ne poništava se ni na izlazak iz režima: jednom razvijeni koraci ostaju vidljivi i
+   * posle „Gotovo" (van režima se i dalje mogu otvoriti tapom).
+   */
+  useEffect(() => {
+    postToWeb({ type: 'checkpoints', taskPageId: expandedTaskId });
+  }, [expandedTaskId, postToWeb]);
+
   // Kamera se piše iz native-a (ne iz embeda): prigušuje se, nema optimističko stanje,
   // i native je već vlasnik dugmadi koja kameru pomeraju. Scope stiže uz poruku.
   const saveViewport = useMutation(api.areasV2.saveViewport);
@@ -338,20 +361,26 @@ export default function CanvasScreen() {
   }, [flushViewport]);
 
   /**
-   * Osvežavanje veličine u LOKALNIM kopijama detalja čvora (rail i otvoren sheet).
+   * Osvežavanje veličine u LOKALNIM kopijama detalja čvora (rail i oba otvorena sheet-a).
    * Bez ovoga bi sheet posle povlačenja ručke računao ±10% iz zastarele veličine —
    * detalj stiže uz `selection` poruku i embed ga ne šalje ponovo sam od sebe.
+   *
+   * Prima id DOKUMENTA (`_id`), ne čvora: i kartica i korak nose svoj `_id` u detalju,
+   * a id-jevi iz dve tabele se nikad ne poklapaju, pa isti uslov radi za oba tipa.
    */
-  const applyNodeSize = useCallback((pageId: string, width: number, height: number) => {
+  const applyNodeSize = useCallback((nodeId: string, width: number, height: number) => {
     // Tip parametra je eksplicitan: stanje je `unknown`, pa `SetStateAction<unknown>`
     // proguta i oblik updater-a i TS ga sam ne izvede.
     setSelectedNode((current: unknown) => {
-      const node = current as PageNodeTarget | null;
-      if (!node || node._id !== pageId) return current;
+      const node = current as { _id?: string } | null;
+      if (!node || node._id !== nodeId) return current;
       return { ...node, width, height };
     });
     setNodeTarget((current) =>
-      current && current._id === pageId ? { ...current, width, height } : current,
+      current && current._id === nodeId ? { ...current, width, height } : current,
+    );
+    setCheckpointTarget((current) =>
+      current && current._id === nodeId ? { ...current, width, height } : current,
     );
   }, []);
 
@@ -386,6 +415,12 @@ export default function CanvasScreen() {
         level?: string;
         /** `connected`: id upravo napravljene veze (za „Poništi"). */
         edgeId?: string;
+        /**
+         * `connected`: u koju tabelu je veza upisana (K4). Bez ovoga bi „Poništi" nad
+         * checkpoint vezom zvao `areasV2.disconnectPages` sa `taskCheckpointCanvasEdges`
+         * id-jem → serverska greška u licu korisnika.
+         */
+        edgeKind?: string;
       };
       try {
         msg = JSON.parse(event.nativeEvent.data);
@@ -395,12 +430,23 @@ export default function CanvasScreen() {
       if (__DEV__) {
         console.log('[canvas] ← primljeno:', msg.type);
       }
+      // Diskriminator iz embeda (`PageNodeDetail` / `CheckpointNodeDetail`) — native
+      // grana po njemu umesto da pogađa oblik čvora (K4).
+      const nodeKind = (msg.node as { nodeKind?: string } | undefined)?.nodeKind;
       if (msg.type === 'node:open' && msg.node) {
         // Dodir je bio unutar WebView-a, pa native mora sam da potvrdi da je stigao
         // — inače otvaranje detalja deluje kao da se desilo samo od sebe.
         haptics.tap();
         // Detalj stiže uz poruku — otvori sheet po vrsti, bez čekanja/upita.
-        if (isIdeas) setOpenIdea(msg.node as IdeaDetail);
+        if (nodeKind === 'checkpoint') {
+          // Suština koraka (tekst, kvačica, lančanje, glasanje) je native na detalju
+          // ZADATKA — jedan izvor istine. Zato tap na oblačić vodi tamo, a ne na
+          // `/stranica/<checkpointId>` (što ni ne postoji kao stranica).
+          const checkpointNode = msg.node as { taskPageId?: string };
+          if (checkpointNode.taskPageId) {
+            router.push({ pathname: '/zadatak/[id]', params: { id: checkpointNode.taskPageId } });
+          }
+        } else if (isIdeas) setOpenIdea(msg.node as IdeaDetail);
         else if (isThoughts) setOpenThought(msg.node as ThoughtDetail);
         else if (isPageKind) {
           // area/page čvor je stranica → otvori njen pun native ekran.
@@ -408,27 +454,42 @@ export default function CanvasScreen() {
           if (pageNode._id) openPage(pageNode._id);
         }
       } else if (msg.type === 'node:actions' && msg.node) {
-        // Dugi pritisak na karticu u režimu → native sheet „Akcije kartice" (veze
-        // K3 + veličina K2). Ideje i misli ovu poruku ne šalju.
+        // Dugi pritisak na čvor u režimu → native sheet: „Akcije kartice" (veze K3 +
+        // veličina K2) ili „Akcije koraka" (veze + preseti veličine, K4). Ideje i misli
+        // ovu poruku ne šalju.
         haptics.tap();
-        if (isPageKind) setNodeTarget(msg.node as PageNodeTarget);
+        if (nodeKind === 'checkpoint') setCheckpointTarget(msg.node as CheckpointNodeTarget);
+        else if (isPageKind) setNodeTarget(msg.node as PageNodeTarget);
       } else if (msg.type === 'connected' && msg.startupId && msg.areaId && msg.edgeId) {
         // Upis je prošao; linija se u WebView-u pojavila sama (isti Convex klijent).
         // Native ovde samo zatvara biranje i nudi put nazad.
         haptics.success();
         setConnectSource(null);
         postToWeb({ type: 'connect', sourceId: null });
+        const scope = {
+          startupId: msg.startupId as Id<'startups'>,
+          areaId: msg.areaId as Id<'startupAreas'>,
+          rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
+        };
+        // Veza koja dodiruje korak živi u DRUGOJ tabeli i raskida se drugom mutacijom
+        // (K4) — inverz mora da prati tabelu, ne izgled linije.
+        const isCheckpointEdge = msg.edgeKind === 'checkpoint';
+        const label = isCheckpointEdge ? 'Korak je povezan.' : 'Kartice su povezane.';
         pushUndo({
-          label: 'Kartice su povezane.',
-          action: {
-            kind: 'pageEdgeConnect',
-            startupId: msg.startupId as Id<'startups'>,
-            areaId: msg.areaId as Id<'startupAreas'>,
-            rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
-            edgeId: msg.edgeId as Id<'pageCanvasEdgesV2'>,
-          },
+          label,
+          action: isCheckpointEdge
+            ? {
+                kind: 'checkpointEdgeConnect',
+                ...scope,
+                edgeId: msg.edgeId as Id<'taskCheckpointCanvasEdges'>,
+              }
+            : {
+                kind: 'pageEdgeConnect',
+                ...scope,
+                edgeId: msg.edgeId as Id<'pageCanvasEdgesV2'>,
+              },
         });
-        AccessibilityInfo.announceForAccessibility('Kartice su povezane.');
+        AccessibilityInfo.announceForAccessibility(label);
       } else if (msg.type === 'selection') {
         const ids = msg.ids ?? [];
         setSelectedNodeIds(ids);
@@ -520,7 +581,7 @@ export default function CanvasScreen() {
         }
       }
     },
-    [isIdeas, isThoughts, isPageKind, openPage, flushViewport, applyNodeSize, postToWeb],
+    [isIdeas, isThoughts, isPageKind, openPage, router, flushViewport, applyNodeSize, postToWeb],
   );
 
   const reload = () => {
@@ -572,14 +633,28 @@ export default function CanvasScreen() {
   // Ovo je put koji NE zavisi ni od dugog pritiska (nepouzdan na iOS-u) ni od praga
   // zuma (ispod 0.5 se ručke ne crtaju) — i jedini put za čitač ekrana. U biranju
   // cilja se sklanja: tada je jedini posao tap na drugu karticu.
+  const selectedKind = hasSingleSelection
+    ? (selectedNode as { nodeKind?: string }).nodeKind
+    : undefined;
   const selectedPage =
-    isPageKind && hasSingleSelection ? (selectedNode as PageNodeTarget) : null;
+    isPageKind && hasSingleSelection && selectedKind !== 'checkpoint'
+      ? (selectedNode as PageNodeTarget)
+      : null;
+  // Isti slot, drugi tip čvora (K4): oblačić koraka ima svoje akcije (veze + preseti
+  // veličine), pa i svoju labelu — „Akcije kartice" bi ovde bila laž.
+  const selectedCheckpoint =
+    isPageKind && hasSingleSelection && selectedKind === 'checkpoint'
+      ? (selectedNode as CheckpointNodeTarget)
+      : null;
   const nodeAction: RailAction | undefined =
-    editMode && selectedPage && !connectSource
+    editMode && !connectSource && (selectedPage || selectedCheckpoint)
       ? {
-          label: 'Akcije kartice',
+          label: selectedCheckpoint ? 'Akcije koraka' : 'Akcije kartice',
           icon: <Ellipsis size={20} color={colors.foreground} />,
-          onPress: () => setNodeTarget(selectedPage),
+          onPress: () =>
+            selectedCheckpoint
+              ? setCheckpointTarget(selectedCheckpoint)
+              : setNodeTarget(selectedPage),
         }
       : undefined;
 
@@ -607,7 +682,10 @@ export default function CanvasScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Header
-        title={canvasKindLabel(kind)}
+        // Kanvas zadatka je `kind: 'page'` nad stranicom čiji je `kind: 'task'` —
+        // naslov „Stranica" bi tamo bio pogrešan, a to je jedini kanvas na kom su
+        // koraci vidljivi bez poruke `checkpoints` (K4).
+        title={isPage && parentPage?.kind === 'task' ? 'Canvas zadatka' : canvasKindLabel(kind)}
         onBack={() => router.back()}
         colors={colors}
         right={
@@ -652,6 +730,12 @@ export default function CanvasScreen() {
             // upaljen režim mora ponovo javiti — inače posle „Pokušaj ponovo" native
             // pokazuje „Gotovo", a kartice se ne pomeraju.
             if (editMode && !failed) postToWeb({ type: 'mode', value: 'edit' });
+            // Isto važi i za razvijene korake (K4): sveže učitan embed ne zna koji je
+            // zadatak razvijen, pa bi posle „Pokušaj ponovo" oblačići nestali iako
+            // native i dalje misli da su tu. Prikaz ne čeka tap, pa se sme obnavljati.
+            if (expandedTaskId && !failed) {
+              postToWeb({ type: 'checkpoints', taskPageId: expandedTaskId });
+            }
             // Biranje cilja se, za razliku od režima, NE obnavlja: sveže učitan embed
             // ne zna izvor, pa bi traka „Izaberi karticu za vezu" tražila tap koji ne
             // bi ništa uradio. Dangling izvor posle „Pokušaj ponovo" je laž.
@@ -781,17 +865,38 @@ export default function CanvasScreen() {
         />
       ) : null}
 
-      {/* Akcije kartice: veze (K3) + veličina (K2) — samo kanvas oblasti/stranice
-          ima kartice stranica. */}
+      {/* Akcije kartice: veze (K3) + veličina (K2) + „Prikaži korake" (K4) — samo
+          kanvas oblasti/stranice ima kartice stranica. */}
       {isPageKind ? (
-        <PageNodeSheet
-          page={nodeTarget}
-          onClose={() => setNodeTarget(null)}
-          onStartConnect={startConnect}
-          onApplied={(width, height) => {
-            if (nodeTarget) applyNodeSize(nodeTarget._id, width, height);
-          }}
-        />
+        <>
+          <PageNodeSheet
+            page={nodeTarget}
+            checkpointsExpanded={expandedTaskId !== null && expandedTaskId === nodeTarget?._id}
+            onClose={() => setNodeTarget(null)}
+            onStartConnect={(page) =>
+              startConnect({ nodeId: page._id, title: page.title || 'Stranica bez naslova' })
+            }
+            onToggleCheckpoints={setExpandedTaskId}
+            onApplied={(width, height) => {
+              if (nodeTarget) applyNodeSize(nodeTarget._id, width, height);
+            }}
+          />
+          {/* Akcije koraka (K4): iste deljene sekcije, druge mutacije. Izvor veze je
+              `nodeId` (prefiksiran id ČVORA), ne `_id` — vidi `startConnect`. */}
+          <CheckpointNodeSheet
+            checkpoint={checkpointTarget}
+            onClose={() => setCheckpointTarget(null)}
+            onStartConnect={(checkpoint) =>
+              startConnect({
+                nodeId: checkpoint.nodeId,
+                title: checkpoint.text.trim() || `Korak ${checkpoint.ordinal}`,
+              })
+            }
+            onApplied={(width, height) => {
+              if (checkpointTarget) applyNodeSize(checkpointTarget._id, width, height);
+            }}
+          />
+        </>
       ) : null}
     </View>
   );

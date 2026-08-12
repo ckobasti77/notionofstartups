@@ -358,14 +358,43 @@ Sheet već ima premeštanje, ugnježdavanje, izdvajanje i povezivanje. Fali:
 
 ## A8. Checkpointi na kanvasu
 
-- [x] `taskCheckpoints.saveCanvasPlacement` / `resetCanvasSize` — IZUZETAK, vidi
-      tabelu Z (čisto uređivanje layouta kanvasa; mobilni kanvas je pregled)
-- [x] `taskCheckpointCanvasEdges.connect` / `disconnect` — IZUZETAK, vidi tabelu
-      Z (vizuelne strelice u koordinatnom prostoru kanvasa; STVARNA zavisnost
-      koraka je već native — `setChainedToPrevious`/`setAllChained`)
-- [x] (Ovo možda ima smisla samo na velikom ekranu — ako procenjuješ da nema, u sekciju Z sa razlogom)
-      — procenjeno da nema: sve četiri funkcije upisane u Z sa razlozima
-      („ne pravi neupotrebljivo")
+> **RANIJA PROCENA JE PONIŠTENA.** Sve četiri funkcije su do lanca 4 stajale u Z sa
+> obrazloženjem „ima smisla samo na velikom ekranu". To je bilo pogrešno iz istog
+> razloga kao i za kartice (`lanac4/OSNOVA.md`): direktna manipulacija je postojala,
+> samo je bila isključena. Isporučeno u K4 (embed) i K6 (native ljuska) — detalji u
+> sekciji **K4** niže.
+
+- [x] `taskCheckpoints.saveCanvasPlacement` — potez prstom u režimu piše položaj
+      oblačića; preseti veličine iz sheet-a pišu dimenzije.
+      Potez: `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:1412`
+      (`useMutation`), jedan upis po potezu na `onNodeDragStop`. Native preseti:
+      `apps/mobile/src/components/canvas/checkpoint-node-sheet.tsx:80`, poziv `:114`.
+      „Poništi": `apps/mobile/src/components/undo-bar.tsx:59` + `case 'checkpointResize'`
+      (`:179`), unija `apps/mobile/src/lib/undo.ts:103`.
+- [x] `taskCheckpoints.resetCanvasSize` — „Vrati podrazumevanu veličinu" u sheet-u koraka.
+      `checkpoint-node-sheet.tsx:81` (`useMutation`), poziv `:143`, red `:248`.
+      Inverz je USLOVAN (`manuallySized`) — `undo-bar.tsx:60`.
+- [x] `taskCheckpointCanvasEdges.connect` — „Poveži sa…" → tap na cilj.
+      Upis: `canvas-embed.tsx:1413`, `handleConnectNodes` (`:1617`, checkpoint grana
+      `:1632`), poruka `{type:'connected', edgeKind:'checkpoint'}` (`:1641`). Ulaz u
+      biranje je native: `checkpoint-node-sheet.tsx:285` → `startConnect`
+      (`apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:285`) — šalje **`checkpoint.nodeId`**
+      (prefiksiran id čvora), ne `_id`. „Poništi": `undo-bar.tsx:61` +
+      `case 'checkpointEdgeConnect'` (`:205`), push `canvas/[kind]/[id].tsx:482`
+      (grananje po `msg.edgeKind`, `:480`).
+- [x] `taskCheckpointCanvasEdges.disconnect` — ✕ na redu suseda, u oba sheet-a.
+      `checkpoint-node-sheet.tsx:82` (`breakEdge` `:157`) i
+      `apps/mobile/src/components/canvas/page-node-sheet.tsx:72` (grana `edge.kind === 'checkpoint'`,
+      `:89`). Tuđa veza ide na „Zatraži brisanje" (`collaboration.requestDeletion` sa
+      `task_checkpoint_edge`) — glasanje već postoji na „Odobrenja".
+- [x] Ulaz sa telefona postoji — bez njega je sve gore bilo napisano pa nedostupno
+      (`ZA-POPRAVKU §8`). Detalj zadatka → ikonica „Canvas zadatka"
+      (`apps/mobile/src/app/(app)/zadatak/[id].tsx:138` `openCanvas`, dugme `:182`);
+      sa kanvasa oblasti/stranice → sheet kartice → „Prikaži korake (N)"
+      (`page-node-sheet.tsx:186`, poruka `checkpoints`
+      `canvas/[kind]/[id].tsx:333` + ponovo posle učitavanja `:737`, prijem
+      `canvas-embed.tsx:288`). Zaglavlje kanvasa zadatka kaže „Canvas zadatka"
+      (`canvas/[kind]/[id].tsx:688`).
 
 ---
 
@@ -375,12 +404,16 @@ Ovo nije „popravi ako naiđeš". Ovo je uslov za završetak.
 
 - [x] `npx tsc --noEmit` u `apps/mobile` — nula grešaka
 - [x] `npx tsc --noEmit` u `apps/web` — nula grešaka
-- [ ] `npm run lint` — nula grešaka i nula upozorenja — **0 grešaka, 2 upozorenja**
-      zatečena u `packages/backend/convex/` (`areasV2.ts:9`, `chat.ts:1037`);
-      backend se ne dira u fazama pariteta (pravilo važi apsolutno). Uslov za
-      čekiranje: `ZA-POPRAVKU.md §6`.
+- [x] `npm run lint` — nula grešaka i nula upozorenja. Zatečena 2 upozorenja
+      (`areasV2.ts:9` nekorišćen uvoz `findAvailableCanvasPosition`, `chat.ts:1037`
+      nekorišćen `profile`) obrisana su u fazi K6, kojoj je backend izričito bio u
+      opsegu **samo za brisanje mrtvog koda** (`ZA-POPRAVKU.md §6`, sada REŠENO).
+      U `chat.ts` je obrisano SAMO destrukturisanje — `await requireStartupMember(...)`
+      ostaje, jer je to provera pristupa; broj pogodaka `requireStartupMember` u fajlu
+      je pre i posle **11**.
 - [x] `npm run build` — prolazi
-- [x] `npm test` — svi testovi prolaze (37 fajlova, 321 test)
+- [x] `npm test` — svi testovi prolaze (39 fajlova, 333 testa; K6 dodao
+      `apps/web/lib/canvas-node-size.test.ts` — brana protiv desktop regresije)
 - [ ] Metro konzola pri prolasku kroz sve ekrane — nula crvenih grešaka, nula žutih upozorenja koja se ponavljaju — zahteva uređaj/emulator sesiju uživo, van dometa headless faze; nijedna faza noćnog lanca ovo još nije radila (`ZA-POPRAVKU.md §5.12`)
 - [ ] Convex dashboard logovi tokom testiranja — nijedan `Server Error` — isto, zahteva uživo testiranje
 - [x] Nijedan `console.log` dijagnostike ostavljen u kodu — jedina 2 pogotka (`canvas/[kind]/[id].tsx:158,193`) su `__DEV__`-gated, namerna
@@ -787,9 +820,68 @@ liste „Veze" u istom sheet-u, jer se linija od 1–2 px prstom ne pogađa.
       WebView-u — 259 × 176; pre popravke je prikaz ostajao zamrznut na 288 × 196,
       `ZA-POPRAVKU.md` Z7).
 
-**Ostaje za K4–K5** (i dalje u sekciji Z do tada):
-`taskCheckpoints.saveCanvasPlacement`, `resetCanvasSize`,
-`taskCheckpointCanvasEdges.connect`/`disconnect`.
+## K4. Checkpointi zadataka na kanvasu
+
+Oblačići koraka na platnu: razmeštaj, veličina i veze. Sve **četiri** funkcije koje su
+do lanca 4 stajale u sekciji Z — dokazne linije po funkciji su gore u **A8**, ovde je
+šta je K6 dodao i zašto se to nije videlo pre njega.
+
+> **K4 je isporučen u dva navrata.** Commit `ef87e84` je doneo ceo embed deo i sve nove
+> native komponente, ali **Izmene 11 i 12 iz `lanac4/planovi/faza-k4.md` nikad nisu ušle
+> u `canvas/[kind]/[id].tsx` ni u `zadatak/[id].tsx`** — pa je cela funkcionalnost bila
+> napisana a sa telefona **nedostupna** (`ZA-POPRAVKU §8`). Nijedan gejt to nije video:
+> kod se kompajlira, lint je čist, a `onMessage` poruku parsira u labav inline tip pa TS
+> nepročitana polja ne prijavljuje. **Pouka za merenje pariteta: `useMutation` u fajlu
+> nije dokaz da korisnik do te radnje može da dođe.** K6 je Izmene 11 i 12 sproveo.
+
+- [x] Prikaz koraka na kanvasu oblasti/stranice — sheet kartice zadatka →
+      „Prikaži korake (N)" / „Sakrij korake".
+      Red: `apps/mobile/src/components/canvas/page-node-sheet.tsx:186`
+      (`showCheckpointRow`, `:170`); stanje je NATIVE (`expandedTaskId`,
+      `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:149`), poruka mosta `:333`,
+      ponovo posle učitavanja `:737` (bez toga „Pokušaj ponovo" tiho pogasi oblačiće).
+      Prijem u embedu `canvas-embed.tsx:288`; guard `visibleTaskId` (`:1429`) čuva od
+      `listForTask` koji BACA za tuđi `canvasRootPageId` i time ruši ceo kanvas.
+- [x] Ulaz u kanvas zadatka sa detalja zadatka —
+      `apps/mobile/src/app/(app)/zadatak/[id].tsx:182` (ikonica „Canvas zadatka",
+      `openCanvas` `:138`). Jedini kanvas na kom su koraci vidljivi bez poruke
+      `checkpoints`; `/stranica/[id]` zadatak preusmerava na `/zadatak/[id]`, pa dugme
+      sa te strane ne pomaže. Zaglavlje kaže „Canvas zadatka"
+      (`canvas/[kind]/[id].tsx:688`), ne „Stranica".
+- [x] Sheet „Akcije koraka" — dugi pritisak na oblačić (`node:actions` →
+      `canvas/[kind]/[id].tsx:461`, grananje po `node.nodeKind`) **ili** četvrta ikonica
+      rail-a, koja u tom slučaju menja labelu (`:645`–`:652`, `selectedCheckpoint`).
+      Dva puta do iste radnje, jer je `contextmenu` u WKWebView-u nepouzdan (isto kao
+      za karticu u K2/K3). Montaža `:886`.
+- [x] Tap na oblačić VAN režima vodi na `/zadatak/<taskPageId>`, ne na
+      `/stranica/<checkpointId>` — `canvas/[kind]/[id].tsx:441`. Suština koraka (tekst,
+      kvačica, lančanje, glasanje) je native na detalju zadatka; jedan izvor istine.
+- [x] „Poništi" prati TABELU, ne izgled linije — `connected` nosi `edgeKind`
+      (`canvas-embed.tsx:1641`/`:1672`), native po njemu bira `checkpointEdgeConnect` ili
+      `pageEdgeConnect` (`canvas/[kind]/[id].tsx:480`). Bez toga bi „Poništi" nad
+      checkpoint vezom zvao `areasV2.disconnectPages` sa `taskCheckpointCanvasEdges`
+      id-jem → serverska greška u licu korisnika.
+- [x] Veličina oblačića ide iz sheet-a lokalno u rail i u otvoreni sheet —
+      `applyNodeSize` (`canvas/[kind]/[id].tsx:371`) osvežava **tri** lokalne kopije
+      (rail, sheet kartice, sheet koraka); bez toga bi sledeći ±10% računao iz zastarele
+      veličine.
+
+## K5. Ideje i Misli u režimu — **NIJE URAĐENO**
+
+- [ ] Režim „Uredi raspored" na kanvasu **ideja** i **misli** (potez prstom, veličina,
+      veze) — `canvas-embed.tsx:312–314` doslovno kaže da `IdeasFlow`/`ThoughtsFlow`
+      dobijaju `editMode`/`connectSourceId` **bez handlera**, pa je režim tamo inertan;
+      `canvas/[kind]/[id].tsx:272` (`supportsEdit = isPageKind`) ni ne pali prekidač.
+      Commit `6668cb4` („Faza K5 — Ideje i Misli u istom režimu") je popravka repa K4,
+      ne K5. Razlog, spisak postojećih backend funkcija i **zamka apsolutnih vs
+      relativnih koordinata ugnježdenih čvorova**: `ZA-POPRAVKU.md §9`.
+
+> **Razlika pariteta je 7 i sa K5 i bez njega** — `thoughts.moveNodes`,
+> `ideas.updatePositions`, `updateLayout` i drugovi su odavno prebrojani preko NATIVE
+> listi („Sredi raspored", „Veličina oblačića": `misli.tsx:82`, `ideje.tsx:131`,
+> `thought-actions-sheet.tsx:101`, `idea-actions-sheet.tsx:111`). **Broj 7 se zato ne
+> sme čitati kao „sve je urađeno".** Uz `thoughts.moveNodes` (`:111` gore) dokaz je
+> „Sredi raspored" sa liste — **ne** potez prstom po kanvasu.
 
 ---
 
@@ -818,19 +910,22 @@ Za svaku stavku iz A koju odlučiš da NE preneseš na telefon, upiši ovde red:
 
 Prazan razlog ne važi. „Nije bitno" nije razlog.
 
-| Funkcija | Razlog izuzeća |
+> **Stanje na kraju lanca 4 (K6, 12.08.):** komanda iz zaglavlja vraća **tačno 7**
+> funkcija, i tih istih 7 je ovde. Ni jedne više, ni jedne manje — tabela i komanda se
+> uparuju red po red, ne odokativno. Četiri checkpoint funkcije
+> (`taskCheckpoints.saveCanvasPlacement`, `resetCanvasSize`,
+> `taskCheckpointCanvasEdges.connect`/`disconnect`) su **izbačene iz ove tabele** jer su
+> stvarno urađene — dokazi u A8 i K4.
+
+| Funkcija | Razlog izuzeća (sveže provereni pozivaoci, 12.08.) |
 |---|---|
-| `pushSubscriptions.myDeviceCount` | Web push kroz browser; mobilni koristi Expo push, drugi mehanizam. |
-| `areasV2.resolveRoute` | Rutiranje web URL-ova; mobilni ima expo-router. |
-| `pageFiles.prune` | Čisti osirotele priloge UMETNUTE U TELO beleške preko node-view mehanizma; mobilni tentap editor ne ume da ubaci prilog u telo (ZA-POPRAVKU §2/§5.1, gejt i dalje otvoren) — nema koda koji na mobilnom može da napravi taj osiroteli red, pa nema šta da se čisti. Zatvara se zajedno sa proširenjem tentap bundle-a. |
-| `notifications.latest` | Postoji isključivo kao izvor za web in-app toast (`useNotificationToasts`, notifications-panel.tsx — jedini pozivalac u celom webu; backend komentar: „služi samo detekciji novih obaveštenja za toast"). Na telefonu tu ulogu već igraju OS push baner (expo-notifications, kanal/zvuk po tipu), bedž na tabu (unreadCount) i pun ekran „Obaveštenja" (notifications.list). Drugi, in-app toast sloj bi dupliralo OS baner. |
-| `taskCheckpoints.saveCanvasPlacement` | Prevlačenje/dimenzionisanje checkpoint oblačića na page kanvasu. **Više nije trajan izuzetak nego red čekanja: K4.** Režim „Uredi raspored" (K1) je već napravljen i nosiv; checkpoint je drugi tip čvora, koji embed za sada uopšte ne crta. Semantika checkpointa (tekst, završenost, lančanje, brisanje, glasanja) je već native na detalju zadatka (nit doprinosa PO CHECKPOINTU još nije montirana — ZA-POPRAVKU §5.7, van ove kategorije). |
-| `taskCheckpoints.resetCanvasSize` | Isto — reset dimenzija oblačića na kanvasu; veličina se na telefonu ni ne postavlja. |
-| `taskCheckpointCanvasEdges.connect` | Vizuelne strelice toka na page kanvasu (spajaju i checkpoint↔stranicu), imaju smisao samo u koordinatnom prostoru kanvasa. Stvarna zavisnost koraka je native kroz `setChainedToPrevious`/`setAllChained` (task-checkpoint-list.tsx). Crtanje dijagrama je posao za veliki ekran. |
-| `taskCheckpointCanvasEdges.disconnect` | Isto; uz to glasanje o brisanju tuđe canvas veze već radi na mobilnom (odobrenja.tsx, `task_checkpoint_edge`), pa tim tokovima ništa ne fali. |
-| `areasV2.getCanvas` | Šira desktop-samo pretplata (ceo startup odjednom — `area-canvas-view.tsx`, `area-view.tsx`, `page-workspace-view.tsx`, `workspace-shell.tsx`). Mobilni embed (`canvas/[kind]/[id].tsx` → `canvas-embed.tsx`) zove UŽE resolvere po meti: `getAreaCanvasByArea`/`getPageCanvasByPage` — funkcionalno zamenjuju `getCanvas` za tačno onaj scope koji se prikazuje, ne rupa. |
-| `areasV2.getPageCanvasByPage` | Nije "web-only" u pravom smislu — poziva ga `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`, DELJENI kod koji mobilni učitava kroz WebView (00-PLAN §5.2). Grep metod ga vidi kao web-only jer broji samo `apps/web/components`+`app`. |
-| `activity.listForStartup` | Mobilni koristi `activity.listPaginated` (bez tvrdog limita 50, sa nastavkom) — funkcionalno superiorna zamena, ne rupa. Obrnut paritet, već objašnjeno u ZA-POPRAVKU §5.8. |
+| `activity.listForStartup` | Web je zove sa **tvrdim `limit: 50` i bez nastavka** (`activity-view.tsx:13`). Mobilni istu potrebu pokriva **šire**: `activity.listPaginated` (`aktivnost.tsx:73`, beskonačan skrol). Zamena je funkcionalno superiorna, ne uža — ovo je obrnut paritet (rupa je na WEBU, `ZA-POPRAVKU §5.8`). |
+| `areasV2.getCanvas` | Desktop-samo **široka** pretplata (ceo startup odjednom): `area-canvas-view.tsx:271`, `area-view.tsx:105`, `page-workspace-view.tsx:91`, `workspace-shell.tsx:214`. Mobilni prikazuje tačno jedan scope, pa embed zove **uže** resolvere `getAreaCanvasByArea` (`canvas-embed.tsx:2014`) i `getPageCanvasByPage` (`:2043`). Ista podatkovna potreba, manji upit. |
+| `areasV2.getPageCanvasByPage` | **Lažno pozitivan.** Jedini pozivalac u celom webu je `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:2043` — DELJENI kod koji mobilni izvršava kroz WebView (`00-PLAN §5.2`). Grep ga vidi kao „web-only" jer broji `apps/web/*`, a fajl fizički živi tamo. |
+| `areasV2.resolveRoute` | Razrešava web URL u `WorkspaceRoute` (`workspace-shell.tsx:331`, `:637`). Mobilni nema URL-ove — ima expo-router i tipizovane rute; nema šta da razrešava. |
+| `notifications.latest` | Jedini pozivalac: `notifications-panel.tsx:426` — izvor za web in-app toast (backend komentar: „služi samo detekciji novih obaveštenja za toast"). Na telefonu tu ulogu igraju OS push baner (kanal + zvuk po tipu), bedž na tabu i pun ekran „Obaveštenja" (`notifications.list`). Drugi in-app sloj bi duplirao OS baner. |
+| `pageFiles.prune` | Čisti osirotele priloge **umetnute u telo** beleške preko node-view mehanizma (`page-editor-view.tsx:150`). Mobilni tentap editor ne ume da ubaci prilog u telo (`ZA-POPRAVKU §2/§5.1`, merni gejt i dalje otvoren), pa na telefonu ne postoji kod koji taj osiroteli red može da napravi — nema šta da se čisti. Zatvara se zajedno sa proširenjem tentap bundle-a. |
+| `pushSubscriptions.myDeviceCount` | Broji **web push** pretplate (`notifications-panel.tsx:341`). Mobilni koristi Expo push — druga tabela (`expoPushTokens`), drugi mehanizam. Ekvivalent postoji na backendu (`expoPushTokens.myDeviceCount`) i čeka na ekranu podešavanja (`ZA-POPRAVKU §7`). |
 
 ## Z-gestovi — obrasci sa desktop kanvasa koji se NE prenose (K1)
 
@@ -852,3 +947,10 @@ kasnije ne otkriju kao „rupa".
 | Uklanjanje **relacije** (`pageRelations`) sa kanvasa (K3) | Put već postoji native na ekranu stranice (`relations-section.tsx:92–93`). Drugi ulaz za istu radnju je duplirani tok, ne paritet. Na kanvasu se relacija vidi i objasni („Relacija — uklanja se na stranici"). |
 | Optimistička ivica pre odgovora servera (K3) | Convex razrešava mutaciju tek kad je pretplata istog klijenta osvežena, pa je linija tu u istom trenutku. Lokalno stanje ivica bi uvelo drugi izvor istine bez ijedne dobiti. |
 | Grupno povezivanje (jedan izvor → više ciljeva odjednom, K3) | `connectPages` prima jedan par; ni web to nema. Ponavljanje „Poveži sa…" pokriva slučaj. |
+| **Ugaone ručke za veličinu na oblačiću koraka (K4)** | Oblačić je 164 × 110 (min 140 × 92). Četiri mete od 44pt zauzele bi **88 × 88 od 164 × 110, tj. 43% površine**, a u sredini bi ostala traka 76 × 22 px — potez koji hoće da POMERI korak skoro uvek bi pogodio ručku. K2 je isti kompromis prihvatio na kartici, ali je ona najmanje 240 × 168 i ima stvarnu sredinu za prst. Pravilo lanca: meta koja ne može da naraste **menja interakciju, ne prst**. Veličina ide presetima iz sheet-a — istim koje nudi i desktop toolbar oblačića (`task-checkpoint-flow-node.tsx`, `setSizePreset`). |
+| Slobodno dimenzionisanje oblačića prevlačenjem (desktop `PerimeterResizeControl`, K4) | Isto kao gore; „Kompaktno" / „Prošireno" / „Vrati podrazumevanu" pokrivaju svaki ishod koji tim stvarno koristi. |
+| Tekst / kvačica / brisanje / glasanje o koraku **na kanvasu** (K4) | Suština koraka je već native na detalju zadatka (`task-checkpoint-list.tsx`). Tap na oblačić van režima otvara `/zadatak/<taskPageId>` — jedan izvor istine, nula duplikata. Sheet „Akcije koraka" zato nosi SAMO razmeštaj i veze. |
+| Koraci **više zadataka odjednom** na kanvasu oblasti (K4) | Ni desktop to ne radi (`visibleCheckpointTaskId = ownTask ?? expanded`, `area-canvas-view.tsx:384`). Dva orbita bi se preklopila. |
+| „Prikaži korake" van režima „Uredi raspored" (K4) | Sheet kartice se otvara samo u režimu (dugi pritisak i rail-akcija su `editMode`-gated). Van režima je kanvas za gledanje. Jednom razvijeni koraci **ostaju vidljivi** i posle „Gotovo" — sakriva ih tek „Sakrij korake". |
+| Povlačenje niti sa `Handle` tačkice za checkpoint veze (K4) | Isto obrazloženje kao za kartice: `nodesConnectable={false}` ostaje zauvek. Veza koraka ide tap izvor → tap cilj, kroz isti mehanizam. |
+| Tap na samu liniju checkpoint veze (selekcija + `Delete`, K4) | Linija je 1–2 px; raskidanje ide iz sheet-a, gde je veza red od 56pt sa imenom druge strane. |

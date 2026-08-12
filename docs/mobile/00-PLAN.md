@@ -193,10 +193,10 @@ Preko mosta ostaju samo žive poruke (handshake tipovi `ready`/`authed` više ne
 injekcija (native → web, pre učitavanja):  window.__DEVOTION_AUTH__ = { token, theme }
 WebView → native:  { type: "node:open", nodeId, node }  → otvara native detalj (node = podaci čvora)
 WebView → native:  { type: "selection", ids, node? }    → menja akcioni rail (node kad je izabran 1)
-WebView → native:  { type: "moved", …scope, count, before } → traka „Poništi" posle pomeranja kartica
+WebView → native:  { type: "moved", …scope, count, before, checkpoints? } → traka „Poništi" posle pomeranja
 WebView → native:  { type: "resized", …scope, pageId, width, height, previous } → traka „Poništi" posle promene veličine
-WebView → native:  { type: "node:actions", nodeId, node } → dugi pritisak: native sheet „Akcije kartice"
-WebView → native:  { type: "connected", …scope, edgeId }  → traka „Poništi" posle nove veze
+WebView → native:  { type: "node:actions", nodeId, node } → dugi pritisak: native sheet „Akcije kartice"/„Akcije koraka"
+WebView → native:  { type: "connected", …scope, edgeId, edgeKind } → traka „Poništi" posle nove veze
 WebView → native:  { type: "viewport", …scope, x, y, zoom } → prigušen `saveViewport` (800 ms)
 WebView → native:  { type: "toast", level, message }     → Alert (embed nema toast površinu);
                                                            level "error" = kvar, "info" = objašnjenje
@@ -204,6 +204,7 @@ native → WebView:  { type: "auth",  token }              → osvežavanje toke
 native → WebView:  { type: "theme", mode: "dark" }       → živa promena šeme
 native → WebView:  { type: "mode",  value: "edit"|"view" } → režim „Uredi raspored" (lanac 4)
 native → WebView:  { type: "connect", sourceId | null }   → biranje cilja za vezu (lanac 4, K3)
+native → WebView:  { type: "checkpoints", taskPageId | null } → prikaži/sakrij korake zadatka (K4)
 native → WebView:  { type: "focus", nodeId }             → centriraj čvor (na zatvaranje detalja)
 native → WebView:  { type: "zoom",  direction }          → rail: uvećaj/umanji
 native → WebView:  { type: "fit" }                       → rail: centriraj sve
@@ -211,6 +212,21 @@ native → WebView:  { type: "fit" }                       → rail: centriraj s
 
 `…scope` je `{ startupId, areaId, rootPageId }` — embed ga zna iz payload-a, pa native
 ne mora da radi drugi upit da bi upisao poziciju ili kameru.
+
+**Dva polja koja odlučuju ponašanje, a lako se previde (K4):**
+
+- `node.nodeKind` (`"page" | "checkpoint"`) stiže uz `node:open`, `node:actions` i
+  `selection`. Native grana **po njemu**, ne po vrsti kanvasa: korak vodi na
+  `/zadatak/<node.taskPageId>` i otvara sheet „Akcije koraka", kartica vodi na
+  `/stranica/<_id>` i otvara sheet „Akcije kartice".
+- `connected.edgeKind` (`"page" | "checkpoint"`) kaže u koju je TABELU veza upisana.
+  „Poništi" mora da prati tabelu — `areasV2.disconnectPages` sa
+  `taskCheckpointCanvasEdges` id-jem je serverska greška u licu korisnika.
+
+Uz to: čvor koraka na platnu ima **prefiksiran** id (`checkpoint:<id>`), pa
+`{type:"connect", sourceId}` prima `nodeId`, a mutacije `_id`. Zamena je tiha —
+prsten se ne pojavi i tap na cilj ne uradi ništa. Pun protokol i pravila:
+`docs/mobile/lanac4/REZIM.md`.
 
 **Uređivanje.** Embed više nije bezuslovno read-only: u režimu „Uredi raspored"
 (`mode`) čvorovi postaju povlačivi i potez se na kraju upisuje kroz `areasV2.movePages`

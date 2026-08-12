@@ -6,6 +6,7 @@ import {
   ClipboardX,
   Ellipsis,
   Flag,
+  LayoutGrid,
   TriangleAlert,
   Users,
 } from 'lucide-react-native';
@@ -130,6 +131,14 @@ export default function ZadatakScreen() {
   const status = page.taskStatus ?? 'backlog';
 
   const openSheet = () => setSheetOpen(true);
+  // Kanvas zadatka je `kind: 'page'` nad ovim zadatkom — jedini kanvas na kom su koraci
+  // vidljivi bez poruke `checkpoints`. Bez ovog ulaza je sa telefona nedostupan (K4):
+  // `/stranica/[id]` zadatak preusmerava ovamo, pa dugme sa te strane ne pomaže. Ista
+  // ikonica i ista formulacija kao na stranici (`stranica/[id].tsx`).
+  const openCanvas = () => {
+    haptics.tap();
+    router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'page', id: pageId } });
+  };
   const applyStatus = (next: TaskStatus) => {
     run(updateMetadata({ pageId, status: next }));
     setSheetOpen(false);
@@ -169,11 +178,16 @@ export default function ZadatakScreen() {
             }
             onBack={() => router.back()}
             actions={
-              <IconButton
-                accessibilityLabel="Akcije zadatka"
-                onPress={() => setActionsView('menu')}>
-                <Ellipsis size={20} color={colors.foreground} />
-              </IconButton>
+              <>
+                <IconButton accessibilityLabel="Canvas zadatka" onPress={openCanvas}>
+                  <LayoutGrid size={20} color={colors.foreground} />
+                </IconButton>
+                <IconButton
+                  accessibilityLabel="Akcije zadatka"
+                  onPress={() => setActionsView('menu')}>
+                  <Ellipsis size={20} color={colors.foreground} />
+                </IconButton>
+              </>
             }
           />
         </View>

@@ -1034,7 +1034,9 @@ export const searchMessages = query({
   },
   returns: v.array(chatSearchResultValidator),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    // Poziv je PROVERA PRISTUPA, ne mrtav kod — bez njega pretraga chata postaje
+    // javna. Briše se samo destrukturisanje (`profile` se u handleru ne koristi).
+    await requireStartupMember(ctx, args.startupId);
     const term = args.term.trim();
     if (term.length === 0) return [];
 

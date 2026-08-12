@@ -6,7 +6,6 @@ import { mutation, query } from "./_generated/server";
 import {
   DEFAULT_CANVAS_NODE_HEIGHT,
   DEFAULT_CANVAS_NODE_WIDTH,
-  findAvailableCanvasPosition,
   getAvailableCanvasPosition,
   getPlacement,
   MAX_CANVAS_PAGES,
