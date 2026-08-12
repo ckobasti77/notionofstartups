@@ -1,0 +1,93 @@
+ultrathink
+
+Devotion monorepo: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvrsavanje - ne pitaj,
+odlucuj i radi.
+
+PROCITAJ PRVO:
+  docs/mobile/PARITET.md      <- lista i memorija, cekiraj [x] u istom commit-u
+  docs/mobile/ZA-POPRAVKU.md  <- naucene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+  docs/mobile/lanac4/OSNOVA.md <- nalaz koji je pokrenuo ovaj lanac, procitaj ga
+
+GDE SE RADI - ovo je drugacije od prethodnih lanaca:
+Mobilni kanvas NIJE nativni ekran. To je WebView nad
+apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx, koji vrti ISTI
+@xyflow/react kao desktop i ima VEC autentikovan ConvexReactClient (token stize
+kroz window.__DEVOTION_AUTH__). Znaci mutacije odatle rade i nista se ne
+instalira. Uredjivanje je iskljuceno sa dve zastavice:
+  nodesDraggable={false}
+  nodesConnectable={false}
+
+Native strana (apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx i
+components/canvas/canvas-rail.tsx) daje ljusku, zaglavlje i akcije, i sa
+WebView-om se dogovara preko postMessage mosta.
+
+PRAVILA U SVAKOJ FAZI:
+- REZIM "Uredi raspored" je odluka korisnika i nije predmet preispitivanja.
+  Kanvas je podrazumevano za gledanje: jedan prst pomera platno, dva zumiraju.
+  Dugme u native rail-u pali rezim; tek u rezimu se cvorovi povlace, menja im se
+  velicina i povezuju se. Izlazak iz rezima vraca gledanje. Rezim mora da se vidi
+  na prvi pogled (traka ili obod), da se ne desi da neko pomera po bazi mislecu
+  da lista.
+- DESKTOP KANVAS NE SME DA PROMENI PONASANJE. Ako uzimas logiku iz
+  apps/web/components/workspace/area-canvas-view.tsx ili ideas-canvas-view.tsx,
+  izdvoji je u zajednicki modul i dokazi da desktop radi isto kao pre.
+- BACKEND NE MENJAJ. Sve funkcije vec postoje. Ako ti nesto stvarno fali, stani i
+  zapisi u docs/mobile/ZA-POPRAVKU.md umesto da izmisljas.
+- Dodirna meta min 44pt. Ono sto je na webu 8px ruka za mis mora na telefonu da
+  bude prst. Ako ne moze da se poveca, promeni interakciju - ne smanjuj prst.
+- Svaka izmena koja pise u bazu mora da ima "Ponisti". Obrazac vec postoji iz
+  Faze 5 prethodnog lanca - koristi njega, ne pravi drugi.
+- Optimisticki potez: cvor prati prst odmah, upis u bazu ide na kraj poteza
+  (onNodeDragStop), ne na svaki frejm.
+- Prazno, ucitavanje i greska - sva tri stanja svuda gde ih jos nema.
+- Uz svaki cekiran kvadratic napisi fajl i liniju kao dokaz.
+- Ako menjas apps/mobile/package.json, zapisi u docs/mobile/lanac4/NATIVE-BUILD.md.
+FAZA K1 - REZIM UREDJIVANJA I POMERANJE (kanvas oblasti)
+
+Ovo je temelj celog lanca. Sve sledece faze se kace na rezim koji ovde pravis,
+pa ga uradi kako treba i zapisi njegov protokol u docs/mobile/lanac4/REZIM.md.
+
+Sta se dobija:
+- api.areasV2.movePages   - pomeranje jedne ili vise stranica
+- api.areasV2.saveViewport - pamcenje pan/zoom kamere po korisniku
+
+Posao:
+1. Most: native rail dobija dugme "Uredi raspored" (i "Gotovo" kad je rezim
+   upaljen). Salje WebView-u poruku {type:"mode", value:"edit"|"view"}.
+   Embed slusa isti kanal na kom vec slusa {type:"auth"} i {type:"theme"} -
+   iOS preko window, Android preko document. Ne izmisljaj drugi kanal.
+2. U rezimu: nodesDraggable={true}, panOnDrag ostaje ali NE sme da se bije sa
+   povlacenjem cvora. React Flow to resava sam kad je cvor draggable - proveri
+   na emulatoru, ne veruj na rec.
+3. onNodeDragStop -> movePages. Jedan upis po potezu, ne po frejmu.
+4. Kamera: onMoveEnd -> saveViewport, prigusen (debounce) na oko 800ms, i SAMO
+   kad je korisnik stvarno pomerio kameru - ne posle programskog fitView.
+5. "Ponisti" traka posle pomeranja: vraca prethodne koordinate kroz isti
+   movePages. Cuvaj prethodno stanje u memoriji, ne citaj ga ponovo iz baze.
+6. Vizuelni znak rezima na WebView strani (obod ili traka), da se ne oslanja
+   samo na native dugme.
+
+Zamka koju NE smes da ponovis: swipe-back je vec iskljucen za canvas ekran
+(gestureEnabled: false u (app)/_layout.tsx). Ne ukljucuj ga.
+
+Dokaz: screenshot pre i posle pomeranja, plus red iz Convex logova da je
+movePages pozvan tacno jednom po potezu.
+=====================================================================
+KORAK PLANIRANJA. NE MENJAJ NIJEDAN FAJL SA KODOM.
+=====================================================================
+CILJ FAZE: U rezimu Uredi raspored prstom pomeras stranice po kanvasu oblasti, pozicija se pamti, i izlazak iz rezima vraca gledanje.
+
+Napisi plan u docs\mobile\lanac4\planovi\faza-k1.md. Mora da sadrzi:
+1. Sta si procitao i sta si zatekao - imena fajlova i linije. Ako je nesto vec
+   uradjeno, reci to i izbaci iz plana.
+2. Redosled izmena, jedna po jedna, sa fajlom i razlogom.
+3. Za svaku: kako se prstom, u rezimu Uredi raspored, postize isti ishod kao
+   misem na webu.
+4. Sta moze da pukne i sta ces uraditi ako pukne. Posebno: gde se povlacenje
+   cvora bije sa pomeranjem platna.
+5. Sta NECES raditi i zasto (ide u sekciju Z fajla PARITET.md).
+6. Kako ces dokazati da svaka stavka radi - konkretan test, ne tvrdnja.
+
+Kratko i konkretno. Drugi agent ce ovo sprovesti doslovno.

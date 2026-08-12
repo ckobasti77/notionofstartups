@@ -545,9 +545,9 @@ docs/mobile/ZA-POPRAVKU.md sa objasnjenjem.
             foreach ($p in $provere) {
                 if ((PokreniSaRokom $p.cmd $log $RokProvera) -ne 0) { $jos += $p.ime }
             }
-            if ($jos.Count -eq 0) { Zapisi "- popravka $i: sve kapije prolaze"; break }
+            if ($jos.Count -eq 0) { Zapisi "- popravka ${i}: sve kapije prolaze"; break }
             $spisak = $jos -join ", "
-            Zapisi "- popravka $i: jos pada $spisak"
+            Zapisi "- popravka ${i}: jos pada $spisak"
         }
     }
 
