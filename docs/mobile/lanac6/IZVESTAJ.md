@@ -259,3 +259,8 @@ npm run editor:build --workspace @devotion/mobile → 678 KB, provera markera pr
 | T7 | „Blok koda" | `<pre>` blok sa monospace fontom i okvirom |
 | T8 | Beleška sa `<hr>` | Crta ostaje posle snimanja sa telefona |
 | T9 | Tamna/svetla tema dok je editor otvoren | Tabela i blok koda menjaju boje bez reload-a |
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi
