@@ -467,3 +467,125 @@ promena režima se najavljuje kroz `AccessibilityInfo.announceForAccessibility`.
 **8. Srpska množina za traku „Poništi".** Plan je imao dva oblika; `${n} kartica je
 pomereno` za n=2–4 nije srpski. Dodat je `movedLabel` (1 → „Kartica je pomerena.",
 2–4 → „N kartice su pomerene.", ostalo → „N kartica je pomereno.").
+
+---
+
+## REVIZIJA
+
+> Nezavisna provera po izvršenju (12.08.2026). Opseg: `git diff 7b2267e..HEAD`.
+> Sve tvrdnje niže su ponovo izmerene u kodu, ne preuzete iz izveštaja.
+
+### 1. Je li CILJ ispunjen? — **DA**
+
+Sva tri dela cilja postoje u kodu i imaju dokaz iz izvršavanja:
+
+- *pomeranje prstom u režimu* — `nodesDraggable={canEdit}`
+  (`canvas-embed.tsx:516`) + `onNodeDragStop` (`:527`) → `movePages`
+  (`:865`, `:881`). Snimak `k1-pre.png` → `k1-posle.png` pokazuje karticu „oze"
+  na novom mestu, obod režima i traku „Kartica je pomerena.".
+- *pozicija se pamti* — jedan `areasV2:movePages` po potezu u
+  `k1-logovi.txt` (1:48:12), povratak na kanvas u `k1-povratak.png`.
+- *izlazak vraća gledanje* — `k1-gotovo.png` (nema oboda, primarno dugme je opet
+  „Nova stranica"), `k1-tap-otvara.png` (tap otvara stranicu „oze", ne bira je).
+
+Nezavisno reprodukovano u ovoj reviziji: `apps/mobile` `tsc` prolazi (izlaz 0),
+`apps/web` `tsc` prolazi (izlaz 0), paritet metod iz `PARITET.md:15–19` daje
+**tačno 15** i `movePages`/`saveViewport` više nisu na listi web-only.
+
+Ograničenje koje cilj ne pominje a treba znati: režim postoji samo za
+`area`/`page` (`canvas/[kind]/[id].tsx:222`, `supportsEdit = isPageKind`). Za
+ideje i misli je namerno inertan (`canEdit = editMode && !!onMoveNodes`) — K5.
+
+### 2. Kvadratići — ima li koda za svaki?
+
+**Da, sva tri `[x]` u `PARITET.md` sekciji K imaju stvaran kod. Ništa se ne
+odčekirava.** Provereni citati:
+
+| Tvrdnja | Stvarno stanje |
+|---|---|
+| `useMutation` movePages `:865` | ✓ tačno |
+| `handleMoveNodes` `:873` | **`:881`** (873 je zatvaranje `useState` iznad; JSDoc počinje na 876). Kozmetički promašaj citata, ne lažan nalaz. |
+| `onNodeDragStop` `:527` · `nodesDraggable` `:516` · tuđa kartica `draggable:false` `:959` | ✓ sva tri tačna |
+| `undo-bar.tsx:54` + `case 'pageMove'` `:110` · `undo.ts:38` | ✓ tačno |
+| `saveViewport` `[id].tsx:240` · `flushViewport` `:244` · flush na izlazak `:261` · `onMoveEnd` `canvas-embed.tsx:528` | ✓ sva četiri tačna |
+| rail `:85` / `:54` · `supportsEdit` `[id].tsx:502` · `mode` `:229` · ponovno slanje `:466` | ✓ svih pet tačnih |
+
+Kvadratići iz §7 („Definicija gotovo") — provereno pojedinačno: `REZIM.md`
+postoji, `00-PLAN.md` §5.2 dopunjen (4 nove poruke mosta), `PARITET.md` ima
+sekciju K i iz Z tabele su nestala tačno dva reda (`movePages`, `saveViewport`),
+`git diff` nad `packages/backend/` i `apps/web/components/` je **prazan**,
+`apps/mobile/package.json` nije menjan. Kvadratić T0–T11 nosi izričitu ogradu za
+T6 — to je pošteno prijavljeno, ne prećutano.
+
+### 3. Je li desktop kanvas ostao netaknut?
+
+**Kod: da, i to dokazivo.** Na webu je promenjen **jedan jedini fajl**, i on je u
+`apps/web/app/embed/`. Provereno u ovoj reviziji: nijedan fajl van `app/embed/`
+ne uvozi `canvas-embed`/`embed-node`, embed ne uvozi ništa iz
+`components/workspace/`, CSS pravilo režima je pod klasom `.embed-edit` koja van
+embeda ne postoji. Desktop fizički ne može da vidi ovu izmenu.
+
+**Ponašanje: ne u potpunosti.** `pageCanvasViewports` je jedan red po
+(`viewerProfileId`, scope) — `areasV2.ts:2506+`. Pan prstom na telefonu prepisuje
+**početni pogled istog korisnika na desktopu**. Zapisano je kao prihvaćeno (P9),
+ali ostaje činjenica: ovo je promena desktop iskustva isporučena a da desktop
+kanvas nijednom nije otvoren. T6 mišem nije odrađen (nema kredencijala) i **i
+dalje je otvoren**.
+
+### 4. Je li „Uredi raspored" zaista režim?
+
+**Jeste.** Van režima nijedan čvor nije povlačiv: globalni `nodesDraggable` je
+`false`, a čvor nosi `draggable: undefined` (`:959`), što xyflow prepušta
+globalnoj zastavici. Da je tu stajalo `draggable: true` (kako je plan prvobitno
+tražio), čvor bi pobedio globalnu zastavicu i režim bi bio ukras — odstupanje 1
+je uhvatilo pravu zamku. Tuđe kartice i ghost-ovi nose tvrdo `false` i **u**
+režimu. Reload embeda pada u gledanje, native ga ponovo pali (`:466`).
+
+Preostali rizik (tanak, ali nezapisan): poruka `mode` je bez potvrde. Smer
+„upali" ima mrežu (ponovno slanje u `onLoadEnd`), smer **„ugasi" je nema** — ako
+se `{value:'view'}` izgubi bez reload-a, native pokazuje „Nova stranica" a embed
+ostaje povlačiv. Verovatnoća je mala, ali nema ni detekcije ni pomirenja stanja.
+
+### 5. Dodirne mete ispod 44pt?
+
+**U native-u: nema.** Nova ikonica je `MIN_TOUCH_TARGET` = 44
+(`canvas-rail.tsx:165–172`), primarno dugme ima `minHeight: MIN_TOUCH_TARGET`.
+Na 360 dp četvrta ikonica skraćuje **tekst** dugmeta („Nova stranica" u elipsu),
+ne metu; pun tekst ostaje u `accessibilityLabel`. Na uređaju sa dokaza (411 dp)
+nije ni skraćen (`k1-gotovo.png`).
+
+**U WebView-u: jeste, na malom zumu.** Meta za povlačenje je sama kartica
+(288×196 CSS px). Na `minZoom={0.15}` to je ~43×29 px — ispod 44pt. Nije nemar
+(sledi iz zumiranja i desktop ima isto), ali pravilo 10 iz `REZIM.md` tu ne važi
+i to nigde ne piše. K2 uvodi ručku za veličinu i naslediće isti problem u težem
+obliku.
+
+### 6. Najslabije — i šta sledeća faza mora da popravi
+
+**(a) Zaštita kamere ima rupu — jedini stvarni bag ove faze.**
+`handleMoveEnd` (`canvas-embed.tsx:~531`) na programsku promenu izlazi
+`if (event === null) return;` **bez ažuriranja `lastViewportRef`**. Posledice:
+
+1. Prvi tap po kanvasu koji **nema** zapamćenu kameru upisuje kameru dobijenu
+   `fitView`-om (jer je `last` još `null`) i time postavlja `persisted = true`.
+2. Bilo koji tap **odmah posle** `[⌖]` / `[+]` / `[−]` upisuje **programsku**
+   kameru — tačno ono što gejt treba da spreči.
+
+Zaključak iz `k1-logovi.txt` („posle `[⌖]` nema `saveViewport`") važi za sam fit,
+ali ne i za prvi sledeći dodir; T5 je uži nego što je zapisan. Nije kozmetika:
+čim `persisted` postane `true`, kanvas se **više nikad ne uklapa sam** pri
+otvaranju — ni na telefonu ni na desktopu istog korisnika. Popravka je jedna
+linija (upisati `lastViewportRef.current` i u programskoj grani, pre `return`).
+
+**(b) Čitač ekrana ne može da pomeri karticu.** Povlačenje je jedini ulaz;
+pomeranje strelicama je svesno odbijeno (sekcija 5), a alternative („Premesti" u
+`page-actions-sheet.tsx`) nema. Režim se najavljuje pristupačno, ali funkcija
+unutar njega je nedostupna. K2 (veličina) i K3 (veze) će isti otvor samo
+proširiti — treba ga sada ili zatvoriti, ili zapisati u `PARITET.md` sekciju Z
+kao izričit izuzetak, da se u K6 ne otkrije kao rupa.
+
+**(c) T6 mišem ostaje neodrađen.** Statički dokaz je jak i prihvatljiv za K1, ali
+lanac dodaje još četiri faze nad istim fajlom; prva prilika sa kredencijalima
+treba da ga zatvori pre nego što se dug nagomila.
+
+**Redosled za K2:** (a) u kod, (b) odluka i zapis, (c) čim kredencijali postoje.
