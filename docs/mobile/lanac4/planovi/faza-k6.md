@@ -377,3 +377,181 @@ kao „auth je pukao" odnosno „kanvas je slomljen" pre nego što su izmerena.
 Uz poruku `checkpoints` i polja `nodeKind`/`edgeKind` (traženo), u `REZIM.md` je dodato i
 pravilo **„id čvora ≠ id dokumenta"** sa objašnjenjem zašto je zamena tiha greška. To je
 zamka P2 iz §4 ovog plana; da je ostala samo u planu faze, nestala bi sa fazom.
+
+---
+
+# REVIZIJA
+
+*Nezavisna provera, 12.08.2026. Opseg: `git diff a4a26c6..HEAD`. Sve tvrdnje ispod su
+proverene ponovnim pokretanjem komandi i čitanjem koda na disku, ne preuzete iz izveštaja
+faze.*
+
+## 1. Je li CILJ ispunjen? — **DA**
+
+CILJ: *„Razlika pariteta je 7 i svih 7 su obrazloženi izuzeci; tsc, lint i testovi su
+čisti."*
+
+Komanda iz `PARITET.md` zaglavlja, pokrenuta ponovo:
+
+```
+web 161 · mobilni 169 · razlika 7
+api.activity.listForStartup · api.areasV2.getCanvas · api.areasV2.getPageCanvasByPage
+api.areasV2.resolveRoute · api.notifications.latest · api.pageFiles.prune
+api.pushSubscriptions.myDeviceCount
+```
+
+Z-tabela (`PARITET.md:914–922`) ima **tačno tih 7 redova**, uparuju se red po red.
+
+**Provera na prevaru prošla.** Stari web skup na `019239d` je 160; `comm -23 stari novi`
+je **prazan** — nijedna `api.*` referenca nije nestala sa weba. Jedini prirast je
+`api.adminAuth.adminSetPassword`. Broj je pao rastom mobilnog, ne brisanjem sa weba.
+
+Kapije, sve pokrenute ponovo u ovoj reviziji:
+
+| Kapija | Ishod |
+|---|---|
+| `apps/mobile npx tsc --noEmit` | exit 0 |
+| `apps/web npx tsc --noEmit` | exit 0 |
+| `npm run lint` | exit 0, prazan ispis (0/0) |
+| `npm test` | 39 fajlova, 333 testa, exit 0 |
+| `npm run build` | exit 0 |
+
+Sedam obrazloženja u Z-tabeli nisu prepisana napamet — nasumično proverenih šest
+pozivalaca stoji tačno gde piše: `activity-view.tsx:13` (`limit: 50`),
+`notifications-panel.tsx:341` i `:426`, `page-editor-view.tsx:150`,
+`workspace-shell.tsx:331` i `:637`, `aktivnost.tsx:73` (`listPaginated`).
+
+**Ograda uz „DA":** cilj je ispunjen doslovno, ali broj 7 ne meri lanac. K5 nije urađen i
+broj je isti sa njim i bez njega. Faza to sama kaže na tri mesta (`PARITET.md` sekcija K5,
+`ZA-POPRAVKU §9`, `BRIEF §1`) — to je ispravno postupanje, ne zamerka. Zamerka bi bila da
+ćuti.
+
+## 2. Čekirani kvadratići — ima li koda iza svakog?
+
+**Da, iza svakog. Nijedan nije za odčekiranje.** Svaka citirana linija je otvorena i
+pročitana:
+
+| Kvadratić | Citat | Šta je na toj liniji |
+|---|---|---|
+| A8 `saveCanvasPlacement` | `canvas-embed.tsx:1412` | `useMutation(api.taskCheckpoints.saveCanvasPlacement)` ✓ |
+| | `checkpoint-node-sheet.tsx:80`, poziv `:114` | `useMutation` ✓ / `await savePlacement({` ✓ |
+| | `undo-bar.tsx:59`, `case` `:179`, unija `undo.ts:103` | ✓ ✓ ✓ |
+| A8 `resetCanvasSize` | `checkpoint-node-sheet.tsx:81`, `:143`, `:248`; `undo-bar.tsx:60` | ✓ ✓ ✓ ✓ |
+| A8 `edges.connect` | `canvas-embed.tsx:1413`, `:1617`, `:1632`, `:1641`; `[id].tsx:285`, `:480`, `:482` | ✓ (sve) |
+| A8 `edges.disconnect` | `checkpoint-node-sheet.tsx:82`, `:157`; `page-node-sheet.tsx:72`, `:89` | ✓ ✓ ✓ ✓ |
+| A8 „ulaz sa telefona" | `zadatak/[id].tsx:138` `openCanvas`, dugme `:182`; `page-node-sheet.tsx:170`/`:186`; `[id].tsx:333`, `:737`, `:688`; `canvas-embed.tsx:288` | ✓ (sve) |
+| K4 (6 stavki) | `[id].tsx:149`, `:371`, `:441`, `:461`, `:645–652`, `:886`; `canvas-embed.tsx:1429`, `:1672` | ✓ (sve) |
+| B `npm run lint` | — | ✓ 0/0, ali vidi §6.1 |
+| B `npm test` (39/333) | — | ✓ izmereno isto |
+| K5 | **`[ ]` nečekiran** | ispravno — koda nema i tako i piše |
+
+Dodatno provereno, jer je to bila tačno greška koju je K6 popravljao: `selection` poruka
+za korak **stvarno nosi** `nodeKind` — `canvas-embed.tsx:862` puni `node` iz istog
+`detailById` mapa u kom `CheckpointNodeDetail` postavlja `nodeKind: "checkpoint"`
+(`:1853`). Da ga ne nosi, rail bi izabranom koraku pisao „Akcije kartice" i otvarao
+pogrešan sheet — tiho.
+
+## 3. Je li desktop kanvas ostao netaknut? — **Jeste, i to je dokazano statički**
+
+- **U K6:** nula fajlova u `apps/web/components/`. Ceo dodir weba je jedan **nov test**
+  (`apps/web/lib/canvas-node-size.test.ts`). Backend dobio samo brisanje mrtvog uvoza
+  (`areasV2.ts:9`) i destrukturisanja (`chat.ts:1037`) — `await requireStartupMember(...)`
+  je u diff-u vidljivo zadržan, pretraga chata nije postala javna.
+- **U celom lancu K1–K6:** `git log 61af45b~1..HEAD --name-only -- apps/web/components/`
+  vraća **jedan commit i jedan fajl** — `52a5fbf` → `area-flow-node.tsx`, 9 linija: četiri
+  inline broja (240/168/720/1000) zamenjena poljima `PAGE_NODE_SIZE`. Vrednosti su iste.
+  `task-checkpoint-layout.ts` lanac nije dirao ni jednom.
+- Nov test zakiva baš ta četiri broja na predlančane vrednosti i uz to poredi mobilnu
+  kopiju i presete oblačića — dobra brana, jer je zajednički modul jedini put kojim
+  „izmena za telefon" može tiho da promeni desktop `NodeResizer`.
+
+**Šta ostaje nedokazano:** niko nije otvorio desktop kanvas mišem (T18, `ZA-POPRAVKU §10`).
+Rizik je mali — 9 linija bez promene vrednosti plus test — ali je to jedini strah lanca i
+otvoren je četvrtu fazu zaredom. Blokada nije tehnička nego kredencijali.
+
+## 4. Je li „Uredi raspored" zaista režim? — **Jeste. Čvor se u gledanju ne može pomeriti.**
+
+Provereno u kodu, ne u opisu:
+
+- `canvas-embed.tsx:917` → `nodesDraggable={canEdit && !connecting}`, a `canEdit =
+  editMode && !!onMoveNodes` (`:488`).
+- Zamka „po čvoru pobeđuje globalno" je **izbegnuta**: jedina dva mesta koja postavljaju
+  `draggable` po čvoru pišu `undefined` ili `false` (`:1736` korak, `:1888` kartica,
+  `:1911` duh). **Nigde `draggable: true`.** `undefined` prepušta odluku globalnom
+  prekidaču, pa gledanje ostaje gledanje.
+- Ručke za veličinu: `embed-node.tsx:161` traži `resize?.enabled && data.canResize &&
+  selected` — a oblačić koraka `canResize` nikad ne dobija, pa ručke ne postoje ni u režimu.
+- Dugi pritisak: `:935` `onNodeContextMenu={canEdit && !connecting ? … : undefined}`.
+- Runtime potvrda: `k6-logovi.txt` T5 — potez po pozadini u režimu daje samo `viewport`,
+  **nijedan** `moved` / `saveCanvasPlacement`.
+
+Ishod promašaja je pan, dakle nikakav upis. Van režima tap na čvor otvara detalj —
+navigacija, ne izmena.
+
+## 5. Dodirne mete ispod 44pt u dodatom? — **Nema nijedne**
+
+- „Canvas zadatka" (`zadatak/[id].tsx:182`) je `IconButton`, `icon-button.tsx:41–42` =
+  `MIN_TOUCH_TARGET` (44). Izmereno 43.8 dp — to je zaokruživanje piksela na gustini 420
+  (44 × 2.625 = 115.5 → 115 px), identično postojećim „Nazad" i „Akcije zadatka".
+- Redovi koje je K6 učinio dostupnim: „Prikaži korake (N)" i svi redovi sheet-a „Akcije
+  koraka" mere **58.3–58.7 dp** (`ui/row.tsx:208` `minHeight: 56`). ✕ na vezi je 44 × 44
+  (`node-edges-section.tsx:171–172`).
+- Ugaone ručke na oblačiću su **odbijene** sa izračunom (43% površine čvora) i upisane u
+  Z-gestove — to je pravilno primenjeno pravilo „menja se interakcija, ne prst".
+
+**Metodološka rupa koju treba znati:** `k6-mete.txt` prijavljuje na ekranu zadatka i mete
+od 35.8–36.2 dp („Uredi instrukcije", „Uredi/Obriši korak", „Veži za prethodni"). One
+**nisu iz K6** (zatečene: `instructions-section.tsx:138–139`,
+`task-checkpoint-list.tsx:556–557`) i **nisu stvarni prekršaj** — nose `hitSlop` 6–8, pa
+je efektivna meta 48–52 dp. `uiautomator dump` čita `bounds` i `hitSlop` **ne vidi**.
+Zaključak: metod merenja podcenjuje mete, i to nigde ne piše. Sledeći put uz svaku metu
+ispod praga treba proveriti `hitSlop` u kodu pre nego što se proglasi prolaz ili pad.
+
+## 6. Najslabije u fazi, i šta sledeća mora da popravi
+
+### 6.1 `npm run lint` **ne gleda kod koji je ova faza napisala** ← najslabije
+
+`eslint.config.mjs:26` globalno ignoriše `apps/mobile/**`, a `expo lint` je u ovom
+projektu pokvaren (ceo `src` ignorisan). Jedine dve fajla sa pravim kodom u K6 su
+`canvas/[kind]/[id].tsx` i `zadatak/[id].tsx` — **oba u `apps/mobile`**. Dakle:
+
+- kvadratić `PARITET.md:407` („`npm run lint` — nula grešaka i nula upozorenja") je
+  tačan kao činjenica, ali stvara utisak koji ne stoji;
+- `BRIEF.md:118–120` isto: `npm run lint → 0/0` stoji u istom bloku sa `apps/mobile tsc`,
+  bez ijedne reči da lint tu granicu ne prelazi;
+- ograda postoji **samo** u planu (`faza-k6.md §1`) i u starim logovima lanca 3.
+
+Ovo nije sitnica upravo u ovoj fazi: bug koji je K6 popravljao (K4 ljuska) je bio
+**deklarisano-a-nikad-upotrebljeno stanje** — klasa greške koju `no-unused-vars` hvata, a
+`tsc` propušta. Gejt koji bi ga uhvatio nikad nije radio nad tim fajlom.
+
+**Sledeća faza:** ili popraviti `expo lint`, ili uz svaku tvrdnju „lint je čist" doslovno
+dopisati *„`apps/mobile` nije pokriven — jedini mobilni gejt je `tsc`"*. Prvo je posao,
+drugo je jedna rečenica i mora se uraditi odmah.
+
+### 6.2 K5 — lanac se zatvara sa imenovanom nezavršenom fazom
+
+`supportsEdit = isPageKind` (`[id].tsx:272`) — prekidač se na kanvasu ideja i misli ni ne
+pojavljuje, pa nema mrtve kontrole; to je urađeno kako treba. Ali lanac je planiran kao
+K1–K6 i zatvara se sa K5 na nuli. Zapisano je iskreno na tri mesta i tu nema šta da se
+zamera fazi K6 — samo se ne sme čitati kao „gotovo". Sledeća faza je **K5**, sa zamkom iz
+`ZA-POPRAVKU §9` (relativne vs apsolutne koordinate ugnježdenih čvorova).
+
+### 6.3 Dokazi su čitljiv narativ, ne sirov ispis
+
+`k6-logovi.txt` nije `adb logcat` dump nego rukom pisan zapis sa vremenima i **id-jevima
+redova iz baze**. To je provereno bolje od tvrdnje (id se može ponovo pogledati) i faza
+sama beleži šta nije uspela da proizvede (T11, O5). Ali sirov ispis se može nezavisno
+ponoviti, a narativ ne. Sledeći put: sačuvati i filtrirani `logcat` uz sažetak.
+
+### 6.4 Dve sitnice za usput (ne blokiraju ništa)
+
+- **Tap na oblačić na kanvasu SAMOG zadatka** radi `router.push('/zadatak/<taskPageId>')`
+  (`[id].tsx:441–448`) — a to je tačno ekran sa kog si ušao. Stek postaje
+  zadatak → kanvas → **zadatak** umesto povratka. Na kanvasu oblasti je ponašanje tačno;
+  ovde bi `router.back()` bio ispravniji kad je `taskPageId === parentPageId`.
+- **Zastarelo obrazloženje u `PARITET.md:411–412`:** dva nečekirana runtime kvadratića
+  (Metro konzola, Convex logovi) i dalje kažu „*van dometa headless faze; nijedna faza
+  noćnog lanca ovo još nije radila*". K6 **jeste** imao živu emulator sesiju (19:24–19:52).
+  Kvadratići s pravom ostaju prazni (sesija je pokrila kanvas, ne sve ekrane) — ali razlog
+  treba prepisati, inače sledeći agent misli da uređaj nije dostupan.
