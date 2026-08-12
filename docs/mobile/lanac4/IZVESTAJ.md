@@ -68,3 +68,8 @@ ništa** iz `components/workspace/`, nijedan fajl van embed foldera ne uvozi
 (prevuci karticu, `Ctrl+Z`) treba odraditi kad kredencijali budu dostupni.
 
 Odstupanja od plana su dopisana u `planovi/faza-k1.md` §8.
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi
