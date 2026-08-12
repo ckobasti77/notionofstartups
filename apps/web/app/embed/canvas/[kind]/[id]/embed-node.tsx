@@ -63,6 +63,18 @@ export type EmbedNodeData = {
    * Ideje i misli ga ne postavljaju — njihova veličina je K5.
    */
   canResize?: boolean;
+  /**
+   * Checkpoint oblačić (K4) — SAMO CSS razlika (leva ivica u `--primary`); sadržaj je
+   * isti (label + meta). Namerno bez dugmeta, polja za tekst, kvačice i brisanja:
+   * suština koraka (tekst, završenost, lančanje, glasanje) je native na detalju
+   * zadatka i ne duplira se na kanvasu (`faza-k4.md` §5).
+   *
+   * Ručke za veličinu oblačić NIKAD ne dobija: `showHandles` traži `data.canResize`,
+   * koji checkpoint ne postavlja — oblačić je 164 × 110, pa bi četiri mete od 44pt
+   * pojele 43% njegove površine i potez koji hoće da POMERI korak skoro uvek bi
+   * pogodio ručku. Veličina zato ide iz native sheet-a (preseti + reset).
+   */
+  variant?: "checkpoint";
 };
 
 export type EmbedFlowNode = Node<EmbedNodeData, typeof EMBED_NODE_TYPE>;
@@ -156,6 +168,7 @@ function EmbedNodeCard({ id, data, selected }: NodeProps<EmbedFlowNode>) {
         data.accent && "ring-2 ring-primary",
         selected && "border-primary ring-2 ring-primary/60",
         data.ghost && "border-dashed opacity-60 shadow-none",
+        data.variant === "checkpoint" && "embed-checkpoint",
       )}
     >
       {/* Nevidljive tačke za ivice: bez njih xyflow nema geometriju krajeva veze. */}

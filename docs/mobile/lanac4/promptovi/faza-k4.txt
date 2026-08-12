@@ -1,0 +1,77 @@
+ultrathink
+
+Devotion monorepo: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvrsavanje - ne pitaj,
+odlucuj i radi.
+
+PROCITAJ PRVO:
+  docs/mobile/PARITET.md      <- lista i memorija, cekiraj [x] u istom commit-u
+  docs/mobile/ZA-POPRAVKU.md  <- naucene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+  docs/mobile/lanac4/OSNOVA.md <- nalaz koji je pokrenuo ovaj lanac, procitaj ga
+
+GDE SE RADI - ovo je drugacije od prethodnih lanaca:
+Mobilni kanvas NIJE nativni ekran. To je WebView nad
+apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx, koji vrti ISTI
+@xyflow/react kao desktop i ima VEC autentikovan ConvexReactClient (token stize
+kroz window.__DEVOTION_AUTH__). Znaci mutacije odatle rade i nista se ne
+instalira. Uredjivanje je iskljuceno sa dve zastavice:
+  nodesDraggable={false}
+  nodesConnectable={false}
+
+Native strana (apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx i
+components/canvas/canvas-rail.tsx) daje ljusku, zaglavlje i akcije, i sa
+WebView-om se dogovara preko postMessage mosta.
+
+PRAVILA U SVAKOJ FAZI:
+- REZIM "Uredi raspored" je odluka korisnika i nije predmet preispitivanja.
+  Kanvas je podrazumevano za gledanje: jedan prst pomera platno, dva zumiraju.
+  Dugme u native rail-u pali rezim; tek u rezimu se cvorovi povlace, menja im se
+  velicina i povezuju se. Izlazak iz rezima vraca gledanje. Rezim mora da se vidi
+  na prvi pogled (traka ili obod), da se ne desi da neko pomera po bazi mislecu
+  da lista.
+- DESKTOP KANVAS NE SME DA PROMENI PONASANJE. Ako uzimas logiku iz
+  apps/web/components/workspace/area-canvas-view.tsx ili ideas-canvas-view.tsx,
+  izdvoji je u zajednicki modul i dokazi da desktop radi isto kao pre.
+- BACKEND NE MENJAJ. Sve funkcije vec postoje. Ako ti nesto stvarno fali, stani i
+  zapisi u docs/mobile/ZA-POPRAVKU.md umesto da izmisljas.
+- Dodirna meta min 44pt. Ono sto je na webu 8px ruka za mis mora na telefonu da
+  bude prst. Ako ne moze da se poveca, promeni interakciju - ne smanjuj prst.
+- Svaka izmena koja pise u bazu mora da ima "Ponisti". Obrazac vec postoji iz
+  Faze 5 prethodnog lanca - koristi njega, ne pravi drugi.
+- Optimisticki potez: cvor prati prst odmah, upis u bazu ide na kraj poteza
+  (onNodeDragStop), ne na svaki frejm.
+- Prazno, ucitavanje i greska - sva tri stanja svuda gde ih jos nema.
+- Uz svaki cekiran kvadratic napisi fajl i liniju kao dokaz.
+- Ako menjas apps/mobile/package.json, zapisi u docs/mobile/lanac4/NATIVE-BUILD.md.
+FAZA K4 - CHECKPOINTI
+
+Sta se dobija:
+- api.taskCheckpoints.saveCanvasPlacement
+- api.taskCheckpoints.resetCanvasSize
+- api.taskCheckpointCanvasEdges.connect
+- api.taskCheckpointCanvasEdges.disconnect
+
+Ovo je isti posao kao K1-K3, ali nad drugim tipom kanvasa. Ako si K1-K3 uradio
+kako treba, ovde ponovo koristis rezim, ruke i obrazac biranja cilja - i ovde se
+vidi da li si ih napravio kao zajednicke delove ili prekopirao. Ako si
+prekopirao, izdvoj sada u zajednicki modul.
+
+Vazno: sustina checkpointa - tekst, zavrsenost, lancanje, brisanje, glasanje -
+vec je nativna na detalju zadatka. Ne dupliraj je na kanvasu. Kanvas dodaje samo
+razmestaj i vezu.
+
+Dokaz: checkpoint pomeren i povezan sa telefona, promena vidljiva na webu.
+=====================================================================
+CILJ FAZE: Checkpointi zadatka se na telefonu razmestaju i lancaju isto kao na webu.
+=====================================================================
+Plan je u docs\mobile\lanac4\planovi\faza-k4.md - procitaj ga PRVO i sprovedi. Ako odstupis, dopisi u plan
+sta si promenio i zasto.
+
+Faza je gotova tek kad je cilj ispunjen, a ne kad si prosao kroz spisak.
+NA KRAJU FAZE, ovim redom:
+  cd apps/mobile && npx tsc --noEmit
+  cd apps/web    && npx tsc --noEmit
+  npm run lint
+  npm test
+Popravi sve sto padne. Ne ostavljaj gresku sledecoj fazi.

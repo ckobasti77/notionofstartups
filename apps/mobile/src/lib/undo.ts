@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import type { Id } from '@/convex/_generated/dataModel';
+import type { CheckpointEndpoint } from '@/lib/canvas-endpoints';
 
 /**
  * Poništavanje arhiviranja — JEDAN obrazac za celu aplikaciju (PARITET A6):
@@ -33,6 +34,10 @@ export type UndoAction =
    * Za razliku od ostalih članova ovo NIJE vraćanje arhiviranog nego inverzan potez:
    * `updates` nosi koordinate od PRE poteza, pa je poništavanje isti `movePages` poziv.
    * Koordinate stižu iz poruke `moved` (memorija), ne iz baze — baza je već prepisana.
+   *
+   * K4: isti potez može da nosi i korake zadatka (`checkpoints`). Jedna stavka, jer je
+   * i potez bio jedan — `canvasRootPageId` za `saveCanvasPlacement` je isti `rootPageId`
+   * koji `movePages` već nosi (canvas root je jedan).
    */
   | {
       kind: 'pageMove';
@@ -40,6 +45,7 @@ export type UndoAction =
       areaId: Id<'startupAreas'>;
       rootPageId: Id<'pages'> | null;
       updates: Array<{ pageId: Id<'pages'>; x: number; y: number }>;
+      checkpoints?: Array<{ checkpointId: Id<'taskCheckpoints'>; x: number; y: number }>;
     }
   /**
    * Promena veličine kartice na kanvasu oblasti/stranice (K2). Kao i `pageMove`, ovo
@@ -85,6 +91,46 @@ export type UndoAction =
       sourcePageId: Id<'pages'>;
       targetPageId: Id<'pages'>;
       label?: string;
+    }
+  /**
+   * Promena veličine checkpoint oblačića iz sheet-a (K4). Inverz je USLOVAN i to je
+   * cela poenta ovog člana: ako korak PRE radnje nije imao ručnu veličinu
+   * (`manuallySized: false`), vraćanje samo dimenzija bi ga zauvek ostavilo ručno
+   * dimenzionisanim — treba i `resetCanvasSize`. Desktop radi identično
+   * (`area-canvas-view.tsx` `persistCheckpointResize`).
+   */
+  | {
+      kind: 'checkpointResize';
+      checkpointId: Id<'taskCheckpoints'>;
+      canvasRootPageId: Id<'pages'> | null;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      manuallySized: boolean;
+    }
+  /**
+   * Napravljena checkpoint veza (K4). Inverz je `disconnect` nad ivicom koju je server
+   * upravo vratio — zato nosi `edgeId`, ne par (isto kao `pageEdgeConnect`).
+   */
+  | {
+      kind: 'checkpointEdgeConnect';
+      startupId: Id<'startups'>;
+      areaId: Id<'startupAreas'>;
+      rootPageId: Id<'pages'> | null;
+      edgeId: Id<'taskCheckpointCanvasEdges'>;
+    }
+  /**
+   * Raskinuta checkpoint veza (K4). Nosi PAR endpointa, ne `edgeId`: `connect` traži
+   * AKTIVNU ivicu, pa arhiviranu ne oživljava nego pravi NOVU (isto kao `connectPages`).
+   */
+  | {
+      kind: 'checkpointEdgeDisconnect';
+      startupId: Id<'startups'>;
+      areaId: Id<'startupAreas'>;
+      rootPageId: Id<'pages'> | null;
+      source: CheckpointEndpoint;
+      target: CheckpointEndpoint;
     };
 
 export type UndoEntry = {

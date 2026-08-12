@@ -25,6 +25,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
 import { CanvasRail, type RailAction } from '@/components/canvas/canvas-rail';
+import {
+  CheckpointNodeSheet,
+  type CheckpointNodeTarget,
+} from '@/components/canvas/checkpoint-node-sheet';
 import { ConnectBar } from '@/components/canvas/connect-bar';
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { IdeaNodeSheet, type IdeaDetail } from '@/components/canvas/idea-node-sheet';
@@ -64,13 +68,31 @@ type CanvasScope = {
 /** Kamera koja čeka upis (poslednja pobeđuje). */
 type PendingViewport = CanvasScope & { x: number; y: number; zoom: number };
 
-/** „Kartica je pomerena." / „3 kartice su pomerene." / „5 kartica je pomereno." */
-function movedLabel(count: number): string {
-  if (count === 1) return 'Kartica je pomerena.';
+/** Srpski paukal: 2–4 (osim 12–14) traži drugačiji oblik od ostalih brojeva. */
+function isPaucal(count: number): boolean {
   const rest = count % 100;
   const last = count % 10;
-  if (last >= 2 && last <= 4 && (rest < 12 || rest > 14)) return `${count} kartice su pomerene.`;
-  return `${count} kartica je pomereno.`;
+  return last >= 2 && last <= 4 && (rest < 12 || rest > 14);
+}
+
+/**
+ * Poruka trake „Poništi" posle poteza. Isti potez može da nosi kartice, korake ili
+ * oboje (mešano je moguće samo uz spoljnu tastaturu i multi-selekciju) — a traka ima
+ * jedan slot, pa i poruka mora da bude jedna.
+ */
+function movedLabel(pageCount: number, checkpointCount: number): string {
+  if (checkpointCount === 0) {
+    if (pageCount === 1) return 'Kartica je pomerena.';
+    if (isPaucal(pageCount)) return `${pageCount} kartice su pomerene.`;
+    return `${pageCount} kartica je pomereno.`;
+  }
+  if (pageCount === 0) {
+    if (checkpointCount === 1) return 'Korak je pomeren.';
+    return `${checkpointCount} koraka je pomereno.`;
+  }
+  const total = pageCount + checkpointCount;
+  if (isPaucal(total)) return `${total} stavke su pomerene.`;
+  return `${total} stavki je pomereno.`;
 }
 
 // Konstantni WebView prop — van komponente da ne bude nov niz na svaki render
@@ -118,6 +140,13 @@ export default function CanvasScreen() {
   // dugi pritisak u WebView-u (`node:actions`) ili četvrta ikonica rail-a — dva puta
   // do iste radnje, jer je `contextmenu` u WKWebView-u nepouzdan.
   const [nodeTarget, setNodeTarget] = useState<PageNodeTarget | null>(null);
+  // Korak nad kojim je otvoren sheet „Akcije koraka" (K4) — isti put kao za karticu
+  // (dugi pritisak ili četvrta ikonica rail-a), samo drugi tip čvora.
+  const [checkpointTarget, setCheckpointTarget] = useState<CheckpointNodeTarget | null>(null);
+  // Zadatak čije korake kanvas trenutno pokazuje (K4). Native je vlasnik: embed to
+  // saznaje isključivo iz poruke `checkpoints`. Na kanvasu SAMOG zadatka je nebitan —
+  // tamo su koraci uvek vidljivi.
+  const [expandedTaskId, setExpandedTaskId] = useState<Id<'pages'> | null>(null);
   // Kartica-izvor dok se bira cilj veze (K3). Native je vlasnik ovog stanja, kao i
   // režima; embed ga saznaje isključivo iz poruke `connect`.
   const [connectSource, setConnectSource] = useState<{ _id: string; title: string } | null>(null);

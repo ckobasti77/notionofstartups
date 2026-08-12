@@ -25,6 +25,16 @@ import {
 import type { FunctionReturnType } from "convex/server";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+// Jedini dozvoljen uvoz iz `components/workspace/` u embed (K4): modul je čist TS
+// (nula uvoza, nula React-a) i desktop ga koristi NEPROMENJENOG. Kopija orbit
+// matematike bi se vremenom razišla sa desktopom, a premeštanje modula bi diralo
+// desktop fajlove bez ijedne funkcionalne dobiti (`faza-k4.md` §1).
+import {
+  taskCheckpointNodeId,
+  taskCheckpointNodeMetrics,
+  taskCheckpointOrbitPosition,
+  taskCheckpointOrdinal,
+} from "@/components/workspace/canvases/task-checkpoint-layout";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pageKindLabel } from "@/lib/page-kinds";
@@ -230,6 +240,13 @@ function CanvasInner({
   // handle tačkice ostaje isključeno zauvek (`nodesConnectable={false}`): tačkica je
   // ~8 px i prstom se ne pogađa, pa vezu pravi tap na cilj.
   const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
+  /**
+   * Koji zadatak trenutno pokazuje svoje korake na kanvasu OBLASTI (desktop parnjak:
+   * `expandedTaskId`, `area-canvas-view.tsx:354`). Vlasnik je native (sheet kartice →
+   * „Prikaži korake"); na kanvasu SAMOG zadatka je nebitan — tamo su koraci uvek
+   * vidljivi. Kao i `mode`, native ga ponovo pošalje posle `onLoadEnd`.
+   */
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   useEffect(() => {
@@ -255,6 +272,7 @@ function CanvasInner({
         nodeId?: string;
         direction?: string;
         sourceId?: string | null;
+        taskPageId?: string | null;
       };
       try {
         msg = JSON.parse(raw);
@@ -267,6 +285,9 @@ function CanvasInner({
       } else if (msg.type === "connect") {
         // `sourceId: null` je izlazak iz biranja („Otkaži", uspeh, izlazak iz režima).
         setConnectSourceId(msg.sourceId ?? null);
+      } else if (msg.type === "checkpoints") {
+        // `taskPageId: null` je „Sakrij korake". Ovo je čist PRIKAZ — ne piše ništa.
+        setExpandedTaskId(msg.taskPageId ?? null);
       } else if (msg.type === "theme" && (msg.mode === "light" || msg.mode === "dark")) {
         setColorMode(msg.mode);
       } else if (msg.type === "focus" && msg.nodeId) {
@@ -311,6 +332,8 @@ function CanvasInner({
       />
     );
   }
+  // `expandedTaskId` dobijaju SAMO oblast i stranica — koraci vise o kartici zadatka,
+  // koje na kanvasima ideja i misli nema.
   if (kind === "area") {
     return (
       <AreaFlow
@@ -318,6 +341,7 @@ function CanvasInner({
         colorMode={colorMode}
         editMode={editMode}
         connectSourceId={connectSourceId}
+        expandedTaskId={expandedTaskId}
       />
     );
   }
@@ -328,6 +352,7 @@ function CanvasInner({
       colorMode={colorMode}
       editMode={editMode}
       connectSourceId={connectSourceId}
+      expandedTaskId={expandedTaskId}
     />
   );
 }
@@ -401,6 +426,7 @@ function EmbedFlow({
   colorMode,
   ariaLabel,
   emptyLabel,
+  emptyPending = false,
   editMode = false,
   connectSourceId = null,
   onConnectNodes,
@@ -415,6 +441,12 @@ function EmbedFlow({
   colorMode: ThemeMode;
   ariaLabel: string;
   emptyLabel: string;
+  /**
+   * Deo čvorova još stiže DRUGIM upitom (koraci zadatka, K4) — prazno stanje se dotle
+   * ne crta. Bez toga kanvas zadatka bez podstranica na tren kaže „nema ničega", pa
+   * se oblačići pojave preko te poruke.
+   */
+  emptyPending?: boolean;
   /** Režim „Uredi raspored" iz native rail-a (`{type:"mode"}`). */
   editMode?: boolean;
   /** Kartica-izvor dok se bira cilj veze (`{type:"connect"}`), inače `null`. */
@@ -914,7 +946,7 @@ function EmbedFlow({
               bez primarne akcije. */}
         </ReactFlow>
       </EmbedResizeContext.Provider>
-      {nodes.length === 0 ? (
+      {nodes.length === 0 && !emptyPending ? (
         <div
           role="status"
           className="pointer-events-none absolute inset-0 grid place-items-center"
@@ -1201,19 +1233,60 @@ function ThoughtsFlow({
 type PageCanvasData = FunctionReturnType<typeof api.areasV2.getAreaCanvasByArea>;
 
 /**
- * Jedan sused čvora u native sheet-u „Akcije kartice" — i canvas veza i relacija.
- * Relacija je tu samo da se VIDI (uklanja se na ekranu stranice, `relations-section.tsx`):
- * na kanvasu je linija 1–2 px koju prst ne pogađa, pa je imenovana lista jedini čitljiv
- * prikaz onoga što je povezano.
+ * Kraj checkpoint veze — isti oblik kao serverski `taskCheckpointCanvasEndpointValidator`
+ * (`taskCheckpointCanvasEdges.connect`). Veza sme da spoji korak sa korakom ILI korak
+ * sa karticom, ali nikad karticu sa karticom (to je `connectPages`).
+ */
+type CheckpointEndpoint =
+  | { kind: "page"; id: Id<"pages"> }
+  | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> };
+
+/** Prefiks id-a čvora koraka na platnu — `taskCheckpointNodeId` ga i pravi. */
+const CHECKPOINT_NODE_PREFIX = "checkpoint:";
+
+function isCheckpointNodeId(nodeId: string): boolean {
+  return nodeId.startsWith(CHECKPOINT_NODE_PREFIX);
+}
+
+/** Id čvora na platnu iz serverskog endpointa (kartica = go pageId, korak = prefiks). */
+function checkpointEndpointNodeId(endpoint: CheckpointEndpoint): string {
+  return endpoint.kind === "page" ? endpoint.id : taskCheckpointNodeId(endpoint.id);
+}
+
+/** Obrnut smer — id čvora sa platna u endpoint koji server očekuje. */
+function checkpointEndpointFromNodeId(nodeId: string): CheckpointEndpoint {
+  return isCheckpointNodeId(nodeId)
+    ? {
+        kind: "task_checkpoint",
+        id: nodeId.slice(CHECKPOINT_NODE_PREFIX.length) as Id<"taskCheckpoints">,
+      }
+    : { kind: "page", id: nodeId as Id<"pages"> };
+}
+
+function checkpointIdFromNodeId(nodeId: string): Id<"taskCheckpoints"> {
+  return nodeId.slice(CHECKPOINT_NODE_PREFIX.length) as Id<"taskCheckpoints">;
+}
+
+/**
+ * Jedan sused čvora u native sheet-u „Akcije kartice" / „Akcije koraka" — canvas veza,
+ * relacija stranica ili checkpoint veza. Relacija je tu samo da se VIDI (uklanja se na
+ * ekranu stranice, `relations-section.tsx`): na kanvasu je linija 1–2 px koju prst ne
+ * pogađa, pa je imenovana lista jedini čitljiv prikaz onoga što je povezano.
  */
 type PageNodeEdgeDetail = {
   _id: string;
-  kind: "canvas" | "relation";
-  otherPageId: string;
+  kind: "canvas" | "relation" | "checkpoint";
+  /** Id ČVORA druge strane: pageId za karticu, `checkpoint:<id>` za korak. */
+  otherId: string;
   otherTitle: string;
   label: string | null;
   canDelete: boolean;
   canRequestDeletion: boolean;
+  /**
+   * Samo za `checkpoint`: „Poništi" raskida pravi NOVU vezu (arhivirana se ne
+   * oživljava), a `connect` traži endpointe — ne id-jeve čvorova.
+   */
+  endpoints?: { source: CheckpointEndpoint; target: CheckpointEndpoint };
 };
 
 /**
@@ -1223,6 +1296,8 @@ type PageNodeEdgeDetail = {
  * drugi upit — isti princip kao u K2.
  */
 type PageNodeDetail = {
+  /** Diskriminator: native ne pogađa oblik nego grana po njemu (K4). */
+  nodeKind: "page";
   _id: Id<"pages">;
   title: string;
   kind: string;
@@ -1238,8 +1313,43 @@ type PageNodeDetail = {
    * (`areasV2.ts` `connectPages` — „Vezu možete praviti samo od ili ka svojoj kartici.").
    */
   canConnect: boolean;
-  /** Broj kartica na kanvasu — ispod 2 nema koga da se poveže. */
-  pageCount: number;
+  /**
+   * Broj čvorova na kanvasu (kartice + prikazani koraci) — ispod 2 nema koga da se
+   * poveže. Sa checkpointima na platnu jedina kartica više nije nužno usamljena, zato
+   * `nodeCount`, a ne `pageCount`.
+   */
+  nodeCount: number;
+  /** Broj koraka zadatka — puni red „Prikaži korake (N)" u native sheet-u. */
+  checkpointTotal: number;
+  edges: PageNodeEdgeDetail[];
+};
+
+/**
+ * Detalj checkpoint čvora (K4). Native iz njega otvara sheet „Akcije koraka" —
+ * SAMO razmeštaj i veze; tekst, završenost, lančanje, brisanje i glasanje ostaju na
+ * detalju zadatka (`components/zadatak/task-checkpoint-list.tsx`) i ne dupliraju se.
+ */
+type CheckpointNodeDetail = {
+  nodeKind: "checkpoint";
+  _id: Id<"taskCheckpoints">;
+  nodeId: string;
+  taskPageId: Id<"pages">;
+  ordinal: number;
+  text: string;
+  completed: boolean;
+  locked: boolean;
+  /** Autor ZADATKA — isti uslov i za razmeštaj i za veze (`assertOwner`). */
+  canMove: boolean;
+  /** Placement već nosi `width`/`height` → „Poništi" bira tačan inverz (§4 P5). */
+  manuallySized: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  startupId: Id<"startups">;
+  areaId: Id<"startupAreas">;
+  rootPageId: Id<"pages"> | null;
+  nodeCount: number;
   edges: PageNodeEdgeDetail[];
 };
 
@@ -1262,11 +1372,15 @@ const MAX_MOVE_UPDATES = 100;
  * već izračunate na serveru (placement ili grid fallback), pa se koriste direktno.
  *
  * NAMERNO IZOSTAVLJENO iz preglednog embeda (§5.2 — mobilni canvas je pregled/
- * navigacija/dodavanje, ne moderacija ni preuređivanje; izuzeci se zapisuju):
- * - `checkpointEdges` — vezuju checkpoint pod-čvorove koje embed ne crta.
+ * navigacija/dodavanje, ne moderacija; izuzeci se zapisuju):
  * - `truncated` — baner „nije sve prikazano" se ne prikazuje.
  * - `label`/`kind` ivica — sve ivice se crtaju jednako (bez teksta veze i bez
- *   vizuelne razlike canvas/relacija); desktop to ima, embed pojednostavljuje.
+ *   vizuelne razlike canvas/relacija/checkpoint); desktop to ima, embed pojednostavljuje.
+ *
+ * `checkpointEdges` se OD K4 crtaju — zajedno sa oblačićima koraka zadatka koji je
+ * „razvijen" (native sheet kartice → „Prikaži korake"), odnosno uvek na kanvasu samog
+ * zadatka. Suština koraka ostaje native na detalju zadatka; kanvas dodaje samo
+ * razmeštaj i vezu (`docs/mobile/lanac4/planovi/faza-k4.md`).
  *
  * `ghosts` (stranice koje čekaju nesting-odobrenje) SE crtaju — prigušeno, sa
  * oznakom „Čeka odobrenje", ne-interaktivno (odobravaju se kroz ekran „Odobrenja",
@@ -1281,6 +1395,7 @@ function PageCanvasView({
   emptyLabel,
   editMode,
   connectSourceId,
+  expandedTaskId,
 }: {
   data: PageCanvasData;
   colorMode: ThemeMode;
@@ -1288,11 +1403,37 @@ function PageCanvasView({
   emptyLabel: string;
   editMode: boolean;
   connectSourceId: string | null;
+  /** Zadatak čije korake native traži da se prikažu (`{type:"checkpoints"}`). */
+  expandedTaskId: string | null;
 }) {
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
   const connectPages = useMutation(api.areasV2.connectPages);
+  const saveCheckpointPlacement = useMutation(api.taskCheckpoints.saveCanvasPlacement);
+  const connectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.connect);
+  const { fitView } = useReactFlow();
   const { startupId, areaId, rootPageId } = data.scope;
+
+  /** Kanvas SAMOG zadatka — tu su koraci uvek vidljivi (desktop `:380–393`). */
+  const ownTaskPageId = data.scope.pageKind === "task" ? (rootPageId as string | null) : null;
+  const pageIds = useMemo(
+    () => new Set(data.pages.map((page) => page._id as string)),
+    [data.pages],
+  );
+  /**
+   * Guard koji desktop nema, a embedu je neophodan: `listForTask` BACA ako
+   * `canvasRootPageId` nije ni sam zadatak ni njegov roditelj (`taskCheckpoints.ts:137`),
+   * a izuzetak upita u Convex React-u ruši celo podstablo — dakle ceo kanvas. Zato se
+   * upit zove SAMO za zadatak koji je stvarno na ovom platnu (§4 P3).
+   */
+  const visibleTaskId =
+    ownTaskPageId ?? (expandedTaskId && pageIds.has(expandedTaskId) ? expandedTaskId : null);
+  const checkpoints = useQuery(
+    api.taskCheckpoints.listForTask,
+    visibleTaskId === null
+      ? "skip"
+      : { taskPageId: visibleTaskId as Id<"pages">, canvasRootPageId: rootPageId },
+  );
   // Zamrznuto na mount-u: `defaultViewport` i `fitView` xyflow čita samo pri inicijalizaciji,
   // a `data.viewport.persisted` postaje `true` čim se prvi pan sačuva — tada se vrednost
   // više ne sme menjati pod već otvorenim kanvasom.
@@ -1306,32 +1447,61 @@ function PageCanvasView({
    * Upis poteza. Batch se seče na serverski limit; native dobija `moved` sa PRETHODNIM
    * koordinatama, pa traka „Poništi" ne mora ništa da čita iz baze. Greška ide native
    * `Alert`-u (embed nema toast površinu) i baca se dalje da `EmbedFlow` vrati kartice.
+   *
+   * K4: isti potez može da nosi i kartice i korake (mešano je moguće samo sa spoljnom
+   * tastaturom, kroz multi-selekciju). Kartice idu u JEDAN `movePages`, koraci u N ×
+   * `saveCanvasPlacement` — server prima jedan po pozivu — ali se šalje **jedna**
+   * poruka `moved` sa oba niza: traka „Poništi" ima jedan slot, pa dva `postNative`
+   * poziva ne smeju da nastanu. `saveCanvasPlacement` se zove BEZ `width`/`height`:
+   * `patch` bez tih polja ih ne briše, pa potez ne sme da poništi ručnu veličinu.
    */
   const handleMoveNodes = useCallback(
     async (before: NodeMove[], after: NodeMove[]) => {
-      const updates = after.slice(0, MAX_MOVE_UPDATES);
-      const movedIds = new Set(updates.map((move) => move.id));
-      const previous = before
-        .filter((move) => movedIds.has(move.id))
+      const checkpointMoves = after.filter((move) => isCheckpointNodeId(move.id));
+      const pageMoves = after
+        .filter((move) => !isCheckpointNodeId(move.id))
+        .slice(0, MAX_MOVE_UPDATES);
+      const pageIdsMoved = new Set(pageMoves.map((move) => move.id));
+      const checkpointIdsMoved = new Set(checkpointMoves.map((move) => move.id));
+      const previousPages = before
+        .filter((move) => pageIdsMoved.has(move.id))
         .map((move) => ({ pageId: move.id as Id<"pages">, x: move.x, y: move.y }));
+      const previousCheckpoints = before
+        .filter((move) => checkpointIdsMoved.has(move.id))
+        .map((move) => ({
+          checkpointId: checkpointIdFromNodeId(move.id),
+          x: move.x,
+          y: move.y,
+        }));
       try {
-        await movePages({
-          startupId,
-          areaId,
-          rootPageId,
-          updates: updates.map((move) => ({
-            pageId: move.id as Id<"pages">,
+        if (pageMoves.length > 0) {
+          await movePages({
+            startupId,
+            areaId,
+            rootPageId,
+            updates: pageMoves.map((move) => ({
+              pageId: move.id as Id<"pages">,
+              x: move.x,
+              y: move.y,
+            })),
+          });
+        }
+        for (const move of checkpointMoves) {
+          await saveCheckpointPlacement({
+            checkpointId: checkpointIdFromNodeId(move.id),
+            canvasRootPageId: rootPageId,
             x: move.x,
             y: move.y,
-          })),
-        });
+          });
+        }
         postNative({
           type: "moved",
           startupId,
           areaId,
           rootPageId,
-          count: updates.length,
-          before: previous,
+          count: pageMoves.length,
+          before: previousPages,
+          checkpoints: previousCheckpoints,
         });
       } catch (error) {
         postNative({
@@ -1342,7 +1512,7 @@ function PageCanvasView({
         throw error;
       }
     },
-    [areaId, movePages, rootPageId, startupId],
+    [areaId, movePages, rootPageId, saveCheckpointPlacement, startupId],
   );
 
   /**
@@ -1419,6 +1589,20 @@ function PageCanvasView({
   );
 
   /**
+   * Postojeći checkpoint parovi — ZASEBAN `Set`. Preklapanja sa `canvasPairs` nema:
+   * checkpoint veza uvek ima bar jedan korak, a page-veza nijedan.
+   */
+  const checkpointPairs = useMemo(
+    () =>
+      new Set(
+        data.checkpointEdges.map((edge) =>
+          pairKey(checkpointEndpointNodeId(edge.source), checkpointEndpointNodeId(edge.target)),
+        ),
+      ),
+    [data.checkpointEdges],
+  );
+
+  /**
    * Upis nove veze. Duplikat se hvata NA KLIJENTU i mutacija se tada ne zove (zahtev
    * zadatka) — server bi na postojeći par vratio isti `_id`, pa bi „Poništi" ponudio
    * brisanje veze koju korisnik nije napravio.
@@ -1432,6 +1616,43 @@ function PageCanvasView({
    */
   const handleConnectNodes = useCallback(
     async (sourceId: string, targetId: string) => {
+      // Par koji dodiruje korak ide u drugu tabelu i drugu mutaciju (K4). Kartica ↔
+      // kartica ostaje `connectPages`; server bi vezu bez ijednog koraka ionako odbio
+      // („Ova veza mora sadržati najmanje jedan checkpoint.").
+      if (isCheckpointNodeId(sourceId) || isCheckpointNodeId(targetId)) {
+        if (checkpointPairs.has(pairKey(sourceId, targetId))) {
+          postNative({
+            type: "toast",
+            level: "info",
+            message: "Ove stavke su već povezane.",
+          });
+          return;
+        }
+        try {
+          const edgeId = await connectCheckpointEdge({
+            startupId,
+            areaId,
+            rootPageId,
+            source: checkpointEndpointFromNodeId(sourceId),
+            target: checkpointEndpointFromNodeId(targetId),
+          });
+          postNative({
+            type: "connected",
+            edgeKind: "checkpoint",
+            startupId,
+            areaId,
+            rootPageId,
+            edgeId,
+          });
+        } catch (error) {
+          postNative({
+            type: "toast",
+            level: "error",
+            message: error instanceof Error ? error.message : "Veza koraka nije sačuvana.",
+          });
+        }
+        return;
+      }
       if (canvasPairs.has(pairKey(sourceId, targetId))) {
         postNative({
           type: "toast",
@@ -1448,7 +1669,7 @@ function PageCanvasView({
           sourcePageId: sourceId as Id<"pages">,
           targetPageId: targetId as Id<"pages">,
         });
-        postNative({ type: "connected", startupId, areaId, rootPageId, edgeId });
+        postNative({ type: "connected", edgeKind: "page", startupId, areaId, rootPageId, edgeId });
       } catch (error) {
         postNative({
           type: "toast",
@@ -1457,36 +1678,157 @@ function PageCanvasView({
         });
       }
     },
-    [areaId, canvasPairs, connectPages, rootPageId, startupId],
+    [
+      areaId,
+      canvasPairs,
+      checkpointPairs,
+      connectCheckpointEdge,
+      connectPages,
+      rootPageId,
+      startupId,
+    ],
   );
 
   const { nodes, edges, detailById } = useMemo(() => {
-    // Susedi po kartici — računaju se JEDNOM za ceo graf, pa native sheet dobija
-    // gotovu listu uz `node:actions`/`selection` (bez drugog upita, kao u K2).
+    /**
+     * Oblačići koraka. Ista formula kao desktop (`area-canvas-view.tsx:489–570`), sa
+     * jednom razlikom: `canResize` se NIKAD ne postavlja, pa ručke ne postoje (§5).
+     * `checkpoints === undefined` ne blokira kanvas — kartice se crtaju odmah, a
+     * oblačići doskoče (isto kao desktop).
+     */
+    const checkpointRows = checkpoints ?? [];
+    const taskNode =
+      visibleTaskId === null
+        ? undefined
+        : data.pages.find((page) => (page._id as string) === visibleTaskId);
+    const showCheckpoints =
+      visibleTaskId !== null &&
+      checkpoints !== undefined &&
+      (ownTaskPageId !== null || taskNode !== undefined);
+    const center =
+      ownTaskPageId !== null || taskNode === undefined
+        ? { x: 0, y: 0 }
+        : { x: taskNode.x + taskNode.width / 2, y: taskNode.y + taskNode.height / 2 };
+    // Isti fallback kao desktop (`:525`) kad kartice zadatka nema na platnu.
+    const exclusion =
+      taskNode === undefined
+        ? { width: 176, height: 136 }
+        : { width: taskNode.width, height: taskNode.height };
+
+    const checkpointNodes: EmbedFlowNode[] = showCheckpoints
+      ? checkpointRows.map((checkpoint, index) => {
+          const metrics = taskCheckpointNodeMetrics(checkpoint.text);
+          const ordinal = taskCheckpointOrdinal(checkpoint.ordinal, index);
+          const width = checkpoint.placement?.width ?? metrics.width;
+          const height = checkpoint.placement?.height ?? metrics.height;
+          const position = checkpoint.placement
+            ? { x: checkpoint.placement.x, y: checkpoint.placement.y }
+            : taskCheckpointOrbitPosition({ index, center, node: metrics, exclusion });
+          return {
+            id: taskCheckpointNodeId(checkpoint._id),
+            type: EMBED_NODE_TYPE,
+            position,
+            width,
+            height,
+            style: { width, height },
+            // Isto pravilo kao kartica: tuđi korak backend odbija, pa se ne sme ni
+            // pomerati pod prstom.
+            draggable: checkpoint.canMove ? undefined : false,
+            data: {
+              variant: "checkpoint" as const,
+              label: checkpoint.text.trim().slice(0, 80) || "Korak",
+              meta: `Korak ${ordinal} · ${
+                checkpoint.completed
+                  ? "Završen"
+                  : checkpoint.locked
+                    ? `Čeka korak ${checkpoint.blockedByOrdinal}`
+                    : "Otvoren"
+              }`,
+            },
+            ariaLabel: `Checkpoint broj ${ordinal}: ${checkpoint.text}.`,
+          };
+        })
+      : [];
+
+    // Naslov druge strane veze: kartice iz payload-a, koraci iz rednog broja.
     const titleById = new Map(data.pages.map((page) => [page._id as string, page.title]));
-    const edgesByPage = new Map<string, PageNodeEdgeDetail[]>();
+    const checkpointTitleByNodeId = new Map<string, string>();
+    if (showCheckpoints) {
+      checkpointRows.forEach((checkpoint, index) => {
+        checkpointTitleByNodeId.set(
+          taskCheckpointNodeId(checkpoint._id),
+          `Korak ${taskCheckpointOrdinal(checkpoint.ordinal, index)}`,
+        );
+      });
+    }
+    const titleForNode = (nodeId: string) =>
+      checkpointTitleByNodeId.get(nodeId) ??
+      titleById.get(nodeId) ??
+      (isCheckpointNodeId(nodeId) ? "Korak" : "Stranica bez naslova");
+
+    // Ivice koraka ulaze u graf samo kad su OBA kraja na platnu (desktop `:616–652`).
+    const visibleNodeIds = new Set<string>([
+      ...data.pages.map((page) => page._id as string),
+      ...checkpointNodes.map((node) => node.id),
+    ]);
+    const checkpointEdges = data.checkpointEdges
+      .map((edge) => ({
+        edge,
+        sourceNodeId: checkpointEndpointNodeId(edge.source),
+        targetNodeId: checkpointEndpointNodeId(edge.target),
+      }))
+      .filter(
+        ({ sourceNodeId, targetNodeId }) =>
+          visibleNodeIds.has(sourceNodeId) && visibleNodeIds.has(targetNodeId),
+      );
+
+    // Susedi po ČVORU — računaju se JEDNOM za ceo graf, pa native sheet dobija gotovu
+    // listu uz `node:actions`/`selection` (bez drugog upita, kao u K2/K3).
+    const edgesByNode = new Map<string, PageNodeEdgeDetail[]>();
+    const addNeighbour = (own: string, item: PageNodeEdgeDetail) => {
+      const list = edgesByNode.get(own);
+      if (list) list.push(item);
+      else edgesByNode.set(own, [item]);
+    };
     for (const edge of [...data.edges, ...data.relations]) {
       const add = (own: string, other: string) => {
-        const list = edgesByPage.get(own);
-        const item: PageNodeEdgeDetail = {
+        addNeighbour(own, {
           _id: edge._id,
           kind: edge.kind,
-          otherPageId: other,
-          otherTitle: titleById.get(other) || "Stranica bez naslova",
+          otherId: other,
+          otherTitle: titleForNode(other),
           label: edge.label,
           canDelete: edge.canDelete,
           canRequestDeletion: edge.canRequestDeletion,
-        };
-        if (list) list.push(item);
-        else edgesByPage.set(own, [item]);
+        });
       };
       add(edge.source, edge.target);
       add(edge.target, edge.source);
     }
+    for (const { edge, sourceNodeId, targetNodeId } of checkpointEdges) {
+      const add = (own: string, other: string) => {
+        addNeighbour(own, {
+          _id: edge._id,
+          kind: "checkpoint",
+          otherId: other,
+          otherTitle: titleForNode(other),
+          label: null,
+          canDelete: edge.canDelete,
+          canRequestDeletion: edge.canRequestDeletion,
+          // „Poništi" raskida pravi NOVU vezu, pa mu trebaju endpointi (ne id-jevi čvorova).
+          endpoints: { source: edge.source, target: edge.target },
+        });
+      };
+      add(sourceNodeId, targetNodeId);
+      add(targetNodeId, sourceNodeId);
+    }
+
+    const nodeCount = data.pages.length + checkpointNodes.length;
     const detailById = new Map<string, unknown>(
       data.pages.map((page) => [
         page._id as string,
         {
+          nodeKind: "page",
           _id: page._id,
           title: page.title,
           kind: page.kind,
@@ -1497,11 +1839,40 @@ function PageCanvasView({
           areaId: data.scope.areaId,
           rootPageId: data.scope.rootPageId,
           canConnect: page.canMove,
-          pageCount: data.pages.length,
-          edges: edgesByPage.get(page._id as string) ?? [],
+          nodeCount,
+          checkpointTotal: page.checkpointTotal,
+          edges: edgesByNode.get(page._id as string) ?? [],
         } satisfies PageNodeDetail,
       ]),
     );
+    if (showCheckpoints && visibleTaskId !== null) {
+      checkpointRows.forEach((checkpoint, index) => {
+        const nodeId = taskCheckpointNodeId(checkpoint._id);
+        const flowNode = checkpointNodes[index];
+        detailById.set(nodeId, {
+          nodeKind: "checkpoint",
+          _id: checkpoint._id,
+          nodeId,
+          taskPageId: visibleTaskId as Id<"pages">,
+          ordinal: taskCheckpointOrdinal(checkpoint.ordinal, index),
+          text: checkpoint.text,
+          completed: checkpoint.completed,
+          locked: checkpoint.locked,
+          canMove: checkpoint.canMove,
+          manuallySized:
+            checkpoint.placement?.width != null && checkpoint.placement?.height != null,
+          x: Math.round(flowNode.position.x),
+          y: Math.round(flowNode.position.y),
+          width: flowNode.width ?? 0,
+          height: flowNode.height ?? 0,
+          startupId: data.scope.startupId,
+          areaId: data.scope.areaId,
+          rootPageId: data.scope.rootPageId,
+          nodeCount,
+          edges: edgesByNode.get(nodeId) ?? [],
+        } satisfies CheckpointNodeDetail);
+      });
+    }
     // Stranice nose stvarne dimenzije sa servera (placement ili podrazumevane), pa se
     // koriste one — layout ostaje isti kao na desktopu.
     const pageNodes = data.pages.map<EmbedFlowNode>((page) => ({
@@ -1546,19 +1917,64 @@ function PageCanvasView({
       ariaLabel: `Čeka odobrenje — ${pageKindLabel(ghost.kind)}: ${ghost.title}`,
     }));
     return {
-      nodes: [...pageNodes, ...ghostNodes],
+      nodes: [...pageNodes, ...ghostNodes, ...checkpointNodes],
       // Canvas ivice + relacije stranica dele isti oblik (source/target po id-u stranice).
       // `data.kind` se ČUVA (vizuelno i dalje ne razlikujemo linije): po njemu se u
       // sheet-u zna šta se sme raskinuti odavde, a šta se uklanja na ekranu stranice.
-      edges: [...data.edges, ...data.relations].map((edge) => ({
-        id: edge._id,
-        source: edge.source,
-        target: edge.target,
-        data: { kind: edge.kind },
-      })) as Edge[],
+      edges: [
+        ...[...data.edges, ...data.relations].map((edge) => ({
+          id: edge._id,
+          source: edge.source,
+          target: edge.target,
+          data: { kind: edge.kind },
+        })),
+        // Prefiks u id-u ivice: checkpoint veze su druga tabela, pa se ni slučajno ne
+        // sudaraju sa page-ivicom istog id-a.
+        ...checkpointEdges.map(({ edge, sourceNodeId, targetNodeId }) => ({
+          id: `checkpoint:${edge._id}`,
+          source: sourceNodeId,
+          target: targetNodeId,
+          data: { kind: "checkpoint" },
+        })),
+      ] as Edge[],
       detailById,
     };
-  }, [data]);
+  }, [checkpoints, data, ownTaskPageId, visibleTaskId]);
+
+  /**
+   * Uklapanje posle „Prikaži korake" (desktop parnjak: `checkpointFitKeyRef`,
+   * `area-canvas-view.tsx:677–717`). Bez njega se oblačići pojave van vidnog polja —
+   * orbit ide oko kartice, a kamera je tamo gde je bila.
+   *
+   * Na kanvasu SAMOG zadatka sa zapamćenom kamerom se NE uklapa: koraci su tu od
+   * početka, a fit bi pregazio pogled koji je korisnik sam sačuvao (`saveViewport`).
+   */
+  const checkpointFitKeyRef = useRef("");
+  useEffect(() => {
+    if (visibleTaskId === null || checkpoints === undefined || checkpoints.length === 0) {
+      checkpointFitKeyRef.current = "";
+      return;
+    }
+    const fitKey = `${rootPageId ?? "root"}:${visibleTaskId}:${checkpoints.length}`;
+    if (checkpointFitKeyRef.current === fitKey) return;
+    checkpointFitKeyRef.current = fitKey;
+    if (ownTaskPageId !== null && initialViewport) return;
+    const targets = [
+      ...checkpoints.map((checkpoint) => ({ id: taskCheckpointNodeId(checkpoint._id) })),
+      ...(pageIds.has(visibleTaskId) ? [{ id: visibleTaskId }] : []),
+    ];
+    // Odloženo na sledeći task: čvorovi koji su upravo dodati u graf još nisu izmereni,
+    // pa bi sinhroni `fitView` računao granice bez njih.
+    const timer = window.setTimeout(() => {
+      void fitView({
+        nodes: targets,
+        padding: 0.22,
+        maxZoom: 1.15,
+        duration: motionDuration(260),
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [checkpoints, fitView, initialViewport, ownTaskPageId, pageIds, rootPageId, visibleTaskId]);
 
   return (
     <EmbedFlow
@@ -1568,6 +1984,8 @@ function PageCanvasView({
       colorMode={colorMode}
       ariaLabel={ariaLabel}
       emptyLabel={emptyLabel}
+      // Kanvas zadatka bez podstranica: prazno stanje čeka da koraci stignu.
+      emptyPending={visibleTaskId !== null && checkpoints === undefined}
       editMode={editMode}
       connectSourceId={connectSourceId}
       onConnectNodes={handleConnectNodes}
@@ -1585,11 +2003,13 @@ function AreaFlow({
   colorMode,
   editMode,
   connectSourceId,
+  expandedTaskId,
 }: {
   areaId: Id<"startupAreas">;
   colorMode: ThemeMode;
   editMode: boolean;
   connectSourceId: string | null;
+  expandedTaskId: string | null;
 }) {
   const data = useQuery(api.areasV2.getAreaCanvasByArea, { areaId });
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
@@ -1599,6 +2019,7 @@ function AreaFlow({
       colorMode={colorMode}
       editMode={editMode}
       connectSourceId={connectSourceId}
+      expandedTaskId={expandedTaskId}
       ariaLabel="Kanvas oblasti"
       emptyLabel="Prazan kanvas oblasti."
     />
@@ -1611,22 +2032,30 @@ function PageFlow({
   colorMode,
   editMode,
   connectSourceId,
+  expandedTaskId,
 }: {
   pageId: Id<"pages">;
   colorMode: ThemeMode;
   editMode: boolean;
   connectSourceId: string | null;
+  expandedTaskId: string | null;
 }) {
   const data = useQuery(api.areasV2.getPageCanvasByPage, { pageId });
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
+  // Kanvas zadatka nosi korake, ne samo podstranice — prazno stanje i ime prikaza to
+  // moraju da kažu, inače zadatak bez podstranica izgleda kao pogrešan ekran.
+  const isTask = data.scope.pageKind === "task";
   return (
     <PageCanvasView
       data={data}
       colorMode={colorMode}
       editMode={editMode}
       connectSourceId={connectSourceId}
-      ariaLabel="Kanvas stranice"
-      emptyLabel="Prazan kanvas stranice."
+      expandedTaskId={expandedTaskId}
+      ariaLabel={isTask ? "Kanvas zadatka" : "Kanvas stranice"}
+      emptyLabel={
+        isTask ? "Zadatak nema korake ni podstranice." : "Prazan kanvas stranice."
+      }
     />
   );
 }
@@ -1705,6 +2134,13 @@ function EmbedStyles() {
         -webkit-user-select: none;
         user-select: none;
         -webkit-touch-callout: none;
+      }
+      /* Checkpoint oblačić (K4): da se na prvi pogled razlikuje od kartice stranice.
+         Samo leva ivica — oblačić je mali (164 × 110), pa svaki jači okvir jede
+         prostor tekstu koraka. */
+      .react-flow__node .embed-checkpoint {
+        border-left-width: 3px;
+        border-left-color: var(--primary);
       }
       /* Vidljivi deo ručke: 16 px tačka u meti od 44pt (\`HANDLE_STYLE\` u
          \`embed-node.tsx\`). Meta se ne smanjuje — smanjuje se samo ono što se vidi. */

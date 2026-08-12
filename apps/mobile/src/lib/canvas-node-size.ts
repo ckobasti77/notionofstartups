@@ -20,6 +20,26 @@ export const PAGE_NODE_SIZE = {
   defaultHeight: 196,
 } as const;
 
+/**
+ * Granice checkpoint oblačića na kanvasu (K4) — blizanac `PAGE_NODE_SIZE`, sa istim
+ * obrazloženjem „zašto kopija, a ne uvoz" (vidi gore). Brojevi prate
+ * `packages/backend/convex/taskCheckpoints.ts:443–444` (`clampDimension` u
+ * `saveCanvasPlacement`); server je merodavan i sam klampuje.
+ *
+ * Oblačić NEMA ugaone ručke (za razliku od kartice): podrazumevan je 164 × 110, pa bi
+ * četiri mete od 44pt pojele 43% njegove površine. Veličina zato ide isključivo iz
+ * sheet-a, i to kroz PRESETE — iste one koje nudi i desktop toolbar oblačića
+ * (`apps/web/components/workspace/canvases/task-checkpoint-layout.ts:6–9`).
+ */
+export const CHECKPOINT_NODE_SIZE = {
+  minWidth: 140,
+  minHeight: 92,
+  maxWidth: 520,
+  maxHeight: 600,
+  compact: { width: 164, height: 110 },
+  expanded: { width: 360, height: 240 },
+} as const;
+
 /** Klamp u dozvoljen opseg — da se ne šalje poziv koji bi server ionako odsekao. */
 export function clampPageNodeSize(width: number, height: number): {
   width: number;

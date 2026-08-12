@@ -1,8 +1,9 @@
 import { useMutation } from 'convex/react';
-import { Link2, Unlink, Vote } from 'lucide-react-native';
+import { ListChecks } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
 
+import { NodeEdgesSection, type NodeEdgeRow } from '@/components/canvas/node-edges-section';
 import { PageSizeSection, type PageSizeTarget } from '@/components/canvas/page-size-section';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
@@ -12,18 +13,10 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
-/** Jedan sused kartice — canvas veza ili relacija stranica (stiže uz poruku iz embeda). */
-export type PageNodeEdge = {
-  _id: string;
-  kind: 'canvas' | 'relation';
-  otherPageId: string;
-  otherTitle: string;
-  label: string | null;
-  canDelete: boolean;
-  canRequestDeletion: boolean;
-};
+/** Jedan sused kartice — deljeni oblik sa sheet-om koraka (K4). */
+export type PageNodeEdge = NodeEdgeRow;
 
 /**
  * Kartica nad kojom se otvaraju akcije. Nadgradnja `PageSizeTarget`-a iz K2 — sve
@@ -31,8 +24,14 @@ export type PageNodeEdge = {
  * ni za listu veza ne radi dodatni upit.
  */
 export type PageNodeTarget = PageSizeTarget & {
+  /** Diskriminator iz embeda — native po njemu bira sheet, ne pogađa oblik (K4). */
+  nodeKind?: 'page';
+  kind?: string;
   canConnect: boolean;
-  pageCount: number;
+  /** Kartice + prikazani koraci; ispod 2 nema koga da se poveže. */
+  nodeCount: number;
+  /** Broj koraka zadatka — puni red „Prikaži korake (N)". */
+  checkpointTotal?: number;
   edges: PageNodeEdge[];
 };
 
@@ -41,10 +40,9 @@ export type PageNodeTarget = PageSizeTarget & {
  * karticu u režimu „Uredi raspored" (`node:actions`) ili četvrta ikonica rail-a — dva
  * puta do iste radnje, jer je `contextmenu` u WKWebView-u nepouzdan.
  *
- * Zašto se povezivanje i raskidanje rade ODAVDE, a ne na platnu: handle tačkica je
- * ~8 px, a linija veze 1–2 px i najčešće ide ispod kartica — oboje je prstom promašaj
- * za promašajem. Veza se zato pravi tapom (ovde se bira izvor, cilj se tapne na
- * kanvasu), a raskida iz imenovane liste gde je svaki sused red od 56pt.
+ * Prikaz veza i veličine živi u deljenim sekcijama (`node-edges-section.tsx`,
+ * `node-size-section.tsx`) koje koristi i sheet checkpoint oblačića; ovde su samo
+ * mutacije kartice i „Prikaži korake" (K4).
  *
  * Sheet se posle svake uspešne izmene ZATVARA: `UndoBar` živi na ekranu kanvasa, a
  * `Sheet` je `Modal` — traka iza otvorenog sheet-a se ne bi ni videla, pa bi njenih
@@ -52,19 +50,26 @@ export type PageNodeTarget = PageSizeTarget & {
  */
 export function PageNodeSheet({
   page,
+  checkpointsExpanded = false,
   onClose,
   onStartConnect,
   onApplied,
+  onToggleCheckpoints,
 }: {
   page: PageNodeTarget | null;
+  /** Da li ova kartica trenutno pokazuje svoje korake na platnu (K4). */
+  checkpointsExpanded?: boolean;
   onClose: () => void;
   /** „Poveži sa…" — roditelj zatvara sheet i ulazi u biranje cilja. */
   onStartConnect: (page: PageNodeTarget) => void;
   /** Nova veličina posle uspešne izmene — pozivalac osvežava svoj `selectedNode`. */
   onApplied?: (width: number, height: number) => void;
+  /** „Prikaži korake" / „Sakrij korake" — `null` sakriva (K4). */
+  onToggleCheckpoints?: (taskPageId: Id<'pages'> | null) => void;
 }) {
   const colors = useThemeColors();
   const disconnectPages = useMutation(api.areasV2.disconnectPages);
+  const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
   // Jedna brava za CEO sheet (veličina + veze): dve mutacije nad istom karticom se
   // ne smeju okinuti jedna preko druge. Vrednost je ključ reda koji je u toku.
@@ -81,26 +86,49 @@ export function PageNodeSheet({
         onPress: async () => {
           setBusy(edge._id);
           try {
-            await disconnectPages({
-              startupId: page.startupId,
-              areaId: page.areaId,
-              rootPageId: page.rootPageId,
-              edgeId: edge._id as Id<'pageCanvasEdgesV2'>,
-            });
-            // `connectPages` NE oživljava arhiviranu ivicu, pa „Poništi" pravi novu —
-            // sa istim parom i istim nazivom.
-            pushUndo({
-              label: 'Veza je uklonjena.',
-              action: {
-                kind: 'pageEdgeDisconnect',
+            if (edge.kind === 'checkpoint') {
+              // Veza kartica ↔ korak živi u drugoj tabeli (K4). „Poništi" nosi
+              // endpointe, jer `connect` arhiviranu ivicu NE oživljava nego pravi novu.
+              if (!edge.endpoints) throw new Error('Veza koraka nema podatke o krajevima.');
+              await disconnectCheckpointEdge({
                 startupId: page.startupId,
                 areaId: page.areaId,
                 rootPageId: page.rootPageId,
-                sourcePageId: page._id,
-                targetPageId: edge.otherPageId as Id<'pages'>,
-                ...(edge.label ? { label: edge.label } : {}),
-              },
-            });
+                edgeId: edge._id as Id<'taskCheckpointCanvasEdges'>,
+              });
+              pushUndo({
+                label: 'Veza koraka je uklonjena.',
+                action: {
+                  kind: 'checkpointEdgeDisconnect',
+                  startupId: page.startupId,
+                  areaId: page.areaId,
+                  rootPageId: page.rootPageId,
+                  source: edge.endpoints.source,
+                  target: edge.endpoints.target,
+                },
+              });
+            } else {
+              await disconnectPages({
+                startupId: page.startupId,
+                areaId: page.areaId,
+                rootPageId: page.rootPageId,
+                edgeId: edge._id as Id<'pageCanvasEdgesV2'>,
+              });
+              // `connectPages` NE oživljava arhiviranu ivicu, pa „Poništi" pravi novu —
+              // sa istim parom i istim nazivom.
+              pushUndo({
+                label: 'Veza je uklonjena.',
+                action: {
+                  kind: 'pageEdgeDisconnect',
+                  startupId: page.startupId,
+                  areaId: page.areaId,
+                  rootPageId: page.rootPageId,
+                  sourcePageId: page._id,
+                  targetPageId: edge.otherId as Id<'pages'>,
+                  ...(edge.label ? { label: edge.label } : {}),
+                },
+              });
+            }
             haptics.success();
             onClose();
           } catch (error) {
@@ -119,12 +147,16 @@ export function PageNodeSheet({
     setBusy(edge._id);
     haptics.tap();
     void requestDeletion({
-      target: { kind: 'page_edge', id: edge._id as Id<'pageCanvasEdgesV2'> },
+      target:
+        edge.kind === 'checkpoint'
+          ? { kind: 'task_checkpoint_edge', id: edge._id as Id<'taskCheckpointCanvasEdges'> }
+          : { kind: 'page_edge', id: edge._id as Id<'pageCanvasEdgesV2'> },
     })
       .then(() => {
         haptics.success();
         onClose();
-        // Prikaz glasanja već postoji na ekranu „Odobrenja" („Veza stranica").
+        // Prikaz glasanja već postoji na ekranu „Odobrenja" („Veza stranica" /
+        // „Veza checkpointa").
         Alert.alert('Poslato', 'Glasanje o brisanju veze je pokrenuto.');
       })
       .catch((error: unknown) => {
@@ -133,6 +165,9 @@ export function PageNodeSheet({
       })
       .finally(() => setBusy(null));
   };
+
+  const checkpointTotal = page?.checkpointTotal ?? 0;
+  const showCheckpointRow = page?.kind === 'task' && onToggleCheckpoints !== undefined;
 
   return (
     <Sheet visible={page !== null} onClose={onClose} style={styles.sheet}>
@@ -148,64 +183,44 @@ export function PageNodeSheet({
             {`Trenutno: ${page.width} × ${page.height}`}
           </Text>
 
-          <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>Veze</Text>
-          <Row
-            title="Poveži sa…"
-            subtitle={
+          {showCheckpointRow ? (
+            <Row
+              title={checkpointsExpanded ? 'Sakrij korake' : `Prikaži korake (${checkpointTotal})`}
+              subtitle={
+                checkpointTotal === 0
+                  ? 'Zadatak nema korake.'
+                  : 'Koraci se na kanvasu razmeštaju i povezuju'
+              }
+              onPress={() => {
+                // Sheet se sklanja: koraci doskaču u orbitu oko kartice, a modal bi ih
+                // pokrio. Prikaz je čist pogled — ne piše ništa i nema „Poništi".
+                haptics.tap();
+                onToggleCheckpoints(checkpointsExpanded ? null : page._id);
+                onClose();
+              }}
+              disabled={busy !== null || (checkpointTotal === 0 && !checkpointsExpanded)}
+              showChevron={false}
+              style={styles.row}
+              icon={<ListChecks size={20} color={colors.mutedForeground} />}
+            />
+          ) : null}
+
+          <NodeEdgesSection
+            edges={page.edges}
+            canConnect={page.canConnect && page.nodeCount >= 2}
+            connectSubtitle={
               !page.canConnect
                 ? 'Vezu možete praviti samo od ili ka svojoj kartici.'
-                : page.pageCount < 2
-                  ? 'Na kanvasu nema druge kartice.'
-                  : 'Zatim tapni karticu sa kojom se povezuje'
+                : page.nodeCount < 2
+                  ? 'Na kanvasu nema druge stavke.'
+                  : 'Zatim tapni karticu ili korak sa kojim se povezuje'
             }
-            onPress={() => onStartConnect(page)}
-            disabled={busy !== null || !page.canConnect || page.pageCount < 2}
-            showChevron={false}
-            style={styles.row}
-            icon={<Link2 size={20} color={colors.mutedForeground} />}
+            emptyNote="Nema veza sa ove kartice."
+            busy={busy}
+            onConnect={() => onStartConnect(page)}
+            onBreak={breakEdge}
+            onRequestDeletion={requestEdgeDeletion}
           />
-
-          {page.edges.length === 0 ? (
-            /* Prazna lista bi izgledala kao kvar — stanje se kaže rečima. */
-            <Text style={[styles.note, { color: colors.mutedForeground }]}>
-              Nema veza sa ove kartice.
-            </Text>
-          ) : (
-            <View style={styles.list}>
-              {page.edges.map((edge) => (
-                <Row
-                  key={edge._id}
-                  title={edge.otherTitle}
-                  titleNumberOfLines={2}
-                  subtitle={
-                    edge.label ??
-                    (edge.kind === 'relation' ? 'Relacija — uklanja se na stranici' : 'Veza')
-                  }
-                  showChevron={false}
-                  style={styles.row}
-                  value={
-                    busy === edge._id ? (
-                      <ActivityIndicator color={colors.primary} />
-                    ) : edge.kind === 'relation' ? undefined : edge.canDelete ? (
-                      <EdgeButton
-                        label={`Raskini vezu sa „${edge.otherTitle}"`}
-                        disabled={busy !== null}
-                        onPress={() => breakEdge(edge)}>
-                        <Unlink size={20} color={colors.destructive} />
-                      </EdgeButton>
-                    ) : edge.canRequestDeletion ? (
-                      <EdgeButton
-                        label={`Zatraži brisanje veze sa „${edge.otherTitle}"`}
-                        disabled={busy !== null}
-                        onPress={() => requestEdgeDeletion(edge)}>
-                        <Vote size={20} color={colors.mutedForeground} />
-                      </EdgeButton>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </View>
-          )}
 
           <PageSizeSection
             page={page}
@@ -217,35 +232,6 @@ export function PageNodeSheet({
         </ScrollView>
       ) : null}
     </Sheet>
-  );
-}
-
-/** Dugme u redu veze — 44pt meta, jer je ✕ na 20px ikonici prstom promašaj. */
-function EdgeButton({
-  label,
-  disabled,
-  onPress,
-  children,
-}: {
-  label: string;
-  disabled: boolean;
-  onPress: () => void;
-  children: React.ReactNode;
-}) {
-  const colors = useThemeColors();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.edgeBtn,
-        disabled && styles.edgeBtnDisabled,
-        pressed && { backgroundColor: colors.muted },
-      ]}>
-      {children}
-    </Pressable>
   );
 }
 
@@ -269,32 +255,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginTop: 2,
   },
-  sectionTitle: {
-    ...text.meta,
-    paddingHorizontal: 8,
-    paddingTop: 12,
-    paddingBottom: 4,
-  },
-  list: {
-    gap: 2,
-  },
   row: {
     paddingHorizontal: 8,
     borderRadius: radius.md,
-  },
-  note: {
-    ...text.body,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  edgeBtn: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
-  edgeBtnDisabled: {
-    opacity: 0.4,
+    marginTop: 8,
   },
 });

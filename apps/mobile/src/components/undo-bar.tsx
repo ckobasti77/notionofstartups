@@ -28,8 +28,9 @@ const MIN_VISIBLE_MS = 1000;
 /**
  * Traka „Poništi" posle radnje koja je već upisana (PARITET A6) — JEDAN obrazac za
  * misli, ideje, veze ideja, checkpointe, doprinose i uređivanje kanvasa (lanac 4:
- * `pageMove`, `pageResize`, `pageEdgeConnect`, `pageEdgeDisconnect` — članovi koji ne
- * vraćaju arhivirano nego prave inverzan potez). Montira se na svakom ekranu koji
+ * `pageMove`, `pageResize`, `pageEdgeConnect`, `pageEdgeDisconnect`, a od K4 i
+ * `checkpointResize`, `checkpointEdgeConnect`, `checkpointEdgeDisconnect` — članovi
+ * koji ne vraćaju arhivirano nego prave inverzan potez). Montira se na svakom ekranu koji
  * radnju pokreće (ili na koji se posle nje vraća); stavku čita iz modul-store-a
  * (`lib/undo.ts`), pa preživljava `router.back()` sa detalja.
  *
@@ -55,6 +56,10 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const resizePage = useMutation(api.areasV2.resizePage);
   const connectPages = useMutation(api.areasV2.connectPages);
   const disconnectPages = useMutation(api.areasV2.disconnectPages);
+  const saveCheckpointPlacement = useMutation(api.taskCheckpoints.saveCanvasPlacement);
+  const resetCheckpointCanvasSize = useMutation(api.taskCheckpoints.resetCanvasSize);
+  const connectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.connect);
+  const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -113,12 +118,24 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
       case 'pageMove':
         // Inverz poteza je isti poziv sa PRETHODNIM koordinatama (nema „restore"
         // mutacije za raspored). Server i ovde proverava vlasništvo kartice.
-        await movePages({
-          startupId: action.startupId,
-          areaId: action.areaId,
-          rootPageId: action.rootPageId,
-          updates: action.updates,
-        });
+        if (action.updates.length > 0) {
+          await movePages({
+            startupId: action.startupId,
+            areaId: action.areaId,
+            rootPageId: action.rootPageId,
+            updates: action.updates,
+          });
+        }
+        // Isti potez je mogao da ponese i korake (K4) — server prima jedan po pozivu.
+        // BEZ `width`/`height`: potez ih nije ni menjao, a `patch` bez njih ih čuva.
+        for (const checkpoint of action.checkpoints ?? []) {
+          await saveCheckpointPlacement({
+            checkpointId: checkpoint.checkpointId,
+            canvasRootPageId: action.rootPageId,
+            x: checkpoint.x,
+            y: checkpoint.y,
+          });
+        }
         return;
       case 'pageResize':
         // Inverz i za potez ručkom i za „Vrati podrazumevanu veličinu": isti poziv sa
@@ -157,6 +174,54 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           sourcePageId: action.sourcePageId,
           targetPageId: action.targetPageId,
           ...(action.label ? { label: action.label } : {}),
+        });
+        return;
+      case 'checkpointResize':
+        // USLOVAN inverz (§4 P5 plana K4): korak koji PRE radnje nije imao ručnu
+        // veličinu se ne vraća samo dimenzijama — one bi ostale zauvek. Vrati poziciju,
+        // pa obriši dimenzije; tek to je stanje od pre radnje. Desktop radi identično.
+        if (action.manuallySized) {
+          await saveCheckpointPlacement({
+            checkpointId: action.checkpointId,
+            canvasRootPageId: action.canvasRootPageId,
+            x: action.x,
+            y: action.y,
+            width: action.width,
+            height: action.height,
+          });
+          return;
+        }
+        await saveCheckpointPlacement({
+          checkpointId: action.checkpointId,
+          canvasRootPageId: action.canvasRootPageId,
+          x: action.x,
+          y: action.y,
+        });
+        await resetCheckpointCanvasSize({
+          checkpointId: action.checkpointId,
+          canvasRootPageId: action.canvasRootPageId,
+        });
+        return;
+      case 'checkpointEdgeConnect':
+        // Ako je server vratio TUĐU postojeću ivicu (neko je isti par povezao u
+        // međuvremenu), ovo pukne sa „Možete ukloniti samo vezu koju ste napravili." —
+        // traka tada ostaje i pokaže poruku.
+        await disconnectCheckpointEdge({
+          startupId: action.startupId,
+          areaId: action.areaId,
+          rootPageId: action.rootPageId,
+          edgeId: action.edgeId,
+        });
+        return;
+      case 'checkpointEdgeDisconnect':
+        // `connect` NE oživljava arhiviranu ivicu (indeks traži `archivedAt: null`),
+        // pa se pravi NOVA — sa istim parom endpointa.
+        await connectCheckpointEdge({
+          startupId: action.startupId,
+          areaId: action.areaId,
+          rootPageId: action.rootPageId,
+          source: action.source,
+          target: action.target,
         });
         return;
     }
