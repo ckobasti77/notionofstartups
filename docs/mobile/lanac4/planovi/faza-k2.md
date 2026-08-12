@@ -539,3 +539,149 @@ prikazuje tuđe izmene.**
   sadrži isključivo zamenu četiri literala imenovanim konstantama iste vrednosti,
   `grep -rn "components/workspace" apps/web/app/embed/` je prazan, `npm run build`
   prolazi. **Ručna provera desktop resize-a mišem ostaje otvorena.**
+
+---
+
+## REVIZIJA
+
+Nezavisna provera posle faze (12.08.2026). Opseg: `git diff 8da7a34..HEAD`
+(31 fajl, +1858/−77). Kapije su **ponovo pokrenute u ovoj reviziji**, ne preuzete
+iz izveštaja: `apps/mobile tsc --noEmit` ✓ · `apps/web tsc --noEmit` ✓ ·
+`npm run check` (lint + `next build`) ✓ · `npm test` 327/327 ✓ ·
+grep metod pariteta (`PARITET.md:15–19`) → **13 funkcija samo na webu**, tačno
+kako T12 traži (15 → 13), i to zato što se `resizePage`/`resetPageSize` sada zovu
+iz `apps/mobile/src`, a ne zato što je nešto na webu obrisano.
+
+### 1. Je li CILJ ispunjen? — **DA**
+
+„U režimu možeš prstom promeniti veličinu stranice na kanvasu i vratiti je na
+podrazumevanu." Oba dela postoje i oba pišu u bazu:
+
+- prstom: četiri ugaone ručke (`embed-node.tsx:182–200`), jedan `resizePage` na
+  kraj poteza (`canvas-embed.tsx:555` → `:1142`), potvrđeno logom
+  (`k2-logovi.txt`, 2:58:32 PM — jedan red po potezu, ne po frejmu);
+- bez preciznog prsta: „Umanji/Uvećaj ±10%" (`page-size-sheet.tsx:81–120`);
+- vraćanje: `resetPageSize` (`page-size-sheet.tsx:122–147`), sa „Poništi" koji je
+  `resizePage` sa starim dimenzijama — isti inverz koji radi desktop
+  (`area-canvas-view.tsx:1863`).
+
+Dve ograde koje cilj ne ruše, ali ga ne ostavljaju čistim: rezidualni defekt Z7
+(tačka 4) i desktop koji ni u ovoj fazi nije proveren mišem (tačka 3).
+
+### 2. Čekirani kvadratići u `PARITET.md` — svaki ima kod
+
+Sva četiri `[x]` u sekciji K2 su provereni red po red. Citirane linije se
+poklapaju sa stvarnim stanjem fajlova (odstupanje najviše ±1 red):
+
+| Tvrdnja | Dokaz koji sam otvorio | Ishod |
+|---|---|---|
+| `areasV2.resizePage` — ručke | `embed-node.tsx:83` (`EmbedResizeContext`), `:97` (`HANDLE_STYLE` 44×44), `:184` (`NodeResizeControl`, 4 ugla) | **stoji** |
+| isti — upis | `canvas-embed.tsx:1082` (`useMutation`), `:1142` (`handleResizeNode`), `:555` (`handleResizeEnd`) | **stoji** |
+| isti — native put i „Poništi" | `page-size-sheet.tsx:59`, `mobile/src/lib/canvas-node-size.ts:24`, `undo-bar.tsx:55` + `:121`, `undo.ts:53` | **stoji** |
+| zajednički modul granica | `web/lib/canvas-node-size.ts:19`, koristi ga i `area-flow-node.tsx:285` | **stoji** |
+| `areasV2.resetPageSize` | `page-size-sheet.tsx:60` (`useMutation`), red `:191`; otvaranje: `canvas-embed.tsx:621` → `canvas/[kind]/[id].tsx:338` **i** `:474` → `canvas-rail.tsx:97` | **stoji** |
+| Prag zuma i izlazak iz režima | `canvas-embed.tsx:413` (`zoomAllowsHandles`), `HANDLE_MIN_ZOOM = 0.5` (`:302`); dokazi `k2-mali-zum.png` (zum 0.493, 0 ručki, selekcija živa), `k2-gotovo.png` | **stoji** |
+| Popravka kamere iz K1 §6(a) | `canvas-embed.tsx:658` — programska grana sada UPISUJE `lastViewportRef` pre `return` | **stoji** |
+
+Nijedan kvadratić se ne odčekirava. Dva reda iz Z tabele (`resizePage`,
+`resetPageSize`) su stvarno uklonjena, tri nova izuzetka dopisana.
+
+Brojevi u dokazima su takođe konzistentni: `k2-mere.txt` daje
+`getBoundingClientRect` 44×44 na sve četiri ručke pri zumu 0.71 i granice
+240×168 / 720×1000; `k2-logovi.txt` ima i par „potez → Poništi" (3:28:35 →
+3:28:37) i par „reset → Poništi" (3:05:23 → 3:05:25).
+
+### 3. Je li desktop kanvas ostao netaknut u ponašanju? — **DA, ali samo statički dokazano**
+
+`git diff 8da7a34..HEAD --stat` u `apps/web/components/` ima **tačno jedan**
+fajl: `canvases/area-flow-node.tsx`, 9 linija — jedan `import` i četiri literala
+(`240/168/720/1000`) zamenjena imenovanim konstantama **identične vrednosti**
+(`web/lib/canvas-node-size.ts:19–24`). Nema promene ponašanja koju bi ta izmena
+mogla da napravi. `packages/backend/` diff je prazan. Embed je i dalje izolovan:
+`grep -rn "components/workspace" apps/web/app/embed/` je prazan, a
+`canvas-embed`/`embed-node` ne uvozi nijedan fajl van `app/embed/`. `next build`
+prolazi (ruta `/embed/canvas/[kind]/[id]` se i dalje gradi).
+
+**Ograda i dalje važi, i to je drugi put zaredom:** ni K1 ni K2 nisu proverili
+desktop kanvas mišem u browseru, jer u okruženju nema web kredencijala. Za K2 je
+statički argument dovoljan (zamena literala se ne može ponašati drugačije). Za
+**K3 (`connectPages`/`disconnectPages`) neće biti** — tamo se dira crtanje veza,
+gde je jedini pošten dokaz otvoren browser.
+
+### 4. Je li režim zaista režim? — **DA za gledanje; jedna poznata rupa unutar režima**
+
+Van režima se ništa novo ne može okinuti. Sve tri nove površine padaju na isti
+uslov:
+
+- `nodesDraggable={canEdit}` (`canvas-embed.tsx:719`);
+- `onNodeContextMenu={canEdit ? handleNodeContextMenu : undefined}` (`:735`) —
+  dugi pritisak van režima ne šalje ništa;
+- `resizeApi.enabled = canResize && zoomAllowsHandles`, gde je
+  `canResize = editMode && !!onResizeNode` (`:404`) — ručke se u gledanju ne
+  renderuju uopšte;
+- native rail: `nodeAction` traži `editMode && resizeTarget?.canResize`
+  (`canvas/[kind]/[id].tsx:473`), a `supportsEdit = isPageKind` (`:235`);
+- ideje i misli dobijaju `editMode`, ali **ne** i `onMoveNodes`/`onResizeNode`
+  (`:882`, `:1010`), pa im je i `canEdit` i `canResize` `false` — inertno po
+  pravilu 7 iz `REZIM.md`.
+
+Slučajno pomeranje ili skaliranje u gledanju **nije moguće**.
+
+Rupa je unutar režima i faza je sama prijavljuje (`ZA-POPRAVKU.md` Z7, poslednji
+pasus): dugi pritisak **na ručku** otvori native sheet, Android prestane da šalje
+dodir WebView-u, `d3-drag` ostane naoružan, pa sledeći dodir po platnu može da
+nastavi taj gest i napiše jednu neželjenu promenu veličine. U `k2-logovi.txt` to
+je i snimljeno (3:10:35 PM, „jedan `resizePage` koji nije bio namerna radnja").
+Ublaženo je time što svaka takva izmena ostavlja traku „Poništi" — vidljivo i
+povratno — ali je i dalje upis koji korisnik nije tražio.
+
+### 5. Dodirne mete manje od 44pt? — **Ne, nijedna nova**
+
+- ručka: `HANDLE_STYLE` 44×44 inline (`embed-node.tsx:98`), izmereno na uređaju
+  kao 44×44 CSS px (`k2-mere.txt`); xyflow `autoScale` je drži na 44 i kad je
+  platno umanjeno, a ispod zuma 0.5 se uopšte ne crta (put ostaje kroz rail);
+- rail: `RailIcon` je `MIN_TOUCH_TARGET` × `MIN_TOUCH_TARGET` = 44
+  (`canvas-rail.tsx:178`); u režimu su četiri ikonice jer se prekidač sklanja
+  (`:92`), pa se račun 4 × 44 + 3 × 8 uklapa i na 360 dp;
+- sheet: sve tri stavke idu kroz `Row`, `minHeight: 56` (`ui/row.tsx:208`).
+
+Jedna posledica koja nije zapisana kao ograničenje: na kartici u minimalnoj
+veličini (240 × 168) četiri ugaone mete pokrivaju ~5 % njene površine, pa potez
+koji je **hteo da pomeri** karticu a počeo je u uglu — menja veličinu. Očekivano,
+ali zaslužuje red u `REZIM.md` §7 uz ostale prihvaćene limite.
+
+### 6. Najslabije u fazi i šta sledeća mora da popravi
+
+**Najslabije: Z7 je proglašen nepopravljivim, a nije.** Dokument kaže da se sam
+`d3-drag` gest „ne ume otkazati iz JS-a" i da se ne popravlja sintetičkim
+`touchcancel`-om. Sintetički događaj i nije potreban: `d3-drag` sluša na **DOM
+čvoru ručke**, a ručka postoji samo dok je `resizeApi.enabled === true`. Dovoljno
+je da `handleNodeContextMenu` (`canvas-embed.tsx:621`) — pored postojećeg
+`releaseGesture()` — obori i `enabled` na jedan ciklus (npr. `suspendHandles`
+stanje koje se gasi na sledeći `mode`/`selection`): četiri `NodeResizeControl`
+čvora se odmontiraju, d3 listeneri odu sa njima, gest umre. To je čist izlaz
+istog reda kao `zoomAllowsHandles`, ne hak. **K3 ovo treba da zatvori**, jer
+prenosi problem: veze će imati isti obrazac „gest počne u WebView-u, native sloj
+preuzme ekran".
+
+Ostalo, po prioritetu:
+
+1. **Tri kopije istih granica, nula automatske zaštite.** Brojevi žive u
+   `areasV2.ts:85–88`, `web/lib/canvas-node-size.ts` i
+   `mobile/src/lib/canvas-node-size.ts`. „Test T7" nije test nego grep zapisan u
+   markdown-u — u `npm test` (327 testova) nema nijednog koji pominje
+   `PAGE_NODE_SIZE`. Pre K5, koji u isti modul unosi i granice ideja i misli i
+   time troši kopije na šest, treba **izvršni** dokaz: ili vitest koji poredi tri
+   izvora, ili izvoz konstanti iz backenda pa uvoz u web (mobilni ostaje kopija
+   sa testom).
+2. **Desktop bez ijedne ručne provere, druga faza zaredom.** Rešiti kredencijale
+   pre K3, ne posle.
+3. **Stražar kraja gesta reaguje na svaki `touchend` u prozoru**
+   (`canvas-embed.tsx:540`). Ako se usred promene veličine podigne drugi prst
+   (npr. pokušaj pinča), kapija se otključa ranije i dolazni snimak može da
+   „trgne" karticu do kraja poteza. Bezopasno, ali je uslov trebalo da bude
+   „nema više aktivnih dodira" (`event.touches.length === 0`).
+4. **`IZVESTAJ.md` je za K2 ostao patrljak.** „Razlika pariteta posle faze"
+   je prazna (stvarno je **13**), a nema ni „Šta sada radi" ni tabele dokaza koje
+   K1 ima — iako su dokazi snimljeni i uredni. Ledger lanca podbacuje ispod onoga
+   što je stvarno isporučeno.
