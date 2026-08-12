@@ -33,6 +33,7 @@ export function CanvasRail({
   onZoomOut,
   onFit,
   primaryAction,
+  nodeAction,
   editMode = false,
   onToggleEdit,
 }: {
@@ -41,6 +42,12 @@ export function CanvasRail({
   onFit: () => void;
   /** Bez ove akcije se primarno dugme ne prikazuje (vrste bez native akcije). */
   primaryAction?: RailAction;
+  /**
+   * Akcija nad IZABRANIM čvorom („Veličina kartice", K2) — četvrta ikonica u grupi.
+   * Slot je slobodan baš u režimu, jer se prekidač tada sklanja (vidi ispod), pa se
+   * dodirne mete ne smanjuju: 4 × 44 + 3 × 8 razmaka staje i na 360 dp.
+   */
+  nodeAction?: RailAction;
   /** Da li je režim „Uredi raspored" upaljen (vlasnik stanja je ekran). */
   editMode?: boolean;
   /** Bez ovoga vrsta kanvasa nema uređivanje i prekidač se ne prikazuje. */
@@ -85,6 +92,11 @@ export function CanvasRail({
         {onToggleEdit && !editMode ? (
           <RailIcon label="Uredi raspored" onPress={onToggleEdit} colors={colors}>
             <Move size={20} color={colors.foreground} />
+          </RailIcon>
+        ) : null}
+        {nodeAction ? (
+          <RailIcon label={nodeAction.label} onPress={nodeAction.onPress} colors={colors}>
+            {nodeAction.icon}
           </RailIcon>
         ) : null}
       </View>

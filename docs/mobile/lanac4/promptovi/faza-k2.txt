@@ -1,0 +1,81 @@
+ultrathink
+
+Devotion monorepo: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvrsavanje - ne pitaj,
+odlucuj i radi.
+
+PROCITAJ PRVO:
+  docs/mobile/PARITET.md      <- lista i memorija, cekiraj [x] u istom commit-u
+  docs/mobile/ZA-POPRAVKU.md  <- naucene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md      <- arhitektura, protokol WebView mosta
+  docs/mobile/lanac4/OSNOVA.md <- nalaz koji je pokrenuo ovaj lanac, procitaj ga
+
+GDE SE RADI - ovo je drugacije od prethodnih lanaca:
+Mobilni kanvas NIJE nativni ekran. To je WebView nad
+apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx, koji vrti ISTI
+@xyflow/react kao desktop i ima VEC autentikovan ConvexReactClient (token stize
+kroz window.__DEVOTION_AUTH__). Znaci mutacije odatle rade i nista se ne
+instalira. Uredjivanje je iskljuceno sa dve zastavice:
+  nodesDraggable={false}
+  nodesConnectable={false}
+
+Native strana (apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx i
+components/canvas/canvas-rail.tsx) daje ljusku, zaglavlje i akcije, i sa
+WebView-om se dogovara preko postMessage mosta.
+
+PRAVILA U SVAKOJ FAZI:
+- REZIM "Uredi raspored" je odluka korisnika i nije predmet preispitivanja.
+  Kanvas je podrazumevano za gledanje: jedan prst pomera platno, dva zumiraju.
+  Dugme u native rail-u pali rezim; tek u rezimu se cvorovi povlace, menja im se
+  velicina i povezuju se. Izlazak iz rezima vraca gledanje. Rezim mora da se vidi
+  na prvi pogled (traka ili obod), da se ne desi da neko pomera po bazi mislecu
+  da lista.
+- DESKTOP KANVAS NE SME DA PROMENI PONASANJE. Ako uzimas logiku iz
+  apps/web/components/workspace/area-canvas-view.tsx ili ideas-canvas-view.tsx,
+  izdvoji je u zajednicki modul i dokazi da desktop radi isto kao pre.
+- BACKEND NE MENJAJ. Sve funkcije vec postoje. Ako ti nesto stvarno fali, stani i
+  zapisi u docs/mobile/ZA-POPRAVKU.md umesto da izmisljas.
+- Dodirna meta min 44pt. Ono sto je na webu 8px ruka za mis mora na telefonu da
+  bude prst. Ako ne moze da se poveca, promeni interakciju - ne smanjuj prst.
+- Svaka izmena koja pise u bazu mora da ima "Ponisti". Obrazac vec postoji iz
+  Faze 5 prethodnog lanca - koristi njega, ne pravi drugi.
+- Optimisticki potez: cvor prati prst odmah, upis u bazu ide na kraj poteza
+  (onNodeDragStop), ne na svaki frejm.
+- Prazno, ucitavanje i greska - sva tri stanja svuda gde ih jos nema.
+- Uz svaki cekiran kvadratic napisi fajl i liniju kao dokaz.
+- Ako menjas apps/mobile/package.json, zapisi u docs/mobile/lanac4/NATIVE-BUILD.md.
+FAZA K2 - VELICINA (RESIZE)
+
+Sta se dobija:
+- api.areasV2.resizePage
+- api.areasV2.resetPageSize
+
+Web to radi kroz apps/web/components/workspace/canvases/perimeter-resize-control.tsx
+- ruke po obodu, velicine za mis. Prstom su neupotrebljive.
+
+Posao:
+1. Kad je cvor izabran u rezimu, prikazi CETIRI ugaone ruke od min 44pt
+   (vizuelno mogu biti manje, ali dodirna zona mora biti 44). Bocne ruke
+   preskoci - na telefonu se ne pogadjaju.
+2. Povlacenje ruke menja velicinu uzivo, upis ide na kraj poteza -> resizePage.
+3. Minimalna i maksimalna velicina: uzmi ista ogranicenja koja web vec ima, ne
+   izmisljaj nova. Ako su u desktop komponenti, izdvoj ih u zajednicki modul.
+4. "Vrati podrazumevanu velicinu" -> resetPageSize. Mesto: dugi pritisak na cvor
+   otvara native sheet sa akcijama (taj obrazac vec postoji u
+   apps/mobile/src/components/canvas/), tamo dodaj stavku.
+5. "Ponisti" i za velicinu.
+
+Dokaz: screenshot pre/posle, i provera da desktop resize radi isto kao pre.
+=====================================================================
+CILJ FAZE: U rezimu mozes prstom promeniti velicinu stranice na kanvasu i vratiti je na podrazumevanu.
+=====================================================================
+Plan je u docs\mobile\lanac4\planovi\faza-k2.md - procitaj ga PRVO i sprovedi. Ako odstupis, dopisi u plan
+sta si promenio i zasto.
+
+Faza je gotova tek kad je cilj ispunjen, a ne kad si prosao kroz spisak.
+NA KRAJU FAZE, ovim redom:
+  cd apps/mobile && npx tsc --noEmit
+  cd apps/web    && npx tsc --noEmit
+  npm run lint
+  npm test
+Popravi sve sto padne. Ne ostavljaj gresku sledecoj fazi.

@@ -52,6 +52,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const restoreCheckpoint = useMutation(api.taskCheckpoints.restoreOwn);
   const restoreContribution = useMutation(api.collaboration.restoreOwnContribution);
   const movePages = useMutation(api.areasV2.movePages);
+  const resizePage = useMutation(api.areasV2.resizePage);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -115,6 +116,22 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           areaId: action.areaId,
           rootPageId: action.rootPageId,
           updates: action.updates,
+        });
+        return;
+      case 'pageResize':
+        // Inverz i za potez ručkom i za „Vrati podrazumevanu veličinu": isti poziv sa
+        // dimenzijama od pre radnje. `x`/`y` idu samo ako su OBA poznata (potez ručkom
+        // pomera i rub) — server odbija jedno bez drugog.
+        await resizePage({
+          startupId: action.startupId,
+          areaId: action.areaId,
+          rootPageId: action.rootPageId,
+          pageId: action.pageId,
+          width: action.width,
+          height: action.height,
+          ...(action.x !== undefined && action.y !== undefined
+            ? { x: action.x, y: action.y }
+            : {}),
         });
         return;
     }

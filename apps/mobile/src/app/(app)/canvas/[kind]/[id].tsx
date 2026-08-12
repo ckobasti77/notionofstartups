@@ -2,7 +2,15 @@ import { useAuthToken } from '@convex-dev/auth/react';
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { ChevronLeft, Maximize2, Minimize2, Plus, Send, TriangleAlert } from 'lucide-react-native';
+import {
+  ChevronLeft,
+  Maximize2,
+  Minimize2,
+  Plus,
+  Scaling,
+  Send,
+  TriangleAlert,
+} from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -20,6 +28,7 @@ import { CanvasRail, type RailAction } from '@/components/canvas/canvas-rail';
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { IdeaNodeSheet, type IdeaDetail } from '@/components/canvas/idea-node-sheet';
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
+import { PageSizeSheet, type PageSizeTarget } from '@/components/canvas/page-size-sheet';
 import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
@@ -104,6 +113,10 @@ export default function CanvasScreen() {
   // koji embed pošalje uz `selection` kad je izabran baš jedan čvor (oblik zavisi od vrste).
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<unknown>(null);
+  // Kartica čija se veličina menja (sheet). Otvara je dugi pritisak u WebView-u
+  // (`node:actions`) ili četvrta ikonica rail-a — dva puta do iste radnje, jer je
+  // `contextmenu` u WKWebView-u nepouzdan.
+  const [sizeTarget, setSizeTarget] = useState<PageSizeTarget | null>(null);
   // Landscape daje više prostora grafu (maketa §9.3, dugme [⛶]). Rotacija je samo
   // za ovaj ekran — na izlazak se OBAVEZNO vraća portret (cleanup ispod).
   const [landscape, setLandscape] = useState(false);
@@ -262,6 +275,24 @@ export default function CanvasScreen() {
     };
   }, [flushViewport]);
 
+  /**
+   * Osvežavanje veličine u LOKALNIM kopijama detalja čvora (rail i otvoren sheet).
+   * Bez ovoga bi sheet posle povlačenja ručke računao ±10% iz zastarele veličine —
+   * detalj stiže uz `selection` poruku i embed ga ne šalje ponovo sam od sebe.
+   */
+  const applyNodeSize = useCallback((pageId: string, width: number, height: number) => {
+    // Tip parametra je eksplicitan: stanje je `unknown`, pa `SetStateAction<unknown>`
+    // proguta i oblik updater-a i TS ga sam ne izvede.
+    setSelectedNode((current: unknown) => {
+      const node = current as PageSizeTarget | null;
+      if (!node || node._id !== pageId) return current;
+      return { ...node, width, height };
+    });
+    setSizeTarget((current) =>
+      current && current._id === pageId ? { ...current, width, height } : current,
+    );
+  }, []);
+
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
       let msg: {
@@ -272,8 +303,13 @@ export default function CanvasScreen() {
         startupId?: string;
         areaId?: string;
         rootPageId?: string | null;
+        pageId?: string;
         count?: number;
         before?: Array<{ pageId: string; x: number; y: number }>;
+        /** `resized`: stanje kartice PRE poteza (ime je drugo od `before` jer je i oblik drugi). */
+        previous?: { x: number; y: number; width: number; height: number };
+        width?: number;
+        height?: number;
         x?: number;
         y?: number;
         zoom?: number;
@@ -299,10 +335,43 @@ export default function CanvasScreen() {
           const pageNode = msg.node as { _id?: string };
           if (pageNode._id) openPage(pageNode._id);
         }
+      } else if (msg.type === 'node:actions' && msg.node) {
+        // Dugi pritisak na karticu u režimu → native sheet sa akcijama nad njom.
+        // Za sada je to samo veličina (K2); ideje i misli ovu poruku ne šalju.
+        haptics.tap();
+        if (isPageKind) setSizeTarget(msg.node as PageSizeTarget);
       } else if (msg.type === 'selection') {
         const ids = msg.ids ?? [];
         setSelectedNodeIds(ids);
         setSelectedNode(ids.length === 1 ? msg.node ?? null : null);
+      } else if (
+        msg.type === 'resized' &&
+        msg.startupId &&
+        msg.areaId &&
+        msg.pageId &&
+        msg.previous &&
+        typeof msg.width === 'number' &&
+        typeof msg.height === 'number'
+      ) {
+        // Upis je već prošao (embed piše optimistički i sam vraća na grešku). `previous`
+        // je iz memorije, ne iz baze — baza u ovom trenutku već drži NOVE dimenzije.
+        haptics.success();
+        applyNodeSize(msg.pageId, msg.width, msg.height);
+        pushUndo({
+          label: `Veličina kartice: ${msg.width} × ${msg.height}.`,
+          action: {
+            kind: 'pageResize',
+            startupId: msg.startupId as Id<'startups'>,
+            areaId: msg.areaId as Id<'startupAreas'>,
+            rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
+            pageId: msg.pageId as Id<'pages'>,
+            width: msg.previous.width,
+            height: msg.previous.height,
+            // Ugaona ručka pomera i rub kartice, pa se vraća i pozicija.
+            x: msg.previous.x,
+            y: msg.previous.y,
+          },
+        });
       } else if (msg.type === 'moved' && msg.startupId && msg.areaId && msg.before) {
         // Upis je već prošao (embed piše optimistički i sam vraća na grešku); ovde je
         // samo potvrda prstu i put nazad. Koordinate su iz memorije, ne iz baze —
@@ -347,7 +416,7 @@ export default function CanvasScreen() {
         Alert.alert('Greška', msg.message);
       }
     },
-    [isIdeas, isThoughts, isPageKind, openPage, flushViewport],
+    [isIdeas, isThoughts, isPageKind, openPage, flushViewport, applyNodeSize],
   );
 
   const reload = () => {
@@ -394,6 +463,20 @@ export default function CanvasScreen() {
   } else {
     primaryAction = undefined;
   }
+
+  // Kartica izabrana u režimu → četvrta ikonica rail-a otvara „Veličinu kartice".
+  // Ovo je put koji NE zavisi ni od dugog pritiska (nepouzdan na iOS-u) ni od praga
+  // zuma (ispod 0.5 se ručke ne crtaju) — i jedini put za čitač ekrana.
+  const resizeTarget =
+    isPageKind && hasSingleSelection ? (selectedNode as PageSizeTarget) : null;
+  const nodeAction: RailAction | undefined =
+    editMode && resizeTarget?.canResize
+      ? {
+          label: 'Veličina kartice',
+          icon: <Scaling size={20} color={colors.foreground} />,
+          onPress: () => setSizeTarget(resizeTarget),
+        }
+      : undefined;
 
   if (!KINDS.includes(kind)) {
     return <Fallback title="Nepoznat canvas" message={`Vrsta „${kind}" ne postoji.`} colors={colors} onBack={() => router.back()} />;
@@ -498,6 +581,7 @@ export default function CanvasScreen() {
         onZoomOut={() => postToWeb({ type: 'zoom', direction: 'out' })}
         onFit={() => postToWeb({ type: 'fit' })}
         primaryAction={primaryAction}
+        nodeAction={nodeAction}
         editMode={editMode}
         onToggleEdit={supportsEdit ? toggleEdit : undefined}
       />
@@ -579,6 +663,17 @@ export default function CanvasScreen() {
           areaId={parentPage.areaId}
           parentPageId={id as Id<'pages'>}
           onClose={() => setCreateOpen(false)}
+        />
+      ) : null}
+
+      {/* Veličina kartice (K2) — samo kanvas oblasti/stranice ima kartice stranica. */}
+      {isPageKind ? (
+        <PageSizeSheet
+          page={sizeTarget}
+          onClose={() => setSizeTarget(null)}
+          onApplied={(width, height) => {
+            if (sizeTarget) applyNodeSize(sizeTarget._id, width, height);
+          }}
         />
       ) : null}
     </View>

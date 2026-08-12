@@ -1,0 +1,259 @@
+import { useMutation } from 'convex/react';
+import { Minus, Plus, RotateCcw } from 'lucide-react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+
+import { Row } from '@/components/ui/row';
+import { Sheet } from '@/components/ui/sheet';
+import { api } from '@/convex/_generated/api';
+import type { Id } from '@/convex/_generated/dataModel';
+import { clampPageNodeSize, PAGE_NODE_SIZE } from '@/lib/canvas-node-size';
+import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
+import { pushUndo } from '@/lib/undo';
+import { useThemeColors } from '@/theme/theme-provider';
+import { fontWeight, radius, text } from '@/theme/tokens';
+
+/**
+ * Kartica čiju veličinu menjamo. Sve stiže uz `node:actions` / `selection` poruku iz
+ * embeda (`PageNodeDetail`) — native ovde ne radi nijedan dodatni upit.
+ */
+export type PageSizeTarget = {
+  _id: Id<'pages'>;
+  title: string;
+  canResize: boolean;
+  width: number;
+  height: number;
+  startupId: Id<'startups'>;
+  areaId: Id<'startupAreas'>;
+  rootPageId: Id<'pages'> | null;
+};
+
+/** Korak za „Umanji" / „Uvećaj" — dovoljno da se vidi, dovoljno malo da se ne preskoči. */
+const STEP = 0.1;
+
+/**
+ * Veličina kartice stranice na kanvasu — native put koji ne traži precizan prst
+ * (K2, `docs/mobile/lanac4/planovi/faza-k2.md`). Otvara se dugim pritiskom na karticu
+ * u režimu „Uredi raspored" ili iz rail-a („Veličina kartice").
+ *
+ * „Umanji / Uvećaj" nisu ukras: to je JEDINI put do veličine za čitač ekrana i za mali
+ * zum, gde se ugaone ručke namerno ne crtaju (kartica bi nestala pod četiri mete od
+ * 44pt). „Vrati podrazumevanu veličinu" je parnjak desktop stavke u toolbar-u čvora.
+ *
+ * Sve tri radnje pišu u bazu i sve tri imaju „Poništi" — kroz POSTOJEĆU traku
+ * (`lib/undo.ts`, član `pageResize`), ne kroz drugu površinu. Klamp je klijentski da
+ * se ne šalje poziv koji bi server ionako odsekao, ali server ostaje merodavan.
+ */
+export function PageSizeSheet({
+  page,
+  onClose,
+  onApplied,
+}: {
+  page: PageSizeTarget | null;
+  onClose: () => void;
+  /** Nova veličina posle uspešne izmene — pozivalac osvežava svoj `selectedNode`. */
+  onApplied?: (width: number, height: number) => void;
+}) {
+  const colors = useThemeColors();
+  const resizePage = useMutation(api.areasV2.resizePage);
+  const resetPageSize = useMutation(api.areasV2.resetPageSize);
+  // Jedna brava za ceo sheet; vrednost je ključ reda da baš taj pokaže spiner.
+  const [busy, setBusy] = useState<string | null>(null);
+
+  /** Zajednički omotač: brava, haptika, poruka greške, zatvaranje po uspehu. */
+  const run = async (key: string, action: () => Promise<void>) => {
+    if (busy !== null) return;
+    setBusy(key);
+    haptics.tap();
+    try {
+      await action();
+      haptics.success();
+      onClose();
+    } catch (error) {
+      haptics.error();
+      Alert.alert('Greška', accessErrorMessage(error, 'Veličina kartice nije promenjena.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const scale = (factor: number, key: string) => {
+    if (!page) return;
+    const next = clampPageNodeSize(page.width * factor, page.height * factor);
+    if (next.width === page.width && next.height === page.height) {
+      // Već na granici: tiho slanje poziva koji ništa ne menja bi izgledalo kao kvar.
+      haptics.warning();
+      Alert.alert(
+        'Granica veličine',
+        factor < 1
+          ? `Kartica je već najmanja moguća (${PAGE_NODE_SIZE.minWidth} × ${PAGE_NODE_SIZE.minHeight}).`
+          : `Kartica je već najveća moguća (${PAGE_NODE_SIZE.maxWidth} × ${PAGE_NODE_SIZE.maxHeight}).`,
+      );
+      return;
+    }
+    const before = { width: page.width, height: page.height };
+    void run(key, async () => {
+      await resizePage({
+        startupId: page.startupId,
+        areaId: page.areaId,
+        rootPageId: page.rootPageId,
+        pageId: page._id,
+        width: next.width,
+        height: next.height,
+      });
+      // Bez `x`/`y`: sheet menja samo veličinu, kartica ostaje gde jeste.
+      pushUndo({
+        label: `Veličina kartice: ${next.width} × ${next.height}.`,
+        action: {
+          kind: 'pageResize',
+          startupId: page.startupId,
+          areaId: page.areaId,
+          rootPageId: page.rootPageId,
+          pageId: page._id,
+          width: before.width,
+          height: before.height,
+        },
+      });
+      onApplied?.(next.width, next.height);
+    });
+  };
+
+  const reset = () => {
+    if (!page) return;
+    const before = { width: page.width, height: page.height };
+    void run('reset', async () => {
+      await resetPageSize({
+        startupId: page.startupId,
+        areaId: page.areaId,
+        rootPageId: page.rootPageId,
+        pageId: page._id,
+      });
+      // Inverz reseta je `resizePage` sa starim dimenzijama — isto što radi desktop.
+      pushUndo({
+        label: 'Vraćena je podrazumevana veličina kartice.',
+        action: {
+          kind: 'pageResize',
+          startupId: page.startupId,
+          areaId: page.areaId,
+          rootPageId: page.rootPageId,
+          pageId: page._id,
+          width: before.width,
+          height: before.height,
+        },
+      });
+      onApplied?.(PAGE_NODE_SIZE.defaultWidth, PAGE_NODE_SIZE.defaultHeight);
+    });
+  };
+
+  const isDefault =
+    page !== null &&
+    page.width === PAGE_NODE_SIZE.defaultWidth &&
+    page.height === PAGE_NODE_SIZE.defaultHeight;
+
+  return (
+    <Sheet visible={page !== null} onClose={onClose} style={styles.sheet}>
+      {page ? (
+        <View style={styles.body}>
+          <Text
+            accessibilityRole="header"
+            numberOfLines={2}
+            style={[styles.heading, { color: colors.foreground }]}>
+            {page.title || 'Stranica bez naslova'}
+          </Text>
+          <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+            {`Trenutno: ${page.width} × ${page.height}`}
+          </Text>
+
+          {page.canResize ? (
+            <View style={styles.list}>
+              <Row
+                title="Umanji"
+                subtitle={`Za 10% — najmanje ${PAGE_NODE_SIZE.minWidth} × ${PAGE_NODE_SIZE.minHeight}`}
+                onPress={() => scale(1 - STEP, 'smaller')}
+                disabled={busy !== null}
+                showChevron={false}
+                style={styles.row}
+                icon={<Minus size={20} color={colors.mutedForeground} />}
+                value={busy === 'smaller' ? <ActivityIndicator color={colors.primary} /> : undefined}
+              />
+              <Row
+                title="Uvećaj"
+                subtitle={`Za 10% — najviše ${PAGE_NODE_SIZE.maxWidth} × ${PAGE_NODE_SIZE.maxHeight}`}
+                onPress={() => scale(1 + STEP, 'bigger')}
+                disabled={busy !== null}
+                showChevron={false}
+                style={styles.row}
+                icon={<Plus size={20} color={colors.mutedForeground} />}
+                value={busy === 'bigger' ? <ActivityIndicator color={colors.primary} /> : undefined}
+              />
+              <Row
+                title="Vrati podrazumevanu veličinu"
+                titleNumberOfLines={2}
+                subtitle={`${PAGE_NODE_SIZE.defaultWidth} × ${PAGE_NODE_SIZE.defaultHeight}`}
+                onPress={reset}
+                disabled={busy !== null || isDefault}
+                showChevron={false}
+                style={styles.row}
+                icon={<RotateCcw size={20} color={colors.mutedForeground} />}
+                value={busy === 'reset' ? <ActivityIndicator color={colors.primary} /> : undefined}
+              />
+              {isDefault ? (
+                <Text style={[styles.note, { color: colors.mutedForeground }]}>
+                  Kartica je već u podrazumevanoj veličini.
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            /* Prazna lista bi izgledala kao kvar — razlog se kaže. */
+            <Text style={[styles.note, { color: colors.mutedForeground }]}>
+              Veličinu može da menja autor kartice.
+            </Text>
+          )}
+
+          <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+            U režimu „Uredi raspored" veličinu možeš da menjaš i prevlačenjem tačaka u
+            uglovima izabrane kartice.
+          </Text>
+        </View>
+      ) : null}
+    </Sheet>
+  );
+}
+
+const styles = StyleSheet.create({
+  sheet: {
+    paddingHorizontal: 12,
+  },
+  body: {
+    paddingBottom: 4,
+  },
+  heading: {
+    fontSize: 18,
+    fontWeight: fontWeight.semibold,
+    paddingHorizontal: 8,
+  },
+  meta: {
+    ...text.meta,
+    paddingHorizontal: 8,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  list: {
+    gap: 2,
+  },
+  row: {
+    paddingHorizontal: 8,
+    borderRadius: radius.md,
+  },
+  note: {
+    ...text.body,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  hint: {
+    ...text.meta,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+  },
+});

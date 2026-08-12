@@ -194,6 +194,8 @@ injekcija (native → web, pre učitavanja):  window.__DEVOTION_AUTH__ = { token
 WebView → native:  { type: "node:open", nodeId, node }  → otvara native detalj (node = podaci čvora)
 WebView → native:  { type: "selection", ids, node? }    → menja akcioni rail (node kad je izabran 1)
 WebView → native:  { type: "moved", …scope, count, before } → traka „Poništi" posle pomeranja kartica
+WebView → native:  { type: "resized", …scope, pageId, width, height, previous } → traka „Poništi" posle promene veličine
+WebView → native:  { type: "node:actions", nodeId, node } → dugi pritisak: native sheet „Veličina kartice"
 WebView → native:  { type: "viewport", …scope, x, y, zoom } → prigušen `saveViewport` (800 ms)
 WebView → native:  { type: "toast", level, message }     → Alert (embed nema toast površinu)
 native → WebView:  { type: "auth",  token }              → osvežavanje tokena (nekritično)
@@ -209,8 +211,11 @@ ne mora da radi drugi upit da bi upisao poziciju ili kameru.
 
 **Uređivanje.** Embed više nije bezuslovno read-only: u režimu „Uredi raspored"
 (`mode`) čvorovi postaju povlačivi i potez se na kraju upisuje kroz `areasV2.movePages`
-(jedan upis po potezu, sa „Poništi"). Van režima je sve kao pre — pregled, navigacija i
-dodavanje. Pun protokol režima, uz pravila za sledeće faze: `docs/mobile/lanac4/REZIM.md`.
+(jedan upis po potezu, sa „Poništi"). Izabrana **svoja** kartica uz to dobija četiri
+ugaone ručke od 44pt (`areasV2.resizePage`), a dugi pritisak otvara native sheet sa
+„±10%" i „Vrati podrazumevanu veličinu" (`areasV2.resetPageSize`). Van režima je sve
+kao pre — pregled, navigacija i dodavanje. Pun protokol režima, uz pravila za sledeće
+faze: `docs/mobile/lanac4/REZIM.md`.
 
 `node:open` nosi i podatke čvora, pa native ne mora da radi drugi `ideas.list`
 upit; `selection` sa jednim čvorom pretvara primarno dugme rail-a u „Otvori ideju".

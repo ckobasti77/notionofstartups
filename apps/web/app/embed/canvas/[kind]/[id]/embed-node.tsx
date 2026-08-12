@@ -1,8 +1,22 @@
 "use client";
 
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { memo } from "react";
+import {
+  Handle,
+  NodeResizeControl,
+  Position,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useRef,
+  type CSSProperties,
+} from "react";
 
+import { PAGE_NODE_SIZE } from "@/lib/canvas-node-size";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,9 +29,9 @@ import { cn } from "@/lib/utils";
  * `fitView` nema šta da uklopi. Ovde su dimenzije eksplicitne i na čvoru i na
  * komponenti, pa su granice tačne od prvog frejma.
  *
- * Read-only je namerno (§5.2: mobilni kanvas je pregled/navigacija/dodavanje, ne
- * preuređivanje) — `Handle`-ovi postoje samo da ivice imaju gde da se zakače i nisu
- * povezivi ni vidljivi.
+ * `Handle`-ovi postoje samo da ivice imaju gde da se zakače i nisu povezivi ni vidljivi
+ * (povezivanje je K3). Van režima „Uredi raspored" je čvor i dalje samo za gledanje;
+ * u režimu izabrana SVOJA kartica dobija četiri ugaone ručke za veličinu (K2).
  */
 export const EMBED_NODE_TYPE = "embed";
 
@@ -39,11 +53,98 @@ export type EmbedNodeData = {
    * tiho nestajanje je najgori ishod (§5.2).
    */
   ghost?: boolean;
+  /**
+   * Sme li OVAJ korisnik da menja veličinu kartice (`pages[].canResize` sa servera —
+   * autor kartice). Bez toga se ručke ne crtaju: backend bi potez ionako odbio
+   * („Možete menjati veličinu samo svoje kartice."), a ručka koja ne radi je laž.
+   * Ideje i misli ga ne postavljaju — njihova veličina je K5.
+   */
+  canResize?: boolean;
 };
 
 export type EmbedFlowNode = Node<EmbedNodeData, typeof EMBED_NODE_TYPE>;
 
-function EmbedNodeCard({ data, selected }: NodeProps<EmbedFlowNode>) {
+/** Pravougaonik čvora (pozicija + dimenzije) — potpis jednog poteza promene veličine. */
+export type EmbedResizeBox = { x: number; y: number; width: number; height: number };
+
+/**
+ * Ručke moraju da žive UNUTAR komponente čvora (xyflow ih tu očekuje), a odluka „sme
+ * li se menjati" i upis su u `canvas-embed.tsx`. Kontekst je most između ta dva mesta
+ * koji NE dira `data`: novo polje u `data` bi na svaku promenu režima ili zuma
+ * prezidalo sve čvorove.
+ */
+export type EmbedResizeApi = {
+  /** Režim + postoji handler upisa + zum je iznad praga (vidi `HANDLE_MIN_ZOOM`). */
+  enabled: boolean;
+  onStart: () => void;
+  onEnd: (nodeId: string, before: EmbedResizeBox, after: EmbedResizeBox) => void;
+};
+
+export const EmbedResizeContext = createContext<EmbedResizeApi | null>(null);
+
+/**
+ * Samo uglovi. Bočne ručke (`top`/`right`/`bottom`/`left`) se namerno ne prave: na
+ * telefonu se ne pogađaju, a četiri ugla + „±10%" u native sheet-u pokrivaju svaki
+ * ishod (`docs/mobile/lanac4/planovi/faza-k2.md` §5).
+ */
+const HANDLE_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+
+/**
+ * Dodirna meta 44×44 (pravilo lanca 4); vidljiva tačka je 16 px i crta je
+ * `.embed-resize-dot` iz `EmbedStyles`. Inline, NE CSS klasa: xyflow-ov
+ * `.react-flow__resize-control.handle` ima specifičnost 0-2-0 (5×5 px, puna pozadina,
+ * beli okvir) i pobedio bi jednu našu klasu. Modul-const da referenca bude stabilna.
+ */
+const HANDLE_STYLE: CSSProperties = {
+  width: 44,
+  height: 44,
+  background: "transparent",
+  border: "none",
+  borderRadius: "50%",
+  display: "grid",
+  placeItems: "center",
+  // Pregledač ne sme da uzme ovaj gest za skrol pre nego što ga d3-drag vidi.
+  touchAction: "none",
+};
+
+function EmbedNodeCard({ id, data, selected }: NodeProps<EmbedFlowNode>) {
+  const resize = useContext(EmbedResizeContext);
+  // `onResizeEnd` nosi samo KRAJNJE stanje, a „Poništi" traži i početno — pa se
+  // početak poteza pamti ovde. Jedan ref za sve četiri ručke: istovremeno se povlači
+  // najviše jedna.
+  const startRef = useRef<EmbedResizeBox | null>(null);
+
+  const handleResizeStart = useCallback(
+    (_event: unknown, params: EmbedResizeBox) => {
+      startRef.current = {
+        x: params.x,
+        y: params.y,
+        width: params.width,
+        height: params.height,
+      };
+      resize?.onStart();
+    },
+    [resize],
+  );
+
+  const handleResizeEnd = useCallback(
+    (_event: unknown, params: EmbedResizeBox) => {
+      const before = startRef.current;
+      startRef.current = null;
+      if (!before || !resize) return;
+      resize.onEnd(id, before, {
+        x: params.x,
+        y: params.y,
+        width: params.width,
+        height: params.height,
+      });
+    },
+    [id, resize],
+  );
+
+  // Ghost (čeka odobrenje) nema placement u bazi, pa nema ni šta da se menja.
+  const showHandles = Boolean(resize?.enabled && data.canResize && selected && !data.ghost);
+
   return (
     <div
       className={cn(
@@ -74,6 +175,28 @@ function EmbedNodeCard({ data, selected }: NodeProps<EmbedFlowNode>) {
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
+      {/* Ručke idu POSLE sadržaja da u redosledu slaganja budu iznad njega. Klasu
+          `nodrag` xyflow stavlja sam (potez čvora ne sme da počne na ručki);
+          `nopan`/`nowheel` su pojas i naramenice — isto što desktop kontrola radi
+          ručno (`perimeter-resize-control.tsx`). */}
+      {showHandles
+        ? HANDLE_POSITIONS.map((position) => (
+            <NodeResizeControl
+              key={position}
+              position={position}
+              className="nopan nowheel"
+              style={HANDLE_STYLE}
+              minWidth={PAGE_NODE_SIZE.minWidth}
+              minHeight={PAGE_NODE_SIZE.minHeight}
+              maxWidth={PAGE_NODE_SIZE.maxWidth}
+              maxHeight={PAGE_NODE_SIZE.maxHeight}
+              onResizeStart={handleResizeStart}
+              onResizeEnd={handleResizeEnd}
+            >
+              <span className="embed-resize-dot" aria-hidden />
+            </NodeResizeControl>
+          ))
+        : null}
     </div>
   );
 }

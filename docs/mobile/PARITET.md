@@ -672,8 +672,51 @@ native rail-u pali režim u kom se kartice povlače prstom.
       `k1-gotovo-swipe.png` (van režima swipe po kartici pomera platno),
       `k1-t9-posle-retry.png` (režim preživi „Pokušaj ponovo").
 
-**Ostaje za K2–K5** (i dalje u sekciji Z do tada): `resizePage`,
-`resetPageSize`, `connectPages`, `disconnectPages`,
+## K2. Veličina kartice (resize)
+
+U režimu izabrana **svoja** kartica dobija četiri ugaone ručke od 44pt; potez menja
+veličinu uživo, a upis ide na kraj poteza. Isti ishod bez preciznog prsta (i jedini
+put za čitač ekrana i za mali zum) je native sheet „Veličina kartice".
+
+- [x] `areasV2.resizePage` — povlačenje ugaone ručke piše novu veličinu i poziciju.
+      Ručke: `apps/web/app/embed/canvas/[kind]/[id]/embed-node.tsx:184`
+      (`NodeResizeControl` × 4 ugla, `HANDLE_STYLE` 44×44 `:98`), kontekst
+      `EmbedResizeContext` (`:83`), granice iz **zajedničkog** modula
+      `apps/web/lib/canvas-node-size.ts:19` (isti modul koristi i desktop —
+      `components/workspace/canvases/area-flow-node.tsx:285`). Upis:
+      `canvas-embed.tsx:1082` (`useMutation`), `handleResizeNode` (`:1142`), okidač
+      `onResizeEnd` → `EmbedFlow.handleResizeEnd` (`:555`) — **jedan upis po potezu**.
+      Native put: `apps/mobile/src/components/canvas/page-size-sheet.tsx:59`
+      („Umanji/Uvećaj ±10%", klamp `apps/mobile/src/lib/canvas-node-size.ts:24`), a
+      „Poništi" zove istu funkciju sa starim dimenzijama:
+      `apps/mobile/src/components/undo-bar.tsx:55` + `case 'pageResize'` (`:121`),
+      unija u `apps/mobile/src/lib/undo.ts:53`.
+      Dokazi: `lanac4/dokazi/k2-rucke.png` (četiri ručke), `k2-mere.txt`
+      (`getBoundingClientRect` = 44×44 na svakoj ručki), `k2-pre.png`→`k2-posle.png`
+      (288×196 → 396×304, ostale kartice se nisu pomerile), `k2-logovi.txt`
+      (14:58:32 — tačno jedan `areasV2:resizePage` po potezu; 15:28:35 + 15:28:37 —
+      potez pa „Poništi"), `k2-granica.png` (klijentski klamp staje na 720 × 1000,
+      u logu nema greške; donja granica 240 × 168 izmerena kroz CDP).
+- [x] `areasV2.resetPageSize` — „Vrati podrazumevanu veličinu" (288 × 196).
+      `apps/mobile/src/components/canvas/page-size-sheet.tsx:60` (`useMutation`),
+      red `:191`, otvaranje sheet-a: dugi pritisak na karticu
+      (`canvas-embed.tsx:621` → poruka `node:actions` → `canvas/[kind]/[id].tsx:338`)
+      **ili** četvrta ikonica rail-a (`canvas/[kind]/[id].tsx:475`,
+      `components/canvas/canvas-rail.tsx:97`). „Poništi" je `resizePage` sa starim
+      dimenzijama (isto što radi desktop, `area-canvas-view.tsx:1863`).
+      Dokazi: `k2-dugi-pritisak.png` (sheet iz dugog pritiska, „Trenutno: 317 × 216"),
+      `k2-rail.png` (isti sheet iz rail-a), `k2-reset.png` (kartica 288×196 + traka),
+      `k2-logovi.txt` (15:05:23 `resetPageSize`, 15:05:25 `resizePage` sa starim
+      brojevima).
+- [x] Prag zuma i izlazak iz režima — `k2-mali-zum.png` (na zumu 0.49 nema nijedne
+      ručke, kartica je i dalje izabrana, rail i dalje nudi „Veličina kartice"),
+      `k2-gotovo.png` („Gotovo" gasi ručke i obod; dugi pritisak više ne otvara sheet,
+      tap otvara stranicu).
+- [x] Popravka kamere nasleđena iz K1 REVIZIJE §6(a) — `canvas-embed.tsx:658`
+      (programska promena sada UPISUJE `lastViewportRef` pre izlaza). Dokaz: posle
+      `[⌖]` i dva tapa po praznom platnu u logu nema nijednog `areasV2:saveViewport`.
+
+**Ostaje za K3–K5** (i dalje u sekciji Z do tada): `connectPages`, `disconnectPages`,
 `taskCheckpoints.saveCanvasPlacement`, `resetCanvasSize`,
 `taskCheckpointCanvasEdges.connect`/`disconnect`.
 
@@ -716,8 +759,6 @@ Prazan razlog ne važi. „Nije bitno" nije razlog.
 | `taskCheckpointCanvasEdges.disconnect` | Isto; uz to glasanje o brisanju tuđe canvas veze već radi na mobilnom (odobrenja.tsx, `task_checkpoint_edge`), pa tim tokovima ništa ne fali. |
 | `areasV2.getCanvas` | Šira desktop-samo pretplata (ceo startup odjednom — `area-canvas-view.tsx`, `area-view.tsx`, `page-workspace-view.tsx`, `workspace-shell.tsx`). Mobilni embed (`canvas/[kind]/[id].tsx` → `canvas-embed.tsx`) zove UŽE resolvere po meti: `getAreaCanvasByArea`/`getPageCanvasByPage` — funkcionalno zamenjuju `getCanvas` za tačno onaj scope koji se prikazuje, ne rupa. |
 | `areasV2.getPageCanvasByPage` | Nije "web-only" u pravom smislu — poziva ga `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`, DELJENI kod koji mobilni učitava kroz WebView (00-PLAN §5.2). Grep metod ga vidi kao web-only jer broji samo `apps/web/components`+`app`. |
-| `areasV2.resizePage` | Promena dimenzija kartice stranice na kanvasu — čeka K2 (ručka od 8px mora da postane dodirna meta od 44pt). |
-| `areasV2.resetPageSize` | Isto — reset dimenzija na podrazumevane; ide uz K2. |
 | `areasV2.connectPages` | Crtanje veza između stranica na kanvasu — vizuelna radnja u koordinatnom prostoru kanvasa. |
 | `areasV2.disconnectPages` | Isto, obrnuta radnja. |
 | `activity.listForStartup` | Mobilni koristi `activity.listPaginated` (bez tvrdog limita 50, sa nastavkom) — funkcionalno superiorna zamena, ne rupa. Obrnut paritet, već objašnjeno u ZA-POPRAVKU §5.8. |
@@ -733,3 +774,6 @@ kasnije ne otkriju kao „rupa".
 | Ugnježdavanje prevlačenjem kartice na karticu (`requestNesting` sa kanvasa) | Ista tačka dodira nosila bi dva ishoda (pomeri / ugnjezdi) bez vidljivog razgraničenja — na telefonu je to slučajno slanje zahteva celom timu. Ugnježdavanje već postoji native, u `page-actions-sheet.tsx`. |
 | Pomeranje kartice strelicama tastature (`area-canvas-view.tsx:893`) | Nad kanvasom nema tastature; spoljna tastatura uz WebView je rubni slučaj. |
 | Pinč koji počne NAD svojom karticom u režimu | xyflow povlačivom čvoru dodaje `nopan`, pa gest ne stigne do `d3-zoom`. Izlaz postoji i nezavisan je od dodira: `[+]` / `[−]` u rail-u. Ne rešava se smanjivanjem dodirne mete. |
+| Bočne ručke za veličinu (`top`/`right`/`bottom`/`left`) i radijalni obod `PerimeterResizeControl` (K2) | Desktop kontrola je geometrija za miš koji lebdi nad obodom (~8 px zona, `pointermove` za kursor, skaliranje oko centra); prstom je obod kartice isto što i sama kartica. Mobilni ima **četiri ugaone ručke od 44pt** (isti `resizePage`, zumo-svesna matematika iz xyflow-a) i „±10%" u sheet-u za fino doterivanje. Desktop komponenta se ne dira i ne uvozi. |
+| Ručke ispod zuma 0.5 (K2) | Kartica od 288 px je na `minZoom=0.15` široka ~43 px na ekranu — četiri mete od 44pt bi je potpuno prekrile. Ispod praga se veličina menja iz rail-a („Veličina kartice" → ±10%). |
+| Zadržavanje odnosa stranica pri promeni veličine (`keepAspectRatio`) | Web ga nema; uvođenje bi značilo da isti potez daje različit rezultat na dva klijenta. |

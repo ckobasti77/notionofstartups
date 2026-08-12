@@ -40,6 +40,25 @@ export type UndoAction =
       areaId: Id<'startupAreas'>;
       rootPageId: Id<'pages'> | null;
       updates: Array<{ pageId: Id<'pages'>; x: number; y: number }>;
+    }
+  /**
+   * Promena veličine kartice na kanvasu oblasti/stranice (K2). Kao i `pageMove`, ovo
+   * je inverzan potez a ne vraćanje arhiviranog: polja nose stanje od PRE radnje, pa
+   * je poništavanje isti `resizePage` poziv sa starim dimenzijama — što je i tačan
+   * inverz za `resetPageSize` (desktop radi identično, `area-canvas-view.tsx`).
+   * `x`/`y` postoje samo kad je potez pomerio i rub kartice (ugaona ručka) i šalju se
+   * ISKLJUČIVO zajedno — server odbija jedno bez drugog.
+   */
+  | {
+      kind: 'pageResize';
+      startupId: Id<'startups'>;
+      areaId: Id<'startupAreas'>;
+      rootPageId: Id<'pages'> | null;
+      pageId: Id<'pages'>;
+      width: number;
+      height: number;
+      x?: number;
+      y?: number;
     };
 
 export type UndoEntry = {

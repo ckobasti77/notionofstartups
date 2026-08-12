@@ -694,3 +694,52 @@ sve žive sesije mete van, da samo neko ko zna NOVU lozinku može da uđe.
 obriši sve redove u `authSessions` po indeksu `userId` za `userId =
 profiles.userId` tog člana, pa i pripadajuće `authRefreshTokens` (po `sessionId`).
 Bez toga stara sesija (na staroj lozinci) ostaje živa do isteka.
+
+---
+
+## Z7. Native sheet iznad WebView-a proguta `touchend` — kapija poteza ostane zaključana
+
+**Otkriveno u fazi K2 (12.08.), na emulatoru.** Simptom je zvučao kao fantomski
+upis: kartica na ekranu 288 × 196, a posle ponovnog ulaska u kanvas — 259 × 176.
+Podatak u bazi je sve vreme bio ispravan; **prikaz** je bio zamrznut.
+
+**Uzrok.** Embed drži kapiju „živi upit ne gazi prst" (`draggingRef` u
+`canvas-embed.tsx`, pravilo 4 iz `lanac4/REZIM.md`): dok gest traje, dolazni snimak
+iz `useQuery` se parkira u `pendingRef` umesto da se primeni. Kapija se diže u
+`onNodeDragStart` / `onResizeStart`, a spušta u `onNodeDragStop` / `onResizeEnd`.
+
+Dva mesta gde se „spuštanje" ne desi:
+
+1. **xyflow zove `onResizeEnd` samo ako je potez stvarno promenio dimenziju**
+   (`resizeDetected` u `@xyflow/system` `XYResizer`, grana `'end'`). Dodir ručke bez
+   pomeranja podigne kapiju i nikad je ne spusti.
+2. **Dugi pritisak na ručku otvori native sheet.** Android od tog trenutka prestane
+   da isporučuje dodir WebView-u, pa `touchend` (a ni `touchcancel`) ne stigne do
+   stranice. `d3-drag` ostaje naoružan, a naša kapija zaključana.
+
+Posledica je najgora moguća vrsta tihe greške: kanvas i dalje radi, ali **više ne
+prikazuje ničije izmene** — ni tuđe ni sopstvene — do sledećeg završenog gesta ili
+reload-a.
+
+**Kako je rešeno (tri sloja, svi u `canvas-embed.tsx`):**
+
+1. `onResizeStart` naoruža stražara na `window` za `mouseup` / `touchend` /
+   `touchcancel` — iste događaje koje koristi `d3-drag`, pa naš listener uvek ide
+   POSLE njegovog. **Ne `pointerup`**: on na dodir stiže PRE `touchend`-a i pregazio
+   bi novu veličinu starim snimkom.
+2. `contextmenu` (tj. tačka na kojoj otvaramo native sheet) gest zatvara odmah i
+   deterministički — to je jedini trenutak u kom pouzdano znamo da native sloj
+   preuzima dodir.
+3. Vremenski ventil `GESTURE_STALE_MS = 8000`: ako snimak stigne dok je kapija
+   podignuta duže od 8 s, kapija se otključava sama. Mreža za slučajeve koje ne
+   znamo; 8 s je znatno više od svakog stvarnog poteza prstom.
+
+**Šta ostaje van domašaja.** Sam `d3-drag` gest ne umemo da otkažemo iz JS-a, pa
+dodir koji je počeo na ručki a završio se „u vazduhu" (jer je sheet preuzeo ekran)
+teorijski može da bude nastavljen sledećim dodirom po platnu. Ishod je jedna
+promena veličine koja **uvek** ostavlja traku „Poništi" — vidljivo i povratno, pa
+se ne popravlja hakovanjem sintetičkih `touchcancel` događaja.
+
+**Pravilo za sledeće faze:** svaka kapija koja se diže na početku gesta mora da ima
+i put da se spusti bez događaja koji možda nikad neće stići. Događaj koji „uvek
+dolazi" u browseru ne dolazi uvek u WebView-u ispod native slojeva.

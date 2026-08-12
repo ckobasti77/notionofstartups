@@ -8,6 +8,7 @@ import {
   useNodesInitialized,
   useNodesState,
   useReactFlow,
+  useStore,
   type Edge,
   type OnMove,
   type OnNodeDrag,
@@ -34,7 +35,10 @@ import {
   EMBED_NODE_TYPE,
   EMBED_NODE_TYPES,
   EMBED_NODE_WIDTH,
+  EmbedResizeContext,
   type EmbedFlowNode,
+  type EmbedResizeApi,
+  type EmbedResizeBox,
 } from "./embed-node";
 
 /** Vrste kanvasa iz `docs/mobile/00-PLAN.md` §5.2. */
@@ -289,14 +293,33 @@ function CanvasInner({
 type NodeMove = { id: string; x: number; y: number };
 
 /**
+ * Ono što je prst upravo postavio, a upis još nije potvrdio: pozicija (potez) i/ili
+ * dimenzije (promena veličine). Ugaona ručka menja oboje odjednom.
+ */
+type NodeOverride = { position?: XYPosition; width?: number; height?: number };
+
+/** Prag zuma ispod kog se ručke za veličinu ne crtaju — vidi `zoomAllowsHandles`. */
+const HANDLE_MIN_ZOOM = 0.5;
+
+/**
+ * Posle ovoliko ms gest se smatra mrtvim i kapija „živi upit ne gazi prst" se sama
+ * otključava. NIJE kozmetika: dugi pritisak NA RUČKU otvori native sheet, Android tada
+ * prestane da isporučuje dodir WebView-u i `touchend` NIKAD ne stigne do stranice — bez
+ * ovog ventila kanvas trajno prestane da prima žive izmene (viđeno na emulatoru:
+ * kartica je na ekranu ostala 288×196 dok je u bazi bila 259×176). Vrednost je znatno
+ * veća od svakog stvarnog poteza prstom, pa ne može da prekine gest koji traje.
+ */
+const GESTURE_STALE_MS = 8_000;
+
+/**
  * Preuzimanje svežih čvorova iz živog upita bez gubitka lokalnog stanja: selekcija se
- * prenosi iz tekućeg stanja (upit je ne zna), a `overrides` gura pozicije koje je
- * korisnik upravo postavio prstom preko dolaznog snimka (upis još nije stigao).
+ * prenosi iz tekućeg stanja (upit je ne zna), a `overrides` gura pozicije i dimenzije
+ * koje je korisnik upravo postavio prstom preko dolaznog snimka (upis još nije stigao).
  */
 function adoptIncoming(
   incoming: EmbedFlowNode[],
   current: EmbedFlowNode[],
-  overrides?: Map<string, XYPosition>,
+  overrides?: Map<string, NodeOverride>,
 ): EmbedFlowNode[] {
   const selectedIds = new Set(current.filter((node) => node.selected).map((node) => node.id));
   return incoming.map((node) => {
@@ -305,7 +328,15 @@ function adoptIncoming(
     if (!override && !selected) return node;
     const next = { ...node };
     if (selected) next.selected = true;
-    if (override) next.position = override;
+    if (override?.position) next.position = override.position;
+    if (override?.width !== undefined && override?.height !== undefined) {
+      // I `width/height` I `style`: prvo pobeđuje u renderu (`getNodeInlineStyleDimensions`),
+      // ali `style` ostaje izvor za `fitView` granice pre nego što xyflow izmeri DOM —
+      // razilaženje to dvoje bi dalo pogrešno uklapanje.
+      next.width = override.width;
+      next.height = override.height;
+      next.style = { ...next.style, width: override.width, height: override.height };
+    }
     return next;
   });
 }
@@ -329,6 +360,7 @@ function EmbedFlow({
   emptyLabel,
   editMode = false,
   onMoveNodes,
+  onResizeNode,
   initialViewport = null,
   onUserViewport,
 }: {
@@ -342,6 +374,12 @@ function EmbedFlow({
   editMode?: boolean;
   /** Upis poteza. Odbijeno obećanje vraća kartice na `before` (rollback je ovde). */
   onMoveNodes?: (before: NodeMove[], after: NodeMove[]) => Promise<void>;
+  /**
+   * Upis nove veličine kartice. Bez njega se ručke ne crtaju (isti obrazac inertnosti
+   * kao `canEdit`) — vrsta kanvasa bez upisa ne sme da dobije kontrolu koja ne radi.
+   * Odbijeno obećanje vraća karticu na `before`.
+   */
+  onResizeNode?: (nodeId: string, before: EmbedResizeBox, after: EmbedResizeBox) => Promise<void>;
   /** Zapamćena kamera; kad postoji, početni `fitView` se preskače. */
   initialViewport?: Viewport | null;
   /** Kamera koju je pomerio KORISNIK (programske promene su već odsečene). */
@@ -358,13 +396,32 @@ function EmbedFlow({
   const draggingRef = useRef(false);
   const pendingRef = useRef<EmbedFlowNode[] | null>(null);
   const preDragRef = useRef<Map<string, XYPosition>>(new Map());
+  // Kad je gest počeo — vidi `GESTURE_STALE_MS`. Kapija se sama otključava, jer
+  // „potez je gotov" nije uvek događaj koji stigne do stranice.
+  const gestureStartedAtRef = useRef(0);
 
   const canEdit = editMode && !!onMoveNodes;
+  const canResize = editMode && !!onResizeNode;
+
+  /**
+   * Prag zuma ispod kog se ručke ne crtaju. Na `minZoom={0.15}` je kartica od 288 px
+   * na ekranu ~43 px — četiri mete od 44pt bi je potpuno prekrile i onemogućile i sam
+   * izbor. Selektor vraća BOOLEAN, pa se `EmbedFlow` rerenderuje samo kad se prag
+   * pređe, a ne na svaki frejm pinča. Ispod praga put do veličine i dalje postoji:
+   * native rail → „Veličina kartice" → ±10%.
+   */
+  const zoomAllowsHandles = useStore((state) => state.transform[2] >= HANDLE_MIN_ZOOM);
 
   useEffect(() => {
     if (draggingRef.current) {
-      pendingRef.current = nodes;
-      return;
+      if (Date.now() - gestureStartedAtRef.current < GESTURE_STALE_MS) {
+        pendingRef.current = nodes;
+        return;
+      }
+      // Gest je „umro" bez završnog događaja (vidi `GESTURE_STALE_MS`) — kapija se
+      // otključava, jer je zamrznut kanvas gori ishod od kartice koja skoči.
+      draggingRef.current = false;
+      pendingRef.current = null;
     }
     // Funkcijski updater (ne gola vrednost): selekcija se čita iz tekućeg stanja, pa
     // živa izmena podataka ne poništava ono što je korisnik izabrao.
@@ -387,6 +444,7 @@ function EmbedFlow({
 
   const handleNodeDragStart = useCallback<OnNodeDrag<EmbedFlowNode>>((_event, _node, dragged) => {
     draggingRef.current = true;
+    gestureStartedAtRef.current = Date.now();
     preDragRef.current = new Map(
       dragged.map((node) => [node.id, { x: node.position.x, y: node.position.y }]),
     );
@@ -424,7 +482,9 @@ function EmbedFlow({
 
       // Odloženi snimak se primenjuje tek sada, i to SA našim pozicijama preko njega:
       // upis još nije stigao, pa bi ga sirov snimak vratio na staro mesto.
-      const moved = new Map(after.map((move) => [move.id, { x: move.x, y: move.y }]));
+      const moved = new Map<string, NodeOverride>(
+        after.map((move) => [move.id, { position: { x: move.x, y: move.y } }]),
+      );
       if (pending) setFlowNodes((current) => adoptIncoming(pending, current, moved));
 
       void onMoveNodes?.(before, after).catch(() => {
@@ -442,22 +502,162 @@ function EmbedFlow({
     [onMoveNodes, setFlowNodes],
   );
 
+  /**
+   * Spuštanje gate-a „živi upit ne gazi prst" i primena onoga što je usred poteza
+   * stiglo. Deljeno između kraja promene veličine i stražara ispod.
+   */
+  const releaseGesture = useCallback(() => {
+    draggingRef.current = false;
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending) setFlowNodes((current) => adoptIncoming(pending, current));
+  }, [setFlowNodes]);
+
+  /**
+   * Stražar za prekinut gest veličine. xyflow zove `onResizeEnd` SAMO ako je potez
+   * zaista promenio dimenziju (`resizeDetected` u `XYResizer`), a `onResizeStart` se
+   * okida već na dodir. Dodir ručke bez pomeraja bi zato ostavio `draggingRef`
+   * podignut — i živi upit bi od tog trenutka bio trajno zamrznut. Slušamo baš
+   * `mouseup`/`touchend` (iste događaje koje koristi d3-drag, pa naš listener na
+   * `window` uvek ide POSLE njegovog), ne `pointerup` — taj na dodir stiže PRE
+   * `touchend`-a i pregazio bi našu novu veličinu starim snimkom.
+   */
+  const resizeWatchdogRef = useRef<(() => void) | null>(null);
+
+  const disarmResizeWatchdog = useCallback(() => {
+    resizeWatchdogRef.current?.();
+    resizeWatchdogRef.current = null;
+  }, []);
+
+  const handleResizeStart = useCallback(() => {
+    draggingRef.current = true;
+    gestureStartedAtRef.current = Date.now();
+    disarmResizeWatchdog();
+    const finish = () => {
+      disarmResizeWatchdog();
+      releaseGesture();
+    };
+    const events = ["mouseup", "touchend", "touchcancel"] as const;
+    events.forEach((name) => window.addEventListener(name, finish));
+    resizeWatchdogRef.current = () => {
+      events.forEach((name) => window.removeEventListener(name, finish));
+    };
+  }, [disarmResizeWatchdog, releaseGesture]);
+
+  useEffect(() => disarmResizeWatchdog, [disarmResizeWatchdog]);
+
+  /**
+   * Kraj poteza ručkom = JEDAN upis. Isti oblik kao `handleNodeDragStop`: poređenje
+   * ZAOKRUŽENIH vrednosti (drhtaj prsta nije izmena), odloženi snimak se primenjuje
+   * sa našom veličinom preko njega, a odbijeno obećanje vraća karticu na `before`
+   * (poruku greške prikazuje pozivalac).
+   */
+  const handleResizeEnd = useCallback(
+    (nodeId: string, before: EmbedResizeBox, after: EmbedResizeBox) => {
+      disarmResizeWatchdog();
+      draggingRef.current = false;
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+
+      const round = (box: EmbedResizeBox): EmbedResizeBox => ({
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      });
+      const from = round(before);
+      const to = round(after);
+      if (
+        from.width === to.width &&
+        from.height === to.height &&
+        from.x === to.x &&
+        from.y === to.y
+      ) {
+        if (pending) setFlowNodes((current) => adoptIncoming(pending, current));
+        return;
+      }
+
+      const override = new Map<string, NodeOverride>([
+        [nodeId, { position: { x: to.x, y: to.y }, width: to.width, height: to.height }],
+      ]);
+      if (pending) setFlowNodes((current) => adoptIncoming(pending, current, override));
+
+      void onResizeNode?.(nodeId, from, to).catch(() => {
+        setFlowNodes((current) =>
+          current.map((node) =>
+            node.id === nodeId
+              ? {
+                  ...node,
+                  position: { x: from.x, y: from.y },
+                  width: from.width,
+                  height: from.height,
+                  style: { ...node.style, width: from.width, height: from.height },
+                }
+              : node,
+          ),
+        );
+      });
+    },
+    [disarmResizeWatchdog, onResizeNode, setFlowNodes],
+  );
+
+  // Vrednost konteksta MORA da bude memoizovana: nov objekat na svaki render bi
+  // prezidao sve čvorove (svaki `EmbedNodeCard` je potrošač).
+  const resizeApi = useMemo<EmbedResizeApi>(
+    () => ({
+      enabled: canResize && zoomAllowsHandles,
+      onStart: handleResizeStart,
+      onEnd: handleResizeEnd,
+    }),
+    [canResize, zoomAllowsHandles, handleResizeStart, handleResizeEnd],
+  );
+
+  /**
+   * Dugi pritisak na karticu (Android WebView ga isporučuje kao `contextmenu`) otvara
+   * native sheet sa akcijama nad čvorom. `preventDefault` gasi sistemski „izaberi
+   * tekst" meni koji bi inače pojeo gest. Nije JEDINI put do sheet-a — ista radnja
+   * stoji i u native rail-u, jer je `contextmenu` na WKWebView-u nepouzdan.
+   */
+  const handleNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: EmbedFlowNode) => {
+      event.preventDefault();
+      // Dugi pritisak može da počne i NA RUČKI (ona sedi u uglu kartice). Native sheet
+      // koji se sada otvara preuzima dodir, pa stranica završni `touchend` više neće
+      // videti — gest se zato zatvara ovde, odmah i deterministički. Vremenski ventil
+      // (`GESTURE_STALE_MS`) ostaje kao mreža za slučajeve koje ne znamo.
+      disarmResizeWatchdog();
+      releaseGesture();
+      if (node.data.ghost) return;
+      const detail = detailById.get(node.id);
+      if (!detail) return;
+      postNative({ type: "node:actions", nodeId: node.id, node: detail });
+    },
+    [detailById, disarmResizeWatchdog, releaseGesture],
+  );
+
   // Poslednja PRIJAVLJENA kamera (već zaokružena). Kreće od zapamćene vrednosti da ni
   // prvi dodir posle otvaranja ne prijavi ono što u bazi već piše.
   const lastViewportRef = useRef<Viewport | null>(initialViewport);
 
   const handleMoveEnd = useCallback<OnMove>(
     (event, viewport) => {
-      // `sourceEvent === null` znači programsku promenu kamere (početni fit, `fit` i
-      // `zoom` iz native rail-a) — kamera se pamti samo kad ju je korisnik pomerio.
-      if (event === null) return;
       // Običan tap po platnu je za `d3-zoom` pun start→end ciklus sa pravim događajem,
-      // pa bi bez ove provere svaki dodir slao upis iste vrednosti (viđeno na emulatoru).
+      // pa bi bez provere ispod svaki dodir slao upis iste vrednosti (viđeno na emulatoru).
       const rounded: Viewport = {
         x: Math.round(viewport.x),
         y: Math.round(viewport.y),
         zoom: Number(viewport.zoom.toFixed(2)),
       };
+      // `sourceEvent === null` znači programsku promenu kamere (početni fit, `fit` i
+      // `zoom` iz native rail-a) — kamera se pamti samo kad ju je korisnik pomerio.
+      // Vrednost se ipak UPISUJE u ref: bez toga bi prvi sledeći tap (npr. odmah posle
+      // `[⌖]`, ili prvi tap na kanvasu bez zapamćene kamere, gde je `last` još `null`)
+      // prijavio programsku kameru kao korisnikovu i time zauvek ugasio auto-`fitView`
+      // — na oba klijenta istog korisnika (K1 REVIZIJA §6a).
+      if (event === null) {
+        lastViewportRef.current = rounded;
+        return;
+      }
       const last = lastViewportRef.current;
       if (last && last.x === rounded.x && last.y === rounded.y && last.zoom === rounded.zoom) {
         return;
@@ -498,48 +698,54 @@ function EmbedFlow({
     // prima fokus/tastaturu), ne na omotač — inače dupli `role="application"` bez imena.
     <div className={cn("fixed inset-0 bg-background", canEdit && "embed-edit")}>
       <EmbedStyles />
-      <ReactFlow<EmbedFlowNode, Edge>
-        nodes={flowNodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        nodeTypes={EMBED_NODE_TYPES}
-        colorMode={colorMode}
-        aria-label={ariaLabel}
-        ariaLabelConfig={SERBIAN_ARIA_LABELS}
-        fitView={!initialViewport}
-        fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
-        defaultViewport={initialViewport ?? undefined}
-        minZoom={0.15}
-        maxZoom={2}
-        // Povlačenje se pali SAMO u režimu. Čvor koji nije naš nosi `draggable:false` i
-        // ostaje nepomičan i tada (backend bi ga ionako odbio).
-        nodesDraggable={canEdit}
-        // Prst uvek malo zadrhti: bez praga bi i običan tap ušao u potez.
-        nodeDragThreshold={5}
-        nodesConnectable={false}
-        elementsSelectable
-        panOnDrag
-        zoomOnPinch
-        zoomOnScroll
-        panOnScroll={false}
-        proOptions={{ hideAttribution: true }}
-        onNodeDragStart={handleNodeDragStart}
-        onNodeDragStop={handleNodeDragStop}
-        onMoveEnd={handleMoveEnd}
-        // U režimu tap BIRA karticu (ne otvara je) — inače bi isti dodir imao dva ishoda.
-        onNodeClick={canEdit ? undefined : handleNodeClick}
-        onSelectionChange={handleSelectionChange}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={20}
-          size={1}
-          color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
-        />
-        {/* Namerno BEZ `<Controls>`: zoom i centriranje drži native rail preko mosta
-            (§9.3). Dva identična seta kontrola na istom ekranu su se čitala kao rail
-            bez primarne akcije. */}
-      </ReactFlow>
+      {/* Provajder obavija ceo graf: ručke se renderuju unutar komponente čvora
+          (`embed-node.tsx`), a odluka i upis su ovde. */}
+      <EmbedResizeContext.Provider value={resizeApi}>
+        <ReactFlow<EmbedFlowNode, Edge>
+          nodes={flowNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          nodeTypes={EMBED_NODE_TYPES}
+          colorMode={colorMode}
+          aria-label={ariaLabel}
+          ariaLabelConfig={SERBIAN_ARIA_LABELS}
+          fitView={!initialViewport}
+          fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+          defaultViewport={initialViewport ?? undefined}
+          minZoom={0.15}
+          maxZoom={2}
+          // Povlačenje se pali SAMO u režimu. Čvor koji nije naš nosi `draggable:false` i
+          // ostaje nepomičan i tada (backend bi ga ionako odbio).
+          nodesDraggable={canEdit}
+          // Prst uvek malo zadrhti: bez praga bi i običan tap ušao u potez.
+          nodeDragThreshold={5}
+          nodesConnectable={false}
+          elementsSelectable
+          panOnDrag
+          zoomOnPinch
+          zoomOnScroll
+          panOnScroll={false}
+          proOptions={{ hideAttribution: true }}
+          onNodeDragStart={handleNodeDragStart}
+          onNodeDragStop={handleNodeDragStop}
+          onMoveEnd={handleMoveEnd}
+          // U režimu tap BIRA karticu (ne otvara je) — inače bi isti dodir imao dva ishoda.
+          onNodeClick={canEdit ? undefined : handleNodeClick}
+          // Van režima dugi pritisak ne sme ništa da otvori: kanvas je tada za gledanje.
+          onNodeContextMenu={canEdit ? handleNodeContextMenu : undefined}
+          onSelectionChange={handleSelectionChange}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={20}
+            size={1}
+            color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
+          />
+          {/* Namerno BEZ `<Controls>`: zoom i centriranje drži native rail preko mosta
+              (§9.3). Dva identična seta kontrola na istom ekranu su se čitala kao rail
+              bez primarne akcije. */}
+        </ReactFlow>
+      </EmbedResizeContext.Provider>
       {nodes.length === 0 ? (
         <div
           role="status"
@@ -816,11 +1022,21 @@ function ThoughtsFlow({
 /** Payload je isti za oblast i stranicu (`canvasPayloadValidator`) — jedan render put. */
 type PageCanvasData = FunctionReturnType<typeof api.areasV2.getAreaCanvasByArea>;
 
-/** Detalj page-čvora koji embed šalje native ljusci (na mobilnom otvara ekran stranice). */
+/**
+ * Detalj page-čvora koji embed šalje native ljusci uz `node:open` / `selection` /
+ * `node:actions` (na mobilnom otvara ekran stranice, odnosno sheet „Veličina kartice").
+ * Nosi i scope i trenutnu veličinu, pa native za sheet ne mora nijedan drugi upit.
+ */
 type PageNodeDetail = {
   _id: Id<"pages">;
   title: string;
   kind: string;
+  canResize: boolean;
+  width: number;
+  height: number;
+  startupId: Id<"startups">;
+  areaId: Id<"startupAreas">;
+  rootPageId: Id<"pages"> | null;
 };
 
 // Ghost-ovi ne nose placement dimenzije sa servera (samo x/y), pa dobijaju fiksnu
@@ -863,6 +1079,7 @@ function PageCanvasView({
   editMode: boolean;
 }) {
   const movePages = useMutation(api.areasV2.movePages);
+  const resizePage = useMutation(api.areasV2.resizePage);
   const { startupId, areaId, rootPageId } = data.scope;
   // Zamrznuto na mount-u: `defaultViewport` i `fitView` xyflow čita samo pri inicijalizaciji,
   // a `data.viewport.persisted` postaje `true` čim se prvi pan sačuva — tada se vrednost
@@ -917,6 +1134,48 @@ function PageCanvasView({
   );
 
   /**
+   * Upis nove veličine — blizanac `handleMoveNodes`. `x`/`y` idu UVEK zajedno (server
+   * odbija jedno bez drugog, `areasV2.ts:2425`): ugaona ručka pomera gornji/levi rub,
+   * pa je pozicija deo istog poteza. Native uz `resized` dobija i staru veličinu (za
+   * „Poništi") i novu (da sheet posle povlačenja računa ±10% iz tačne vrednosti).
+   */
+  const handleResizeNode = useCallback(
+    async (pageId: string, before: EmbedResizeBox, after: EmbedResizeBox) => {
+      try {
+        await resizePage({
+          startupId,
+          areaId,
+          rootPageId,
+          pageId: pageId as Id<"pages">,
+          width: after.width,
+          height: after.height,
+          x: after.x,
+          y: after.y,
+        });
+        postNative({
+          type: "resized",
+          startupId,
+          areaId,
+          rootPageId,
+          pageId,
+          width: after.width,
+          height: after.height,
+          previous: before,
+        });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message:
+            error instanceof Error ? error.message : "Veličina kartice nije sačuvana.",
+        });
+        throw error;
+      }
+    },
+    [areaId, resizePage, rootPageId, startupId],
+  );
+
+  /**
    * Kamera se ne piše odavde nego se prijavljuje native ljusci: ona je prigušuje (800 ms)
    * i ona je vlasnik dugmadi koja kameru pomeraju. Vrednost je već zaokružena u
    * `EmbedFlow` (isto zaokruživanje kao desktop) — tamo je i provera „da li se uopšte
@@ -941,7 +1200,17 @@ function PageCanvasView({
     const detailById = new Map<string, unknown>(
       data.pages.map((page) => [
         page._id as string,
-        { _id: page._id, title: page.title, kind: page.kind } satisfies PageNodeDetail,
+        {
+          _id: page._id,
+          title: page.title,
+          kind: page.kind,
+          canResize: page.canResize,
+          width: page.width,
+          height: page.height,
+          startupId: data.scope.startupId,
+          areaId: data.scope.areaId,
+          rootPageId: data.scope.rootPageId,
+        } satisfies PageNodeDetail,
       ]),
     );
     // Stranice nose stvarne dimenzije sa servera (placement ili podrazumevane), pa se
@@ -960,6 +1229,8 @@ function PageCanvasView({
       data: {
         label: (page.title || "Stranica").trim().slice(0, 80) || "Stranica",
         meta: pageKindLabel(page.kind),
+        // Ručke za veličinu dobija samo autor kartice — server bi tuđu ionako odbio.
+        canResize: page.canResize,
       },
       ariaLabel: `${pageKindLabel(page.kind)}: ${page.title}`,
     }));
@@ -1007,6 +1278,7 @@ function PageCanvasView({
       emptyLabel={emptyLabel}
       editMode={editMode}
       onMoveNodes={handleMoveNodes}
+      onResizeNode={handleResizeNode}
       initialViewport={initialViewport}
       onUserViewport={handleUserViewport}
     />
@@ -1109,6 +1381,29 @@ function EmbedStyles() {
         outline: 2px dashed color-mix(in oklab, var(--primary) 55%, transparent);
         outline-offset: 4px;
         border-radius: 0.75rem;
+      }
+      /* Izabrana kartica ≠ samo povlačiva: puna linija je znak da su sada vidljive i
+         ručke za veličinu. Pravilo mora da stoji POSLE \`draggable\` (ista specifičnost)
+         i menja samo stil linije — boju, širinu i odmak nasleđuje od njega. */
+      .embed-edit .react-flow__node.selected {
+        outline-style: solid;
+      }
+      /* Dugi pritisak (put do native sheet-a) ne sme da postane „izaberi tekst" ni da
+         otvori sistemski meni nad karticom. */
+      .embed-edit .react-flow__node {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      /* Vidljivi deo ručke: 16 px tačka u meti od 44pt (\`HANDLE_STYLE\` u
+         \`embed-node.tsx\`). Meta se ne smanjuje — smanjuje se samo ono što se vidi. */
+      .embed-resize-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--primary);
+        border: 2px solid var(--background);
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
       }
     `}</style>
   );

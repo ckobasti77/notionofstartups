@@ -491,3 +491,51 @@ i to zato što se `resizePage` (`undo-bar.tsx`, `page-size-sheet.tsx`) i
 - [ ] `apps/mobile/package.json` nije menjan (nema unosa u `NATIVE-BUILD.md`)
 - [ ] K1 REVIZIJA §6(a) zatvorena (4a + T10); §6(b) zatvorena za veličinu (±10% u
       sheet-u), za **pomeranje** i dalje otvorena i tako zapisana
+
+---
+
+## 8. REALIZACIJA — odstupanja od plana i zašto
+
+Zapisano posle izvođenja (12.08.). Plan je sproveden u celini; ovo su razlike.
+
+### 8.1 Mobilni je dobio SVOJ modul granica (`apps/mobile/src/lib/canvas-node-size.ts`)
+
+Plan je predviđao samo `apps/web/lib/canvas-node-size.ts`. Ispostavilo se da native
+sheet („±10%") takođe mora da klampuje, a mobilni ne sme da uvozi iz `apps/web`
+(drugi paket, drugi bundler); backend konstante (`areasV2.ts:85–88`) nisu izvezene,
+a uvoz tog modula bi u Metro bundle uvukao ceo serverski fajl. Zato su brojevi na
+dva mesta, oba sa komentarom „mora da prati `areasV2.ts:85–88`" i oba pokrivena
+testom T7. Alternativa (`packages/shared`) bi značila nov workspace paket — van
+opsega faze koja ne sme da dira infrastrukturu.
+
+### 8.2 Poruka `resized` nosi `previous` (ne `before`) i uz to NOVU veličinu
+
+`moved` već koristi ime `before` za **niz** kartica. Isto ime sa drugim oblikom
+(jedna kartica, sa `width`/`height`) bi u native parseru moralo da bude unija koja
+laže o tipu. Zato `previous`. Nova veličina (`width`/`height` na vrhu poruke) je
+dodata jer bez nje sheet posle povlačenja računa ±10% iz zastarele vrednosti —
+plan to traži u izmeni 9.1, ali nije rekao kojim putem podatak stiže.
+
+### 8.3 Dodata odbrana koje u planu nije bilo: kapija poteza koja se sama otključava
+
+Plan (4c) je kapiju `draggingRef` dizao u `onResizeStart`, a spuštao u
+`onResizeEnd`. Na uređaju se pokazalo da `onResizeEnd` **ne mora da stigne**:
+xyflow ga zove samo ako je potez promenio dimenziju, a dugi pritisak na ručku
+otvori native sheet posle kog WebView više ne dobija `touchend`. Rezultat je bio
+zamrznut prikaz (kartica 288 × 196 na ekranu, 259 × 176 u bazi). Dodata su tri
+sloja: stražar na `mouseup`/`touchend`/`touchcancel`, deterministično zatvaranje
+gesta na `contextmenu`, i vremenski ventil `GESTURE_STALE_MS`. Pun opis:
+`ZA-POPRAVKU.md` Z7. **Bez ovoga bi faza isporučila kanvas koji tiho prestane da
+prikazuje tuđe izmene.**
+
+### 8.4 Sitnije od plana
+
+- Sheet dobija `Alert` „Granica veličine" kad je kartica već na min/max (plan je
+  imao samo klamp) — tih poziv koji ništa ne menja izgleda kao kvar.
+- Red „Vrati podrazumevanu veličinu" je `disabled` kad je kartica već 288 × 196,
+  uz objašnjenje ispod liste.
+- `k2-desktop.png` NIJE snimljen: u okruženju i dalje nema web kredencijala (isto
+  kao K1 §8.6). Desktop je pokriven statički — `git diff apps/web/components/`
+  sadrži isključivo zamenu četiri literala imenovanim konstantama iste vrednosti,
+  `grep -rn "components/workspace" apps/web/app/embed/` je prazan, `npm run build`
+  prolazi. **Ručna provera desktop resize-a mišem ostaje otvorena.**

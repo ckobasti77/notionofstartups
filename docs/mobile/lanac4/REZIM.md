@@ -25,6 +25,8 @@ Odluka korisnika, nije predmet preispitivanja.
 | Odjek režima u grafu | web (embed) | `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx` — `CanvasInner.editMode` |
 | Pozicije čvorova dok traje potez | web (embed) | `EmbedFlow.flowNodes` (`useNodesState`) |
 | Upis pozicije (`movePages`) | **web (embed)** | `PageCanvasView.handleMoveNodes` |
+| Upis veličine iz poteza (`resizePage`) | **web (embed)** | `PageCanvasView.handleResizeNode` |
+| Upis veličine iz sheet-a (`resizePage`/`resetPageSize`) | **native** | `components/canvas/page-size-sheet.tsx` |
 | Upis kamere (`saveViewport`) | **native** | isti ekran, prigušeno 800 ms |
 | Traka „Poništi" | native | `components/undo-bar.tsx` + `lib/undo.ts` |
 
@@ -46,7 +48,7 @@ Android preko `document`. Nema drugog kanala i nema handshake-a (ZA-POPRAVKU Z2)
 
 | Poruka | Kada | Efekat |
 |---|---|---|
-| `{type:"mode", value:"edit"\|"view"}` | tap na „Uredi raspored" / „Gotovo", i **ponovo posle svakog `onLoadEnd`** ako je režim upaljen | `nodesDraggable`, obod + pilula, tap više ne otvara čvor |
+| `{type:"mode", value:"edit"\|"view"}` | tap na „Uredi raspored" / „Gotovo", i **ponovo posle svakog `onLoadEnd`** ako je režim upaljen | `nodesDraggable`, ručke za veličinu, obod + pilula, tap više ne otvara čvor |
 
 Nepoznata `value` = `view`. Režim se pali samo eksplicitno.
 
@@ -56,10 +58,19 @@ Nepoznata `value` = `view`. Režim se pali samo eksplicitno.
 |---|---|---|
 | `{type:"moved", startupId, areaId, rootPageId, count, before:[{pageId,x,y}]}` | posle **uspešnog** `movePages` | `haptics.success()` + traka „Poništi" (`kind:'pageMove'`) |
 | `{type:"viewport", startupId, areaId, rootPageId, x, y, zoom}` | `onMoveEnd` koji je izazvao **korisnik** | prigušen `saveViewport` (800 ms) |
-| `{type:"toast", level:"error", message}` | `movePages` je pukao | `Alert.alert('Greška', message)`; embed sam vraća kartice na staro |
+| `{type:"resized", startupId, areaId, rootPageId, pageId, width, height, previous:{x,y,width,height}}` | posle **uspešnog** `resizePage` iz poteza ručkom (K2) | `haptics.success()`, traka „Poništi" (`kind:'pageResize'`) i osvežena veličina u lokalnom detalju čvora |
+| `{type:"node:actions", nodeId, node}` | **dugi pritisak** na karticu u režimu (`contextmenu`) | otvara native sheet „Veličina kartice" (`page-size-sheet.tsx`) |
+| `{type:"toast", level:"error", message}` | `movePages` ili `resizePage` je pukao | `Alert.alert('Greška', message)`; embed sam vraća kartice na staro |
 
-`before` nosi koordinate **od pre poteza** — traka „Poništi" ih ne čita iz baze
-(baza u tom trenutku već drži nove).
+`before` (kod `moved`) odnosno `previous` (kod `resized`) nose stanje **od pre
+poteza** — traka „Poništi" ga ne čita iz baze (baza u tom trenutku već drži novo).
+Imena su namerno različita jer su i oblici različiti: `moved` nosi **niz** kartica,
+`resized` **jednu** (server prima jednu po pozivu). `resized` uz to nosi i NOVU
+veličinu, da native sheet posle povlačenja računa „±10%" iz tačne vrednosti.
+
+**Dugi pritisak nije jedini put do sheet-a.** Ista radnja stoji i kao četvrta
+ikonica native rail-a kad je izabrana jedna svoja kartica — `contextmenu` je na
+WKWebView-u nepouzdan, a ručke se ispod zuma 0.5 uopšte ne crtaju.
 
 ---
 
@@ -125,6 +136,19 @@ povlačivoj kartici** ne vidi:
   red po `viewerProfileId` + scope, isti za oba klijenta: pan na telefonu menja
   početni pogled istog korisnika na desktopu. Web se isto ponaša između svojih
   prozora — prihvaćeno svesno.
+- **Ručke za veličinu se ne crtaju ispod zuma 0.5** (K2, `HANDLE_MIN_ZOOM`). Na
+  `minZoom={0.15}` je kartica od 288 px na ekranu ~43 px, pa bi je četiri mete od
+  44pt potpuno prekrile i onemogućile i sam izbor. Put do veličine ispod praga
+  postoji i tada: rail → „Veličina kartice" → „Umanji / Uvećaj (±10%)". Ne rešava se
+  smanjivanjem dodirne mete.
+- **Bočne ručke (`top`/`right`/`bottom`/`left`) ne postoje** — samo četiri ugla.
+  Prstom se bočna ručka ne pogađa, a ugao + ±10% pokrivaju svaki ishod.
+- **Gest ručke koji preuzme native sloj se ne može otkazati spolja.** Dugi pritisak
+  na ručku otvori sheet; Android tada prestane da isporučuje dodir WebView-u i
+  `touchend` nikad ne stigne do stranice, pa `d3-drag` ostaje naoružan. Naša kapija
+  se otključava odmah (`contextmenu`) i, kao mreža, po isteku `GESTURE_STALE_MS`;
+  sam d3 gest ne umemo da ubijemo iz JS-a. Posledica u najgorem slučaju je jedna
+  promena veličine koja **uvek** ostavlja traku „Poništi" (ZA-POPRAVKU Z7).
 - **Guma-selekcija i ugnježdavanje prevlačenjem se NE prenose** (`PARITET.md`,
   sekcija Z): na telefonu nema modifikatora, a ista tačka dodira sa dva ishoda
   (pomeri / ugnjezdi) bi značila slučajno slanje zahteva celom timu.

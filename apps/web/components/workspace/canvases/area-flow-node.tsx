@@ -49,6 +49,7 @@ import {
   type MoveToAreaOption,
 } from "@/components/workspace/move-to-area-menu";
 import type { Id } from "@/convex/_generated/dataModel";
+import { PAGE_NODE_SIZE } from "@/lib/canvas-node-size";
 import {
   classifyDeadline,
   deadlineAriaLabel,
@@ -281,10 +282,10 @@ export const AreaFlowNodeCard = memo(function AreaFlowNodeCard({
         selected={selected}
         disabled={!canResize}
         shape={meta.shape}
-        minWidth={240}
-        minHeight={168}
-        maxWidth={720}
-        maxHeight={1_000}
+        minWidth={PAGE_NODE_SIZE.minWidth}
+        minHeight={PAGE_NODE_SIZE.minHeight}
+        maxWidth={PAGE_NODE_SIZE.maxWidth}
+        maxHeight={PAGE_NODE_SIZE.maxHeight}
         ariaLabel={`Promeni veličinu — ${kindLabel} ${title} — povlačenjem oboda`}
         onResizeEnd={(layout) => {
           if (canResize) actions?.resize(pageId, layout);
