@@ -632,6 +632,53 @@ prirodno pravi.
 
 ---
 
+# K — UREĐIVANJE KANVASA (lanac 4)
+
+Ovo poništava raniji izuzetak „unos koordinata prstom bez direktne manipulacije
+nije upotrebljiv" (`lanac4/OSNOVA.md`): direktna manipulacija postoji, samo je
+bila isključena sa dve zastavice u embedu. Protokol režima:
+`docs/mobile/lanac4/REZIM.md`.
+
+## K1. Režim „Uredi raspored" i pomeranje kartica
+
+Kanvas ostaje podrazumevano za gledanje (jedan prst platno, dva zum); dugme u
+native rail-u pali režim u kom se kartice povlače prstom.
+
+- [x] `areasV2.movePages` — potez prstom u režimu piše poziciju kartice.
+      Upis: `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:865`
+      (`useMutation`), poziv u `handleMoveNodes` (`:873`), okidač
+      `onNodeDragStop={handleNodeDragStop}` (`:527`) — **jedan upis po potezu**,
+      ne po frejmu. Povlačenje se pali sa `nodesDraggable={canEdit}` (`:516`),
+      tuđa kartica nosi `draggable: false` (`:959`). „Poništi" zove istu funkciju
+      sa starim koordinatama: `apps/mobile/src/components/undo-bar.tsx:54` +
+      `case 'pageMove'` (`:110`), unija u `apps/mobile/src/lib/undo.ts:38`.
+      Dokazi: `lanac4/dokazi/k1-pre.png` → `k1-posle.png`, log
+      `k1-logovi.txt` (1:48:12 — tačno jedan `movePages` po potezu; 1:52:19 +
+      1:52:20 — potez pa „Poništi").
+- [x] `areasV2.saveViewport` — pan/zum prstom se pamti po korisniku i scope-u.
+      `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:240` (`useMutation`),
+      prigušeno 800 ms (`flushViewport`, `:244`, `VIEWPORT_DEBOUNCE_MS`), flush
+      na izlazak sa ekrana (`:261`). Embed prijavljuje samo KORISNIKOVU kameru —
+      `onMoveEnd={handleMoveEnd}` (`canvas-embed.tsx:528`) odbacuje programske
+      promene (`sourceEvent === null`) i vrednost koja se nije promenila.
+      Zapamćena kamera se vraća kroz `defaultViewport` + preskočen `fitView`.
+      Dokazi: `k1-povratak.png` (povratak na kanvas otvara zapamćen pogled),
+      log — jedan `saveViewport` po pan-u, nijedan posle `[⌖]` (fit).
+- [x] Prekidač režima u native rail-u — `canvas-rail.tsx:85` (ikonica „Uredi
+      raspored", 44pt) / `:54` (primarno dugme postaje „Gotovo"); ekran ga daje
+      samo za `area`/`page` (`canvas/[kind]/[id].tsx:502`), poruka mosta
+      `{type:'mode'}` (`:229`), ponovno slanje posle učitavanja (`:466`).
+      Dokazi: `k1-pre.png` (obod + pilula „Uređivanje rasporeda" u WebView-u),
+      `k1-gotovo-swipe.png` (van režima swipe po kartici pomera platno),
+      `k1-t9-posle-retry.png` (režim preživi „Pokušaj ponovo").
+
+**Ostaje za K2–K5** (i dalje u sekciji Z do tada): `resizePage`,
+`resetPageSize`, `connectPages`, `disconnectPages`,
+`taskCheckpoints.saveCanvasPlacement`, `resetCanvasSize`,
+`taskCheckpointCanvasEdges.connect`/`disconnect`.
+
+---
+
 # ŠTA JE VEĆ URAĐENO — NE DIRAJ I NE PRAVI PONOVO
 
 Provereno na emulatoru, radi:
@@ -663,16 +710,26 @@ Prazan razlog ne važi. „Nije bitno" nije razlog.
 | `areasV2.resolveRoute` | Rutiranje web URL-ova; mobilni ima expo-router. |
 | `pageFiles.prune` | Čisti osirotele priloge UMETNUTE U TELO beleške preko node-view mehanizma; mobilni tentap editor ne ume da ubaci prilog u telo (ZA-POPRAVKU §2/§5.1, gejt i dalje otvoren) — nema koda koji na mobilnom može da napravi taj osiroteli red, pa nema šta da se čisti. Zatvara se zajedno sa proširenjem tentap bundle-a. |
 | `notifications.latest` | Postoji isključivo kao izvor za web in-app toast (`useNotificationToasts`, notifications-panel.tsx — jedini pozivalac u celom webu; backend komentar: „služi samo detekciji novih obaveštenja za toast"). Na telefonu tu ulogu već igraju OS push baner (expo-notifications, kanal/zvuk po tipu), bedž na tabu (unreadCount) i pun ekran „Obaveštenja" (notifications.list). Drugi, in-app toast sloj bi dupliralo OS baner. |
-| `taskCheckpoints.saveCanvasPlacement` | Prevlačenje/dimenzionisanje checkpoint oblačića na page kanvasu — čisto uređivanje layouta kanvasa. Mobilni kanvas je pregled (00-PLAN §5.2), embed je read-only; native unos koordinata bez direktne manipulacije = neupotrebljivo. Semantika checkpointa (tekst, završenost, lančanje, brisanje, glasanja) je već native na detalju zadatka (nit doprinosa PO CHECKPOINTU još nije montirana — ZA-POPRAVKU §5.7, van ove kategorije). Ista kategorija kao areasV2.movePages/resizePage, koji takođe (svesno) nisu na telefonu. |
+| `taskCheckpoints.saveCanvasPlacement` | Prevlačenje/dimenzionisanje checkpoint oblačića na page kanvasu. **Više nije trajan izuzetak nego red čekanja: K4.** Režim „Uredi raspored" (K1) je već napravljen i nosiv; checkpoint je drugi tip čvora, koji embed za sada uopšte ne crta. Semantika checkpointa (tekst, završenost, lančanje, brisanje, glasanja) je već native na detalju zadatka (nit doprinosa PO CHECKPOINTU još nije montirana — ZA-POPRAVKU §5.7, van ove kategorije). |
 | `taskCheckpoints.resetCanvasSize` | Isto — reset dimenzija oblačića na kanvasu; veličina se na telefonu ni ne postavlja. |
 | `taskCheckpointCanvasEdges.connect` | Vizuelne strelice toka na page kanvasu (spajaju i checkpoint↔stranicu), imaju smisao samo u koordinatnom prostoru kanvasa. Stvarna zavisnost koraka je native kroz `setChainedToPrevious`/`setAllChained` (task-checkpoint-list.tsx). Crtanje dijagrama je posao za veliki ekran. |
 | `taskCheckpointCanvasEdges.disconnect` | Isto; uz to glasanje o brisanju tuđe canvas veze već radi na mobilnom (odobrenja.tsx, `task_checkpoint_edge`), pa tim tokovima ništa ne fali. |
 | `areasV2.getCanvas` | Šira desktop-samo pretplata (ceo startup odjednom — `area-canvas-view.tsx`, `area-view.tsx`, `page-workspace-view.tsx`, `workspace-shell.tsx`). Mobilni embed (`canvas/[kind]/[id].tsx` → `canvas-embed.tsx`) zove UŽE resolvere po meti: `getAreaCanvasByArea`/`getPageCanvasByPage` — funkcionalno zamenjuju `getCanvas` za tačno onaj scope koji se prikazuje, ne rupa. |
 | `areasV2.getPageCanvasByPage` | Nije "web-only" u pravom smislu — poziva ga `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`, DELJENI kod koji mobilni učitava kroz WebView (00-PLAN §5.2). Grep metod ga vidi kao web-only jer broji samo `apps/web/components`+`app`. |
-| `areasV2.movePages` | Prevlačenje/pozicioniranje stranica na kanvasu oblasti — čisto uređivanje layouta. Mobilni kanvas je pregled (00-PLAN §5.2), embed je read-only. Ista kategorija kao `taskCheckpoints.saveCanvasPlacement`. |
-| `areasV2.resizePage` | Isto — promena dimenzija kartice stranice na kanvasu. |
-| `areasV2.resetPageSize` | Isto — reset dimenzija na podrazumevane. |
-| `areasV2.saveViewport` | Čuva zum/poziciju kanvasa oblasti za sledeće otvaranje — postavlja se isključivo ručnim pomeranjem na desktop kanvasu. |
+| `areasV2.resizePage` | Promena dimenzija kartice stranice na kanvasu — čeka K2 (ručka od 8px mora da postane dodirna meta od 44pt). |
+| `areasV2.resetPageSize` | Isto — reset dimenzija na podrazumevane; ide uz K2. |
 | `areasV2.connectPages` | Crtanje veza između stranica na kanvasu — vizuelna radnja u koordinatnom prostoru kanvasa. |
 | `areasV2.disconnectPages` | Isto, obrnuta radnja. |
 | `activity.listForStartup` | Mobilni koristi `activity.listPaginated` (bez tvrdog limita 50, sa nastavkom) — funkcionalno superiorna zamena, ne rupa. Obrnut paritet, već objašnjeno u ZA-POPRAVKU §5.8. |
+
+## Z-gestovi — obrasci sa desktop kanvasa koji se NE prenose (K1)
+
+Ovo nisu funkcije nego potezi mišem; grep ih ne meri, pa se zapisuju ovde da se
+kasnije ne otkriju kao „rupa".
+
+| Poteza na desktopu | Zašto ne ide na telefon |
+|---|---|
+| Guma-selekcija više kartica (`selectionOnDrag`, `area-canvas-view.tsx:2144`) | Na telefonu nema modifikatora ni drugog tastera — isti potez bi bio ili pan ili pomeranje. `movePages` ipak prima niz, pa je put ka grupnom potezu otvoren. |
+| Ugnježdavanje prevlačenjem kartice na karticu (`requestNesting` sa kanvasa) | Ista tačka dodira nosila bi dva ishoda (pomeri / ugnjezdi) bez vidljivog razgraničenja — na telefonu je to slučajno slanje zahteva celom timu. Ugnježdavanje već postoji native, u `page-actions-sheet.tsx`. |
+| Pomeranje kartice strelicama tastature (`area-canvas-view.tsx:893`) | Nad kanvasom nema tastature; spoljna tastatura uz WebView je rubni slučaj. |
+| Pinč koji počne NAD svojom karticom u režimu | xyflow povlačivom čvoru dodaje `nopan`, pa gest ne stigne do `d3-zoom`. Izlaz postoji i nezavisan je od dodira: `[+]` / `[−]` u rail-u. Ne rešava se smanjivanjem dodirne mete. |

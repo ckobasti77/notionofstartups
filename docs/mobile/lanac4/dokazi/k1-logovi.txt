@@ -1,0 +1,26 @@
+# Faza K1 — red iz Convex logova (Android emulator, 12.08.2026)
+#
+# Snimljeno komandom: npx convex logs --success (dev deployment deafening-otter-504)
+# Filtrirano na mutacije kanvasa; upiti (getAreaCanvasByArea) i JWKS izbačeni radi čitljivosti.
+#
+# 1:48:12  T1/T3 — jedan potez prstom = TAČNO JEDAN movePages
+# 1:49:33  T2/T5 — pan prstom po praznom platnu U REŽIMU: saveViewport, BEZ movePages
+# 1:49:5x  T5   — tap na [⌖] (fit): NEMA novog saveViewport (programska kamera se ne pamti)
+# 1:50:20  potez kartice TEST 2
+# 1:50:41  NALAZ: običan tap po platnu je pisao istu kameru → popravljeno (provera 'da li se promenila')
+# 1:51:5x  posle popravke: dva tapa po platnu = NULA saveViewport
+# 1:52:19  T7   — potez kartice 'oze'
+# 1:52:20  T7   — 'Poništi' → drugi movePages sa STARIM koordinatama
+# 1:52:58  T8   — van režima swipe PO KARTICI pomera platno (saveViewport, bez movePages)
+# 1:57:09  T9   — posle 'Pokušaj ponovo' kartica se i dalje pomera
+# 1:57:12  T9   — 'Poništi' vraća
+
+8/12/2026, 1:48:12 PM [CONVEX M(areasV2:movePages)] Function executed in 26 ms
+8/12/2026, 1:49:33 PM [CONVEX M(areasV2:saveViewport)] Function executed in 25 ms
+8/12/2026, 1:50:20 PM [CONVEX M(areasV2:movePages)] Function executed in 26 ms
+8/12/2026, 1:50:41 PM [CONVEX M(areasV2:saveViewport)] Function executed in 23 ms
+8/12/2026, 1:52:19 PM [CONVEX M(areasV2:movePages)] Function executed in 22 ms
+8/12/2026, 1:52:20 PM [CONVEX M(areasV2:movePages)] Function executed in 28 ms
+8/12/2026, 1:52:58 PM [CONVEX M(areasV2:saveViewport)] Function executed in 23 ms
+8/12/2026, 1:57:09 PM [CONVEX M(areasV2:movePages)] Function executed in 25 ms
+8/12/2026, 1:57:12 PM [CONVEX M(areasV2:movePages)] Function executed in 23 ms

@@ -404,9 +404,66 @@ nešto na webu obrisano.
 
 ## 7. Definicija „gotovo" za K1
 
-- [ ] T0–T11 prolaze, snimci i red iz loga u `docs/mobile/lanac4/dokazi/`
-- [ ] `docs/mobile/lanac4/REZIM.md` napisan (protokol za K2–K5)
-- [ ] `00-PLAN.md` §5.2 tabela mosta dopunjena
-- [ ] `PARITET.md`: sekcija K sa `[x]` i dokazima; dva reda uklonjena iz Z
-- [ ] `git diff` prazan nad `packages/backend/` i `apps/web/components/`
-- [ ] `apps/mobile/package.json` nije menjan (ako jeste → `lanac4/NATIVE-BUILD.md`)
+- [x] T0–T11 prolaze, snimci i red iz loga u `docs/mobile/lanac4/dokazi/`
+      (T6 delimično — vidi odstupanje 6 niže)
+- [x] `docs/mobile/lanac4/REZIM.md` napisan (protokol za K2–K5)
+- [x] `00-PLAN.md` §5.2 tabela mosta dopunjena
+- [x] `PARITET.md`: sekcija K sa `[x]` i dokazima; dva reda uklonjena iz Z
+- [x] `git diff` prazan nad `packages/backend/` i `apps/web/components/`
+- [x] `apps/mobile/package.json` nije menjan (nema unosa u `NATIVE-BUILD.md`)
+
+---
+
+## 8. Odstupanja od plana (dopisano po izvršenju, 12.08.2026)
+
+**1. `draggable: page.canMove ? undefined : false`, ne `draggable: page.canMove`.**
+Plan je predviđao `draggable: page.canMove` po čvoru (kao desktop). To bi bio bag:
+xyflow računa `isDraggable = !!(node.draggable || (nodesDraggable && typeof
+node.draggable === 'undefined'))` — dakle `draggable:true` na čvoru **pobeđuje**
+globalni `nodesDraggable={false}`, pa bi se svoje kartice povlačile i VAN režima,
+čime bi ceo režim izgubio smisao. `undefined` prepušta odluku globalnoj zastavici,
+a `false` je tvrdo NE za tuđe kartice i ghost-ove. Uz to, memo čvorova ne zavisi od
+`editMode`, pa se pri paljenju režima ne prezidavaju svi čvorovi.
+
+**2. Provera „da li se kamera uopšte promenila" (nalaz sa emulatora).**
+Plan je imao samo `event === null` gate. Na emulatoru se videlo da je **običan tap
+po platnu** za `d3-zoom` pun start→end ciklus sa PRAVIM `sourceEvent`-om, pa je
+svaki dodir slao upis identične vrednosti (`k1-logovi.txt`, 1:50:41). Dodata je
+memorija poslednje prijavljene kamere (`lastViewportRef`, inicijalizovana zapamćenom
+vrednošću) i poređenje zaokruženih brojeva. Posle popravke: dva tapa po platnu = nula
+upisa. Zaokruživanje se time preselilo iz `PageCanvasView` u `EmbedFlow` (da poređenje
+i poruka koriste iste brojeve).
+
+**3. Selekcija preživljava dolazak podataka (`adoptIncoming`).**
+Plan je imao `setFlowNodes(nodes)`. Pošto su čvorovi sada LOKALNO stanje, sirov
+snimak iz upita bi na svaku tuđu izmenu obrisao selekciju (a od selekcije zavisi
+primarna akcija rail-a na idejama/mislima — K5). Zato se `selected` prenosi iz
+tekućeg stanja, a ista funkcija prima i „overrides" za pozicije tek pomerenih kartica.
+
+**4. Rollback je u `EmbedFlow`, ne u `PageCanvasView`.** `onMoveNodes` vraća
+`Promise`; `PageCanvasView` na grešku pošalje `toast` i **baci dalje**, a `EmbedFlow`
+(koji jedini drži čvorove) vrati pozicije. Plan je tražio da `PageCanvasView` „vrati
+`flowNodes`" — do tog stanja on nema pristup.
+
+**5. `NodeMove` je generičan (`id`), ne `pageId`.** Potpis `onMoveNodes` tako
+neizmenjen služi i K5 (ideje/misli), gde id nije `Id<'pages'>`. Prevod u `pageId`
+radi `PageCanvasView`, jedini deo koji zna da su čvorovi stranice.
+
+**6. T6 nije odrađen mišem u browseru — nema web kredencijala u ovom okruženju.**
+Dev baza ima dva profila, a lozinka naloga na kome je mobilna sesija nije poznata;
+menjati je (`adminAuth`) znači dirati tuđ nalog bez pitanja, a to nije deo zadatka.
+Umesto ručnog testa, ne-regresija je dokazana staticki i build-om:
+`git diff --stat apps/web/components/` je prazan, `apps/web/app/embed/**` **ne uvozi
+ništa** iz `components/workspace/`, nijedan fajl van embed foldera ne uvozi
+`canvas-embed`/`embed-node` (provereno grep-om), i `npm run build` prolazi. Desktop
+kanvas fizički ne može da vidi ovu izmenu. **Ručnu proveru mišem ipak zapisati kao
+otvorenu** — vidi izveštaj faze.
+
+**7. Prekidač u rail-u nema `accessibilityState={{selected}}`.** Pošto se ikonica u
+režimu SKLANJA (plan, izmena 5), `selected` bi uvek bio `false` i lagao. Umesto toga
+„Gotovo" nosi pun `accessibilityLabel` („Gotovo — završi uređivanje rasporeda"), a
+promena režima se najavljuje kroz `AccessibilityInfo.announceForAccessibility`.
+
+**8. Srpska množina za traku „Poništi".** Plan je imao dva oblika; `${n} kartica je
+pomereno` za n=2–4 nije srpski. Dodat je `movedLabel` (1 → „Kartica je pomerena.",
+2–4 → „N kartice su pomerene.", ostalo → „N kartica je pomereno.").

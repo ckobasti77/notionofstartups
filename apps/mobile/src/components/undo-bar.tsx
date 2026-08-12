@@ -26,10 +26,12 @@ const AUTO_HIDE_MS = 8000;
 const MIN_VISIBLE_MS = 1000;
 
 /**
- * Traka „Poništi" posle arhiviranja (PARITET A6) — JEDAN obrazac za misli, ideje,
- * veze ideja, checkpointe i doprinose. Montira se na svakom ekranu koji arhivira
- * (ili na koji se posle arhiviranja vraća); stavku čita iz modul-store-a
- * (`lib/undo.ts`), pa preživljava `router.back()` sa detalja.
+ * Traka „Poništi" posle radnje koja je već upisana (PARITET A6) — JEDAN obrazac za
+ * misli, ideje, veze ideja, checkpointe, doprinose i pomeranje kartica na kanvasu
+ * (lanac 4: `pageMove`, jedini član koji ne vraća arhivirano nego pravi inverzan
+ * potez). Montira se na svakom ekranu koji radnju pokreće (ili na koji se posle nje
+ * vraća); stavku čita iz modul-store-a (`lib/undo.ts`), pa preživljava `router.back()`
+ * sa detalja.
  *
  * Konvencija app-a izbegava samonestajuće toast-ove (`contribution-thread.tsx`), pa
  * traka stoji 8s I ima eksplicitno ✕ — a Alert potvrda PRE arhiviranja ostaje na
@@ -49,6 +51,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const connectIdeas = useMutation(api.ideas.connect);
   const restoreCheckpoint = useMutation(api.taskCheckpoints.restoreOwn);
   const restoreContribution = useMutation(api.collaboration.restoreOwnContribution);
+  const movePages = useMutation(api.areasV2.movePages);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -103,6 +106,16 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
         return;
       case 'contribution':
         await restoreContribution({ contributionId: action.contributionId });
+        return;
+      case 'pageMove':
+        // Inverz poteza je isti poziv sa PRETHODNIM koordinatama (nema „restore"
+        // mutacije za raspored). Server i ovde proverava vlasništvo kartice.
+        await movePages({
+          startupId: action.startupId,
+          areaId: action.areaId,
+          rootPageId: action.rootPageId,
+          updates: action.updates,
+        });
         return;
     }
   };

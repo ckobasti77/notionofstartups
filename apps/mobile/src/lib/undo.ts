@@ -27,7 +27,20 @@ export type UndoAction =
       nodeBId: Id<'ideaNodes'>;
     }
   | { kind: 'checkpoint'; checkpointId: Id<'taskCheckpoints'> }
-  | { kind: 'contribution'; contributionId: Id<'contentContributions'> };
+  | { kind: 'contribution'; contributionId: Id<'contentContributions'> }
+  /**
+   * Pomeranje kartica na kanvasu oblasti/stranice (režim „Uredi raspored", lanac 4).
+   * Za razliku od ostalih članova ovo NIJE vraćanje arhiviranog nego inverzan potez:
+   * `updates` nosi koordinate od PRE poteza, pa je poništavanje isti `movePages` poziv.
+   * Koordinate stižu iz poruke `moved` (memorija), ne iz baze — baza je već prepisana.
+   */
+  | {
+      kind: 'pageMove';
+      startupId: Id<'startups'>;
+      areaId: Id<'startupAreas'>;
+      rootPageId: Id<'pages'> | null;
+      updates: Array<{ pageId: Id<'pages'>; x: number; y: number }>;
+    };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */

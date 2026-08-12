@@ -6,12 +6,18 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useNodesInitialized,
+  useNodesState,
   useReactFlow,
   type Edge,
+  type OnMove,
+  type OnNodeDrag,
+  type Viewport,
+  type XYPosition,
 } from "@xyflow/react";
 import {
   ConvexProvider,
   ConvexReactClient,
+  useMutation,
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
@@ -21,6 +27,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pageKindLabel } from "@/lib/page-kinds";
+import { cn } from "@/lib/utils";
 
 import {
   EMBED_NODE_HEIGHT,
@@ -209,6 +216,10 @@ function CanvasInner({
   initialTheme: ThemeMode;
 }) {
   const [colorMode, setColorMode] = useState<ThemeMode>(initialTheme);
+  // Režim „Uredi raspored" (protokol: `docs/mobile/lanac4/REZIM.md`). Vlasnik stanja je
+  // native rail — ovde je samo odjek poslednje `mode` poruke. Podrazumevano je gledanje,
+  // pa reload WebView-a uvek pada na sigurnu stranu (native ga ponovo upali u `onLoadEnd`).
+  const [editMode, setEditMode] = useState(false);
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   useEffect(() => {
@@ -221,19 +232,22 @@ function CanvasInner({
     return () => cancelAnimationFrame(raf);
   }, [colorMode]);
 
-  // Prijem view-poruka iz native ljuske (protokol §5.2: theme/focus/zoom/fit).
+  // Prijem view-poruka iz native ljuske (protokol §5.2: mode/theme/focus/zoom/fit).
   // Refresh tokena (`auth`) sluša poseban listener u `CanvasEmbed`; oba koegzistiraju
   // i svaki ignoriše tuđe tipove. iOS isporučuje preko `window`, Android `document`.
   useEffect(() => {
     const handle = (raw: unknown) => {
       if (typeof raw !== "string") return;
-      let msg: { type?: string; mode?: string; nodeId?: string; direction?: string };
+      let msg: { type?: string; mode?: string; value?: string; nodeId?: string; direction?: string };
       try {
         msg = JSON.parse(raw);
       } catch {
         return;
       }
-      if (msg.type === "theme" && (msg.mode === "light" || msg.mode === "dark")) {
+      if (msg.type === "mode") {
+        // Nepoznata vrednost = gledanje: režim se pali samo eksplicitno.
+        setEditMode(msg.value === "edit");
+      } else if (msg.type === "theme" && (msg.mode === "light" || msg.mode === "dark")) {
         setColorMode(msg.mode);
       } else if (msg.type === "focus" && msg.nodeId) {
         void fitView({ nodes: [{ id: msg.nodeId }], duration: motionDuration(500), maxZoom: 1.4 });
@@ -254,24 +268,57 @@ function CanvasInner({
     };
   }, [fitView, zoomIn, zoomOut]);
 
+  // `editMode` ide svim vrstama; ideje i misli ga u K1 dobijaju bez handlera za
+  // pomeranje, pa je kod njih režim inertan (K5 doda samo handler).
   if (kind === "ideas") {
-    return <IdeasFlow startupId={id as Id<"startups">} colorMode={colorMode} />;
+    return <IdeasFlow startupId={id as Id<"startups">} colorMode={colorMode} editMode={editMode} />;
   }
   if (kind === "thoughts") {
-    return <ThoughtsFlow startupId={id as Id<"startups">} colorMode={colorMode} />;
+    return (
+      <ThoughtsFlow startupId={id as Id<"startups">} colorMode={colorMode} editMode={editMode} />
+    );
   }
   if (kind === "area") {
-    return <AreaFlow areaId={id as Id<"startupAreas">} colorMode={colorMode} />;
+    return <AreaFlow areaId={id as Id<"startupAreas">} colorMode={colorMode} editMode={editMode} />;
   }
   // Preostaje "page" (page.tsx validira `kind`, pa su sve četiri vrste pokrivene).
-  return <PageFlow pageId={id as Id<"pages">} colorMode={colorMode} />;
+  return <PageFlow pageId={id as Id<"pages">} colorMode={colorMode} editMode={editMode} />;
+}
+
+/** Jedan pomeraj čvora — generički (`id`, ne `pageId`) da isti potpis služi i K5. */
+type NodeMove = { id: string; x: number; y: number };
+
+/**
+ * Preuzimanje svežih čvorova iz živog upita bez gubitka lokalnog stanja: selekcija se
+ * prenosi iz tekućeg stanja (upit je ne zna), a `overrides` gura pozicije koje je
+ * korisnik upravo postavio prstom preko dolaznog snimka (upis još nije stigao).
+ */
+function adoptIncoming(
+  incoming: EmbedFlowNode[],
+  current: EmbedFlowNode[],
+  overrides?: Map<string, XYPosition>,
+): EmbedFlowNode[] {
+  const selectedIds = new Set(current.filter((node) => node.selected).map((node) => node.id));
+  return incoming.map((node) => {
+    const override = overrides?.get(node.id);
+    const selected = selectedIds.has(node.id);
+    if (!override && !selected) return node;
+    const next = { ...node };
+    if (selected) next.selected = true;
+    if (override) next.position = override;
+    return next;
+  });
 }
 
 /**
- * Zajednički read-only ReactFlow za embed (deljen između `IdeasFlow`/`ThoughtsFlow`).
- * Čvorovi/ivice su već izračunati (apsolutne pozicije); ovde je samo prikaz + most.
- * `detailById` nosi detalj čvora koji se prosleđuje native ljusci uz `node:open`/
- * `selection` (bez drugog upita). Vrednost je proizvoljna — samo se JSON-serializuje.
+ * Zajednički ReactFlow za embed (deljen između sve četiri vrste kanvasa). Čvorovi/ivice
+ * su već izračunati (apsolutne pozicije); ovde su prikaz, most i — u režimu „Uredi
+ * raspored" — povlačenje. `detailById` nosi detalj čvora koji se prosleđuje native ljusci
+ * uz `node:open`/`selection` (bez drugog upita). Vrednost je proizvoljna — samo se
+ * JSON-serializuje.
+ *
+ * Bez `onMoveNodes` je režim inertan (`canEdit`), pa vrsta kanvasa koja još nema upis
+ * pozicije ne dobija ni povlačive čvorove ni vizuelni znak koji bi lagao.
  */
 function EmbedFlow({
   nodes,
@@ -280,6 +327,10 @@ function EmbedFlow({
   colorMode,
   ariaLabel,
   emptyLabel,
+  editMode = false,
+  onMoveNodes,
+  initialViewport = null,
+  onUserViewport,
 }: {
   nodes: EmbedFlowNode[];
   edges: Edge[];
@@ -287,10 +338,38 @@ function EmbedFlow({
   colorMode: ThemeMode;
   ariaLabel: string;
   emptyLabel: string;
+  /** Režim „Uredi raspored" iz native rail-a (`{type:"mode"}`). */
+  editMode?: boolean;
+  /** Upis poteza. Odbijeno obećanje vraća kartice na `before` (rollback je ovde). */
+  onMoveNodes?: (before: NodeMove[], after: NodeMove[]) => Promise<void>;
+  /** Zapamćena kamera; kad postoji, početni `fitView` se preskače. */
+  initialViewport?: Viewport | null;
+  /** Kamera koju je pomerio KORISNIK (programske promene su već odsečene). */
+  onUserViewport?: (viewport: Viewport) => void;
 }) {
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const didFitRef = useRef(false);
+
+  // Povlačenje traži lokalno stanje čvorova (xyflow u kontrolisanom režimu ne pomera
+  // ništa sam). Dolazni snimak iz živog upita se USRED poteza ne primenjuje nego pamti
+  // — inače kartica „pobegne" ispod prsta na prvu tuđu (ili našu) izmenu.
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<EmbedFlowNode>(nodes);
+  const draggingRef = useRef(false);
+  const pendingRef = useRef<EmbedFlowNode[] | null>(null);
+  const preDragRef = useRef<Map<string, XYPosition>>(new Map());
+
+  const canEdit = editMode && !!onMoveNodes;
+
+  useEffect(() => {
+    if (draggingRef.current) {
+      pendingRef.current = nodes;
+      return;
+    }
+    // Funkcijski updater (ne gola vrednost): selekcija se čita iz tekućeg stanja, pa
+    // živa izmena podataka ne poništava ono što je korisnik izabrao.
+    setFlowNodes((current) => adoptIncoming(nodes, current));
+  }, [nodes, setFlowNodes]);
 
   // Handleri MORAJU da budu memoizovani: xyflow ih drži u store-u i ponovo registruje
   // kad im se promeni referenca, pa bi inline strelica to radila na svaki render.
@@ -304,6 +383,89 @@ function EmbedFlow({
       postNative({ type: "node:open", nodeId: node.id, node: detailById.get(node.id) });
     },
     [detailById],
+  );
+
+  const handleNodeDragStart = useCallback<OnNodeDrag<EmbedFlowNode>>((_event, _node, dragged) => {
+    draggingRef.current = true;
+    preDragRef.current = new Map(
+      dragged.map((node) => [node.id, { x: node.position.x, y: node.position.y }]),
+    );
+  }, []);
+
+  /**
+   * Kraj poteza = JEDAN upis (ne po frejmu). Pišu se samo čvorovi kojima se zaokružena
+   * pozicija stvarno promenila — uz `nodeDragThreshold` to isključuje da drhtaj prsta
+   * pošalje mutaciju koju vidi ceo tim.
+   */
+  const handleNodeDragStop = useCallback<OnNodeDrag<EmbedFlowNode>>(
+    (_event, _node, dragged) => {
+      draggingRef.current = false;
+      const started = preDragRef.current;
+      preDragRef.current = new Map();
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+
+      const before: NodeMove[] = [];
+      const after: NodeMove[] = [];
+      for (const node of dragged) {
+        const start = started.get(node.id);
+        if (!start) continue;
+        const from = { id: node.id, x: Math.round(start.x), y: Math.round(start.y) };
+        const to = { id: node.id, x: Math.round(node.position.x), y: Math.round(node.position.y) };
+        if (from.x === to.x && from.y === to.y) continue;
+        before.push(from);
+        after.push(to);
+      }
+
+      if (after.length === 0) {
+        if (pending) setFlowNodes((current) => adoptIncoming(pending, current));
+        return;
+      }
+
+      // Odloženi snimak se primenjuje tek sada, i to SA našim pozicijama preko njega:
+      // upis još nije stigao, pa bi ga sirov snimak vratio na staro mesto.
+      const moved = new Map(after.map((move) => [move.id, { x: move.x, y: move.y }]));
+      if (pending) setFlowNodes((current) => adoptIncoming(pending, current, moved));
+
+      void onMoveNodes?.(before, after).catch(() => {
+        // Poruku greške je već prikazao pozivalac (native `Alert`); ovde samo vraćamo
+        // kartice tamo gde su bile pre poteza.
+        const rollback = new Map(before.map((move) => [move.id, { x: move.x, y: move.y }]));
+        setFlowNodes((current) =>
+          current.map((node) => {
+            const previous = rollback.get(node.id);
+            return previous ? { ...node, position: previous } : node;
+          }),
+        );
+      });
+    },
+    [onMoveNodes, setFlowNodes],
+  );
+
+  // Poslednja PRIJAVLJENA kamera (već zaokružena). Kreće od zapamćene vrednosti da ni
+  // prvi dodir posle otvaranja ne prijavi ono što u bazi već piše.
+  const lastViewportRef = useRef<Viewport | null>(initialViewport);
+
+  const handleMoveEnd = useCallback<OnMove>(
+    (event, viewport) => {
+      // `sourceEvent === null` znači programsku promenu kamere (početni fit, `fit` i
+      // `zoom` iz native rail-a) — kamera se pamti samo kad ju je korisnik pomerio.
+      if (event === null) return;
+      // Običan tap po platnu je za `d3-zoom` pun start→end ciklus sa pravim događajem,
+      // pa bi bez ove provere svaki dodir slao upis iste vrednosti (viđeno na emulatoru).
+      const rounded: Viewport = {
+        x: Math.round(viewport.x),
+        y: Math.round(viewport.y),
+        zoom: Number(viewport.zoom.toFixed(2)),
+      };
+      const last = lastViewportRef.current;
+      if (last && last.x === rounded.x && last.y === rounded.y && last.zoom === rounded.zoom) {
+        return;
+      }
+      lastViewportRef.current = rounded;
+      onUserViewport?.(rounded);
+    },
+    [onUserViewport],
   );
   const handleSelectionChange = useCallback(
     ({ nodes: selected }: { nodes: EmbedFlowNode[] }) => {
@@ -322,29 +484,38 @@ function EmbedFlow({
   // Determinističan prvi fit: `fitView` prop se oslanja na to da su čvorovi izmereni,
   // pa ga ovde dopunjujemo jednokratnim imperativnim uklapanjem čim xyflow javi da
   // jesu. Ref (ne state) da kasnije osvežavanje podataka ne pregazi korisnikov pan/zoom.
+  // Zapamćena kamera pobeđuje: bez ovog izlaza bi `saveViewport` pisao u tabelu koju
+  // niko ne čita jer bi je fit svaki put pregazio.
   useEffect(() => {
+    if (initialViewport) return;
     if (!nodesInitialized || didFitRef.current || nodes.length === 0) return;
     didFitRef.current = true;
     void fitView({ padding: 0.2, maxZoom: 1.2, duration: motionDuration(300) });
-  }, [nodesInitialized, nodes.length, fitView]);
+  }, [nodesInitialized, nodes.length, fitView, initialViewport]);
 
   return (
     // `role="application"` + ime idu na sam `<ReactFlow>` (koji ga i tako postavlja i
     // prima fokus/tastaturu), ne na omotač — inače dupli `role="application"` bez imena.
-    <div className="fixed inset-0 bg-background">
+    <div className={cn("fixed inset-0 bg-background", canEdit && "embed-edit")}>
       <EmbedStyles />
       <ReactFlow<EmbedFlowNode, Edge>
-        nodes={nodes}
+        nodes={flowNodes}
         edges={edges}
+        onNodesChange={onNodesChange}
         nodeTypes={EMBED_NODE_TYPES}
         colorMode={colorMode}
         aria-label={ariaLabel}
         ariaLabelConfig={SERBIAN_ARIA_LABELS}
-        fitView
+        fitView={!initialViewport}
         fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+        defaultViewport={initialViewport ?? undefined}
         minZoom={0.15}
         maxZoom={2}
-        nodesDraggable={false}
+        // Povlačenje se pali SAMO u režimu. Čvor koji nije naš nosi `draggable:false` i
+        // ostaje nepomičan i tada (backend bi ga ionako odbio).
+        nodesDraggable={canEdit}
+        // Prst uvek malo zadrhti: bez praga bi i običan tap ušao u potez.
+        nodeDragThreshold={5}
         nodesConnectable={false}
         elementsSelectable
         panOnDrag
@@ -352,7 +523,11 @@ function EmbedFlow({
         zoomOnScroll
         panOnScroll={false}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={handleNodeClick}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
+        onMoveEnd={handleMoveEnd}
+        // U režimu tap BIRA karticu (ne otvara je) — inače bi isti dodir imao dva ishoda.
+        onNodeClick={canEdit ? undefined : handleNodeClick}
         onSelectionChange={handleSelectionChange}
       >
         <Background
@@ -372,6 +547,25 @@ function EmbedFlow({
         >
           <span className="text-sm text-muted-foreground">{emptyLabel}</span>
         </div>
+      ) : null}
+      {/* Znak režima MORA da bude u WebView-u, a ne samo na native dugmetu: ovo je
+          površina po kojoj se prevlači, pa se na njoj i vidi da su potezi trajni.
+          Obod + pilula su `pointer-events-none` — ne smeju da pojedu ni jedan dodir. */}
+      {canEdit ? (
+        <>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-primary"
+          />
+          <div
+            role="status"
+            className="pointer-events-none absolute inset-x-0 top-3 flex justify-center"
+          >
+            <span className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-sm">
+              Uređivanje rasporeda
+            </span>
+          </div>
+        </>
       ) : null}
     </div>
   );
@@ -408,7 +602,15 @@ function toNodeDetail(node: IdeaListNode): IdeaNodeDetail {
   };
 }
 
-function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorMode: ThemeMode }) {
+function IdeasFlow({
+  startupId,
+  colorMode,
+  editMode,
+}: {
+  startupId: Id<"startups">;
+  colorMode: ThemeMode;
+  editMode: boolean;
+}) {
   const data = useQuery(api.ideas.list, { startupId });
 
   const { nodes, edges, detailById } = useMemo(() => {
@@ -476,6 +678,7 @@ function IdeasFlow({ startupId, colorMode }: { startupId: Id<"startups">; colorM
       edges={edges}
       detailById={detailById}
       colorMode={colorMode}
+      editMode={editMode}
       ariaLabel="Kanvas ideja"
       emptyLabel="Prazan kanvas ideja."
     />
@@ -521,9 +724,11 @@ const THOUGHT_EDGE_PAGE = 200;
 function ThoughtsFlow({
   startupId,
   colorMode,
+  editMode,
 }: {
   startupId: Id<"startups">;
   colorMode: ThemeMode;
+  editMode: boolean;
 }) {
   const {
     results: nodeResults,
@@ -601,6 +806,7 @@ function ThoughtsFlow({
       edges={edges}
       detailById={detailById}
       colorMode={colorMode}
+      editMode={editMode}
       ariaLabel="Kanvas misli"
       emptyLabel="Prazan kanvas misli."
     />
@@ -621,6 +827,9 @@ type PageNodeDetail = {
 // veličinu — usklađenu sa podrazumevanom karticom stranice da se ne izdvajaju oblikom.
 const GHOST_NODE_WIDTH = 288;
 const GHOST_NODE_HEIGHT = 196;
+
+/** `MAX_BATCH_LAYOUT_UPDATES` iz `areasV2.ts` — preko toga mutacija baca grešku. */
+const MAX_MOVE_UPDATES = 100;
 
 /**
  * Zajednički prikaz za kanvas oblasti i stranice — payload je identičan, razlikuje se
@@ -645,12 +854,89 @@ function PageCanvasView({
   colorMode,
   ariaLabel,
   emptyLabel,
+  editMode,
 }: {
   data: PageCanvasData;
   colorMode: ThemeMode;
   ariaLabel: string;
   emptyLabel: string;
+  editMode: boolean;
 }) {
+  const movePages = useMutation(api.areasV2.movePages);
+  const { startupId, areaId, rootPageId } = data.scope;
+  // Zamrznuto na mount-u: `defaultViewport` i `fitView` xyflow čita samo pri inicijalizaciji,
+  // a `data.viewport.persisted` postaje `true` čim se prvi pan sačuva — tada se vrednost
+  // više ne sme menjati pod već otvorenim kanvasom.
+  const [initialViewport] = useState<Viewport | null>(() =>
+    data.viewport.persisted
+      ? { x: data.viewport.x, y: data.viewport.y, zoom: data.viewport.zoom }
+      : null,
+  );
+
+  /**
+   * Upis poteza. Batch se seče na serverski limit; native dobija `moved` sa PRETHODNIM
+   * koordinatama, pa traka „Poništi" ne mora ništa da čita iz baze. Greška ide native
+   * `Alert`-u (embed nema toast površinu) i baca se dalje da `EmbedFlow` vrati kartice.
+   */
+  const handleMoveNodes = useCallback(
+    async (before: NodeMove[], after: NodeMove[]) => {
+      const updates = after.slice(0, MAX_MOVE_UPDATES);
+      const movedIds = new Set(updates.map((move) => move.id));
+      const previous = before
+        .filter((move) => movedIds.has(move.id))
+        .map((move) => ({ pageId: move.id as Id<"pages">, x: move.x, y: move.y }));
+      try {
+        await movePages({
+          startupId,
+          areaId,
+          rootPageId,
+          updates: updates.map((move) => ({
+            pageId: move.id as Id<"pages">,
+            x: move.x,
+            y: move.y,
+          })),
+        });
+        postNative({
+          type: "moved",
+          startupId,
+          areaId,
+          rootPageId,
+          count: updates.length,
+          before: previous,
+        });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: error instanceof Error ? error.message : "Pozicija nije sačuvana.",
+        });
+        throw error;
+      }
+    },
+    [areaId, movePages, rootPageId, startupId],
+  );
+
+  /**
+   * Kamera se ne piše odavde nego se prijavljuje native ljusci: ona je prigušuje (800 ms)
+   * i ona je vlasnik dugmadi koja kameru pomeraju. Vrednost je već zaokružena u
+   * `EmbedFlow` (isto zaokruživanje kao desktop) — tamo je i provera „da li se uopšte
+   * promenila", pa ovde stiže samo stvarna promena.
+   */
+  const handleUserViewport = useCallback(
+    (viewport: Viewport) => {
+      postNative({
+        type: "viewport",
+        startupId,
+        areaId,
+        rootPageId,
+        x: viewport.x,
+        y: viewport.y,
+        zoom: viewport.zoom,
+      });
+    },
+    [areaId, rootPageId, startupId],
+  );
+
   const { nodes, edges, detailById } = useMemo(() => {
     const detailById = new Map<string, unknown>(
       data.pages.map((page) => [
@@ -667,6 +953,10 @@ function PageCanvasView({
       width: page.width,
       height: page.height,
       style: { width: page.width, height: page.height },
+      // `undefined` prepušta odluku globalnom `nodesDraggable` (tj. režimu), a `false`
+      // je tvrdo NE: tuđu karticu backend ionako odbija (`Možete pomerati samo svoje
+      // kartice.`), pa se ne sme ni pomerati pod prstom.
+      draggable: page.canMove ? undefined : false,
       data: {
         label: (page.title || "Stranica").trim().slice(0, 80) || "Stranica",
         meta: pageKindLabel(page.kind),
@@ -686,6 +976,8 @@ function PageCanvasView({
       style: { width: GHOST_NODE_WIDTH, height: GHOST_NODE_HEIGHT },
       selectable: false,
       focusable: false,
+      // Ghost nije stranica na kanvasu nego zahtev — `movePages` za njega ne postoji.
+      draggable: false,
       data: {
         label: (ghost.title || "Stranica").trim().slice(0, 80) || "Stranica",
         meta: pageKindLabel(ghost.kind),
@@ -713,6 +1005,10 @@ function PageCanvasView({
       colorMode={colorMode}
       ariaLabel={ariaLabel}
       emptyLabel={emptyLabel}
+      editMode={editMode}
+      onMoveNodes={handleMoveNodes}
+      initialViewport={initialViewport}
+      onUserViewport={handleUserViewport}
     />
   );
 }
@@ -721,9 +1017,11 @@ function PageCanvasView({
 function AreaFlow({
   areaId,
   colorMode,
+  editMode,
 }: {
   areaId: Id<"startupAreas">;
   colorMode: ThemeMode;
+  editMode: boolean;
 }) {
   const data = useQuery(api.areasV2.getAreaCanvasByArea, { areaId });
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
@@ -731,6 +1029,7 @@ function AreaFlow({
     <PageCanvasView
       data={data}
       colorMode={colorMode}
+      editMode={editMode}
       ariaLabel="Kanvas oblasti"
       emptyLabel="Prazan kanvas oblasti."
     />
@@ -741,9 +1040,11 @@ function AreaFlow({
 function PageFlow({
   pageId,
   colorMode,
+  editMode,
 }: {
   pageId: Id<"pages">;
   colorMode: ThemeMode;
+  editMode: boolean;
 }) {
   const data = useQuery(api.areasV2.getPageCanvasByPage, { pageId });
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
@@ -751,6 +1052,7 @@ function PageFlow({
     <PageCanvasView
       data={data}
       colorMode={colorMode}
+      editMode={editMode}
       ariaLabel="Kanvas stranice"
       emptyLabel="Prazan kanvas stranice."
     />
@@ -796,6 +1098,16 @@ function EmbedStyles() {
       .react-flow__node.selectable:focus-visible {
         outline: 2px solid var(--ring);
         outline-offset: 3px;
+        border-radius: 0.75rem;
+      }
+      /* Režim „Uredi raspored": isprekidan obod obeležava tačno ono što se sme povući.
+         Klasu \`draggable\` xyflow sam stavlja na čvor koji je povlačiv, pa tuđa kartica
+         (\`draggable:false\`, backend je ionako odbija) ostaje bez oznake — bez ijedne
+         izmene u \`embed-node.tsx\` i bez novog polja u \`data\` koje bi rerenderovalo
+         sve čvorove. */
+      .embed-edit .react-flow__node.draggable {
+        outline: 2px dashed color-mix(in oklab, var(--primary) 55%, transparent);
+        outline-offset: 4px;
         border-radius: 0.75rem;
       }
     `}</style>

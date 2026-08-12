@@ -193,12 +193,24 @@ Preko mosta ostaju samo žive poruke (handshake tipovi `ready`/`authed` više ne
 injekcija (native → web, pre učitavanja):  window.__DEVOTION_AUTH__ = { token, theme }
 WebView → native:  { type: "node:open", nodeId, node }  → otvara native detalj (node = podaci čvora)
 WebView → native:  { type: "selection", ids, node? }    → menja akcioni rail (node kad je izabran 1)
+WebView → native:  { type: "moved", …scope, count, before } → traka „Poništi" posle pomeranja kartica
+WebView → native:  { type: "viewport", …scope, x, y, zoom } → prigušen `saveViewport` (800 ms)
+WebView → native:  { type: "toast", level, message }     → Alert (embed nema toast površinu)
 native → WebView:  { type: "auth",  token }              → osvežavanje tokena (nekritično)
 native → WebView:  { type: "theme", mode: "dark" }       → živa promena šeme
+native → WebView:  { type: "mode",  value: "edit"|"view" } → režim „Uredi raspored" (lanac 4)
 native → WebView:  { type: "focus", nodeId }             → centriraj čvor (na zatvaranje detalja)
 native → WebView:  { type: "zoom",  direction }          → rail: uvećaj/umanji
 native → WebView:  { type: "fit" }                       → rail: centriraj sve
 ```
+
+`…scope` je `{ startupId, areaId, rootPageId }` — embed ga zna iz payload-a, pa native
+ne mora da radi drugi upit da bi upisao poziciju ili kameru.
+
+**Uređivanje.** Embed više nije bezuslovno read-only: u režimu „Uredi raspored"
+(`mode`) čvorovi postaju povlačivi i potez se na kraju upisuje kroz `areasV2.movePages`
+(jedan upis po potezu, sa „Poništi"). Van režima je sve kao pre — pregled, navigacija i
+dodavanje. Pun protokol režima, uz pravila za sledeće faze: `docs/mobile/lanac4/REZIM.md`.
 
 `node:open` nosi i podatke čvora, pa native ne mora da radi drugi `ideas.list`
 upit; `selection` sa jednim čvorom pretvara primarno dugme rail-a u „Otvori ideju".

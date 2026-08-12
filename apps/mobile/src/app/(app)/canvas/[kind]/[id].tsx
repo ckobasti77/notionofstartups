@@ -1,10 +1,18 @@
 import { useAuthToken } from '@convex-dev/auth/react';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { ChevronLeft, Maximize2, Minimize2, Plus, Send, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
@@ -22,6 +30,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-url';
 import { haptics } from '@/lib/haptics';
+import { pushUndo } from '@/lib/undo';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -29,6 +38,30 @@ const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
 /** Backend `MAX_BULK_ITEMS` — `convertToIdeas` prima najviše 50 misli. */
 const MAX_BULK = 50;
+/**
+ * Prigušenje upisa kamere. Pan prstom stigne kao niz `moveend` događaja; kamera je
+ * podešavanje sesije, ne radnja, pa se piše tek kad se ruka smiri.
+ */
+const VIEWPORT_DEBOUNCE_MS = 800;
+
+/** Scope kanvasa koji embed šalje uz `moved`/`viewport` — native ga ne dohvata sam. */
+type CanvasScope = {
+  startupId: Id<'startups'>;
+  areaId: Id<'startupAreas'>;
+  rootPageId: Id<'pages'> | null;
+};
+
+/** Kamera koja čeka upis (poslednja pobeđuje). */
+type PendingViewport = CanvasScope & { x: number; y: number; zoom: number };
+
+/** „Kartica je pomerena." / „3 kartice su pomerene." / „5 kartica je pomereno." */
+function movedLabel(count: number): string {
+  if (count === 1) return 'Kartica je pomerena.';
+  const rest = count % 100;
+  const last = count % 10;
+  if (last >= 2 && last <= 4 && (rest < 12 || rest > 14)) return `${count} kartice su pomerene.`;
+  return `${count} kartica je pomereno.`;
+}
 
 // Konstantni WebView prop — van komponente da ne bude nov niz na svaki render
 // (isti razlog kao memoizovan `source` niže: promena reference reloaduje stranicu).
@@ -74,6 +107,9 @@ export default function CanvasScreen() {
   // Landscape daje više prostora grafu (maketa §9.3, dugme [⛶]). Rotacija je samo
   // za ovaj ekran — na izlazak se OBAVEZNO vraća portret (cleanup ispod).
   const [landscape, setLandscape] = useState(false);
+  // Režim „Uredi raspored" (lanac 4, `docs/mobile/lanac4/REZIM.md`). Native je vlasnik
+  // stanja; embed ga saznaje isključivo iz poruke `mode` i pri svakom učitavanju iznova.
+  const [editMode, setEditMode] = useState(false);
 
   const toggleOrientation = useCallback(async () => {
     const next = landscape
@@ -181,9 +217,68 @@ export default function CanvasScreen() {
     return () => clearTimeout(timer);
   }, [loading]);
 
+  // Uređivanje za sada postoji samo na kanvasu oblasti i stranice (kartice = stranice,
+  // upis je `areasV2.movePages`). Ideje i misli dobijaju isti režim u K5.
+  const supportsEdit = isPageKind;
+
+  const toggleEdit = useCallback(() => {
+    const next = !editMode;
+    setEditMode(next);
+    // Poruka ide istim kanalom kao `theme`/`fit`/`zoom` — bez ijednog novog objektnog
+    // propa na `<WebView>`, jer bi svaka promena reference reloadovala stranicu (Z1).
+    postToWeb({ type: 'mode', value: next ? 'edit' : 'view' });
+    haptics.select();
+    AccessibilityInfo.announceForAccessibility(
+      next
+        ? 'Režim uređivanja rasporeda je uključen. Prevuci karticu da je pomeriš.'
+        : 'Uređivanje rasporeda je završeno.',
+    );
+  }, [editMode, postToWeb]);
+
+  // Kamera se piše iz native-a (ne iz embeda): prigušuje se, nema optimističko stanje,
+  // i native je već vlasnik dugmadi koja kameru pomeraju. Scope stiže uz poruku.
+  const saveViewport = useMutation(api.areasV2.saveViewport);
+  const pendingViewportRef = useRef<PendingViewport | null>(null);
+  const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushViewport = useCallback(() => {
+    const pending = pendingViewportRef.current;
+    pendingViewportRef.current = null;
+    if (!pending) return;
+    // Tiho: pamćenje pogleda je udobnost, ne radnja korisnika — greška ovde ne sme da
+    // prekine rad Alert-om.
+    void saveViewport(pending).catch((error: unknown) => {
+      if (__DEV__) console.log('[canvas] saveViewport nije uspeo:', error);
+    });
+  }, [saveViewport]);
+
+  // Poslednji pan pre izlaska sa ekrana se ne sme izgubiti: cleanup flush-uje ono što
+  // je ostalo u redu, pa tek onda gasi tajmer.
+  useEffect(() => {
+    return () => {
+      if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+      viewportTimerRef.current = null;
+      flushViewport();
+    };
+  }, [flushViewport]);
+
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let msg: { type?: string; nodeId?: string; node?: unknown; ids?: string[] };
+      let msg: {
+        type?: string;
+        nodeId?: string;
+        node?: unknown;
+        ids?: string[];
+        startupId?: string;
+        areaId?: string;
+        rootPageId?: string | null;
+        count?: number;
+        before?: Array<{ pageId: string; x: number; y: number }>;
+        x?: number;
+        y?: number;
+        zoom?: number;
+        message?: string;
+      };
       try {
         msg = JSON.parse(event.nativeEvent.data);
       } catch {
@@ -208,9 +303,51 @@ export default function CanvasScreen() {
         const ids = msg.ids ?? [];
         setSelectedNodeIds(ids);
         setSelectedNode(ids.length === 1 ? msg.node ?? null : null);
+      } else if (msg.type === 'moved' && msg.startupId && msg.areaId && msg.before) {
+        // Upis je već prošao (embed piše optimistički i sam vraća na grešku); ovde je
+        // samo potvrda prstu i put nazad. Koordinate su iz memorije, ne iz baze —
+        // baza u ovom trenutku već drži NOVE.
+        haptics.success();
+        pushUndo({
+          label: movedLabel(msg.count ?? msg.before.length),
+          action: {
+            kind: 'pageMove',
+            startupId: msg.startupId as Id<'startups'>,
+            areaId: msg.areaId as Id<'startupAreas'>,
+            rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
+            updates: msg.before.map((move) => ({
+              pageId: move.pageId as Id<'pages'>,
+              x: move.x,
+              y: move.y,
+            })),
+          },
+        });
+      } else if (
+        msg.type === 'viewport' &&
+        msg.startupId &&
+        msg.areaId &&
+        typeof msg.x === 'number' &&
+        typeof msg.y === 'number' &&
+        typeof msg.zoom === 'number'
+      ) {
+        pendingViewportRef.current = {
+          startupId: msg.startupId as Id<'startups'>,
+          areaId: msg.areaId as Id<'startupAreas'>,
+          rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
+          x: msg.x,
+          y: msg.y,
+          zoom: msg.zoom,
+        };
+        if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+        viewportTimerRef.current = setTimeout(flushViewport, VIEWPORT_DEBOUNCE_MS);
+      } else if (msg.type === 'toast' && msg.message) {
+        // Embed nema toast površinu; serverska poruka („Možete pomerati samo svoje
+        // kartice.") mora da se vidi, inače kartica samo neobjašnjivo skoči nazad.
+        haptics.error();
+        Alert.alert('Greška', msg.message);
       }
     },
-    [isIdeas, isThoughts, isPageKind, openPage],
+    [isIdeas, isThoughts, isPageKind, openPage, flushViewport],
   );
 
   const reload = () => {
@@ -323,6 +460,10 @@ export default function CanvasScreen() {
             // pa ovo nije kritično; običan `postMessage` — ne dira `source`/`injectedAuth`,
             // ne može da reloaduje. `!failed` guard sprečava lažni log kad učitavanje padne.
             if (token && !failed) postToWeb({ type: 'auth', token });
+            // Sveže učitan embed uvek starta u gledanju (state mu je lokalan), pa mu se
+            // upaljen režim mora ponovo javiti — inače posle „Pokušaj ponovo" native
+            // pokazuje „Gotovo", a kartice se ne pomeraju.
+            if (editMode && !failed) postToWeb({ type: 'mode', value: 'edit' });
           }}
           onError={(e) => setFailed(e.nativeEvent.description || 'Učitavanje nije uspelo.')}
           onHttpError={(e) => setFailed(`Greška ${e.nativeEvent.statusCode}.`)}
@@ -357,6 +498,8 @@ export default function CanvasScreen() {
         onZoomOut={() => postToWeb({ type: 'zoom', direction: 'out' })}
         onFit={() => postToWeb({ type: 'fit' })}
         primaryAction={primaryAction}
+        editMode={editMode}
+        onToggleEdit={supportsEdit ? toggleEdit : undefined}
       />
 
       {/* Traka „Poništi" važi za SVE vrste kanvasa (misli, ideje…): ideja
