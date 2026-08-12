@@ -44,17 +44,21 @@
 
 | # | Radnja | Web | Mobilni |
 |---|---|---|---|
-| B1 | **Urediti belešku koja sadrži tabelu, prilog ili blok koda** | uvek uredivo, `page-editor-view.tsx:1236` | `note-editor.tsx:167` — `bodyEditable=false`, pada na `NoteReader` |
+| B1 | **Urediti belešku koja sadrži tabelu, prilog ili blok koda** | uvek uredivo, `page-editor-view.tsx:1236` | **REŠENO (lanac 6, P2)** — sopstveni web bundle sa istom Tiptap šemom: `apps/mobile/src/lib/note-editor-bridges.ts` (lista), `apps/mobile/editor-web/` (izvor), `note-editor.tsx` (`customSource: NOTE_EDITOR_HTML`, `bodyEditable = canEditBody`). Zabranu je zamenio čuvar koji meri gubitak (`noteSignatureLoss`) |
 | B2 | **Preimenovati zadatak** | `page-editor-view.tsx:694` | **REŠENO (lanac 6, P1)** — red „Preimenuj" u `page-actions-sheet.tsx`, ista `areasV2.updatePage` mutacija |
 | B3 | **Preimenovati stranicu tipa Tabela ili Prilozi** | `page-editor-view.tsx:1097` | **REŠENO (lanac 6, P1)** — isti red kao B2 (`page.kind !== 'note'`), beleška namerno izuzeta (§4c plana P1) |
 | B4 | **Diskusija (chat) nad idejom** | `ideas-view.tsx:646`, `:818` | nema — `anchorType` se na mobilnom zove isključivo sa `'page'` (`discussion-link.tsx:48`) |
 | B5 | **Kopirati pozivnicu kao LINK** | `admin-dialog.tsx:408` (`https://…/?invite=KOD`) | **REŠENO (lanac 6, P1)** — Alert sada nosi pun link (`inviteLinkUrl` pozvan), „Podeli"/„Kopiraj link"; ako `EXPO_PUBLIC_WEB_URL` nije podešen, pada na stari tok (samo kod) |
 | B6 | **Dodati članove privatnom kanalu** | `new-conversation.tsx:295-324` | `new-conversation-sheet.tsx:117` ne šalje članove, a `chat.setChannelMembers` **ne postoji uopšte** → privatan kanal sa telefona ostaje trajno prazan |
-| B7 | **Ubaciti sliku, prilog, tabelu ili CSV u telo beleške** | `rich-text-editor.tsx:404,409,417,429` | nema — `note-toolbar.tsx:85` nema te alatke |
+| B7 | **Ubaciti sliku, prilog, tabelu ili CSV u telo beleške** | `rich-text-editor.tsx:404,409,417,429` | **REŠENO (lanac 6, P2)** — dugme „Dodaj…" u traci (`note-toolbar.tsx`, prvo dugme) otvara `note-insert-sheet.tsx`: galerija, kamera, prilog, tabela 3×3, uvoz CSV/XLSX, blok koda. Alatke tabele (red/kolona/zaglavlje/briši) se pojavljuju u traci kad je kursor u tabeli |
 
-B1 je jedini nalaz u celoj reviziji gde mobilni korisnik ostaje bez pristupa
+B1 je bio jedini nalaz u celoj reviziji gde mobilni korisnik ostaje bez pristupa
 **sadržaju koji već postoji**, a ne samo bez alata. B5 pogađa baš onaj tok koji
 najviše koristiš — puštanje aplikacije drugarima.
+
+> **Napomena uz B1/B7 (P2).** Merni gejt iz `ZA-POPRAVKU.md` §2 nije zatvoren i
+> nije ni mogao biti — agent nema uređaj. Bundle je posle P2 veći, pa je merenje
+> na jeftinom Androidu sada važnije nego pre.
 
 ---
 

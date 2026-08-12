@@ -1,16 +1,11 @@
-import {
-  PlaceholderBridge,
-  RichText,
-  TenTapStartKit,
-  useEditorBridge,
-  type EditorBridge,
-} from '@10play/tentap-editor';
+import { RichText, useEditorBridge } from '@10play/tentap-editor';
 import * as Clipboard from 'expo-clipboard';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Check, CloudOff, Copy, Info, RefreshCw, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   Platform,
   Pressable,
@@ -23,20 +18,27 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 
+import { NoteInsertSheet, type NoteInsertPick } from '@/components/stranica/note-insert-sheet';
 import { NoteLinkSheet } from '@/components/stranica/note-link-sheet';
 import { NoteReader } from '@/components/stranica/note-reader';
 import { NoteToolbar, type LinkRequest } from '@/components/stranica/note-toolbar';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
 import {
   EMPTY_NOTE_HTML,
   NOTE_CONTENT_LIMIT,
+  noteBlockLossSentence,
+  noteBlockSignature,
   noteContentEquals,
   noteEditorCss,
   noteHtmlToText,
-  unsupportedNoteBlocks,
-  unsupportedNoteBlocksSentence,
+  noteSignatureLoss,
+  type NoteBlockKind,
 } from '@/lib/note-content';
+import { NOTE_BRIDGES, type NoteEditorBridge } from '@/lib/note-editor-bridges';
+import { NOTE_EDITOR_HTML } from '@/lib/note-editor-html';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -50,10 +52,14 @@ import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/to
  * `areasV2.updatePage` sa `expectedRevision` (isti `KONFLIKT_IZMENA` protokol).
  * Nema konverzije formata ni u jednom smeru.
  *
- * OGRANIČENJE (svesno, zapisano u `docs/mobile/ZA-POPRAVKU.md` §2): unapred
- * izgrađen tentap bundle nema `table`, `codeBlock` ni naš `noteFile` čvor. Telo
- * koje ih sadrži bi se pri učitavanju u editor tiho osiromašilo, pa se takva
- * beleška otvara samo za čitanje (`NoteReader`) umesto da se pokvari.
+ * Od lanca 6 / P2 bundle je **naš** (`lib/note-editor-html.ts`, izvor
+ * `apps/mobile/editor-web/`) i nosi istu Tiptap šemu kao web — tabelu, blok koda,
+ * `<hr>` i `noteFile` čvor. Beleška koja ih sadrži se zato UREĐUJE, ne samo čita.
+ *
+ * Zabranu je zamenio ČUVAR: pri prvom čitanju tela iz WebView-a poredi se potpis
+ * blokova sa onim pre učitavanja (`noteSignatureLoss`). Ako je nečega manje,
+ * autosave se gasi i beleška pada na `NoteReader` — telo se ne kvari čak i ako
+ * bundle jednog dana zaostane za webom.
  */
 
 /** Koliko se čeka posle kucanja da se pročita HTML iz WebView-a (jedan most-poziv). */
@@ -65,19 +71,14 @@ const RETRY_MS = 5_000;
 /** Posle ovoliko uzastopnih neuspeha se staje i traži se ručna potvrda. */
 const MAX_AUTO_RETRIES = 4;
 
-const NOTE_PLACEHOLDER = 'Zapiši kontekst, odluke i sledeće korake…';
-
 /**
- * Placeholder MORA statički, pri inicijalizaciji editora: runtime
- * `setPlaceholder` samo upiše opciju u ekstenziju, a dekoracija se ne osveži do
- * prvog kucanja — prazna beleška bi večno pokazivala tentap-ov engleski default
- * (bag E5). Modulski `const`: nova referenca po renderu bi reinicijalizovala most.
+ * Koliko puta se pokušava prvo čitanje HTML-a posle učitavanja editora. Most
+ * odgovara tek kad je React u WebView-u zakačio svoj `message` listener, a to
+ * `onLoad` (događaj dokumenta) ne garantuje — zato pokušaj sa isteklim rokom,
+ * ne jedan poziv koji ume da visi zauvek.
  */
-const NOTE_BRIDGES = TenTapStartKit.map((bridge) =>
-  bridge === PlaceholderBridge
-    ? PlaceholderBridge.configureExtension({ placeholder: NOTE_PLACEHOLDER })
-    : bridge,
-);
+const PRIME_ATTEMPTS = 8;
+const PRIME_TIMEOUT_MS = 400;
 
 type SaveState =
   | 'saved'
@@ -86,7 +87,8 @@ type SaveState =
   | 'error'
   | 'conflict'
   | 'invalid'
-  | 'too-long';
+  | 'too-long'
+  | 'lossy';
 
 export function NoteEditor({
   pageId,
@@ -112,9 +114,15 @@ export function NoteEditor({
   const keyboardInset = useKeyboardInset();
   const updatePage = useMutation(api.areasV2.updatePage);
 
+  const generateUploadUrl = useMutation(api.pageFiles.generateUploadUrl);
+  const attach = useMutation(api.pageFiles.attach);
+
   const [title, setTitle] = useState(remoteTitle);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [linkRequest, setLinkRequest] = useState<LinkRequest | null>(null);
+  const [insertOpen, setInsertOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [lostBlocks, setLostBlocks] = useState<NoteBlockKind[]>([]);
 
   // Nacrt živi u refovima, ne u stanju: kucanje ne sme da prerenderuje WebView.
   const titleRef = useRef(remoteTitle);
@@ -127,8 +135,17 @@ export function NoteEditor({
   const retriesRef = useRef(0);
   const htmlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const editorRef = useRef<EditorBridge | null>(null);
+  const editorRef = useRef<NoteEditorBridge | null>(null);
   const cssLoadedRef = useRef(false);
+  /**
+   * Selekcija zapamćena u trenutku otvaranja sheet-a. Android je gubi čim fokus
+   * ode iz WebView-a — isti razlog i isti obrazac kao `applyLink`.
+   */
+  const insertSelectionRef = useRef({ from: 0, to: 0 });
+  /** Prvo uspešno čitanje HTML-a iz WebView-a se obradi samo jednom. */
+  const primedRef = useRef(false);
+  /** Čuvar je okinuo: editor je odmontiran, ništa se više ne čita ni ne piše. */
+  const lossyRef = useRef(false);
   /**
    * `setContent` (preuzimanje timske verzije) i sam okine `ContentUpdate`, a
    * Tiptap pritom ponovo serijalizuje HTML — bez ovoga bi ta normalizacija
@@ -157,14 +174,35 @@ export function NoteEditor({
   // kasnije se ne primenjuje, a reaktivna izmena bi samo pravila novu referencu.
   const [initialContent] = useState(() => remoteContent || EMPTY_NOTE_HTML);
 
-  // Telo koje mobilni editor ne ume da predstavi otvara se samo za čitanje.
-  // Meri se nad TELOM KOJE JE EDITOR UČITAO (a to je zamrznuti `initialContent`),
-  // ne nad živim upitom — inače bi tuđa izmena mogla da sruši editor usred kucanja.
-  const unsupported = useMemo(
-    () => unsupportedNoteBlocks(initialContent),
-    [initialContent],
+  /**
+   * Potpis blokova PRE učitavanja u editor — leva strana čuvara gubitka. Zamrznut
+   * kao i `initialContent`, i iz istog razloga: meri se ono što je editor DOBIO.
+   * Lenja inicijalizacija, ne `useRef(noteBlockSignature(...))` — argument `useRef`-a
+   * se računa na SVAKI render, a telo ume da bude 80.000 znakova.
+   */
+  const [loadSignature] = useState(() => noteBlockSignature(initialContent));
+
+  const bodyEditable = canEditBody;
+
+  /**
+   * Prilozi u telu: URL nikad nije u dokumentu (isto pravilo kao na webu), pa se
+   * mapa `fileId → url` šalje u WebView. Pretplata se otvara samo kad telo
+   * stvarno ima prilog — obična beleška ne plaća upit koji joj ne treba.
+   */
+  const [hasNoteFiles, setHasNoteFiles] = useState(() =>
+    /data-note-file/i.test(initialContent),
   );
-  const bodyEditable = canEditBody && unsupported.length === 0;
+  const noteFiles = useQuery(api.pageFiles.list, hasNoteFiles ? { pageId } : 'skip');
+  const fileUrls = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const file of noteFiles ?? []) {
+      if (file.url !== null) map[file._id] = file.url;
+    }
+    return map;
+  }, [noteFiles]);
+  const fileUrlsRef = useRef(fileUrls);
+  fileUrlsRef.current = fileUrls;
+
   const editorTheme = useMemo(
     () => ({
       webview: { backgroundColor: colors.background },
@@ -263,10 +301,48 @@ export function NoteEditor({
     }
   }, [enqueue, pageId, scheduleSave, startupId, updatePage]);
 
+  /**
+   * ČUVAR GUBITKA. Poredi telo koje je editor VRATIO sa telom koje je dobio. Ako
+   * je bilo kog bloka manje, autosave se gasi istim mehanizmom kao konflikt i
+   * beleška pada na verno čitanje. Radi jednom, na prvom čitanju posle
+   * učitavanja — kasnije brisanje reda tabele je korisnikova namera, ne kvar.
+   *
+   * Ovo je odgovor na jedinu stvar goru od nemogućnosti uređivanja: tiho
+   * osiromašeno telo upisano u bazu.
+   */
+  const checkLoss = useCallback(
+    (html: string) => {
+      const loss = noteSignatureLoss(loadSignature, noteBlockSignature(html));
+      if (loss.length === 0) return false;
+      // Isti mehanizam kao konflikt: `save` i `flushOnExit` oba gledaju `conflictRef`,
+      // pa osiromašeno telo ne može da stigne do baze ni pri izlasku sa ekrana.
+      conflictRef.current = true;
+      queuedRef.current = false;
+      lossyRef.current = true;
+      setLostBlocks(loss);
+      setSaveState('lossy');
+      return true;
+    },
+    [loadSignature],
+  );
+
+  /** Prvo uspešno čitanje: čuvar + slanje URL-ova priloga (most je tada živ). */
+  const handleFirstHtml = useCallback(
+    (html: string) => {
+      primedRef.current = true;
+      if (Object.keys(fileUrlsRef.current).length > 0) {
+        editorRef.current?.setNoteFileUrls(fileUrlsRef.current);
+      }
+      return checkLoss(html);
+    },
+    [checkLoss],
+  );
+
   /** Čita sveži HTML iz WebView-a i, ako se razlikuje, zakazuje snimanje. */
   const pullHtml = useCallback(async () => {
     const editorInstance = editorRef.current;
-    if (editorInstance === null) return;
+    // Posle čuvara je WebView odmontiran — `getHTML()` bi visio bez odgovora.
+    if (editorInstance === null || lossyRef.current) return;
     let html: string;
     try {
       html = await editorInstance.getHTML();
@@ -274,6 +350,7 @@ export function NoteEditor({
       // Most je pao (npr. WebView se upravo ruši) — sledeća izmena pokušava opet.
       return;
     }
+    if (!primedRef.current && handleFirstHtml(html)) return;
     htmlRef.current = html;
     if (adoptNextHtmlRef.current) {
       // Ovo je odjek našeg `setContent`, ne korisnikova izmena: prihvatamo
@@ -290,7 +367,7 @@ export function NoteEditor({
     }
     markDirty();
     scheduleSave();
-  }, [markDirty, scheduleSave]);
+  }, [handleFirstHtml, markDirty, scheduleSave]);
 
   const handleContentChange = useCallback(() => {
     if (htmlTimerRef.current) clearTimeout(htmlTimerRef.current);
@@ -307,22 +384,56 @@ export function NoteEditor({
     editable: bodyEditable,
     theme: editorTheme,
     bridgeExtensions: NOTE_BRIDGES,
+    // Naš bundle (`editor-web/`) umesto tentap-ovog: samo on ima tabelu, blok
+    // koda, `<hr>` i `noteFile` u šemi. Modulski `const` — nova referenca bi
+    // reloadovala WebView (ZA-POPRAVKU Z1).
+    customSource: NOTE_EDITOR_HTML,
     onChange: handleContentChange,
-  });
+  }) as NoteEditorBridge;
 
   useEffect(() => {
     editorRef.current = editor;
   });
 
+  /**
+   * Prvo čitanje tela posle učitavanja. `onLoad` je događaj DOKUMENTA — React u
+   * WebView-u tada još nije zakačio `message` listener, pa prvi `getHTML()` ume
+   * da ostane bez odgovora zauvek. Zato pokušaj sa rokom, pa ponovo.
+   */
+  const primeEditor = useCallback(async () => {
+    for (
+      let attempt = 0;
+      attempt < PRIME_ATTEMPTS && !primedRef.current && !lossyRef.current;
+      attempt += 1
+    ) {
+      const html = await Promise.race([
+        editorRef.current?.getHTML() ?? Promise.resolve(null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), PRIME_TIMEOUT_MS)),
+      ]).catch(() => null);
+      if (typeof html === 'string' && html !== '') {
+        if (!primedRef.current) handleFirstHtml(html);
+        return;
+      }
+    }
+  }, [handleFirstHtml]);
+
   const handleEditorLoad = useCallback(() => {
     cssLoadedRef.current = true;
     editorRef.current?.injectCSS(editorCss, 'devotion-note');
-  }, [editorCss]);
+    void primeEditor();
+  }, [editorCss, primeEditor]);
 
   // Promena teme dok je editor otvoren — CSS se osvežava u mestu (isti tag).
   useEffect(() => {
     if (cssLoadedRef.current) editorRef.current?.injectCSS(editorCss, 'devotion-note');
   }, [editorCss]);
+
+  // Potpisani URL-ovi priloga stižu asinhrono (i rotiraju) — prikaz se osvežava
+  // u mestu, dokument se ne dira.
+  useEffect(() => {
+    if (!primedRef.current || Object.keys(fileUrls).length === 0) return;
+    editorRef.current?.setNoteFileUrls(fileUrls);
+  }, [fileUrls]);
 
   const changeTitle = useCallback(
     (value: string) => {
@@ -441,31 +552,106 @@ export function NoteEditor({
     setSaveState('saved');
   }, [remoteContent, remoteRevision, remoteTitle]);
 
+  /**
+   * Vraća zapamćenu selekciju pa izvršava komandu. Android gubi tiptap selekciju
+   * čim fokus ode iz WebView-a (sheet, birač slika), pa se vraća ručno; kratka
+   * pauza je da se sheet stigne skloniti (isto radi i tentap).
+   */
+  const runAtSelection = useCallback(
+    (
+      selection: { from: number; to: number },
+      command: (instance: NoteEditorBridge) => void,
+    ) => {
+      setTimeout(
+        () => {
+          const editorInstance = editorRef.current;
+          if (editorInstance === null) return;
+          editorInstance.setSelection(selection.from, selection.to);
+          command(editorInstance);
+          editorInstance.focus();
+        },
+        Platform.OS === 'android' ? 120 : 0,
+      );
+    },
+    [],
+  );
+
   const applyLink = useCallback(
     (href: string | null) => {
       const request = linkRequest;
       setLinkRequest(null);
       if (request === null) return;
-      // Android gubi tiptap selekciju čim fokus ode iz WebView-a, pa se vraća
-      // ručno; kratka pauza je da se sheet stigne skloniti (isto radi i tentap).
-      setTimeout(() => {
-        const editorInstance = editorRef.current;
-        if (editorInstance === null) return;
-        editorInstance.setSelection(request.selection.from, request.selection.to);
-        editorInstance.setLink(href);
-        editorInstance.focus();
-      }, Platform.OS === 'android' ? 120 : 0);
+      runAtSelection(request.selection, (instance) => instance.setLink(href));
     },
-    [linkRequest],
+    [linkRequest, runAtSelection],
   );
+
+  /**
+   * Upload priloga i ubacivanje `noteFile` čvora u telo — isti put kao web
+   * (`useNoteFileUpload` → `pageFiles.attach` → čvor sa četiri atributa) i isti
+   * kod kao panel „Prilozi" (`files-panel.tsx:83`). Backend se ne dira:
+   * `requireAttachmentPage` već prima i `note` stranice.
+   *
+   * „Poništi" traka namerno NE postoji: ovo je Tiptap izmena u telu, poništava je
+   * dugme „Poništi" u traci alata (`note-toolbar.tsx`), a sam fajl se briše u
+   * panelu „Prilozi". `lib/undo.ts` je za upise u bazu.
+   */
+  const uploadAndInsert = useCallback(
+    async (pick: NoteInsertPick) => {
+      const selection = insertSelectionRef.current;
+      setUploading(true);
+      try {
+        const { uploadUrl, token } = await generateUploadUrl({ pageId });
+        const blob = await (await fetch(pick.uri)).blob();
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': pick.mimeType },
+          body: blob,
+        });
+        if (!response.ok) throw new Error('Otpremanje nije uspelo.');
+        const { storageId } = (await response.json()) as { storageId: Id<'_storage'> };
+        const result = await attach({ pageId, storageId, token, name: pick.name });
+        if (!result.ok) {
+          haptics.error();
+          Alert.alert('Prilog odbijen', result.message);
+          return;
+        }
+        setHasNoteFiles(true);
+        runAtSelection(selection, (instance) =>
+          instance.insertNoteFile({
+            fileId: result.fileId,
+            category: result.category,
+            name: result.name,
+            size: result.size,
+          }),
+        );
+        haptics.success();
+      } catch (error) {
+        haptics.error();
+        Alert.alert('Greška', accessErrorMessage(error, 'Prilog nije poslat.'));
+      } finally {
+        setUploading(false);
+      }
+    },
+    [attach, generateUploadUrl, pageId, runAtSelection],
+  );
+
+  const lossReason =
+    lostBlocks.length === 0
+      ? null
+      : `Ova beleška sadrži ${noteBlockLossSentence(lostBlocks)} koju telefon ne ume da učita bez gubitka. Ovde je prikaz veran originalu, a uređivanje je na webu.`;
 
   const lockReason = !canEdit
     ? 'Sadržaj i naslov menja samo autor beleške.'
-    : unsupported.length > 0
-      ? `Ova beleška sadrži ${unsupportedNoteBlocksSentence(unsupported)} — to se za sada uređuje na webu. Ovde je prikaz veran originalu.`
+    : lossReason !== null
+      ? lossReason
       : !canEditBody
         ? 'Raniji zajednički sadržaj je zaključan. Naslov možeš da menjaš, telo se uređuje na webu kroz potpisani doprinos.'
         : null;
+
+  // Kad čuvar okine, editor se odmontira i ostaje verno čitanje SERVERSKE verzije
+  // — telo koje je WebView vratio se ne prikazuje i nikad ne stigne do baze.
+  const showEditor = bodyEditable && saveState !== 'lossy';
 
   return (
     <View style={styles.container}>
@@ -498,7 +684,7 @@ export function NoteEditor({
         </View>
       ) : null}
 
-      {bodyEditable ? (
+      {showEditor ? (
         <>
           <RichText editor={editor} onLoad={handleEditorLoad} />
           {/* NE `KeyboardAvoidingView`: ugnježden ovako duboko meša relativne i
@@ -508,7 +694,14 @@ export function NoteEditor({
           <View
             style={[styles.toolbarWrap, { bottom: keyboardInset }]}
             pointerEvents="box-none">
-            <NoteToolbar editor={editor} onRequestLink={setLinkRequest} />
+            <NoteToolbar
+              editor={editor}
+              onRequestLink={setLinkRequest}
+              onRequestInsert={(selection) => {
+                insertSelectionRef.current = selection;
+                setInsertOpen(true);
+              }}
+            />
           </View>
         </>
       ) : (
@@ -522,12 +715,51 @@ export function NoteEditor({
         />
       )}
 
+      {uploading ? (
+        <View
+          accessibilityLiveRegion="polite"
+          style={[
+            styles.uploading,
+            { backgroundColor: colors.popover, borderColor: colors.border },
+          ]}>
+          <ActivityIndicator size="small" color={colors.mutedForeground} />
+          <Text style={[styles.uploadingText, { color: colors.foreground }]}>
+            Otpremam prilog…
+          </Text>
+        </View>
+      ) : null}
+
       <NoteLinkSheet
         open={linkRequest !== null}
         initialHref={linkRequest?.href ?? ''}
         onSubmit={applyLink}
         onRemove={() => applyLink(null)}
         onClose={() => setLinkRequest(null)}
+      />
+
+      {/* Sheet se renderuje ODAVDE, a ne iz trake: traka nestaje čim tastatura
+          padne (`note-toolbar.tsx`), a otvaranje sheet-a je baš gasi — sheet bi
+          nestao zajedno sa njom. */}
+      <NoteInsertSheet
+        open={insertOpen}
+        bodyLength={htmlRef.current.length}
+        onClose={() => setInsertOpen(false)}
+        onUpload={uploadAndInsert}
+        onInsertTable={() =>
+          runAtSelection(insertSelectionRef.current, (instance) =>
+            instance.insertNoteTable(),
+          )
+        }
+        onInsertTableContent={(matrix, firstRowIsHeader) =>
+          runAtSelection(insertSelectionRef.current, (instance) =>
+            instance.insertNoteTableContent(matrix, firstRowIsHeader),
+          )
+        }
+        onInsertCodeBlock={() =>
+          runAtSelection(insertSelectionRef.current, (instance) =>
+            instance.toggleNoteCodeBlock(),
+          )
+        }
       />
     </View>
   );
@@ -592,6 +824,7 @@ const STATE_LABEL: Record<SaveState, string> = {
   conflict: 'Konflikt izmena',
   invalid: 'Naslov je obavezan',
   'too-long': 'Predugačko',
+  lossy: 'Samo čitanje',
 };
 
 function SaveIndicator({
@@ -613,7 +846,7 @@ function SaveIndicator({
       ? colors.success
       : state === 'error' || state === 'too-long'
         ? colors.danger
-        : state === 'conflict' || state === 'invalid'
+        : state === 'conflict' || state === 'invalid' || state === 'lossy'
           ? colors.warning
           : colors.mutedForeground;
 
@@ -739,5 +972,21 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  uploading: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  uploadingText: {
+    fontSize: 14,
+    fontWeight: fontWeight.semibold,
   },
 });

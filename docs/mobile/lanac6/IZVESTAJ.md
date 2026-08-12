@@ -153,3 +153,109 @@ dokument nalaza, `PARITET-REVIZIJA-12-08.md`).
 
 - Start: 2026-08-13T00:21:58
 - PLAN: napisan
+- IZVRŠI: završeno 2026-08-13
+
+### 1. Nalazi — dokaz fajl:linija
+
+| # | Tvrdnja | Dokaz PRE | Šta je urađeno | Dokaz POSLE |
+|---|---|---|---|---|
+| B1 | Beleška sa tabelom/prilogom/blokom koda je read-only | `note-editor.tsx:167` `bodyEditable = canEditBody && unsupported.length === 0` | Sopstveni web bundle sa istom Tiptap šemom kao web; `bodyEditable = canEditBody` | `apps/mobile/src/components/stranica/note-editor.tsx:185` (`bodyEditable`), `:390` (`customSource`), `:386` (`bridgeExtensions`) |
+| B1 | Šemi fale 4 ekstenzije | `TenTapStartKit` nema `table`, `codeBlock`, `horizontalRule`, `noteFile` | `NoteTableBridge`, `NoteCodeBlockBridge`, `NoteFileBridge` (+ `Gapcursor`, `HorizontalRule`, `TrailingNode` kao deps) | `apps/mobile/src/lib/note-editor-bridges.ts:224` (tabela), `:321` (kod), `:363` (prilog), `:408` (`NOTE_BRIDGES`) |
+| B1 | Gubitak sadržaja pri round-tripu | — | Test: JSON pre = JSON posle; mobilni JSON = web JSON; čuvar puca kad se ekstenzija izbaci | `apps/mobile/src/lib/note-content.roundtrip.test.ts` (16 testova, svi zeleni) |
+| B1 | Nema zaštite ako bundle zaostane | `unsupportedNoteBlocks()` = lista poznatog | Čuvar koji MERI gubitak i gasi autosave | `apps/mobile/src/lib/note-content.ts:59` (`noteBlockSignature`), `:71` (`noteSignatureLoss`); `note-editor.tsx:313` (`checkLoss`) |
+| B7 | Traka nema slike/priloge/tabelu | `note-toolbar.tsx:85` — 16 dugmadi, sve tekstualno | Dugme „Dodaj…" (prvo u traci) + 6 alatki tabele (samo u tabeli) + „Blok koda" | `apps/mobile/src/components/stranica/note-toolbar.tsx:101` („Dodaj…"), `:220` (blok koda), `:230-270` (tabela) |
+| B7 | Nema ubacivanja slike/priloga/tabele | nema | Sheet „Dodaj u belešku": galerija, kamera, prilog, tabela 3×3, uvoz CSV/XLSX, blok koda | `apps/mobile/src/components/stranica/note-insert-sheet.tsx` (ceo fajl), `note-editor.tsx:743` (mount) |
+| B7 | Upload iz tela beleške | `files-panel.tsx:83` postoji samo za `kind: 'file'` | `uploadAndInsert` — isti tok, pa `insertNoteFile` sa 4 atributa iz `attach` odgovora | `note-editor.tsx:599` (`uploadAndInsert`) |
+| B7 | Slika u telu se ne vidi | — | Plain-DOM node view: `category === 'image'` + poznat URL → `<img>`, inače čip „📎 ime · veličina" | `note-editor-bridges.ts:137` (`addNodeView`), `note-editor.tsx:195` (`useQuery` sa `skip`), `:334`/`:435` (`setNoteFileUrls`) |
+| — | `<hr>` bi nestao (revizija ga NIJE našla) | web StarterKit ima `HorizontalRule`, mobilni ne | `HorizontalRule` u `tiptapExtensionDeps` `NoteFileBridge`-a | `note-editor-bridges.ts:372` |
+
+**Backend: nula izmena.** `pageFiles.attach` već vraća tačno četiri atributa koje
+`noteFile` čvor traži, a `requireAttachmentPage` (`pageFiles.ts:61`) već prima i
+`note` stranice. Nova funkcija bi bila izmišljen posao.
+
+### 2. Lanac uvoza — dokaz da nije mrtvo
+
+**`note-editor-bridges.ts` — DVA potrošača (to je i poenta modula):**
+1. `note-editor.tsx:40` (uvoz) → `:386` `bridgeExtensions: NOTE_BRIDGES` → `stranica/[id].tsx:151` `<NoteEditor>` → ruta `/stranica/[id]` → tab „Prostor" → tap na belešku.
+2. `editor-web/index.ts:25` (uvoz) → `useTenTap({ bridges: NOTE_BRIDGES })` → `npm run editor:build` → `src/lib/note-editor-html.ts`.
+3. (tipovi) `note-toolbar.tsx:33` — `NoteEditorBridge` / `NoteEditorState`.
+
+**`note-editor-html.ts` (generisan bundle):** → `note-editor.tsx:41` (uvoz) → `:390`
+`customSource: NOTE_EDITOR_HTML`. Bundle koji se ne učita = prazan editor, vidi se odmah.
+
+**`note-insert-sheet.tsx`:** → `note-editor.tsx:21` (uvoz) → `:743` (mount, pored
+`NoteLinkSheet`). Jedini ulaz je dugme „Dodaj…" iz trake, koje je u ISTOM commit-u
+(`note-toolbar.tsx:101` → `onRequestInsert` prop `:89` → poziv `:104` → prosleđeno iz
+`note-editor.tsx:700`).
+
+**`note-table.ts`:** → `note-editor-bridges.ts:31` (`noteTableContent`, koristi ga web
+strana bridge-a) i `note-insert-sheet.tsx:23` (granice + procena dužine).
+
+**`noteBlockSignature` / `noteSignatureLoss`:** → `note-editor.tsx:31-37` (uvoz) →
+`:183` (`loadSignature`), `:313` (`checkLoss`) → `:330` (`handleFirstHtml`) →
+`pullHtml` i `primeEditor`. Oba puta vode do `RichText onLoad`/`onChange`.
+
+**`noteEditorCss` (proširen):** → `note-editor.tsx:214` → `injectCSS` na `:422`/`:428`.
+
+**Obrisano, ne ostavljeno mrtvo:** `unsupportedNoteBlocks`, `unsupportedNoteBlocksSentence`,
+`UNSUPPORTED_PATTERNS`, `UNSUPPORTED_LABEL`, `UnsupportedNoteBlock` — jedini potrošač je bio
+`note-editor.tsx`. `grep -rn "unsupportedNoteBlock\|UNSUPPORTED_" apps/mobile/src` → **jedan**
+pogodak, i to u docstring-u `note-content.ts:21` koji objašnjava čime su zamenjeni. Nijedna
+deklaracija, nijedan poziv.
+
+### 3. Odstupanja od plana (i zašto)
+
+| Plan | Urađeno | Razlog |
+|---|---|---|
+| Izmena 3: alias `@10play/tentap-editor` → `lib-web/index.mjs` | alias → `src/webEditorUtils/index.ts` (IZVOR paketa) | `lib-web/index.mjs` je unapred izgrađen sa **ugrađenim** `@tiptap/core` i ProseMirror-om (`src/webEditorUtils/vite.config.ts:18` externalizuje samo react/react-dom; u fajlu nema nijednog `@tiptap` importa). Naš `TableKit`/`CodeBlock`/`NoteFile` bi radio nad DRUGOM šemom — tačno onaj tihi kvar od koga plan brani. Iz izvora se sve razrešava na jednu hoistovanu `3.29.2` (`npm ls @tiptap/core` → jedna verzija) |
+| Izmena 1: `vite-plugin-singlefile` kao rezerva | nije trebalo | `lib`+`iife` je dao tačno jedan `.js` |
+| Izmena 5: `generateJSON`/`generateHTML` iz `@tiptap/html` | dve pomoćne funkcije u testu (`getSchema` + `DOMParser`/`DOMSerializer`) | paket `@tiptap/html` nije instaliran u repou; funkcije su doslovan port onoga što on radi |
+| Izmena 11 (CSV/XLSX) — „sme da otpadne" | **urađeno** | `parseSpreadsheet`/`normalizeTableMatrix` već postoje, a poruka je išla kroz isti bridge — jeftinije nego drugi ciklus build-a bundle-a |
+| Izmena 10 (slika se vidi) — „sme da otpadne" | **urađeno** | bez toga se ubačena slika vidi samo kao čip; node view je plain DOM i ne dira serijalizaciju |
+| Novo, nije u planu | `editor-web/expo-constants-absent.cjs` | vidi ZA-POPRAVKU Z10 — bez toga build pada, a da nije pao, traka alata bi tiho nestala |
+
+### 4. Gejtovi
+
+```
+apps/mobile   npx tsc --noEmit                                    → 0 grešaka
+apps/web      npx tsc --noEmit                                    → 0 grešaka
+npm run lint                                                      → 0 grešaka, 0 upozorenja
+npm test      Test Files 42 passed (42) | Tests 367 passed (367)  (baseline P1: 41/351 — +1 fajl, +16 testova)
+npm run build → Next.js build uspešan, sve rute kompajlirane
+packages/backend  npx tsc -p convex/tsconfig.json --noEmit        → 0 grešaka (backend nije diran)
+npm run editor:build --workspace @devotion/mobile → 678 KB, provera markera prošla
+```
+
+> `expo lint` **ne pokriva** `apps/mobile/src` (root `eslint.config.mjs:25` ignoriše
+> `apps/mobile/**`, a `expo lint` je pokvaren) — „lint čist" za mobilni znači `tsc`,
+> ne ESLint. Ista ograda kao u svakoj prethodnoj fazi.
+
+### 5. Šta NIJE provereno — iskreno
+
+- **Ništa nije pokrenuto na uređaju ni u emulatoru.** Verifikacija je `tsc` + `npm test`
+  + čitanje izgrađenog bundle-a. Ne tvrdim da sam video tabelu kako se uređuje prstom.
+- **Živi `new Editor(...)` nije testiran** — `EditorView` u jsdom-u traži `getClientRects`.
+  Test dokazuje ŠEMU (`generateJSON`/`generateHTML` ekvivalent), ne ponašanje WebView-a.
+  To je zapisano i u samom testu.
+- **Merni gejt (`ZA-POPRAVKU` §2) ostaje otvoren.** Bundle je porastao (~600 → ~680 KB),
+  a u aplikaciji su sada oba stringa (tentap svoj statički uvozi u `RichText.tsx:9`;
+  patchovanje paketa nije rađeno). Merenje na jeftinom Androidu je sada važnije.
+- **`TrailingNode` i „lažna izmena" pri otvaranju** — po kodu ne bi trebalo da se desi
+  (`appendTransaction` se okida samo na transakciju sa `docChanged`, a učitavanje sadržaja
+  pri kreiranju editora nije transakcija), a i web ima istu ekstenziju kroz StarterKit.
+  Ali **nije izmereno na uređaju**: ako se ispostavi da se desi, znak je „Sačuvano →
+  Izmene čekaju → Sačuvano" odmah po otvaranju beleške koja se ne završava pasusom.
+
+### 6. Provera prstom (čeka korisnika)
+
+| # | Šta | Očekivano |
+|---|---|---|
+| T1 | „Prostor" → beleška napravljena na webu sa tabelom + prilogom + blokom koda | Otvara se **za uređivanje**, ne u režimu čitanja; nema trake o gubitku |
+| T2 | Kucanje u ćeliju tabele | „Sačuvano"; povratak i ponovno otvaranje pokazuje izmenu; web osveži istu stranicu — tabela je cela |
+| T3 | Kursor u ćeliju | Pojavi se 6 dugmadi tabele u traci; „Dodaj red" → red se vidi i posle reload-a ekrana |
+| T4 | Tastatura gore → „Dodaj…" | Sheet sa 6 redova |
+| T5 | „Iz galerije" → slika | Slika se VIDI u telu (ne samo čip); panel „Prilozi" iste stranice ima isti fajl; web prikazuje sliku u telu |
+| T6 | „Uvezi tabelu (CSV/XLSX)" sa 3×3 fajlom | Alert sa dimenzijama → „Prvi red je zaglavlje" → tabela u telu |
+| T7 | „Blok koda" | `<pre>` blok sa monospace fontom i okvirom |
+| T8 | Beleška sa `<hr>` | Crta ostaje posle snimanja sa telefona |
+| T9 | Tamna/svetla tema dok je editor otvoren | Tabela i blok koda menjaju boje bez reload-a |

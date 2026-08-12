@@ -1,5 +1,7 @@
-import { useBridgeState, type EditorBridge } from '@10play/tentap-editor';
+import { useBridgeState } from '@10play/tentap-editor';
 import {
+  BetweenHorizontalEnd,
+  BetweenVerticalEnd,
   Bold,
   Code,
   Heading1,
@@ -13,21 +15,30 @@ import {
   List,
   ListChecks,
   ListOrdered,
+  PanelTop,
+  Plus,
   Quote,
   Redo2,
+  SquareCode,
   Strikethrough,
+  TableColumnsSplit,
+  TableRowsSplit,
+  Trash2,
   Undo2,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Keyboard, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { haptics } from '@/lib/haptics';
+import type { NoteEditorBridge, NoteEditorState } from '@/lib/note-editor-bridges';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, type ColorTokens } from '@/theme/tokens';
 
+export type EditorSelection = { from: number; to: number };
+
 export type LinkRequest = {
   /** Selekcija u trenutku otvaranja — Android je gubi čim fokus ode iz WebView-a. */
-  selection: { from: number; to: number };
+  selection: EditorSelection;
   href: string;
 };
 
@@ -70,12 +81,15 @@ function useKeyboardVisible(): boolean {
 export function NoteToolbar({
   editor,
   onRequestLink,
+  onRequestInsert,
 }: {
-  editor: EditorBridge;
+  editor: NoteEditorBridge;
   onRequestLink: (request: LinkRequest) => void;
+  /** Otvara sheet „Dodaj u belešku"; selekcija se pamti pre gašenja tastature. */
+  onRequestInsert: (selection: EditorSelection) => void;
 }) {
   const colors = useThemeColors();
-  const state = useBridgeState(editor);
+  const state = useBridgeState(editor) as NoteEditorState;
   const keyboardVisible = useKeyboardVisible();
 
   // Kad tastatura nije gore traka nema šta da prati — sakrij je da ne pokriva
@@ -83,6 +97,13 @@ export function NoteToolbar({
   if (!keyboardVisible || !state.isFocused) return null;
 
   const buttons: Array<ToolbarButton | 'separator'> = [
+    {
+      key: 'insert',
+      label: 'Dodaj sliku, prilog, tabelu ili blok koda',
+      Icon: Plus,
+      onPress: () => onRequestInsert(state.selection),
+    },
+    'separator',
     {
       key: 'bold',
       label: 'Podebljano',
@@ -195,6 +216,58 @@ export function NoteToolbar({
       disabled: !state.canToggleBlockquote,
       onPress: () => editor.toggleBlockquote(),
     },
+    {
+      key: 'code-block',
+      label: 'Blok koda',
+      Icon: SquareCode,
+      active: state.isCodeBlockActive,
+      disabled: !state.canToggleCodeBlock,
+      onPress: () => editor.toggleNoteCodeBlock(),
+    },
+    // Alatke tabele se pojavljuju SAMO kad je kursor u tabeli — isto kao web
+    // (`rich-text-editor.tsx:436`). Traka je već duga; šest dugmadi koje van
+    // tabele ne rade ništa bila bi buka.
+    ...(state.isTableActive
+      ? ([
+          'separator',
+          {
+            key: 'row-after',
+            label: 'Dodaj red',
+            Icon: BetweenHorizontalEnd,
+            onPress: () => editor.addNoteTableRow(),
+          },
+          {
+            key: 'row-delete',
+            label: 'Obriši red',
+            Icon: TableRowsSplit,
+            onPress: () => editor.deleteNoteTableRow(),
+          },
+          {
+            key: 'col-after',
+            label: 'Dodaj kolonu',
+            Icon: BetweenVerticalEnd,
+            onPress: () => editor.addNoteTableColumn(),
+          },
+          {
+            key: 'col-delete',
+            label: 'Obriši kolonu',
+            Icon: TableColumnsSplit,
+            onPress: () => editor.deleteNoteTableColumn(),
+          },
+          {
+            key: 'header-row',
+            label: 'Red zaglavlja',
+            Icon: PanelTop,
+            onPress: () => editor.toggleNoteTableHeaderRow(),
+          },
+          {
+            key: 'table-delete',
+            label: 'Obriši tabelu',
+            Icon: Trash2,
+            onPress: () => editor.deleteNoteTable(),
+          },
+        ] satisfies Array<ToolbarButton | 'separator'>)
+      : []),
     'separator',
     {
       key: 'sink',

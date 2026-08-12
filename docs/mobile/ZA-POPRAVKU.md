@@ -130,8 +130,28 @@ tastaturu (tentap je ima kao native traku, embed bi je imao u DOM-u ispod softve
 tastature), rad bez veze (embed traži da web app bude dostupan) i `EXPO_PUBLIC_WEB_URL`
 koji na fizičkom telefonu mora da bude LAN IP. Cena je opisana odmah ispod.
 
-**Cena koju tentap naplaćuje — pročitaj pre nego što nešto „popraviš".** Unapred izgrađen
-tentap web bundle
+**Cena koju tentap naplaćuje — REŠENO (lanac 6, P2, 13.08.2026).** Tekst ispod je
+istorijat; sve tri tačke su zatvorene. Šta ih je zamenilo:
+
+| Bila | Sada | Dokaz |
+|---|---|---|
+| 1. blok koda nije isporučen | `NoteCodeBlockBridge` u šemi; dugme „Blok koda" u traci i u sheet-u | `apps/mobile/src/lib/note-editor-bridges.ts` (`NoteCodeBlockBridge`), `note-toolbar.tsx` („Blok koda"), `note-insert-sheet.tsx` |
+| 2. beleška sa tabelom/prilogom/blokom koda je read-only | **uređuje se**; `unsupportedNoteBlocks()` obrisan, zamenio ga je čuvar koji MERI gubitak | `apps/mobile/src/lib/note-content.ts` (`noteBlockSignature`, `noteSignatureLoss`), `note-editor.tsx` (`checkLoss`) |
+| 3. nema ubacivanja slika i priloga u telo | sheet „Dodaj u belešku": galerija, kamera, dokument, tabela 3×3, uvoz CSV/XLSX, blok koda | `apps/mobile/src/components/stranica/note-insert-sheet.tsx`, `note-editor.tsx` (`uploadAndInsert`) |
+
+**Kako.** Sopstveni web bundle: `apps/mobile/editor-web/` (vite, `lib`+`iife`, bez
+`vite-plugin-singlefile`) → generisan `src/lib/note-editor-html.ts` → `customSource` u
+`useEditorBridge`. Lista bridge-ova je **jedna** (`src/lib/note-editor-bridges.ts`) i
+troše je i native i bundle — da se ne raziđu, jer `useTenTap` odbacuje svaki bridge koga
+nema u `window.bridgeExtensionConfigMap`. Detalji o zavisnostima i build-u:
+`docs/mobile/lanac6/NATIVE-BUILD.md`.
+
+**Merni gejt iz ovog odeljka OSTAJE OTVOREN — i postaje važniji, ne manje važan.**
+Bundle je posle P2 veći (~680 KB umesto ~600 KB tentap-ovog), a u aplikaciji su sada
+oba (tentap svoj statički uvozi u `RichText.tsx:9`; to se ne patchuje). Merenje na
+jeftinom Androidu je zato tek sada merodavno.
+
+Istorijat (šta je bilo pre P2): unapred izgrađen tentap web bundle
 (`node_modules/@10play/tentap-editor/src/simpleWebEditor/build/editorHtml.js`) ima fiksnu
 Tiptap šemu: nema `table`, nema `codeBlock`, nema našeg `noteFile` čvora (provereno:
 `grep -c codeBlock` nad bundle-om vraća 0; u `bridges/code.ts` je `CodeBlock` zakomentarisan
@@ -235,7 +255,30 @@ sa razlogom. Nije poređano po veličini posla nego po tome koliko boli.
 > Revizija pristupačnosti je zato urađena ručno, po WCAG 2.2 AA + React Native
 > accessibility API-ju, kroz zaseban agent. Nije korišćen skill koji ne postoji.
 
-### 5.1 Beleška sa prilogom, tabelom ili blokom koda je na telefonu READ-ONLY
+### 5.1 Beleška sa prilogom, tabelom ili blokom koda je na telefonu READ-ONLY — **REŠENO (lanac 6, P2, 13.08.)**
+
+> **REŠENO.** Mobilna Tiptap šema je sada ista kao web: `TableKit`, `CodeBlock`,
+> `HorizontalRule`, `noteFile` + `Gapcursor`/`TrailingNode`.
+>
+> | Šta | Gde |
+> |---|---|
+> | Zajednička lista bridge-ova (native + bundle) | `apps/mobile/src/lib/note-editor-bridges.ts` |
+> | Izvor web bundle-a | `apps/mobile/editor-web/` (`index.ts`, `template.html`, `vite.config.ts`, `inline.mjs`) |
+> | Generisan bundle (commituje se) | `apps/mobile/src/lib/note-editor-html.ts` |
+> | `customSource` + otključan `bodyEditable` | `apps/mobile/src/components/stranica/note-editor.tsx` |
+> | Alatke tabele i blok koda u traci | `apps/mobile/src/components/stranica/note-toolbar.tsx` |
+> | Ubacivanje (slika/kamera/prilog/tabela/CSV/blok koda) | `apps/mobile/src/components/stranica/note-insert-sheet.tsx` |
+> | Dokaz da se ništa ne gubi | `apps/mobile/src/lib/note-content.roundtrip.test.ts` (16 testova) |
+>
+> **Zabranu je zamenio čuvar.** `unsupportedNoteBlocks()` je obrisan; umesto liste
+> „nepodržanog" sada se MERI stvaran gubitak (`noteBlockSignature` /
+> `noteSignatureLoss`) pri prvom čitanju tela iz WebView-a. Ako je bilo kog bloka
+> manje, autosave se gasi istim mehanizmom kao konflikt i beleška pada na verno
+> čitanje — telo se ne kvari čak i ako bundle jednog dana zaostane za webom.
+> Čuvar ne zna šta je „nepodržano", pa preživi i sledeću promenu šeme na webu.
+>
+> **USLOV iz §2 (merenje na uređaju) i dalje stoji** i sada je relevantniji —
+> bundle je porastao. Tekst ispod je istorijat.
 
 **Stanje.** `lib/note-content.ts` (`unsupportedNoteBlocks`) prepoznaje `image`,
 `video`, `file`, `table` i `codeBlock` u telu beleške i tada `note-editor.tsx`
@@ -1045,3 +1088,44 @@ radi i za fizički telefon preko USB-a.
 
 **Kombinuje se sa Z3, pa proveravaj oba:** `200` sa hosta znači samo da server radi;
 da li ga TELEFON vidi je zasebno pitanje.
+
+## Z10. `isExpo()` u tentap izvoru: build editora povuče `react-native`, a da nije pukao — ugasio bi traku alata
+
+**Otkriveno u fazi P2 (lanac 6), pri prvom `npm run editor:build`.**
+
+**Simptom.** Vite build web bundle-a editora pada sa `[PARSE_ERROR] Flow is not supported`
+nad `node_modules/react-native/index.js`. Nijedan fajl u grafu ne uvozi `react-native` kao
+vrednost — svi pogoci su `import type`.
+
+**Uzrok.** `@10play/tentap-editor/src/utils/misc.ts`:
+
+```js
+export const isExpo = () => {
+  let isRunningOnExpo = false;
+  try { if (require('expo-constants')) isRunningOnExpo = true } catch { isRunningOnExpo = false }
+  return isRunningOnExpo;
+};
+```
+
+Rollup (koji tentap koristi u SVOM buildu) `require` u ESM fajlu ostavlja kao nedefinisanu
+promenljivu → poziv baci `ReferenceError` → `catch` ga proguta → `isExpo()` je `false`.
+**Rolldown (Vite 8) taj `require()` razrešava** i povuče `expo-constants` → `expo-modules-core`
+→ `react-native` → Flow.
+
+**Zašto je pad bio sreća.** `isExpo()` odlučuje da li su `focusListener` i
+`contentHeightListener` **pravi ili prazni shim-ovi** (`webEditorUtils/focusListener.tsx:26`,
+`contentHeight.tsx:36`). Da je rolldown uspeo da razreši paket, `isExpo()` bi vratio `true`,
+`focusListener.isFocused` bi bio zauvek `false`, a traka alata beleške se prikazuje baš po
+tom polju (`note-toolbar.tsx`, uslov `state.isFocused`) — **traka ne bi postojala, bez
+ijedne greške u logu**.
+
+**Popravka.** `apps/mobile/editor-web/expo-constants-absent.cjs` (`module.exports = undefined`)
++ alias u `editor-web/vite.config.ts` i `apps/mobile/vitest.config.ts`. Rolldown CJS modul
+umotava u **lenju** funkciju, pa se poziv desi tačno na mestu `require`-a i vrati falsy
+vrednost. Provereno u izlazu: `qp=o(((e,t)=>{t.exports=void 0})), Jp=()=>{let e=!1;try{qp()&&(e=!0)}catch{e=!1}return e}`
+i `Xp=Jp()?{isFocused:!1}:new Yp` — grana `new Yp` (pravi `FocusListener`) je ta koja se
+izvršava. Uz to: `grep -c react-native` nad bundle-om vraća **0**.
+
+**Pravilo.** Kad se paket gradi iz TUĐEG izvora drugim bundlerom nego što ga autor gradi,
+`try { require(...) } catch` obrasci menjaju ishod umesto da samo menjaju put. Traži ih pre
+nego što objasniš pad — i proveri šta bi bilo da nije pao.

@@ -2,7 +2,7 @@
  * Telo beleške — isti format kao na webu: **HTML koji proizvodi Tiptap**
  * (`apps/web/components/rich-text-editor.tsx`), snimljen u `pageBodies.content`.
  * Mobilni ga NE konvertuje ni u markdown ni u JSON — svaka konverzija bi gubila
- * blokove koje ne razume (vidi `unsupportedNoteBlocks`).
+ * blokove koje ne razume (vidi `noteBlockSignature`).
  */
 
 /**
@@ -16,38 +16,70 @@ export const NOTE_CONTENT_LIMIT = 80_000;
 export const EMPTY_NOTE_HTML = '<p></p>';
 
 /**
- * Blokovi koje mobilni editor (tentap, prethodno izgrađen web bundle) ne ume da
- * predstavi. Tiptap šema u tom bundle-u nema `table`, `codeBlock` ni naš
- * `noteFile` čvor, pa bi učitavanje takvog tela u editor tiho obrisalo te
- * blokove, a prvi autosave bi taj gubitak upisao u bazu.
+ * „Potpis" tela — koliko kojih blokova ima u HTML-u.
  *
- * Zato se telo sa ovakvim blokom otvara **samo za čitanje** (`NoteReader`).
+ * Zamena za nekadašnji `unsupportedNoteBlocks()`, koji je nabrajao blokove za
+ * koje se ZNALO da ih tentap bundle nema (tabela, prilog, blok koda) i zbog njih
+ * otvarao belešku samo za čitanje. Od lanca 6 / P2 mobilni ima sopstveni bundle
+ * sa istom Tiptap šemom kao web, pa zabrana više nema smisla — ali provera ima.
+ *
+ * Ovaj čuvar ne zna šta je „nepodržano": on MERI stvaran gubitak. Uporedi se
+ * telo pre učitavanja u editor i telo koje editor vrati; ako je nečega manje,
+ * telo se ne snima. Zato preživi i sledeću promenu šeme na webu.
+ *
+ * Namerno regex, ne parser: React Native nema DOM, a ulaz je Tiptap HTML.
  */
-export type UnsupportedNoteBlock = 'table' | 'attachment' | 'codeBlock';
+const NOTE_BLOCK_PATTERNS = [
+  ['table', /<table[\s/>]/gi],
+  ['attachment', /data-note-file/gi],
+  ['codeBlock', /<pre[\s/>]/gi],
+  ['horizontalRule', /<hr[\s/>]/gi],
+  ['image', /<img[\s/>]/gi],
+  ['blockquote', /<blockquote[\s/>]/gi],
+  ['taskList', /data-type="taskList"/gi],
+  ['list', /<[uo]l[\s/>]/gi],
+  ['heading', /<h[1-6][\s/>]/gi],
+] as const;
 
-const UNSUPPORTED_PATTERNS: ReadonlyArray<readonly [UnsupportedNoteBlock, RegExp]> = [
-  ['table', /<table[\s/>]/i],
-  ['attachment', /data-note-file/i],
-  ['codeBlock', /<pre[\s/>]/i],
-];
+export type NoteBlockKind = (typeof NOTE_BLOCK_PATTERNS)[number][0];
 
-/** Imena blokova u akuzativu — ulaze u rečenicu „…ne prikazuje tabele i priloge". */
-const UNSUPPORTED_LABEL: Record<UnsupportedNoteBlock, string> = {
-  table: 'tabele',
-  attachment: 'priloge',
-  codeBlock: 'blokove koda',
+/** Imena blokova u akuzativu — ulaze u rečenicu „…sadrži tabelu i prilog". */
+const NOTE_BLOCK_LABEL: Record<NoteBlockKind, string> = {
+  table: 'tabelu',
+  attachment: 'prilog',
+  codeBlock: 'blok koda',
+  horizontalRule: 'vodoravnu crtu',
+  image: 'sliku',
+  blockquote: 'citat',
+  taskList: 'čekiranu listu',
+  list: 'listu',
+  heading: 'naslov',
 };
 
-export function unsupportedNoteBlocks(html: string): UnsupportedNoteBlock[] {
-  if (!html) return [];
-  return UNSUPPORTED_PATTERNS.filter(([, pattern]) => pattern.test(html)).map(
-    ([kind]) => kind,
+export function noteBlockSignature(html: string): Record<NoteBlockKind, number> {
+  const signature = {} as Record<NoteBlockKind, number>;
+  for (const [kind, pattern] of NOTE_BLOCK_PATTERNS) {
+    signature[kind] = html ? (html.match(pattern)?.length ?? 0) : 0;
+  }
+  return signature;
+}
+
+/**
+ * Blokovi kojih posle ima MANJE nego pre. Rast je uredu i očekivan — Tiptap
+ * dodaje `<colgroup>` u tabelu i prazan `<p>` na kraj (`trailingNode`).
+ */
+export function noteSignatureLoss(
+  before: Record<NoteBlockKind, number>,
+  after: Record<NoteBlockKind, number>,
+): NoteBlockKind[] {
+  return NOTE_BLOCK_PATTERNS.map(([kind]) => kind).filter(
+    (kind) => (after[kind] ?? 0) < (before[kind] ?? 0),
   );
 }
 
-/** „tabele", „tabele i priloge", „tabele, priloge i blokove koda". */
-export function unsupportedNoteBlocksSentence(blocks: UnsupportedNoteBlock[]): string {
-  const labels = blocks.map((block) => UNSUPPORTED_LABEL[block]);
+/** „tabelu", „tabelu i prilog", „tabelu, prilog i blok koda". */
+export function noteBlockLossSentence(blocks: NoteBlockKind[]): string {
+  const labels = blocks.map((block) => NOTE_BLOCK_LABEL[block]);
   if (labels.length <= 1) return labels[0] ?? '';
   return `${labels.slice(0, -1).join(', ')} i ${labels[labels.length - 1]}`;
 }
@@ -233,6 +265,65 @@ export function noteEditorCss({
   }
   .ProseMirror a { color: ${colors.primary}; }
   .ProseMirror img { max-width: 100%; height: auto; border-radius: 10px; }
+  .ProseMirror pre {
+    background: ${colors.muted}; border: 1px solid ${colors.border};
+    border-radius: 10px; padding: 12px; overflow-x: auto; margin: 0 0 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .ProseMirror pre code {
+    background: none; padding: 0; font-size: 13.5px; line-height: 1.5;
+    color: ${colors.foreground};
+  }
+  .ProseMirror hr { border: 0; border-top: 1px solid ${colors.border}; margin: 20px 0; }
+  .ProseMirror hr.ProseMirror-selectednode { border-top-color: ${colors.primary}; }
+  /* Tabela: bez vidljivih ivica se u editoru ne vidi ni gde je ćelija.
+     min-width po ćeliji drži je čitljivom na uskom ekranu; ceo blok se skroluje
+     vodoravno. table-layout: fixed je uslov da colgroup širine iz web tela važe. */
+  .ProseMirror .tableWrapper { overflow-x: auto; margin: 0 0 12px; }
+  .ProseMirror table {
+    border-collapse: collapse; table-layout: fixed; width: 100%;
+    margin: 0 0 12px; font-size: 14px; overflow: hidden;
+  }
+  .ProseMirror th, .ProseMirror td {
+    border: 1px solid ${colors.border}; padding: 7px 9px;
+    text-align: left; vertical-align: top; min-width: 96px; position: relative;
+  }
+  .ProseMirror th { background: ${colors.surface}; font-weight: 600; }
+  .ProseMirror th > p, .ProseMirror td > p { margin: 0; }
+  /* ProseMirror-tables obeležava izabranu ćeliju ovom klasom — bez sloja preko
+     nje se na telefonu ne vidi u kojoj si ćeliji. */
+  .ProseMirror .selectedCell:after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: ${colors.primary}26;
+  }
+  /* Prilog u telu. Node view crta ili sliku ili čip — oba dobijaju isti okvir.
+     Selektor [data-note-file] je rezerva ako node view ne stigne. */
+  .ProseMirror [data-note-file-view], .ProseMirror [data-note-file] {
+    display: block; margin: 12px 0;
+  }
+  .ProseMirror [data-note-file-view] img { display: block; margin: 0 auto; }
+  .ProseMirror [data-note-file-chip], .ProseMirror [data-note-file] {
+    display: block; padding: 12px 14px;
+    border: 1px solid ${colors.border}; border-radius: 10px;
+    background: ${colors.surface}; color: ${colors.foreground};
+    font-size: 14px; font-weight: 600;
+  }
+  .ProseMirror [data-note-file]::before { content: "📎 "; }
+  .ProseMirror .ProseMirror-selectednode [data-note-file-chip],
+  .ProseMirror [data-note-file-view].ProseMirror-selectednode {
+    outline: 2px solid ${colors.primary}; outline-offset: 1px; border-radius: 10px;
+  }
+  /* Gapcursor: bez ovoga kursor ISPRED ili IZA tabele postoji ali se ne vidi, pa
+     izgleda kao da se iz tabele ne može izaći. Pravila su iz
+     prosemirror-gapcursor/style/gapcursor.css (paket nosi samo logiku).
+     BEZ BACKTICK-a u ovom stringu: injectCSS ga umeće u template literal
+     (RichText/utils.ts:14), pa bi backtick prekinuo injektovani JS. */
+  .ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; margin: 0; }
+  .ProseMirror-gapcursor:after {
+    content: ""; display: block; position: absolute; top: -2px; width: 20px;
+    border-top: 2px solid ${colors.primary};
+  }
+  .ProseMirror-focused .ProseMirror-gapcursor { display: block; }
   /* Tiptap Placeholder ekstenzija (prazan prvi pasus). */
   .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);

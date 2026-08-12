@@ -7,6 +7,11 @@
     "@convex-dev/auth": "^0.0.94",
     "@devotion/backend": "*",
     "@expo/ui": "~57.0.10",
+    "@tiptap/core": "3.29.2",
+    "@tiptap/extension-code-block": "3.29.2",
+    "@tiptap/extension-horizontal-rule": "3.29.2",
+    "@tiptap/extension-table": "3.29.2",
+    "@tiptap/extensions": "3.29.2",
     "convex": "^1.42.3",
     "expo": "~57.0.12",
     "expo-audio": "~57.0.3",
@@ -49,8 +54,11 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@tiptap/react": "3.29.2",
     "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "@types/react-dom": "19.2.4",
+    "typescript": "~6.0.3",
+    "vite": "8.2.0"
   },
   "expo": {
     "install": {
@@ -62,6 +70,7 @@
   },
   "scripts": {
     "start": "expo start",
+    "editor:build": "vite build -c editor-web/vite.config.ts && node editor-web/inline.mjs",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
