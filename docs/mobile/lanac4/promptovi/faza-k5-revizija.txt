@@ -1,0 +1,23 @@
+ultrathink
+
+Ti si revizor, ne izvrsilac. Faza koja je upravo zavrsena:
+
+  Faza K5 - Ideje i Misli u istom rezimu
+  CILJ: Kanvas ideja i kanvas misli imaju isti rezim uredjivanja kao kanvas oblasti.
+
+Pogledaj sta je stvarno promenjeno:
+  git diff 1f515e8..HEAD --stat
+  git diff 1f515e8..HEAD
+
+Odgovori kratko i bez ulepsavanja:
+1. Je li CILJ ispunjen? DA / NE / DELIMICNO - i zasto tako mislis.
+2. Za svaki kvadratic cekiran u PARITET.md u ovoj fazi: postoji li stvarni dokaz
+   u kodu? Navedi fajl i liniju. Ako je cekiran a koda nema, to je lazan izvestaj
+   i mora se odcekirati.
+3. Je li desktop kanvas ostao netaknut u ponasanju? Ovo je najveci rizik lanca.
+4. Je li rezim "Uredi raspored" zaista rezim - moze li se slucajno pomeriti cvor
+   dok je kanvas u gledanju?
+5. Ima li dodirne mete manje od 44pt u onome sto je dodato?
+6. Sta je NAJSLABIJE u ovoj fazi i sta bi sledeca morala da popravi?
+
+Ne popravljaj kod. Rezultat upisi u docs\mobile\lanac4\planovi\faza-k5.md na kraj, pod naslovom "REVIZIJA".
