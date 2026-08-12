@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -48,6 +48,7 @@ export function MessageList({
   members,
   onReplyTo,
   onEdit,
+  scrollToBottomSignal = 0,
 }: {
   channelId: Id<'chatChannels'>;
   currentProfileId: Id<'profiles'>;
@@ -55,11 +56,22 @@ export function MessageList({
   members: ChatMember[] | undefined;
   onReplyTo: (message: ChatMessage) => void;
   onEdit: (message: ChatMessage) => void;
+  /**
+   * Broj koji roditelj uveća kad korisnik POŠALJE poruku. Signal, ne podatak:
+   * bitna je samo promena. Ide odvojeno od `results` da bi skok na dno bio
+   * trenutan — ne čeka da poruka obiđe server i vrati se kroz pretplatu.
+   */
+  scrollToBottomSignal?: number;
 }) {
   const colors = useThemeColors();
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
+  /** Koliko je TUĐIH poruka stiglo dok korisnik nije gledao dno. */
+  const [newCount, setNewCount] = useState(0);
+  /** Van state-a: čita se iz efekta koji ne sme da se ponovo veže na svaki skrol. */
+  const atBottomRef = useRef(true);
+  const newestIdRef = useRef<Id<'chatMessages'> | null>(null);
 
   const { results, status, loadMore } = usePaginatedQuery(
     api.chat.messages,
@@ -117,13 +129,69 @@ export function MessageList({
     );
   }, [actionsFor, currentProfileId, deleteMessage]);
 
+  const scrollToBottom = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    // Brojač pada odmah, ne po završetku animacije: dugme ne sme da stoji sa
+    // brojem dok lista već putuje na dno.
+    setNewCount(0);
+    atBottomRef.current = true;
+  }, []);
+
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       // Na inverted listi je dno na offset 0; prikaži „skoči na dno" kad se odmakne.
-      setShowJump(event.nativeEvent.contentOffset.y > 280);
+      const y = event.nativeEvent.contentOffset.y;
+      const atBottom = y <= 80;
+      atBottomRef.current = atBottom;
+      setShowJump(y > 280);
+      // Vrati se na dno = video si sve; brojač nema više šta da broji.
+      if (atBottom) setNewCount(0);
     },
     [],
   );
+
+  /**
+   * Slanje poruke uvek vraća na dno. Bez ovoga korisnik napiše poruku dok čita
+   * stariji deo razgovora, poruka ode — a on je ne vidi i deluje kao da nije
+   * poslata.
+   */
+  const firstSignalRef = useRef(true);
+  useEffect(() => {
+    if (firstSignalRef.current) {
+      // Prvo montiranje nije slanje; inverted lista već stoji na dnu.
+      firstSignalRef.current = false;
+      return;
+    }
+    scrollToBottom();
+  }, [scrollToBottomSignal, scrollToBottom]);
+
+  /**
+   * Nove poruke dok korisnik čita gore. `results[0]` je najnovija (lista je
+   * obrnuta), pa se promena vrha poredi sa zapamćenim id-jem — reakcije i izmene
+   * menjaju `results` bez nove poruke i ne smeju da broje.
+   */
+  useEffect(() => {
+    const newest = results[0];
+    if (!newest) return;
+
+    const previousId = newestIdRef.current;
+    newestIdRef.current = newest._id;
+
+    if (previousId === null) return; // prvo punjenje liste
+    if (newest._id === previousId) return; // nema nove poruke
+
+    if (newest.authorProfileId === currentProfileId) {
+      // Sopstvena poruka stigla kroz pretplatu — pojas za slučaj da signal
+      // roditelja izostane (npr. poslato sa drugog uređaja).
+      scrollToBottom();
+      return;
+    }
+    if (atBottomRef.current) return; // već gleda dno, nema šta da se broji
+
+    // Koliko ih je stiglo: pozicija stare najnovije u novom nizu.
+    const index = results.findIndex((message) => message._id === previousId);
+    setNewCount((count) => count + (index === -1 ? 1 : index));
+  }, [results, currentProfileId, scrollToBottom]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: ChatMessage; index: number }) => {
@@ -211,16 +279,33 @@ export function MessageList({
         )}
       </LoadingSwap>
 
-      {showJump ? (
+      {/* Dugme se vidi i kad korisnik nije daleko od dna, samo ako ima novih
+          poruka — brojač bez dugmeta koje ga nosi nema smisla. */}
+      {showJump || newCount > 0 ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Skoči na najnovije poruke"
+          accessibilityLabel={
+            newCount > 0
+              ? `${newCount} ${newCount === 1 ? 'nova poruka' : 'novih poruka'}, skoči na dno`
+              : 'Skoči na najnovije poruke'
+          }
           onPress={() => {
             haptics.tap();
-            listRef.current?.scrollToOffset({ offset: 0, animated: true });
+            scrollToBottom();
           }}
           style={[styles.jump, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <ChevronDown size={22} color={colors.foreground} />
+          {newCount > 0 ? (
+            <View
+              style={[
+                styles.jumpBadge,
+                { backgroundColor: colors.primary, borderColor: colors.background },
+              ]}>
+              <Text style={[styles.jumpBadgeText, { color: colors.primaryForeground }]}>
+                {newCount > 99 ? '99+' : newCount}
+              </Text>
+            </View>
+          ) : null}
         </Pressable>
       ) : null}
 
@@ -304,5 +389,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  jumpBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 5,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Prsten u boji pozadine odvaja bedž od dugmeta ispod njega.
+    borderWidth: 2,
+  },
+  jumpBadgeText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    fontVariant: ['tabular-nums'],
   },
 });

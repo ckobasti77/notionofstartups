@@ -39,7 +39,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { channelDisplayName, type ChatChannel, type ChatMessage } from "@/lib/chat";
+import {
+  channelDisplayName,
+  type ChatChannel,
+  type ChatMessage,
+} from "@/lib/chat";
 import type { AreaKey } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +69,11 @@ export function ConversationPane({
   onOpenPage: (pageId: Id<"pages">) => void;
 }) {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  /**
+   * Broji poslate poruke. Samo signal za `MessageList` da skoči na dno —
+   * raste pri svakom slanju, vrednost ne znači ništa osim „upravo je poslato".
+   */
+  const [sentTick, setSentTick] = useState(0);
   const markChannelRead = useMutation(api.chat.markChannelRead);
   const setNotificationLevel = useMutation(api.chat.setNotificationLevel);
   const archiveChannel = useMutation(api.chat.archiveChannel);
@@ -176,7 +185,10 @@ export function ConversationPane({
             {canArchive ? (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => void archive()}>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => void archive()}
+                >
                   <Archive className="size-4" /> Arhiviraj razgovor
                 </DropdownMenuItem>
               </>
@@ -190,6 +202,7 @@ export function ConversationPane({
         profile={profile}
         members={members}
         onReply={setReplyTo}
+        scrollToBottomSignal={sentTick}
       />
 
       <MessageComposer
@@ -198,7 +211,10 @@ export function ConversationPane({
         members={members}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
-        onSent={() => setReplyTo(null)}
+        onSent={() => {
+          setReplyTo(null);
+          setSentTick((tick) => tick + 1);
+        }}
       />
     </div>
   );
@@ -213,7 +229,10 @@ function ConversationIcon({
 }) {
   if (channel.kind === "dm" && channel.otherParticipant) {
     return (
-      <ProfileAvatar profile={channel.otherParticipant} className="size-8 shrink-0" />
+      <ProfileAvatar
+        profile={channel.otherParticipant}
+        className="size-8 shrink-0"
+      />
     );
   }
   if (channel.kind === "area" && areaKey) {

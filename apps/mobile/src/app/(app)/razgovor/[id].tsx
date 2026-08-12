@@ -47,6 +47,11 @@ export default function ConversationScreen() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
+  /**
+   * Broji poslate poruke. Samo signal za `MessageList` da skoči na dno — raste
+   * pri svakom slanju, vrednost ne znači ništa osim „upravo je poslato".
+   */
+  const [sentTick, setSentTick] = useState(0);
 
   const channels = useQuery(
     api.chat.listChannels,
@@ -152,6 +157,7 @@ export default function ConversationScreen() {
             members={members}
             onReplyTo={beginReply}
             onEdit={beginEdit}
+            scrollToBottomSignal={sentTick}
           />
           <MessageComposer
             channel={channel}
@@ -164,6 +170,7 @@ export default function ConversationScreen() {
             onSent={() => {
               setReplyTo(null);
               setEditing(null);
+              setSentTick((tick) => tick + 1);
             }}
           />
         </KeyboardAvoidingView>

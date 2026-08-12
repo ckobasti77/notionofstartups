@@ -17,7 +17,14 @@ import type { NotificationType } from "./notifications";
  * zvuk, digne se `CHANNEL_VERSION`, klijent obriše stare i napravi nove kanale,
  * i pošalje nov `channelVersion` u `expoPushTokens`.
  */
-export const CHANNEL_VERSION = 1;
+export const CHANNEL_VERSION = 2;
+
+/*
+ * v1 -> v2 (12.08.2026): kanali su na nekim telefonima zvonili ali NISU iskakali
+ * preko vrha ekrana. Uzrok je bio u zaključanim svojstvima kanala — Android ih
+ * fiksira pri kreiranju, pa se popravka isporučuje isključivo novom generacijom.
+ * v2 nosi: MAX važnost (umesto HIGH) i PUBLIC vidljivost na zaključanom ekranu.
+ */
 
 /** Android važnost kanala. */
 export type ChannelImportance = "high" | "default" | "low";

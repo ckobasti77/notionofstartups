@@ -33,21 +33,33 @@ type AndroidChannelProps = {
 };
 
 const PRIVATE = Notifications.AndroidNotificationVisibility.PRIVATE;
+/**
+ * Sadržaj se vidi i na zaključanom ekranu — kao kod WhatsApp-a. Bez ovoga na
+ * zaključanom ekranu piše samo „Devotion", pa se ne vidi ni ko piše ni šta.
+ * `quiet` ostaje PRIVATE: ideje i puls ne moraju da stoje otvoreni na ekranu.
+ */
+const PUBLIC = Notifications.AndroidNotificationVisibility.PUBLIC;
 
 const ANDROID_PROPS: Record<ChannelBase, AndroidChannelProps> = {
   // Vibracija je prepoznatljiva kao i zvuk: „traže te" i „odluka" imaju jači,
   // dvostruki puls; kanalska priča i tiho — bez vibracije.
-  dm: { enableVibrate: true, vibrationPattern: [0, 200], bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: true },
-  mention: { enableVibrate: true, vibrationPattern: [0, 120, 60, 120], bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: true },
-  channel: { enableVibrate: false, bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: true },
-  task: { enableVibrate: true, vibrationPattern: [0, 200], bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: true },
-  deadline: { enableVibrate: true, vibrationPattern: [0, 250, 100, 250], bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: true },
-  vote: { enableVibrate: true, vibrationPattern: [0, 300, 120, 300], bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: true },
+  dm: { enableVibrate: true, vibrationPattern: [0, 200], bypassDnd: false, lockscreenVisibility: PUBLIC, showBadge: true },
+  mention: { enableVibrate: true, vibrationPattern: [0, 120, 60, 120], bypassDnd: false, lockscreenVisibility: PUBLIC, showBadge: true },
+  channel: { enableVibrate: false, bypassDnd: false, lockscreenVisibility: PUBLIC, showBadge: true },
+  task: { enableVibrate: true, vibrationPattern: [0, 200], bypassDnd: false, lockscreenVisibility: PUBLIC, showBadge: true },
+  deadline: { enableVibrate: true, vibrationPattern: [0, 250, 100, 250], bypassDnd: false, lockscreenVisibility: PUBLIC, showBadge: true },
+  vote: { enableVibrate: true, vibrationPattern: [0, 300, 120, 300], bypassDnd: false, lockscreenVisibility: PUBLIC, showBadge: true },
   quiet: { enableVibrate: false, bypassDnd: false, lockscreenVisibility: PRIVATE, showBadge: false },
 };
 
+/**
+ * `high` se mapira na Androidov MAX, ne na HIGH. Oba u teoriji daju heads-up
+ * baner, ali proizvođačke nadgradnje (Samsung One UI, MIUI) i Androidov
+ * „notification cooldown" prvo prigušuju HIGH — a upravo to je bio simptom:
+ * zvuk se čuje, obaveštenje uđe u listu, ali ne iskoči preko vrha ekrana.
+ */
 const IMPORTANCE: Record<ChannelImportance, Notifications.AndroidImportance> = {
-  high: Notifications.AndroidImportance.HIGH,
+  high: Notifications.AndroidImportance.MAX,
   default: Notifications.AndroidImportance.DEFAULT,
   low: Notifications.AndroidImportance.LOW,
 };
@@ -98,4 +110,54 @@ export async function registerNotificationChannels(): Promise<void> {
       },
     );
   }
+}
+
+/** Ljudski naziv Androidove važnosti — broj sam po sebi nikome ništa ne znači. */
+const IMPORTANCE_LABEL: Record<number, string> = {
+  [Notifications.AndroidImportance.MAX]: 'najviša — iskače preko ekrana',
+  [Notifications.AndroidImportance.HIGH]: 'visoka — iskače preko ekrana',
+  [Notifications.AndroidImportance.DEFAULT]: 'podrazumevana — NE iskače, samo zvoni',
+  [Notifications.AndroidImportance.LOW]: 'niska — bez zvuka',
+  [Notifications.AndroidImportance.MIN]: 'najniža',
+  [Notifications.AndroidImportance.NONE]: 'isključena',
+  [Notifications.AndroidImportance.UNKNOWN]: 'nepoznata',
+  [Notifications.AndroidImportance.UNSPECIFIED]: 'neodređena',
+};
+
+/**
+ * Čita kanale koji STVARNO postoje na uređaju i opisuje ih rečima.
+ *
+ * Postoji zato što se „meni je sve štiklirano, a ne iskače" ne može proveriti
+ * kroz tuđi ekran. Ako naši kanali ne postoje, obaveštenje pada na Androidov
+ * podrazumevani kanal — koji pušta zvuk ali NE iskače, što je tačno taj simptom.
+ * Ovo tu razliku pretvara u rečenicu koju čovek može da pročita i pošalje dalje.
+ */
+export async function describeNotificationChannels(): Promise<string> {
+  if (Platform.OS !== 'android') return 'Kanali postoje samo na Androidu.';
+
+  const existing = (await Notifications.getNotificationChannelsAsync()) ?? [];
+  if (existing.length === 0) {
+    return 'Uređaj nema nijedan kanal. Obaveštenja zato idu na podrazumevani kanal i ne iskaču. Pritisni „Registruj ponovo".';
+  }
+
+  const ours = existing.filter((channel) => OUR_CHANNEL_ID.test(channel.id));
+  const current = ours.filter((channel) => channel.id.endsWith(`_v${CHANNEL_VERSION}`));
+
+  if (current.length === 0) {
+    return [
+      `Očekivana generacija kanala: v${CHANNEL_VERSION}, ali je nema na uređaju.`,
+      ours.length > 0
+        ? `Postoje samo starije: ${ours.map((channel) => channel.id).join(', ')}.`
+        : 'Nijedan naš kanal ne postoji — obaveštenja padaju na podrazumevani kanal.',
+      'Pritisni „Registruj ponovo" pa probaj opet.',
+    ].join('\n\n');
+  }
+
+  const lines = current.map((channel) => {
+    const importance = IMPORTANCE_LABEL[channel.importance] ?? String(channel.importance);
+    const sound = channel.sound ? '' : ' · BEZ ZVUKA';
+    return `• ${channel.name}: ${importance}${sound}`;
+  });
+
+  return [`Generacija v${CHANNEL_VERSION}, kanala: ${current.length}`, ...lines].join('\n');
 }

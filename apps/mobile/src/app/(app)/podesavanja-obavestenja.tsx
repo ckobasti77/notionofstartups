@@ -34,6 +34,7 @@ import {
 } from '@/convex/lib/notificationSettingsCatalog';
 import { hasSoundPreview, SOUND_PREVIEWS } from '@/lib/notifications/sound-previews';
 import { usePushStatus, useRegisterPushDevice } from '@/lib/notifications/register';
+import { describeNotificationChannels } from '@/lib/notifications/channels';
 import { useThemeColors } from '@/theme/theme-provider';
 import {
   fontWeight,
@@ -351,6 +352,18 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
     }
   }
 
+  async function onCheckChannels() {
+    haptics.tap();
+    try {
+      Alert.alert('Kanali obaveštenja', await describeNotificationChannels());
+    } catch (error) {
+      Alert.alert(
+        'Kanali obaveštenja',
+        error instanceof Error ? error.message : 'Čitanje kanala nije uspelo.',
+      );
+    }
+  }
+
   async function onTest() {
     haptics.tap();
     setBusy('test');
@@ -433,6 +446,25 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
             </Text>
           </Pressable>
         </View>
+
+        {/* Poslednja linija odbrane kad „sve je štiklirano, a ne iskače":
+            pokazuje šta na uređaju STVARNO postoji, umesto da se nagađa. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Provera kanala obaveštenja"
+          onPress={() => {
+            void onCheckChannels();
+          }}
+          style={({ pressed }) => [
+            styles.channelCheck,
+            styles.rowDivider,
+            { borderTopColor: colors.border },
+            pressed && { backgroundColor: colors.muted },
+          ]}>
+          <Text style={[styles.channelCheckLabel, { color: colors.primary }]}>
+            Provera kanala obaveštenja
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -820,6 +852,16 @@ const styles = StyleSheet.create({
   pushBtnLabel: {
     fontSize: 14,
     fontWeight: fontWeight.semibold,
+  },
+  channelCheck: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space[4],
+  },
+  channelCheckLabel: {
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
   },
   sheet: {
     paddingHorizontal: space[4],
