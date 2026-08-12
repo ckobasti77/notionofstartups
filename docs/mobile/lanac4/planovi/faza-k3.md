@@ -633,3 +633,161 @@ mobilnom sesijom nije poznata. Zapisano kao otvoreno (plan §7 to izričito dozv
 uz statički dokaz koji je za K3 jači nego u K2: **nijedan fajl van
 `apps/web/app/embed/`, `apps/mobile/src` i `docs/` nije menjan** — `git status` nad
 `apps/web/components/` i `packages/backend/` je prazan.
+
+---
+
+## REVIZIJA
+
+Revizor, 12.08. Pregledan je `git diff 7ca9f0d..HEAD` (31 fajl, +2043/−214).
+Ništa nije popravljano.
+
+**Šta je stvarno pokrenuto, a ne pročitano:** `apps/mobile` `npx tsc --noEmit` → 0 ·
+`apps/web` `npx tsc --noEmit` → 0 · `npx eslint` nad oba izmenjena embed fajla → 0 ·
+metod pariteta iz `PARITET.md:15–19` (grep + `comm`) → **razlika 11**, i to bez
+`connectPages`/`disconnectPages` na listi „samo na webu" · `git diff --name-only`
+nad `apps/web/` → tačno dva fajla, oba pod `app/embed/` · `md5sum` nad dokazima ·
+izvor `@xyflow/react` u `node_modules` (`SelectionListener`) · pregledane slike
+`k3-biranje`, `k3-posle`, `k3-veze-lista`, `k3-z7`.
+
+### 1. Je li CILJ ispunjen? — **DA**
+
+Veza se pravi prstom (tap izvor → tap cilj) i raskida iz sheet-a; nit se ne povlači
+(`nodesConnectable={false}` `canvas-embed.tsx:882`, `isConnectable={false}`
+`embed-node.tsx`). Slike to i pokazuju: `k3-biranje.png` (traka „Izaberi karticu za
+vezu" + „Izvor: F7 zadatak telefon", pun prsten oko izvora, pilula nestala, rail bez
+četvrte ikonice) → `k3-posle.png` (linija između kartica, traka „Kartice su povezane.
+/ Poništi", pilula i četvrta ikonica se vratile).
+
+Najjači deo dokaza nije nijedna slika nego **poklapanje loga i baze u sekundu**:
+`createdAt 1786546251865` = 16:50:51 (log `connectPages`), `archivedAt 1786546522929`
+= 16:55:22 (log `disconnectPages`), `1786546649264/1786546653077` = 16:57:29/16:57:33,
+`1786546730816/1786546741049/1786546744736` = 16:58:50/16:59:01/16:59:04. Tabela u
+`k3-baza.txt` jeste prekucana, ali je **nezavisno proverljiva** — svih sedam
+vremenskih žigova pada tačno na red iz `k3-logovi.txt`. Ovo se ne da izmisliti.
+
+Rezerve ne menjaju ocenu cilja, ali se zapisuju: dve grane raskidanja (**tuđa veza →
+„Zatraži brisanje"** i **red relacije**) nisu isprobane nego samo napisane, i u
+dokazima ih nema.
+
+### 2. Čekirani kvadratići u `PARITET.md` — svaki ima kod
+
+Pet kvadratića u sekciji K3. **Nijedan nije lažan; nijedan se ne odčekirava.**
+Provereno red po red, ne uzorkom:
+
+| Kvadratić | Kod koji ga nosi | Nalaz |
+|---|---|---|
+| `areasV2.connectPages` | `canvas-embed.tsx:1294` (`useMutation`), `:1433` `handleConnectNodes`, `:1444` poziv, `:1416` `canvasPairs`, `:740` `handleConnectPick`, `:738` `connectBusyRef`, `:900` `onNodeClick` · `page-node-sheet.tsx:152–166` („Poveži sa…") · `[id].tsx:247` `startConnect`, `:380` grana `connected`, `:647` `ConnectBar` · `undo-bar.tsx:56` + `case` `:139` · `undo.ts:68` | **stoji**, sve linije tačne |
+| `areasV2.disconnectPages` | `page-node-sheet.tsx:67` (`useMutation`), `:73` `breakEdge`, `:84` poziv, `:117`/`:122` `requestDeletion` sa `kind:'page_edge'` · lista suseda `canvas-embed.tsx:1466–1483`, tip `:1209` · `undo-bar.tsx:57` + `case` `:150` · `undo.ts:81` | **stoji**; dve grane bez dokaza (gore) |
+| „Poništi" u oba smera | `undo-bar.tsx:139–160`; dokaz log + baza | **stoji**, najbolje dokazan kvadratić u fazi |
+| Dodirne mete i čitač ekrana | `row.tsx:208` (56), `page-node-sheet.tsx:290–296` (44×44), `connect-bar.tsx:78` (44), `:26` `accessibilityLiveRegion` | **stoji** za mere; TalkBack prolaz je tvrdnja, ne merenje |
+| Z7 zatvoren | `canvas-embed.tsx:781` (`setSuspendedKey`), `:476–478` (izvedeno stanje), `:496` i `:654` (`capture`), `:648` (`setTimeout(0)`), `:647` (`touches.length`) | **stoji**; dokaz je „skromnija varijanta" T7 koju plan izričito dopušta (jedan klijent), ne dvoklijentski test |
+
+Ispravljene K1/K2 dokazne linije (12 komada: `:669`, `:769`, `:810`, `:885`, `:896`,
+`:897`, `:1292`, `:1293`, `:1310`, `:1354`, `:1517`, `page-size-section.tsx:66/67/181`)
+— **sve padaju tačno na navedeni izraz.** Ovo je urađeno kako treba i vredi zapisati,
+jer je pomeranje linija posle refaktora najčešći način da dokazni fajl tiho istrune.
+
+Tri sitne netačnosti, nijedna nije razlog za odčekiravanje:
+
+- `PageNodeEdgeDetail` je na `:1209`, ne `:1216` (`:1216` je polje unutar tipa);
+  `[id].tsx:471` je `if (msg.level === 'info')`, `Alert('Obaveštenje')` je na `:473`.
+- Dokumentacija tri puta kaže **„✕"**, a u UI stoji `Unlink` ikonica
+  (`page-node-sheet.tsx:194`, vidi se na `k3-veze-lista.png`). Ime u dokumentu ne
+  odgovara onome što korisnik vidi.
+- `k3-pre.png` je **bajt-identičan** sa `k3-biranje.png` (md5 `7bbfc9f4…`). Suštinski
+  je ispravno (stanje pre tapa JESTE stanje biranja), ali od 12 snimaka postoji 11
+  različitih slika, a `PARITET.md` ih navodi kao dva odvojena dokaza.
+
+`IZVESTAJ.md` je zaista popunjen za K3 i retroaktivno za K2 (provereno). Ostatak:
+u K1 unosu red „Razlika pariteta posle faze: ** **" je i dalje prazan.
+
+### 3. Je li desktop kanvas ostao netaknut u ponašanju? — **DA**
+
+Ovo je prva faza lanca u kojoj je statički dokaz zaista dovoljan.
+`git diff 7ca9f0d..HEAD --name-only -- apps/web/` daje **tačno dva fajla**, oba pod
+`apps/web/app/embed/`; `apps/web/components/`, `apps/web/lib/` i `packages/backend/`
+imaju **nula** izmena. Razlika u odnosu na K2 je suštinska: K2 je dirao deljeni
+`apps/web/lib/canvas-node-size.ts` i `area-flow-node.tsx`, pa je tamo „nije menjano"
+bilo obećanje; ovde nema nijednog deljenog fajla u diff-u, a embed uvozi desktop
+komponente čvorova samo za čitanje. Izmena u `embed-node.tsx` je **isključivo
+komentar** (9 linija, nula koda).
+
+T9 (mišem) je i dalje otvoren — **treća faza zaredom**. Obrazloženje u §8.5 je
+tačno i pošteno, ali je isto obrazloženje važilo i u K2, koja je u svojoj reviziji
+tražila „rešiti kredencijale pre K3". Nije rešeno. Ovo više nije ograda nego dug.
+
+### 4. Je li režim zaista režim? — **DA za gledanje; nova rupa je u samom embedu**
+
+U gledanju se čvor ne može pomeriti nijednim putem: `nodesDraggable={canEdit && !connecting}`
+(`:885`) je `false`, `resizeApi.enabled` (`:724`) je `false` pa se ručke i ne
+renderuju, `onNodeContextMenu` (`:903`) je `undefined`, a sva tri upisa
+(`movePages`/`resizePage`/`connectPages`) vise sa tih izraza. Tap van režima i dalje
+samo otvara stranicu.
+
+**Rupa koju je K3 uveo:** `connecting` (`:463`) je
+`!!connectSourceId && !!onConnectNodes` — **bez `editMode`**. Ako embed ikad zadrži
+`connectSourceId` dok je režim `view`, običan tap po kartici **piše vezu** umesto da
+otvori stranicu. Danas je to nedostižno, ali samo zato što native uredno gasi biranje
+na tri mesta (`[id].tsx:272` u `toggleEdit`, `:615` u `onLoadEnd`, `:383–384` na
+uspeh). Invarijanta „bez režima nema upisa" time živi u manirima native sloja, a ne u
+embedu koji preživljava reload, promenu redosleda poruka i sledećeg pozivaoca.
+Jedna reč (`editMode &&`) je zatvara.
+
+Uža trka na istom mestu: `connectBusyRef` se spušta u `.finally()` (`:756–758`) kad se
+mutacija razreši, a iz biranja se izlazi tek kad se native povratni put (`connected` →
+`connect: null`) zatvori. Brz drugi tap u tom procepu pravi **drugu vezu** sa istog
+izvora, a traka „Poništi" pamti samo poslednju. Plan (§2, izmena 6.2) tvrdi da uspeh
+gasi biranje — gasi ga, ali ne trenutno.
+
+Nalaz u suprotnom smeru, da ga K4 ne „popravlja" bez potrebe: **P6 je pesimističniji
+nego stvarnost.** `SelectionListenerInner`
+(`node_modules/@xyflow/react/dist/esm/index.js:157–166`) drži `onSelectionChange` u
+zavisnostima efekta, a `handleSelectionChange` (`:822`) zavisi od `detailById` — pa
+svaka promena podataka ponovo pošalje `selection` sa **svežom** listom veza. Zastareo
+snimak drži samo **već otvoren** sheet, ne i rail.
+
+### 5. Dodirne mete manje od 44pt? — **U native sloju nijedna; u WebView-u DA, i to je novo**
+
+Native je čist: `Row` `minHeight: 56` (`row.tsx:208`), `EdgeButton` 44×44
+(`page-node-sheet.tsx:290–296`), „Otkaži" `minHeight: MIN_TOUCH_TARGET`
+(`connect-bar.tsx:78`). Merenje `uiautomator`-om (58.3 / 44.2 / **43.8** dp) je pravo
+merenje, a 43.8 je zaokruživanje gustine 2.625 — isto očitanje daju i zatečene
+ikonice rail-a koje K3 nije dirao. Nije promašaj.
+
+Meta koja jeste ispod 44pt je **sam cilj veze**. Kartica je meta za tap, a biranje
+**nije ograničeno zumom** — za razliku od ručki, koje imaju `HANDLE_MIN_ZOOM = 0.5`
+(`:345`, `:513`) baš zbog fizike prsta. Na `minZoom = 0.15` je podrazumevana kartica
+288 × 196 na ekranu ~43 × 29 px, a najmanja dozvoljena (240 × 168) ~36 × 25 px. Sheet
+→ „Poveži sa…" se otvara na bilo kom zumu, pa promašen tap tada **upisuje vezu ka
+pogrešnoj kartici**. Povratno je (traka „Poništi") i vidi se, ali je to ista
+ergonomska logika kojom je K3 ubio tačkicu od 8 px — samo primenjena na jedno mesto,
+a ne na oba.
+
+### 6. Najslabije u fazi i šta sledeća mora da popravi
+
+**Najslabije: invarijanta režima nije u embedu nego u pristojnosti native sloja**
+(§4). Izabrano je kao najslabije zato što se **umnožava**: K5 po pravilu 7 iz
+`REZIM.md` prenosi isti obrazac na ideje i misli, pa jedna nedostajuća reč postaje
+tri, u tri fajla, sa tri odvojena native čuvara. Sve ostalo u ovoj fazi je urađeno
+solidno — most je čist, dokazi su unakrsno proverljivi, desktop je stvarno netaknut,
+a Z7 je zatvoren zajedno sa objašnjenjem zašto K2 popravka nikad nije radila (d3
+preseca bubble fazu — to je nalaz koji vredi više od same faze).
+
+Redom, šta K4 (ili K5, gde je naznačeno) mora da uradi:
+
+1. **`const connecting = editMode && !!connectSourceId && !!onConnectNodes`**
+   (`canvas-embed.tsx:463`) — jedna reč, **pre nego što K5 kopira obrazac**.
+2. **Zumska kapija za biranje cilja** — ili isti `HANDLE_MIN_ZOOM`, ili potvrda cilja
+   ispod praga. Izabrano rešenje ide u `REZIM.md` §7, kao i sve ostale odluke o meti.
+3. **`connectBusyRef` ostaje podignut do izlaska iz biranja**, ne do razrešenja
+   mutacije (`:756`).
+4. **Treći profil u dev bazi.** T9 nije blokiran nedostatkom vremena nego time što
+   dev baza ima dva profila od kojih je jedan tuđ, a drugi drži živu mobilnu sesiju.
+   Dok se to ne promeni, svaka sledeća faza ima isti validan izgovor. Zapisati u
+   `ZA-POPRAVKU.md` kao zadatak, ne kao ogradu.
+5. **Isprobati dve neisprobane grane raskidanja** (tuđa veza → „Zatraži brisanje" →
+   ekran „Odobrenja"; red relacije), preimenovati „✕" u dokumentaciji u ono što se
+   zaista vidi, i razrešiti `k3-pre.png` = `k3-biranje.png`.
+6. **Nasleđe iz K2 koje je i dalje otvoreno:** tri kopije granica veličine bez
+   ijednog izvršnog testa (K2 REVIZIJA, tačka 1). K3 ih s pravom nije dirao — nisu
+   bile njegov posao — ali je **K5 faza koja tri kopije pretvara u šest**.
