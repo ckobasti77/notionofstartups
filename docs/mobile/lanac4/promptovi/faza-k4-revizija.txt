@@ -1,0 +1,23 @@
+ultrathink
+
+Ti si revizor, ne izvrsilac. Faza koja je upravo zavrsena:
+
+  Faza K4 - Checkpointi zadataka na kanvasu
+  CILJ: Checkpointi zadatka se na telefonu razmestaju i lancaju isto kao na webu.
+
+Pogledaj sta je stvarno promenjeno:
+  git diff 31b2b34..HEAD --stat
+  git diff 31b2b34..HEAD
+
+Odgovori kratko i bez ulepsavanja:
+1. Je li CILJ ispunjen? DA / NE / DELIMICNO - i zasto tako mislis.
+2. Za svaki kvadratic cekiran u PARITET.md u ovoj fazi: postoji li stvarni dokaz
+   u kodu? Navedi fajl i liniju. Ako je cekiran a koda nema, to je lazan izvestaj
+   i mora se odcekirati.
+3. Je li desktop kanvas ostao netaknut u ponasanju? Ovo je najveci rizik lanca.
+4. Je li rezim "Uredi raspored" zaista rezim - moze li se slucajno pomeriti cvor
+   dok je kanvas u gledanju?
+5. Ima li dodirne mete manje od 44pt u onome sto je dodato?
+6. Sta je NAJSLABIJE u ovoj fazi i sta bi sledeca morala da popravi?
+
+Ne popravljaj kod. Rezultat upisi u docs\mobile\lanac4\planovi\faza-k4.md na kraj, pod naslovom "REVIZIJA".
