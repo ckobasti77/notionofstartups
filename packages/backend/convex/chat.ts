@@ -23,7 +23,6 @@ import {
   chatNotificationLevelValidator,
   CHAT_CHANNELS_CAP,
   CHAT_EDIT_WINDOW_MS,
-  CHAT_PRESENCE_TTL_MS,
   CHAT_PREVIEW_LENGTH,
   CHAT_RECIPIENTS_CAP,
   CHAT_SEARCH_CAP,
@@ -32,6 +31,7 @@ import {
   MAX_CHAT_MENTIONS,
   MAX_CHAT_MESSAGE_LENGTH,
 } from "./lib/validators";
+import { CHAT_PRESENCE_TTL_MS } from "./lib/chatPresence";
 import {
   maxPageFileBytesFor,
   pageFileCategoryFor,

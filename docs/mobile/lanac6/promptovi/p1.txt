@@ -1,0 +1,76 @@
+ultrathink
+
+Devotion monorepo: apps/web (Next.js), apps/mobile (Expo/React Native),
+packages/backend (Convex). Sve na srpskom. Nenadzirano izvrsavanje - ne pitaj,
+odlucuj i radi.
+
+PROCITAJ PRVO:
+  docs/mobile/PARITET-REVIZIJA-12-08.md  <- OSNOVA ovog lanca, spisak svih rupa
+  docs/mobile/ZA-POPRAVKU.md             <- naucene zamke, ne ponavljaj ih
+  docs/mobile/00-PLAN.md                 <- arhitektura, protokol WebView mosta
+  docs/mobile/lanac4/REZIM.md            <- protokol rezima "Uredi raspored"
+
+BACKEND SMES DA MENJAS. Neke rupe traze nove funkcije (npr. chat.setChannelMembers
+ne postoji uopste). Kad dodajes funkciju, dodaj i test.
+
+NAJVAZNIJE PRAVILO OVOG LANCA - MRTAV KOD JE NEUSPEH.
+Dva puta se vec desilo da je posao "uradjen" a nedostupan:
+  1. Faza K4 lanca 4: komponente napisane, native ljuska nikad povezana, sheet je
+     bio mrtav kod. Nijedna kapija to nije videla - kod se kompajlira, lint je cist.
+  2. inviteLinkUrl je UVEZEN u apps/mobile/src/app/(app)/pozivnice.tsx i NIKAD
+     POZVAN, pa se pozivnica i dalje kopira kao goli kod.
+Zato: za SVAKU novu komponentu, hook ili helper dokazi lancem uvoza do ekrana koji
+korisnik stvarno otvara. Ako ne mozes da napises taj lanac - nije uradjeno.
+
+OSTALA PRAVILA:
+- Paritet je FUNKCIONALNI, ne vizuelni. Pitaj se kako se isti ishod postize prstom.
+- Dodirna meta min 44pt. Tekst min 16px osim meta.
+- Svaka izmena koja pise u bazu ima "Ponisti" - koristi postojeci lib/undo.ts.
+- Prazno, ucitavanje i greska - sva tri stanja svuda gde dodajes.
+- Uz svaki cekiran kvadratic napisi fajl i liniju kao dokaz.
+- Ne cekiraj nista sto ne mozes da dokazes. Radije napisi "nije uradjeno" -
+  faza K6 lanca 4 je to uradila i zato joj se veruje.
+- Ako menjas apps/mobile/package.json, zapisi u docs/mobile/lanac6/NATIVE-BUILD.md
+  (native build je tada obavezan, Metro reload nije dovoljan).
+FAZA P1 - NAJJEFTINIJE, A NAJVISE BOLI (revizija: B2, B3, B5, C17, mrtav kod)
+
+1. PREIMENOVANJE (B2, B3). Sa telefona se moze preimenovati samo beleska.
+   Zadatak (zadatak/[id].tsx:168) i stranice tipa Tabela i Prilozi
+   (stranica/[id].tsx:77) imaju naslov kao cist tekst. Web to radi u
+   page-editor-view.tsx:694 i :1097.
+   Dodaj "Preimenuj" u page-actions-sheet.tsx i ekvivalent za zadatak.
+   Ista mutacija koju beleska vec koristi.
+
+2. POZIVNICA KAO LINK (B5). apps/mobile/src/app/(app)/pozivnice.tsx:258 kopira
+   GOLI KOD. Helper inviteLinkUrl je uvezen na liniji 33 i NIKAD POZVAN.
+   Web (admin-dialog.tsx:408) kopira punu adresu sa ?invite=KOD.
+   Popravi da mobilni kopira isto. Ovo je najvazniji red u celoj fazi - korisnik
+   pusta aplikaciju drugarima i pozivnica koja se ne otvara je zid.
+
+3. KOD POSTOJECE POZIVNICE (C17). Kod zivi samo u jednokratnom Alert-u; kad ga
+   zatvoris, nema ga vise (server cuva hash). Web ga drzi u panelu.
+   Resenje: kod ostaje vidljiv u redu pozivnice dok je sesija ziva, ili se pri
+   kreiranju ponudi "Podeli" kroz sistemski share sheet. Odluci i obrazlozi.
+
+4. MRTAV EXPORT CHAT_PRESENCE_REFRESH_MS. validators.ts:189 ga izvozi, niko ga ne
+   uvozi - oba hook-a hardkoduju svojih 15_000
+   (apps/web/components/workspace/chat/use-chat-presence.ts:14,
+    apps/mobile/src/hooks/use-chat-presence.ts:13).
+   Neka oba uvoze deljenu konstantu, da promena TTL-a na serveru pomeri i klijente.
+
+5. Prodji kroz apps/mobile/src i nadji JOS mrtvih uvoza istog tipa
+   (uvezeno pa nikad pozvano). Popravi ili ukloni. Spisak u izvestaj faze.
+=====================================================================
+CILJ FAZE: Sa telefona mozes da preimenujes bilo sta, a pozivnica se kopira kao link koji se otvara.
+=====================================================================
+Plan je u docs\mobile\lanac6\planovi\p1.md - procitaj ga PRVO i sprovedi. Ako odstupis, dopisi u plan
+sta si promenio i zasto.
+
+Faza je gotova tek kad je cilj ispunjen, a ne kad si prosao kroz spisak.
+NA KRAJU FAZE, ovim redom:
+  cd apps/mobile && npx tsc --noEmit
+  cd apps/web    && npx tsc --noEmit
+  npm run lint
+  npm test
+  npm run build
+Popravi sve sto padne. Ne ostavljaj gresku sledecoj fazi.

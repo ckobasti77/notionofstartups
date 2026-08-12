@@ -33,7 +33,6 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
-import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
 import { haptics } from '@/lib/haptics';
 import {

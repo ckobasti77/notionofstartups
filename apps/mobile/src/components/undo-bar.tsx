@@ -68,6 +68,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const resetCheckpointCanvasSize = useMutation(api.taskCheckpoints.resetCanvasSize);
   const connectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.connect);
   const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
+  const updatePage = useMutation(api.areasV2.updatePage);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -293,6 +294,16 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
       case 'thoughtEdgeConnect':
         // Inverz PRAVLJENJA veze je arhiviranje — ne `restoreEdges`.
         await archiveThoughtEdges({ edgeIds: [action.edgeId] });
+        return;
+      case 'pageRename':
+        // Ako je neko u međuvremenu izmenio stranicu, ovo baci `KONFLIKT_IZMENA` —
+        // traka tada namerno OSTAJE i pokaže poruku (ista konvencija kao gore).
+        await updatePage({
+          startupId: action.startupId,
+          pageId: action.pageId,
+          expectedRevision: action.expectedRevision,
+          title: action.title,
+        });
         return;
     }
   };

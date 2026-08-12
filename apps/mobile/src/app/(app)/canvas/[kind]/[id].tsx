@@ -54,7 +54,7 @@ import { canvasKindLabel, embedCanvasUrl, type CanvasKind } from '@/lib/embed-ur
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
+import { MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;

@@ -5,13 +5,7 @@ import { useMutation } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-
-/**
- * Klijentski interval obnavljanja prisustva. Mora da bude znatno kraći od
- * serverskog `CHAT_PRESENCE_TTL_MS` (45 s), da jedan promašen otkucaj ne ugasi
- * prisustvo dok korisnik i dalje gleda razgovor.
- */
-const REFRESH_MS = 15_000;
+import { CHAT_PRESENCE_REFRESH_MS } from "@/convex/lib/chatPresence";
 
 /**
  * Prijavljuje serveru „gledam ovaj kanal i stojim na dnu" — jedini slučaj u kome
@@ -50,7 +44,7 @@ export function useChatPresence(
     const tick = () => send(active && visible());
 
     tick();
-    const interval = window.setInterval(tick, REFRESH_MS);
+    const interval = window.setInterval(tick, CHAT_PRESENCE_REFRESH_MS);
     // `visibilitychange` pokriva prelazak u drugi tab, `pagehide` zatvaranje i
     // bfcache (`beforeunload` na mobilnom Safari-ju ne stiže pouzdano).
     const onVisibility = () => tick();

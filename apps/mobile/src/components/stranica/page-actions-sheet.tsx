@@ -5,12 +5,15 @@ import {
   FolderInput,
   FolderOutput,
   Link2,
+  Pencil,
   Scissors,
   Trash2,
 } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
@@ -19,18 +22,20 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindLabel, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { areaColor } from '@/lib/task-meta';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
 type PageDetails = FunctionReturnType<typeof api.pages.get>;
 
 /** Menija ima jedan nivo dubine: spisak akcija → spisak ciljeva za izabranu akciju. */
-export type SheetView = 'menu' | 'move' | 'nest' | 'relate';
+export type SheetView = 'menu' | 'move' | 'nest' | 'relate' | 'rename';
 
 const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
   move: 'Premesti u oblast',
   nest: 'Ugnjezdi pod…',
   relate: 'Poveži sa…',
+  rename: 'Preimenuj',
 };
 
 /**
@@ -83,6 +88,22 @@ export function PageActionsSheet({
   const createRelation = useMutation(api.areasV2.createRelation);
   const archivePage = useMutation(api.areasV2.archivePage);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
+  const updatePage = useMutation(api.areasV2.updatePage);
+
+  const [renameTitle, setRenameTitle] = useState(page.title);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  // Prati PRETHODNI `view` da se draft resetuje samo na ULAZAK u `rename`, ne na
+  // svaku promenu `page.title` dok se u njemu već jeste (`page` je živ upit — da je
+  // efekat reagovao na svaku izmenu, tuđe realtime osvežavanje naslova bi tiho
+  // obrisalo draft korisnika usred kucanja).
+  const previousViewRef = useRef<SheetView>(view);
+  useEffect(() => {
+    if (view === 'rename' && previousViewRef.current !== 'rename') {
+      setRenameTitle(page.title);
+      setRenameError(null);
+    }
+    previousViewRef.current = view;
+  }, [view, page.title]);
 
   const startup = useQuery(
     api.startups.get,
@@ -163,6 +184,52 @@ export function PageActionsSheet({
       return `Stranica je povezana sa „${targetTitle}".`;
     });
 
+  const renameSubmit = async () => {
+    if (busyId !== null) return;
+    const clean = renameTitle.trim();
+    if (clean === '') {
+      haptics.warning();
+      setRenameError('Naslov ne sme biti prazan.');
+      return;
+    }
+    if (clean === page.title) {
+      setView('menu');
+      return;
+    }
+    setBusyId('rename');
+    haptics.tap();
+    const previousTitle = page.title;
+    try {
+      const result = await updatePage({
+        startupId: page.startupId,
+        pageId: page._id,
+        expectedRevision: page.revision,
+        title: clean,
+      });
+      haptics.success();
+      pushUndo({
+        label: `Preimenovano u „${clean}".`,
+        action: {
+          kind: 'pageRename',
+          startupId: page.startupId,
+          pageId: page._id,
+          title: previousTitle,
+          expectedRevision: result.revision,
+        },
+      });
+      close();
+    } catch (error) {
+      haptics.error();
+      setRenameError(
+        String(error).includes('KONFLIKT_IZMENA')
+          ? 'Neko iz tima je u međuvremenu izmenio ovu stranicu. Zatvori sheet i pokušaj ponovo.'
+          : accessErrorMessage(error, 'Stranica nije preimenovana.'),
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const detach = () => {
     if (busyId !== null) return;
     // Destruktivno po strukturi stabla — upozorenje pre potvrde, ne posle.
@@ -240,7 +307,7 @@ export function PageActionsSheet({
   const areaById = new Map((startup?.areas ?? []).map((area) => [area._id, area.label]));
 
   return (
-    <Sheet visible={open} onClose={close} style={styles.sheet}>
+    <Sheet visible={open} onClose={close} avoidKeyboard={view === 'rename'} style={styles.sheet}>
       {view === 'menu' ? (
           <>
             <Text
@@ -283,6 +350,25 @@ export function PageActionsSheet({
                 style={styles.row}
                 icon={<Link2 size={20} color={colors.mutedForeground} />}
               />
+              {page.kind !== 'note' ? (
+                // Beleška ima uvek-uredljiv naslov u editoru (`note-editor.tsx`), pa
+                // preimenovanje odavde nije rupa pariteta — dodavanje bi bilo OPASNO:
+                // `NoteEditor` drži `baseRevisionRef`, pa bi preimenovanje iz sheet-a
+                // podiglo reviziju i sledeći autosave bi pao u konflikt protiv istog
+                // korisnika.
+                <Row
+                  title="Preimenuj"
+                  subtitle={
+                    page.permissions.canEdit
+                      ? 'Menja naslov ove stranice'
+                      : 'Naslov menja samo autor stranice'
+                  }
+                  onPress={() => setView('rename')}
+                  disabled={!page.permissions.canEdit}
+                  style={styles.row}
+                  icon={<Pencil size={20} color={colors.mutedForeground} />}
+                />
+              ) : null}
               <Row
                 title="Obriši"
                 subtitle={
@@ -310,6 +396,46 @@ export function PageActionsSheet({
               style={styles.row}
               icon={<ChevronLeft size={22} color={colors.foreground} />}
             />
+            {view === 'rename' ? (
+              <View style={styles.renameForm}>
+                {renameError === null ? null : (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    style={[styles.renameError, { color: colors.destructive }]}>
+                    {renameError}
+                  </Text>
+                )}
+                <Input
+                  value={renameTitle}
+                  onChangeText={(next) => {
+                    setRenameTitle(next);
+                    if (renameError !== null) setRenameError(null);
+                  }}
+                  invalid={renameError !== null}
+                  autoFocus
+                  maxLength={200}
+                  editable={busyId === null}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void renameSubmit()}
+                  accessibilityLabel="Naslov stranice"
+                />
+                <View style={styles.renameActions}>
+                  <Button
+                    label="Otkaži"
+                    variant="ghost"
+                    onPress={() => setView('menu')}
+                    disabled={busyId !== null}
+                    style={styles.flexBtn}
+                  />
+                  <Button
+                    label="Sačuvaj"
+                    onPress={() => void renameSubmit()}
+                    loading={busyId === 'rename'}
+                    style={styles.flexBtn}
+                  />
+                </View>
+              </View>
+            ) : (
             <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
               {view === 'move' ? (
                 startup === undefined ? (
@@ -380,6 +506,7 @@ export function PageActionsSheet({
                 )
               ) : null}
             </ScrollView>
+            )}
           </>
         )}
     </Sheet>
@@ -487,5 +614,22 @@ const styles = StyleSheet.create({
   loading: {
     paddingVertical: 24,
     alignItems: 'center',
+  },
+  renameForm: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+    gap: 10,
+  },
+  renameError: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  renameActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  flexBtn: {
+    flex: 1,
   },
 });

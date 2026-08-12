@@ -182,7 +182,22 @@ export type UndoAction =
    * Napravljena veza između dve misli (K5). Inverz je `archiveEdges` — a ne
    * `restoreEdges`, koji vraća ono što je arhivirano.
    */
-  | { kind: 'thoughtEdgeConnect'; edgeId: Id<'thoughtEdges'> };
+  | { kind: 'thoughtEdgeConnect'; edgeId: Id<'thoughtEdges'> }
+  /**
+   * Preimenovanje stranice iz `PageActionsSheet` (P1, B2/B3). Inverz je isti
+   * `updatePage` poziv sa naslovom OD PRE i revizijom KOJU JE preimenovanje
+   * vratilo — ako je neko u međuvremenu opet izmenio stranicu, poziv baca
+   * `KONFLIKT_IZMENA` i traka namerno ostaje (isti obrazac kao ostale grane).
+   */
+  | {
+      kind: 'pageRename';
+      startupId: Id<'startups'>;
+      pageId: Id<'pages'>;
+      /** Naslov PRE preimenovanja. */
+      title: string;
+      /** Revizija koju je preimenovanje VRATILO — inverz kreće od nje. */
+      expectedRevision: number;
+    };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */

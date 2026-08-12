@@ -43,7 +43,7 @@ import {
   SectionHeader,
   Skeleton,
 } from '@/components/ui';
-import { useAppTheme, useThemeColors, type ThemePreference } from '@/theme/theme-provider';
+import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, spacing, text, type ColorTokens } from '@/theme/tokens';
 
 const noop = () => {};

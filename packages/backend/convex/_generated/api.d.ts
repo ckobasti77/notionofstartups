@@ -28,6 +28,7 @@ import type * as invites from "../invites.js";
 import type * as lib_access_errors from "../lib/access_errors.js";
 import type * as lib_activity from "../lib/activity.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_chatPresence from "../lib/chatPresence.js";
 import type * as lib_chat_channels from "../lib/chat_channels.js";
 import type * as lib_collaboration from "../lib/collaboration.js";
 import type * as lib_notificationChannels from "../lib/notificationChannels.js";
@@ -93,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   "lib/access_errors": typeof lib_access_errors;
   "lib/activity": typeof lib_activity;
   "lib/auth": typeof lib_auth;
+  "lib/chatPresence": typeof lib_chatPresence;
   "lib/chat_channels": typeof lib_chat_channels;
   "lib/collaboration": typeof lib_collaboration;
   "lib/notificationChannels": typeof lib_notificationChannels;

@@ -4,13 +4,7 @@ import { AppState } from 'react-native';
 
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
-
-/**
- * Klijentski interval obnavljanja prisustva. Mora da bude znatno kraći od
- * serverskog `CHAT_PRESENCE_TTL_MS` (45 s), da jedan promašen otkucaj ne ugasi
- * prisustvo dok korisnik i dalje gleda razgovor.
- */
-const REFRESH_MS = 15_000;
+import { CHAT_PRESENCE_REFRESH_MS } from '@/convex/lib/chatPresence';
 
 /**
  * Prijavljuje serveru „gledam ovaj kanal i stojim na dnu" — jedini slučaj u kome
@@ -42,7 +36,7 @@ export function useChatPresence(channelId: Id<'chatChannels'>, active: boolean) 
     const tick = () => send(active && AppState.currentState === 'active');
 
     tick();
-    const interval = setInterval(tick, REFRESH_MS);
+    const interval = setInterval(tick, CHAT_PRESENCE_REFRESH_MS);
     // Prelazak u pozadinu gasi prisustvo ODMAH — ne čeka se istek TTL-a, jer bi
     // korisnik do tada ostao bez obaveštenja iako je zaključao telefon.
     const subscription = AppState.addEventListener('change', (state) => {

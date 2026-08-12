@@ -1,13 +1,14 @@
 import { useMutation, useQuery } from 'convex/react';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { Mail, Plus, TriangleAlert } from 'lucide-react-native';
+import { Mail, Plus, Share2, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -32,6 +33,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { inviteLinkUrl } from '@/lib/embed-url';
 import { haptics } from '@/lib/haptics';
+import { rememberInviteCode, useInviteCodes } from '@/lib/invite-codes';
 import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
@@ -72,6 +74,26 @@ export default function PozivniceScreen() {
   );
   const revoke = useMutation(api.invites.revoke);
   const refreshControl = useListRefresh();
+  const codes = useInviteCodes();
+
+  const shareInviteCode = async (code: string) => {
+    haptics.tap();
+    const link = inviteLinkUrl(code);
+    if (link === null) {
+      void Clipboard.setStringAsync(code).then(() =>
+        Alert.alert(
+          'Kopirano',
+          'Adresa web aplikacije nije podešena, pa je kopiran samo kod pozivnice.',
+        ),
+      );
+      return;
+    }
+    try {
+      await Share.share({ message: link });
+    } catch {
+      Alert.alert('Greška', 'Pozivni link nije podeljen.');
+    }
+  };
 
   const confirmRevoke = (inviteId: Id<'invites'>, email: string) => {
     haptics.warning();
@@ -177,26 +199,36 @@ export default function PozivniceScreen() {
                         }
                         value={
                           canRevoke ? (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
-                              accessibilityState={{ disabled: revokingId !== null }}
-                              disabled={revokingId !== null}
-                              onPress={() => confirmRevoke(invite._id, invite.email)}
-                              style={({ pressed }) => [
-                                styles.revokeBtn,
-                                { borderColor: colors.border },
-                                pressed && { backgroundColor: colors.muted },
-                                revokingId !== null && { opacity: 0.5 },
-                              ]}>
-                              {revoking ? (
-                                <ActivityIndicator size="small" color={colors.destructive} />
-                              ) : (
-                                <Text style={[styles.revokeLabel, { color: colors.destructive }]}>
-                                  Opozovi
-                                </Text>
-                              )}
-                            </Pressable>
+                            <>
+                              {codes[invite._id] !== undefined && invite.expiresAt > now ? (
+                                <IconButton
+                                  accessibilityLabel={`Podeli pozivni link za ${invite.email}`}
+                                  disabled={revokingId !== null}
+                                  onPress={() => void shareInviteCode(codes[invite._id])}>
+                                  <Share2 size={20} color={colors.mutedForeground} />
+                                </IconButton>
+                              ) : null}
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Opozovi pozivnicu za ${invite.email}`}
+                                accessibilityState={{ disabled: revokingId !== null }}
+                                disabled={revokingId !== null}
+                                onPress={() => confirmRevoke(invite._id, invite.email)}
+                                style={({ pressed }) => [
+                                  styles.revokeBtn,
+                                  { borderColor: colors.border },
+                                  pressed && { backgroundColor: colors.muted },
+                                  revokingId !== null && { opacity: 0.5 },
+                                ]}>
+                                {revoking ? (
+                                  <ActivityIndicator size="small" color={colors.destructive} />
+                                ) : (
+                                  <Text style={[styles.revokeLabel, { color: colors.destructive }]}>
+                                    Opozovi
+                                  </Text>
+                                )}
+                              </Pressable>
+                            </>
                           ) : undefined
                         }
                       />
@@ -248,23 +280,51 @@ function CreateInviteSheet({
       haptics.success();
       setEmail('');
       onClose();
-      // Kod se vidi samo sada (server čuva hash) — admin ga podeli ručno. „Kopiraj
-      // kod" ga stavlja u privremenu memoriju da ga ne mora prepisivati (rn-review).
-      Alert.alert(
-        'Pozivnica kreirana',
-        `Kod za ${result.email}:\n\n${result.code}\n\nPošalji ga osobi koju pozivaš — vidi se samo sada.`,
-        [
-          {
-            text: 'Kopiraj kod',
-            onPress: () => {
-              void Clipboard.setStringAsync(result.code).then(() =>
-                Alert.alert('Kopirano', 'Kod pozivnice je kopiran u privremenu memoriju.'),
-              );
+      // Zapamti kod PRE Alert-a — treba da preživi i ako korisnik Alert odmah
+      // odbaci (sistemski `dismiss`, koji ne okida nijedno dugme).
+      rememberInviteCode(result.inviteId, result.code);
+      const link = inviteLinkUrl(result.code);
+      if (link !== null) {
+        Alert.alert(
+          'Pozivnica kreirana',
+          `Link za ${result.email}:\n\n${link}\n\nPošalji ga osobi koju pozivaš.`,
+          [
+            {
+              text: 'Podeli',
+              onPress: () => {
+                void Share.share({ message: link });
+              },
             },
-          },
-          { text: 'U redu', style: 'cancel' },
-        ],
-      );
+            {
+              text: 'Kopiraj link',
+              onPress: () => {
+                void Clipboard.setStringAsync(link).then(() =>
+                  Alert.alert('Kopirano', 'Pozivni link je kopiran u privremenu memoriju.'),
+                );
+              },
+            },
+            { text: 'U redu', style: 'cancel' },
+          ],
+        );
+      } else {
+        // Kod se vidi samo sada (server čuva hash) — admin ga podeli ručno. „Kopiraj
+        // kod" ga stavlja u privremenu memoriju da ga ne mora prepisivati (rn-review).
+        Alert.alert(
+          'Pozivnica kreirana',
+          `Adresa web aplikacije nije podešena, pa se šalje samo kod.\n\nKod za ${result.email}:\n\n${result.code}\n\nPošalji ga osobi koju pozivaš — vidi se samo sada.`,
+          [
+            {
+              text: 'Kopiraj kod',
+              onPress: () => {
+                void Clipboard.setStringAsync(result.code).then(() =>
+                  Alert.alert('Kopirano', 'Kod pozivnice je kopiran u privremenu memoriju.'),
+                );
+              },
+            },
+            { text: 'U redu', style: 'cancel' },
+          ],
+        );
+      }
     } catch (error) {
       haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Pozivnica nije kreirana.'));

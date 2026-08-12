@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Alert, Platform } from 'react-native';
 import { usePaginatedQuery } from 'convex/react';
 

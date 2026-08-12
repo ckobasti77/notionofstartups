@@ -25,6 +25,9 @@
    ga niko ne uvozi — oba hook-a hardkoduju svoj `REFRESH_MS = 15_000`
    (`use-chat-presence.ts:14` na webu, `:13` na mobilnom). Promeniš TTL na serveru,
    klijenti ne prate. Deljena konstanta postoji samo kao dekoracija.
+   **REŠENO (lanac 6, P1):** konstante presečene u
+   `packages/backend/convex/lib/chatPresence.ts` (nula uvoza — uvoze ga backend,
+   web i mobilni), oba hooka je sada uvoze umesto da je dupliraju.
 
 2. **`chat.generateUploadUrl` i dalje nema granice**, a odbijen blob se ne briše
    (`chat.ts:833-836`, zapisano u samom kodu). Klijent koji preskoči predproveru puni
@@ -42,10 +45,10 @@
 | # | Radnja | Web | Mobilni |
 |---|---|---|---|
 | B1 | **Urediti belešku koja sadrži tabelu, prilog ili blok koda** | uvek uredivo, `page-editor-view.tsx:1236` | `note-editor.tsx:167` — `bodyEditable=false`, pada na `NoteReader` |
-| B2 | **Preimenovati zadatak** | `page-editor-view.tsx:694` | nema — naslov je čist tekst (`zadatak/[id].tsx:168`) |
-| B3 | **Preimenovati stranicu tipa Tabela ili Prilozi** | `page-editor-view.tsx:1097` | nema — rename postoji samo za belešku |
+| B2 | **Preimenovati zadatak** | `page-editor-view.tsx:694` | **REŠENO (lanac 6, P1)** — red „Preimenuj" u `page-actions-sheet.tsx`, ista `areasV2.updatePage` mutacija |
+| B3 | **Preimenovati stranicu tipa Tabela ili Prilozi** | `page-editor-view.tsx:1097` | **REŠENO (lanac 6, P1)** — isti red kao B2 (`page.kind !== 'note'`), beleška namerno izuzeta (§4c plana P1) |
 | B4 | **Diskusija (chat) nad idejom** | `ideas-view.tsx:646`, `:818` | nema — `anchorType` se na mobilnom zove isključivo sa `'page'` (`discussion-link.tsx:48`) |
-| B5 | **Kopirati pozivnicu kao LINK** | `admin-dialog.tsx:408` (`https://…/?invite=KOD`) | `pozivnice.tsx:258` kopira goli kod; helper `inviteLinkUrl` je **uvezen** (`:33`) i **nikad pozvan** |
+| B5 | **Kopirati pozivnicu kao LINK** | `admin-dialog.tsx:408` (`https://…/?invite=KOD`) | **REŠENO (lanac 6, P1)** — Alert sada nosi pun link (`inviteLinkUrl` pozvan), „Podeli"/„Kopiraj link"; ako `EXPO_PUBLIC_WEB_URL` nije podešen, pada na stari tok (samo kod) |
 | B6 | **Dodati članove privatnom kanalu** | `new-conversation.tsx:295-324` | `new-conversation-sheet.tsx:117` ne šalje članove, a `chat.setChannelMembers` **ne postoji uopšte** → privatan kanal sa telefona ostaje trajno prazan |
 | B7 | **Ubaciti sliku, prilog, tabelu ili CSV u telo beleške** | `rich-text-editor.tsx:404,409,417,429` | nema — `note-toolbar.tsx:85` nema te alatke |
 
@@ -75,7 +78,7 @@ najviše koristiš — puštanje aplikacije drugarima.
 | C14 | Potpisani doprinosi na nivou oblasti | nema |
 | C15 | Isključiti push na ovom uređaju | `expoPushTokens.remove` postoji, mobilni ga ne zove |
 | C16 | Status odobrenja ideje se prikazuje | `isApproved` je skriven uslov, stavka se pojavljuje bez objašnjenja |
-| C17 | Ponovo kopirati kod postojeće pozivnice | kod živi samo u jednokratnom `Alert`-u |
+| C17 | Ponovo kopirati kod postojeće pozivnice | **REŠENO (lanac 6, P1)** — sesijsko pamćenje (`lib/invite-codes.ts`, in-memory, NE na disk); dugme za deljenje u redu pozivnice dok je kod poznat u ovoj sesiji |
 
 ---
 
