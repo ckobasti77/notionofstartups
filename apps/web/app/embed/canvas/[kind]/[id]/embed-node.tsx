@@ -29,9 +29,12 @@ import { cn } from "@/lib/utils";
  * `fitView` nema šta da uklopi. Ovde su dimenzije eksplicitne i na čvoru i na
  * komponenti, pa su granice tačne od prvog frejma.
  *
- * `Handle`-ovi postoje samo da ivice imaju gde da se zakače i nisu povezivi ni vidljivi
- * (povezivanje je K3). Van režima „Uredi raspored" je čvor i dalje samo za gledanje;
- * u režimu izabrana SVOJA kartica dobija četiri ugaone ručke za veličinu (K2).
+ * `Handle`-ovi postoje samo da ivice imaju gde da se zakače i **zauvek** ostaju
+ * nevidljivi i nepovezivi (`isConnectable={false}`): tačkica je ~8 px i prstom se ne
+ * pogađa, a povećanje mete bi pojelo i tap i potez kartice. Povezivanje zato ide tapom
+ * — izvor iz native sheet-a („Poveži sa…"), cilj tapom po kanvasu (K3, `faza-k3.md` §5).
+ * Van režima „Uredi raspored" je čvor i dalje samo za gledanje; u režimu izabrana
+ * SVOJA kartica dobija četiri ugaone ručke za veličinu (K2).
  */
 export const EMBED_NODE_TYPE = "embed";
 

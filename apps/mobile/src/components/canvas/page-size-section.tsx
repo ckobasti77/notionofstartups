@@ -1,10 +1,8 @@
 import { useMutation } from 'convex/react';
 import { Minus, Plus, RotateCcw } from 'lucide-react-native';
-import { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 
 import { Row } from '@/components/ui/row';
-import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { clampPageNodeSize, PAGE_NODE_SIZE } from '@/lib/canvas-node-size';
@@ -12,7 +10,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, text } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 
 /**
  * Kartica čiju veličinu menjamo. Sve stiže uz `node:actions` / `selection` poruku iz
@@ -34,8 +32,9 @@ const STEP = 0.1;
 
 /**
  * Veličina kartice stranice na kanvasu — native put koji ne traži precizan prst
- * (K2, `docs/mobile/lanac4/planovi/faza-k2.md`). Otvara se dugim pritiskom na karticu
- * u režimu „Uredi raspored" ili iz rail-a („Veličina kartice").
+ * (K2, `docs/mobile/lanac4/planovi/faza-k2.md`). Od K3 to više nije sopstveni sheet
+ * nego SEKCIJA u sheet-u „Akcije kartice" (`page-node-sheet.tsx`), koji otvara dugi
+ * pritisak na karticu u režimu „Uredi raspored" ili četvrta ikonica rail-a.
  *
  * „Umanji / Uvećaj" nisu ukras: to je JEDINI put do veličine za čitač ekrana i za mali
  * zum, gde se ugaone ručke namerno ne crtaju (kartica bi nestala pod četiri mete od
@@ -44,13 +43,21 @@ const STEP = 0.1;
  * Sve tri radnje pišu u bazu i sve tri imaju „Poništi" — kroz POSTOJEĆU traku
  * (`lib/undo.ts`, član `pageResize`), ne kroz drugu površinu. Klamp je klijentski da
  * se ne šalje poziv koji bi server ionako odsekao, ali server ostaje merodavan.
+ *
+ * `busy` živi u RODITELJU: veličina i veze dele jednu bravu, jer se u istom sheet-u
+ * ne smeju okinuti jedna preko druge.
  */
-export function PageSizeSheet({
+export function PageSizeSection({
   page,
+  busy,
+  setBusy,
   onClose,
   onApplied,
 }: {
-  page: PageSizeTarget | null;
+  page: PageSizeTarget;
+  /** Ključ reda koji je u toku, ili `null` — jedna brava za ceo sheet. */
+  busy: string | null;
+  setBusy: (key: string | null) => void;
   onClose: () => void;
   /** Nova veličina posle uspešne izmene — pozivalac osvežava svoj `selectedNode`. */
   onApplied?: (width: number, height: number) => void;
@@ -58,8 +65,6 @@ export function PageSizeSheet({
   const colors = useThemeColors();
   const resizePage = useMutation(api.areasV2.resizePage);
   const resetPageSize = useMutation(api.areasV2.resetPageSize);
-  // Jedna brava za ceo sheet; vrednost je ključ reda da baš taj pokaže spiner.
-  const [busy, setBusy] = useState<string | null>(null);
 
   /** Zajednički omotač: brava, haptika, poruka greške, zatvaranje po uspehu. */
   const run = async (key: string, action: () => Promise<void>) => {
@@ -79,7 +84,6 @@ export function PageSizeSheet({
   };
 
   const scale = (factor: number, key: string) => {
-    if (!page) return;
     const next = clampPageNodeSize(page.width * factor, page.height * factor);
     if (next.width === page.width && next.height === page.height) {
       // Već na granici: tiho slanje poziva koji ništa ne menja bi izgledalo kao kvar.
@@ -120,7 +124,6 @@ export function PageSizeSheet({
   };
 
   const reset = () => {
-    if (!page) return;
     const before = { width: page.width, height: page.height };
     void run('reset', async () => {
       await resetPageSize({
@@ -147,97 +150,71 @@ export function PageSizeSheet({
   };
 
   const isDefault =
-    page !== null &&
-    page.width === PAGE_NODE_SIZE.defaultWidth &&
-    page.height === PAGE_NODE_SIZE.defaultHeight;
+    page.width === PAGE_NODE_SIZE.defaultWidth && page.height === PAGE_NODE_SIZE.defaultHeight;
 
   return (
-    <Sheet visible={page !== null} onClose={onClose} style={styles.sheet}>
-      {page ? (
-        <View style={styles.body}>
-          <Text
-            accessibilityRole="header"
-            numberOfLines={2}
-            style={[styles.heading, { color: colors.foreground }]}>
-            {page.title || 'Stranica bez naslova'}
-          </Text>
-          <Text style={[styles.meta, { color: colors.mutedForeground }]}>
-            {`Trenutno: ${page.width} × ${page.height}`}
-          </Text>
-
-          {page.canResize ? (
-            <View style={styles.list}>
-              <Row
-                title="Umanji"
-                subtitle={`Za 10% — najmanje ${PAGE_NODE_SIZE.minWidth} × ${PAGE_NODE_SIZE.minHeight}`}
-                onPress={() => scale(1 - STEP, 'smaller')}
-                disabled={busy !== null}
-                showChevron={false}
-                style={styles.row}
-                icon={<Minus size={20} color={colors.mutedForeground} />}
-                value={busy === 'smaller' ? <ActivityIndicator color={colors.primary} /> : undefined}
-              />
-              <Row
-                title="Uvećaj"
-                subtitle={`Za 10% — najviše ${PAGE_NODE_SIZE.maxWidth} × ${PAGE_NODE_SIZE.maxHeight}`}
-                onPress={() => scale(1 + STEP, 'bigger')}
-                disabled={busy !== null}
-                showChevron={false}
-                style={styles.row}
-                icon={<Plus size={20} color={colors.mutedForeground} />}
-                value={busy === 'bigger' ? <ActivityIndicator color={colors.primary} /> : undefined}
-              />
-              <Row
-                title="Vrati podrazumevanu veličinu"
-                titleNumberOfLines={2}
-                subtitle={`${PAGE_NODE_SIZE.defaultWidth} × ${PAGE_NODE_SIZE.defaultHeight}`}
-                onPress={reset}
-                disabled={busy !== null || isDefault}
-                showChevron={false}
-                style={styles.row}
-                icon={<RotateCcw size={20} color={colors.mutedForeground} />}
-                value={busy === 'reset' ? <ActivityIndicator color={colors.primary} /> : undefined}
-              />
-              {isDefault ? (
-                <Text style={[styles.note, { color: colors.mutedForeground }]}>
-                  Kartica je već u podrazumevanoj veličini.
-                </Text>
-              ) : null}
-            </View>
-          ) : (
-            /* Prazna lista bi izgledala kao kvar — razlog se kaže. */
+    <View>
+      <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>Veličina</Text>
+      {page.canResize ? (
+        <View style={styles.list}>
+          <Row
+            title="Umanji"
+            subtitle={`Za 10% — najmanje ${PAGE_NODE_SIZE.minWidth} × ${PAGE_NODE_SIZE.minHeight}`}
+            onPress={() => scale(1 - STEP, 'smaller')}
+            disabled={busy !== null}
+            showChevron={false}
+            style={styles.row}
+            icon={<Minus size={20} color={colors.mutedForeground} />}
+            value={busy === 'smaller' ? <ActivityIndicator color={colors.primary} /> : undefined}
+          />
+          <Row
+            title="Uvećaj"
+            subtitle={`Za 10% — najviše ${PAGE_NODE_SIZE.maxWidth} × ${PAGE_NODE_SIZE.maxHeight}`}
+            onPress={() => scale(1 + STEP, 'bigger')}
+            disabled={busy !== null}
+            showChevron={false}
+            style={styles.row}
+            icon={<Plus size={20} color={colors.mutedForeground} />}
+            value={busy === 'bigger' ? <ActivityIndicator color={colors.primary} /> : undefined}
+          />
+          <Row
+            title="Vrati podrazumevanu veličinu"
+            titleNumberOfLines={2}
+            subtitle={`${PAGE_NODE_SIZE.defaultWidth} × ${PAGE_NODE_SIZE.defaultHeight}`}
+            onPress={reset}
+            disabled={busy !== null || isDefault}
+            showChevron={false}
+            style={styles.row}
+            icon={<RotateCcw size={20} color={colors.mutedForeground} />}
+            value={busy === 'reset' ? <ActivityIndicator color={colors.primary} /> : undefined}
+          />
+          {isDefault ? (
             <Text style={[styles.note, { color: colors.mutedForeground }]}>
-              Veličinu može da menja autor kartice.
+              Kartica je već u podrazumevanoj veličini.
             </Text>
-          )}
-
-          <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-            U režimu „Uredi raspored" veličinu možeš da menjaš i prevlačenjem tačaka u
-            uglovima izabrane kartice.
-          </Text>
+          ) : null}
         </View>
-      ) : null}
-    </Sheet>
+      ) : (
+        /* Prazna lista bi izgledala kao kvar — razlog se kaže. */
+        <Text style={[styles.note, { color: colors.mutedForeground }]}>
+          Veličinu može da menja autor kartice.
+        </Text>
+      )}
+
+      <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+        U režimu „Uredi raspored" veličinu možeš da menjaš i prevlačenjem tačaka u
+        uglovima izabrane kartice.
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    paddingHorizontal: 12,
-  },
-  body: {
-    paddingBottom: 4,
-  },
-  heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    paddingHorizontal: 8,
-  },
-  meta: {
+  sectionTitle: {
     ...text.meta,
     paddingHorizontal: 8,
-    marginTop: 2,
-    marginBottom: 8,
+    paddingTop: 12,
+    paddingBottom: 4,
   },
   list: {
     gap: 2,

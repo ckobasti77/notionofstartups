@@ -27,11 +27,11 @@ const MIN_VISIBLE_MS = 1000;
 
 /**
  * Traka „Poništi" posle radnje koja je već upisana (PARITET A6) — JEDAN obrazac za
- * misli, ideje, veze ideja, checkpointe, doprinose i pomeranje kartica na kanvasu
- * (lanac 4: `pageMove`, jedini član koji ne vraća arhivirano nego pravi inverzan
- * potez). Montira se na svakom ekranu koji radnju pokreće (ili na koji se posle nje
- * vraća); stavku čita iz modul-store-a (`lib/undo.ts`), pa preživljava `router.back()`
- * sa detalja.
+ * misli, ideje, veze ideja, checkpointe, doprinose i uređivanje kanvasa (lanac 4:
+ * `pageMove`, `pageResize`, `pageEdgeConnect`, `pageEdgeDisconnect` — članovi koji ne
+ * vraćaju arhivirano nego prave inverzan potez). Montira se na svakom ekranu koji
+ * radnju pokreće (ili na koji se posle nje vraća); stavku čita iz modul-store-a
+ * (`lib/undo.ts`), pa preživljava `router.back()` sa detalja.
  *
  * Konvencija app-a izbegava samonestajuće toast-ove (`contribution-thread.tsx`), pa
  * traka stoji 8s I ima eksplicitno ✕ — a Alert potvrda PRE arhiviranja ostaje na
@@ -53,6 +53,8 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const restoreContribution = useMutation(api.collaboration.restoreOwnContribution);
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
+  const connectPages = useMutation(api.areasV2.connectPages);
+  const disconnectPages = useMutation(api.areasV2.disconnectPages);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -132,6 +134,29 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           ...(action.x !== undefined && action.y !== undefined
             ? { x: action.x, y: action.y }
             : {}),
+        });
+        return;
+      case 'pageEdgeConnect':
+        // Inverz pravljenja veze. Ako je server vratio TUĐU postojeću ivicu (neko je
+        // isti par povezao u međuvremenu), ovo pukne sa „Možete ukloniti samo vezu
+        // koju ste napravili." — traka tada ostaje i pokaže tu poruku.
+        await disconnectPages({
+          startupId: action.startupId,
+          areaId: action.areaId,
+          rootPageId: action.rootPageId,
+          edgeId: action.edgeId,
+        });
+        return;
+      case 'pageEdgeDisconnect':
+        // `connectPages` NE oživljava arhiviranu ivicu, pa se pravi nova — sa istim
+        // parom i istim nazivom (zato ga stavka i nosi).
+        await connectPages({
+          startupId: action.startupId,
+          areaId: action.areaId,
+          rootPageId: action.rootPageId,
+          sourcePageId: action.sourcePageId,
+          targetPageId: action.targetPageId,
+          ...(action.label ? { label: action.label } : {}),
         });
         return;
     }

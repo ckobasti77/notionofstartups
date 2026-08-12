@@ -4,10 +4,10 @@ import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-r
 import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   ChevronLeft,
+  Ellipsis,
   Maximize2,
   Minimize2,
   Plus,
-  Scaling,
   Send,
   TriangleAlert,
 } from 'lucide-react-native';
@@ -25,10 +25,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
 import { CanvasRail, type RailAction } from '@/components/canvas/canvas-rail';
+import { ConnectBar } from '@/components/canvas/connect-bar';
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { IdeaNodeSheet, type IdeaDetail } from '@/components/canvas/idea-node-sheet';
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
-import { PageSizeSheet, type PageSizeTarget } from '@/components/canvas/page-size-sheet';
+import { PageNodeSheet, type PageNodeTarget } from '@/components/canvas/page-node-sheet';
 import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
 import { EmptyState } from '@/components/empty-state';
@@ -113,10 +114,13 @@ export default function CanvasScreen() {
   // koji embed pošalje uz `selection` kad je izabran baš jedan čvor (oblik zavisi od vrste).
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<unknown>(null);
-  // Kartica čija se veličina menja (sheet). Otvara je dugi pritisak u WebView-u
-  // (`node:actions`) ili četvrta ikonica rail-a — dva puta do iste radnje, jer je
-  // `contextmenu` u WKWebView-u nepouzdan.
-  const [sizeTarget, setSizeTarget] = useState<PageSizeTarget | null>(null);
+  // Kartica nad kojom je otvoren sheet „Akcije kartice" (veze + veličina). Otvara ga
+  // dugi pritisak u WebView-u (`node:actions`) ili četvrta ikonica rail-a — dva puta
+  // do iste radnje, jer je `contextmenu` u WKWebView-u nepouzdan.
+  const [nodeTarget, setNodeTarget] = useState<PageNodeTarget | null>(null);
+  // Kartica-izvor dok se bira cilj veze (K3). Native je vlasnik ovog stanja, kao i
+  // režima; embed ga saznaje isključivo iz poruke `connect`.
+  const [connectSource, setConnectSource] = useState<{ _id: string; title: string } | null>(null);
   // Landscape daje više prostora grafu (maketa §9.3, dugme [⛶]). Rotacija je samo
   // za ovaj ekran — na izlazak se OBAVEZNO vraća portret (cleanup ispod).
   const [landscape, setLandscape] = useState(false);
@@ -234,9 +238,38 @@ export default function CanvasScreen() {
   // upis je `areasV2.movePages`). Ideje i misli dobijaju isti režim u K5.
   const supportsEdit = isPageKind;
 
+  /**
+   * Ulazak u biranje cilja veze. Sheet se zatvara (traka i sheet ne smeju da stoje
+   * jedno preko drugog), a embed dobija id izvora kroz most — od tog trenutka se u
+   * WebView-u ništa ne povlači, izvor nosi pun prsten, a tap na drugu karticu pravi
+   * vezu. Vlasnik stanja je native: embed sam iz biranja NIKAD ne izlazi.
+   */
+  const startConnect = useCallback(
+    (page: PageNodeTarget) => {
+      setNodeTarget(null);
+      setConnectSource({ _id: page._id, title: page.title || 'Stranica bez naslova' });
+      postToWeb({ type: 'connect', sourceId: page._id });
+      haptics.tap();
+      AccessibilityInfo.announceForAccessibility(
+        'Izaberi karticu za vezu. Tapni karticu sa kojom se povezuje.',
+      );
+    },
+    [postToWeb],
+  );
+
+  const cancelConnect = useCallback(() => {
+    if (connectSource === null) return;
+    setConnectSource(null);
+    postToWeb({ type: 'connect', sourceId: null });
+    AccessibilityInfo.announceForAccessibility('Povezivanje je otkazano.');
+  }, [connectSource, postToWeb]);
+
   const toggleEdit = useCallback(() => {
     const next = !editMode;
     setEditMode(next);
+    // Izlazak iz režima (i ulazak u njega) uvek gasi biranje: „Gotovo" mora da bude
+    // izlaz iz SVAKOG podstanja režima, ne samo iz povlačenja.
+    cancelConnect();
     // Poruka ide istim kanalom kao `theme`/`fit`/`zoom` — bez ijednog novog objektnog
     // propa na `<WebView>`, jer bi svaka promena reference reloadovala stranicu (Z1).
     postToWeb({ type: 'mode', value: next ? 'edit' : 'view' });
@@ -246,7 +279,7 @@ export default function CanvasScreen() {
         ? 'Režim uređivanja rasporeda je uključen. Prevuci karticu da je pomeriš.'
         : 'Uređivanje rasporeda je završeno.',
     );
-  }, [editMode, postToWeb]);
+  }, [editMode, postToWeb, cancelConnect]);
 
   // Kamera se piše iz native-a (ne iz embeda): prigušuje se, nema optimističko stanje,
   // i native je već vlasnik dugmadi koja kameru pomeraju. Scope stiže uz poruku.
@@ -284,11 +317,11 @@ export default function CanvasScreen() {
     // Tip parametra je eksplicitan: stanje je `unknown`, pa `SetStateAction<unknown>`
     // proguta i oblik updater-a i TS ga sam ne izvede.
     setSelectedNode((current: unknown) => {
-      const node = current as PageSizeTarget | null;
+      const node = current as PageNodeTarget | null;
       if (!node || node._id !== pageId) return current;
       return { ...node, width, height };
     });
-    setSizeTarget((current) =>
+    setNodeTarget((current) =>
       current && current._id === pageId ? { ...current, width, height } : current,
     );
   }, []);
@@ -314,6 +347,10 @@ export default function CanvasScreen() {
         y?: number;
         zoom?: number;
         message?: string;
+        /** `toast`: `error` prekida i traži pažnju; `info` je objašnjenje i ne prekida tok. */
+        level?: string;
+        /** `connected`: id upravo napravljene veze (za „Poništi"). */
+        edgeId?: string;
       };
       try {
         msg = JSON.parse(event.nativeEvent.data);
@@ -336,10 +373,27 @@ export default function CanvasScreen() {
           if (pageNode._id) openPage(pageNode._id);
         }
       } else if (msg.type === 'node:actions' && msg.node) {
-        // Dugi pritisak na karticu u režimu → native sheet sa akcijama nad njom.
-        // Za sada je to samo veličina (K2); ideje i misli ovu poruku ne šalju.
+        // Dugi pritisak na karticu u režimu → native sheet „Akcije kartice" (veze
+        // K3 + veličina K2). Ideje i misli ovu poruku ne šalju.
         haptics.tap();
-        if (isPageKind) setSizeTarget(msg.node as PageSizeTarget);
+        if (isPageKind) setNodeTarget(msg.node as PageNodeTarget);
+      } else if (msg.type === 'connected' && msg.startupId && msg.areaId && msg.edgeId) {
+        // Upis je prošao; linija se u WebView-u pojavila sama (isti Convex klijent).
+        // Native ovde samo zatvara biranje i nudi put nazad.
+        haptics.success();
+        setConnectSource(null);
+        postToWeb({ type: 'connect', sourceId: null });
+        pushUndo({
+          label: 'Kartice su povezane.',
+          action: {
+            kind: 'pageEdgeConnect',
+            startupId: msg.startupId as Id<'startups'>,
+            areaId: msg.areaId as Id<'startupAreas'>,
+            rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
+            edgeId: msg.edgeId as Id<'pageCanvasEdgesV2'>,
+          },
+        });
+        AccessibilityInfo.announceForAccessibility('Kartice su povezane.');
       } else if (msg.type === 'selection') {
         const ids = msg.ids ?? [];
         setSelectedNodeIds(ids);
@@ -412,11 +466,18 @@ export default function CanvasScreen() {
       } else if (msg.type === 'toast' && msg.message) {
         // Embed nema toast površinu; serverska poruka („Možete pomerati samo svoje
         // kartice.") mora da se vidi, inače kartica samo neobjašnjivo skoči nazad.
-        haptics.error();
-        Alert.alert('Greška', msg.message);
+        // `info` je objašnjenje, ne kvar („Ove kartice su već povezane.") — tiša
+        // haptika, drugi naslov, i biranje OSTAJE upaljeno.
+        if (msg.level === 'info') {
+          haptics.warning();
+          Alert.alert('Obaveštenje', msg.message);
+        } else {
+          haptics.error();
+          Alert.alert('Greška', msg.message);
+        }
       }
     },
-    [isIdeas, isThoughts, isPageKind, openPage, flushViewport, applyNodeSize],
+    [isIdeas, isThoughts, isPageKind, openPage, flushViewport, applyNodeSize, postToWeb],
   );
 
   const reload = () => {
@@ -464,17 +525,18 @@ export default function CanvasScreen() {
     primaryAction = undefined;
   }
 
-  // Kartica izabrana u režimu → četvrta ikonica rail-a otvara „Veličinu kartice".
+  // Kartica izabrana u režimu → četvrta ikonica rail-a otvara „Akcije kartice".
   // Ovo je put koji NE zavisi ni od dugog pritiska (nepouzdan na iOS-u) ni od praga
-  // zuma (ispod 0.5 se ručke ne crtaju) — i jedini put za čitač ekrana.
-  const resizeTarget =
-    isPageKind && hasSingleSelection ? (selectedNode as PageSizeTarget) : null;
+  // zuma (ispod 0.5 se ručke ne crtaju) — i jedini put za čitač ekrana. U biranju
+  // cilja se sklanja: tada je jedini posao tap na drugu karticu.
+  const selectedPage =
+    isPageKind && hasSingleSelection ? (selectedNode as PageNodeTarget) : null;
   const nodeAction: RailAction | undefined =
-    editMode && resizeTarget?.canResize
+    editMode && selectedPage && !connectSource
       ? {
-          label: 'Veličina kartice',
-          icon: <Scaling size={20} color={colors.foreground} />,
-          onPress: () => setSizeTarget(resizeTarget),
+          label: 'Akcije kartice',
+          icon: <Ellipsis size={20} color={colors.foreground} />,
+          onPress: () => setNodeTarget(selectedPage),
         }
       : undefined;
 
@@ -547,6 +609,10 @@ export default function CanvasScreen() {
             // upaljen režim mora ponovo javiti — inače posle „Pokušaj ponovo" native
             // pokazuje „Gotovo", a kartice se ne pomeraju.
             if (editMode && !failed) postToWeb({ type: 'mode', value: 'edit' });
+            // Biranje cilja se, za razliku od režima, NE obnavlja: sveže učitan embed
+            // ne zna izvor, pa bi traka „Izaberi karticu za vezu" tražila tap koji ne
+            // bi ništa uradio. Dangling izvor posle „Pokušaj ponovo" je laž.
+            cancelConnect();
           }}
           onError={(e) => setFailed(e.nativeEvent.description || 'Učitavanje nije uspelo.')}
           onHttpError={(e) => setFailed(`Greška ${e.nativeEvent.statusCode}.`)}
@@ -573,6 +639,12 @@ export default function CanvasScreen() {
               onAction={reload}
             />
           </View>
+        ) : null}
+
+        {/* Traka za biranje cilja stoji PREKO vrha platna — jedina poruka koja u tom
+            trenutku važi, sa izlazom nadohvat prsta. */}
+        {connectSource ? (
+          <ConnectBar sourceTitle={connectSource.title} onCancel={cancelConnect} />
         ) : null}
       </View>
 
@@ -666,13 +738,15 @@ export default function CanvasScreen() {
         />
       ) : null}
 
-      {/* Veličina kartice (K2) — samo kanvas oblasti/stranice ima kartice stranica. */}
+      {/* Akcije kartice: veze (K3) + veličina (K2) — samo kanvas oblasti/stranice
+          ima kartice stranica. */}
       {isPageKind ? (
-        <PageSizeSheet
-          page={sizeTarget}
-          onClose={() => setSizeTarget(null)}
+        <PageNodeSheet
+          page={nodeTarget}
+          onClose={() => setNodeTarget(null)}
+          onStartConnect={startConnect}
           onApplied={(width, height) => {
-            if (sizeTarget) applyNodeSize(sizeTarget._id, width, height);
+            if (nodeTarget) applyNodeSize(nodeTarget._id, width, height);
           }}
         />
       ) : null}

@@ -699,6 +699,8 @@ Bez toga stara sesija (na staroj lozinci) ostaje živa do isteka.
 
 ## Z7. Native sheet iznad WebView-a proguta `touchend` — kapija poteza ostane zaključana
 
+> **ZATVORENO u fazi K3 (12.08.).** Mehanizam i dopunski nalaz su na kraju odeljka.
+
 **Otkriveno u fazi K2 (12.08.), na emulatoru.** Simptom je zvučao kao fantomski
 upis: kartica na ekranu 288 × 196, a posle ponovnog ulaska u kanvas — 259 × 176.
 Podatak u bazi je sve vreme bio ispravan; **prikaz** je bio zamrznut.
@@ -734,12 +736,36 @@ reload-a.
    podignuta duže od 8 s, kapija se otključava sama. Mreža za slučajeve koje ne
    znamo; 8 s je znatno više od svakog stvarnog poteza prstom.
 
-**Šta ostaje van domašaja.** Sam `d3-drag` gest ne umemo da otkažemo iz JS-a, pa
-dodir koji je počeo na ručki a završio se „u vazduhu" (jer je sheet preuzeo ekran)
-teorijski može da bude nastavljen sledećim dodirom po platnu. Ishod je jedna
-promena veličine koja **uvek** ostavlja traku „Poništi" — vidljivo i povratno, pa
-se ne popravlja hakovanjem sintetičkih `touchcancel` događaja.
+**Šta je K2 pogrešno proglasio nepopravljivim.** K2 je napisao da se sam `d3-drag` gest
+„ne ume otkazati iz JS-a", pa dodir koji je počeo na ručki a završio se „u vazduhu"
+može biti nastavljen sledećim dodirom po platnu. Sintetički događaj i nije bio potreban:
+`d3-drag` za dodir sluša **na samom DOM čvoru ručke**, a ručka postoji samo dok je
+`resizeApi.enabled === true`.
 
-**Pravilo za sledeće faze:** svaka kapija koja se diže na početku gesta mora da ima
-i put da se spusti bez događaja koji možda nikad neće stići. Događaj koji „uvek
-dolazi" u browseru ne dolazi uvek u WebView-u ispod native slojeva.
+**Kako je zatvoreno (K3, sve u `canvas-embed.tsx`):**
+
+4. `handleNodeContextMenu` pored `disarmResizeWatchdog()` + `releaseGesture()` obara i
+   `enabled` (`setSuspendedKey(gateKey)`, `:781`). Četiri `NodeResizeControl` čvora se
+   **odmontiraju**, d3 listeneri odu sa njima i gest umre zajedno sa čvorom. Vraćaju se
+   na prvi `touchstart` koji ponovo stigne do stranice (znak da je native sheet
+   zatvoren), a promena režima ili ulazak u biranje ih vraća odmah (izvedeno stanje
+   `suspendedKey === gateKey`, `:476–478`).
+
+**Dopunski nalaz K3 — zašto stražar iz K2 za dodir NIKAD nije radio.** `d3-zoom`
+(`touchstarted`) i `d3-drag` (`touchended`) zovu `nopropagation(event)`, tj.
+`stopImmediatePropagation()`, na elementu na kom slušaju. Zato listener na `window` u
+**bubble** fazi nikad ne dobije taj događaj: `touchend` sa ručke ne stigne do stražara,
+a `touchstart` sa platna ne stigne do „vrati ručke". Prvo je značilo da je gate posle
+dodira-bez-pomeraja otključavao **samo** `GESTURE_STALE_MS` (8 s); drugo je izmereno na
+emulatoru — posle jednog dugog pritiska ni jedna ručka se više nije crtala do reload-a.
+Popravka: oba listenera su prebačena u **capture** fazu (`{capture:true}`, `:496`, `:654`).
+Kod stražara je posao uz to odložen na sledeći task (`setTimeout(0)`, `:648`), jer
+capture ide PRE `onResizeEnd` — bez odlaganja bi `releaseGesture()` pregazio novu
+veličinu starim snimkom, što je tačno ono čega se K2 bojao kad je izabrao bubble fazu.
+
+**Pravilo za sledeće faze:** svaka kapija koja se diže na početku gesta mora da ima i
+put da se spusti bez događaja koji možda nikad neće stići. Događaj koji „uvek dolazi" u
+browseru ne dolazi uvek u WebView-u ispod native slojeva — a nad `@xyflow/react`
+platnom **ne dolazi ni u bubble fazi**, jer ga d3 preseče. Listener koji mora da vidi
+dodir nad kanvasom ide u capture fazu; ako mu je potreban redosled posle xyflow-a,
+odloži posao, ne fazu.

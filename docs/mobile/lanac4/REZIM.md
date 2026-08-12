@@ -49,8 +49,13 @@ Android preko `document`. Nema drugog kanala i nema handshake-a (ZA-POPRAVKU Z2)
 | Poruka | Kada | Efekat |
 |---|---|---|
 | `{type:"mode", value:"edit"\|"view"}` | tap na „Uredi raspored" / „Gotovo", i **ponovo posle svakog `onLoadEnd`** ako je režim upaljen | `nodesDraggable`, ručke za veličinu, obod + pilula, tap više ne otvara čvor |
+| `{type:"connect", sourceId: string\|null}` (K3) | „Poveži sa…" u sheet-u čvora, odnosno „Otkaži" / uspeh / izlazak iz režima / `onLoadEnd` | ulazak u biranje cilja: izvor dobija pun prsten, `nodesDraggable` i ručke se GASE, tap na drugi čvor pravi vezu, pilula nestaje |
 
 Nepoznata `value` = `view`. Režim se pali samo eksplicitno.
+
+`connect` se, za razliku od `mode`, posle `onLoadEnd` **ne obnavlja** nego poništava:
+sveže učitan embed ne zna izvor, pa bi traka „Izaberi karticu za vezu" tražila tap koji
+ne bi ništa uradio.
 
 ### WebView → native
 
@@ -59,8 +64,10 @@ Nepoznata `value` = `view`. Režim se pali samo eksplicitno.
 | `{type:"moved", startupId, areaId, rootPageId, count, before:[{pageId,x,y}]}` | posle **uspešnog** `movePages` | `haptics.success()` + traka „Poništi" (`kind:'pageMove'`) |
 | `{type:"viewport", startupId, areaId, rootPageId, x, y, zoom}` | `onMoveEnd` koji je izazvao **korisnik** | prigušen `saveViewport` (800 ms) |
 | `{type:"resized", startupId, areaId, rootPageId, pageId, width, height, previous:{x,y,width,height}}` | posle **uspešnog** `resizePage` iz poteza ručkom (K2) | `haptics.success()`, traka „Poništi" (`kind:'pageResize'`) i osvežena veličina u lokalnom detalju čvora |
-| `{type:"node:actions", nodeId, node}` | **dugi pritisak** na karticu u režimu (`contextmenu`) | otvara native sheet „Veličina kartice" (`page-size-sheet.tsx`) |
-| `{type:"toast", level:"error", message}` | `movePages` ili `resizePage` je pukao | `Alert.alert('Greška', message)`; embed sam vraća kartice na staro |
+| `{type:"node:actions", nodeId, node}` | **dugi pritisak** na karticu u režimu (`contextmenu`) | otvara native sheet „Akcije kartice" (`page-node-sheet.tsx`: veze K3 + veličina K2) |
+| `{type:"connected", startupId, areaId, rootPageId, edgeId}` (K3) | posle **uspešnog** `connectPages` | `haptics.success()`, izlazak iz biranja i traka „Poništi" (`kind:'pageEdgeConnect'`) |
+| `{type:"toast", level:"error", message}` | `movePages`, `resizePage` ili `connectPages` je pukao | `Alert.alert('Greška', message)`; embed sam vraća kartice na staro |
+| `{type:"toast", level:"info", message}` (K3) | duplikat para, tap na izvor, tap na ghost | `Alert.alert('Obaveštenje', message)` — objašnjenje, ne kvar; **biranje ostaje upaljeno** i mutacija se NE zove |
 
 `before` (kod `moved`) odnosno `previous` (kod `resized`) nose stanje **od pre
 poteza** — traka „Poništi" ga ne čita iz baze (baza u tom trenutku već drži novo).
@@ -143,12 +150,13 @@ povlačivoj kartici** ne vidi:
   smanjivanjem dodirne mete.
 - **Bočne ručke (`top`/`right`/`bottom`/`left`) ne postoje** — samo četiri ugla.
   Prstom se bočna ručka ne pogađa, a ugao + ±10% pokrivaju svaki ishod.
-- **Gest ručke koji preuzme native sloj se ne može otkazati spolja.** Dugi pritisak
-  na ručku otvori sheet; Android tada prestane da isporučuje dodir WebView-u i
-  `touchend` nikad ne stigne do stranice, pa `d3-drag` ostaje naoružan. Naša kapija
-  se otključava odmah (`contextmenu`) i, kao mreža, po isteku `GESTURE_STALE_MS`;
-  sam d3 gest ne umemo da ubijemo iz JS-a. Posledica u najgorem slučaju je jedna
-  promena veličine koja **uvek** ostavlja traku „Poništi" (ZA-POPRAVKU Z7).
+- **Ugaone mete na najmanjoj kartici pokrivaju ~5% njene površine.** Na 240 × 168
+  potez koji je hteo da POMERI karticu, a počeo je u uglu, menja veličinu. Očekivano
+  za četiri mete od 44pt na maloj kartici; svaka takva izmena ostavlja traku
+  „Poništi", pa je povratna. Ne rešava se smanjivanjem dodirne mete (K2 REVIZIJA §5).
+- **U biranju cilja se ne povlači i ne menja veličina.** `nodesDraggable` i ručke su
+  isključeni dok traje `connect`, jer bi obe mete pojele tap kojim se bira cilj.
+  Izlaz je „Otkaži" u traci ili „Gotovo" (izlazak iz režima gasi i biranje).
 - **Guma-selekcija i ugnježdavanje prevlačenjem se NE prenose** (`PARITET.md`,
   sekcija Z): na telefonu nema modifikatora, a ista tačka dodira sa dva ishoda
   (pomeri / ugnjezdi) bi značila slučajno slanje zahteva celom timu.

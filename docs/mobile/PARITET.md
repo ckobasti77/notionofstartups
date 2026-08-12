@@ -645,29 +645,30 @@ Kanvas ostaje podrazumevano za gledanje (jedan prst platno, dva zum); dugme u
 native rail-u pali režim u kom se kartice povlače prstom.
 
 - [x] `areasV2.movePages` — potez prstom u režimu piše poziciju kartice.
-      Upis: `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:865`
-      (`useMutation`), poziv u `handleMoveNodes` (`:873`), okidač
-      `onNodeDragStop={handleNodeDragStop}` (`:527`) — **jedan upis po potezu**,
-      ne po frejmu. Povlačenje se pali sa `nodesDraggable={canEdit}` (`:516`),
-      tuđa kartica nosi `draggable: false` (`:959`). „Poništi" zove istu funkciju
-      sa starim koordinatama: `apps/mobile/src/components/undo-bar.tsx:54` +
-      `case 'pageMove'` (`:110`), unija u `apps/mobile/src/lib/undo.ts:38`.
+      Upis: `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:1292`
+      (`useMutation`), poziv u `handleMoveNodes` (`:1310`), okidač
+      `onNodeDragStop={handleNodeDragStop}` (`:896`) — **jedan upis po potezu**,
+      ne po frejmu. Povlačenje se pali sa `nodesDraggable={canEdit && !connecting}`
+      (`:885`, `!connecting` je dodao K3), tuđa kartica nosi `draggable: false`
+      (`:1517`). „Poništi" zove istu funkciju sa starim koordinatama:
+      `apps/mobile/src/components/undo-bar.tsx:54` + `case 'pageMove'` (`:111`),
+      unija u `apps/mobile/src/lib/undo.ts:38`.
       Dokazi: `lanac4/dokazi/k1-pre.png` → `k1-posle.png`, log
       `k1-logovi.txt` (1:48:12 — tačno jedan `movePages` po potezu; 1:52:19 +
       1:52:20 — potez pa „Poništi").
 - [x] `areasV2.saveViewport` — pan/zum prstom se pamti po korisniku i scope-u.
-      `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:240` (`useMutation`),
-      prigušeno 800 ms (`flushViewport`, `:244`, `VIEWPORT_DEBOUNCE_MS`), flush
-      na izlazak sa ekrana (`:261`). Embed prijavljuje samo KORISNIKOVU kameru —
-      `onMoveEnd={handleMoveEnd}` (`canvas-embed.tsx:528`) odbacuje programske
+      `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:286` (`useMutation`),
+      prigušeno 800 ms (`flushViewport`, `:290`, `VIEWPORT_DEBOUNCE_MS` `:55`), flush
+      na izlazak sa ekrana (`:307`). Embed prijavljuje samo KORISNIKOVU kameru —
+      `onMoveEnd={handleMoveEnd}` (`canvas-embed.tsx:897`) odbacuje programske
       promene (`sourceEvent === null`) i vrednost koja se nije promenila.
       Zapamćena kamera se vraća kroz `defaultViewport` + preskočen `fitView`.
       Dokazi: `k1-povratak.png` (povratak na kanvas otvara zapamćen pogled),
       log — jedan `saveViewport` po pan-u, nijedan posle `[⌖]` (fit).
-- [x] Prekidač režima u native rail-u — `canvas-rail.tsx:85` (ikonica „Uredi
-      raspored", 44pt) / `:54` (primarno dugme postaje „Gotovo"); ekran ga daje
-      samo za `area`/`page` (`canvas/[kind]/[id].tsx:502`), poruka mosta
-      `{type:'mode'}` (`:229`), ponovno slanje posle učitavanja (`:466`).
+- [x] Prekidač režima u native rail-u — `canvas-rail.tsx:93` (ikonica „Uredi
+      raspored", 44pt) / `:60` (primarno dugme postaje „Gotovo"); ekran ga daje
+      samo za `area`/`page` (`canvas/[kind]/[id].tsx:239`), poruka mosta
+      `{type:'mode'}` (`:275`), ponovno slanje posle učitavanja (`:611`).
       Dokazi: `k1-pre.png` (obod + pilula „Uređivanje rasporeda" u WebView-u),
       `k1-gotovo-swipe.png` (van režima swipe po kartici pomera platno),
       `k1-t9-posle-retry.png` (režim preživi „Pokušaj ponovo").
@@ -684,12 +685,13 @@ put za čitač ekrana i za mali zum) je native sheet „Veličina kartice".
       `EmbedResizeContext` (`:83`), granice iz **zajedničkog** modula
       `apps/web/lib/canvas-node-size.ts:19` (isti modul koristi i desktop —
       `components/workspace/canvases/area-flow-node.tsx:285`). Upis:
-      `canvas-embed.tsx:1082` (`useMutation`), `handleResizeNode` (`:1142`), okidač
-      `onResizeEnd` → `EmbedFlow.handleResizeEnd` (`:555`) — **jedan upis po potezu**.
-      Native put: `apps/mobile/src/components/canvas/page-size-sheet.tsx:59`
-      („Umanji/Uvećaj ±10%", klamp `apps/mobile/src/lib/canvas-node-size.ts:24`), a
-      „Poništi" zove istu funkciju sa starim dimenzijama:
-      `apps/mobile/src/components/undo-bar.tsx:55` + `case 'pageResize'` (`:121`),
+      `canvas-embed.tsx:1293` (`useMutation`), `handleResizeNode` (`:1354`), okidač
+      `onResizeEnd` → `EmbedFlow.handleResizeEnd` (`:669`) — **jedan upis po potezu**.
+      Native put: `apps/mobile/src/components/canvas/page-size-section.tsx:66`
+      (K3 preimenovao fajl iz `page-size-sheet.tsx` i izdvojio telo u sekciju sheet-a
+      čvora; „Umanji/Uvećaj ±10%", klamp `apps/mobile/src/lib/canvas-node-size.ts:24`),
+      a „Poništi" zove istu funkciju sa starim dimenzijama:
+      `apps/mobile/src/components/undo-bar.tsx:55` + `case 'pageResize'` (`:122`),
       unija u `apps/mobile/src/lib/undo.ts:53`.
       Dokazi: `lanac4/dokazi/k2-rucke.png` (četiri ručke), `k2-mere.txt`
       (`getBoundingClientRect` = 44×44 na svakoj ručki), `k2-pre.png`→`k2-posle.png`
@@ -698,11 +700,11 @@ put za čitač ekrana i za mali zum) je native sheet „Veličina kartice".
       potez pa „Poništi"), `k2-granica.png` (klijentski klamp staje na 720 × 1000,
       u logu nema greške; donja granica 240 × 168 izmerena kroz CDP).
 - [x] `areasV2.resetPageSize` — „Vrati podrazumevanu veličinu" (288 × 196).
-      `apps/mobile/src/components/canvas/page-size-sheet.tsx:60` (`useMutation`),
-      red `:191`, otvaranje sheet-a: dugi pritisak na karticu
-      (`canvas-embed.tsx:621` → poruka `node:actions` → `canvas/[kind]/[id].tsx:338`)
-      **ili** četvrta ikonica rail-a (`canvas/[kind]/[id].tsx:475`,
-      `components/canvas/canvas-rail.tsx:97`). „Poništi" je `resizePage` sa starim
+      `apps/mobile/src/components/canvas/page-size-section.tsx:67` (`useMutation`),
+      red `:181`, otvaranje sheet-a: dugi pritisak na karticu
+      (`canvas-embed.tsx:769` → poruka `node:actions` → `canvas/[kind]/[id].tsx:375`)
+      **ili** četvrta ikonica rail-a (`canvas/[kind]/[id].tsx:539` — od K3 nosi labelu
+      „Akcije kartice", `components/canvas/canvas-rail.tsx:97`). „Poništi" je `resizePage` sa starim
       dimenzijama (isto što radi desktop, `area-canvas-view.tsx:1863`).
       Dokazi: `k2-dugi-pritisak.png` (sheet iz dugog pritiska, „Trenutno: 317 × 216"),
       `k2-rail.png` (isti sheet iz rail-a), `k2-reset.png` (kartica 288×196 + traka),
@@ -712,11 +714,80 @@ put za čitač ekrana i za mali zum) je native sheet „Veličina kartice".
       ručke, kartica je i dalje izabrana, rail i dalje nudi „Veličina kartice"),
       `k2-gotovo.png` („Gotovo" gasi ručke i obod; dugi pritisak više ne otvara sheet,
       tap otvara stranicu).
-- [x] Popravka kamere nasleđena iz K1 REVIZIJE §6(a) — `canvas-embed.tsx:658`
+- [x] Popravka kamere nasleđena iz K1 REVIZIJE §6(a) — `canvas-embed.tsx:810`
       (programska promena sada UPISUJE `lastViewportRef` pre izlaza). Dokaz: posle
       `[⌖]` i dva tapa po praznom platnu u logu nema nijednog `areasV2:saveViewport`.
 
-**Ostaje za K3–K5** (i dalje u sekciji Z do tada): `connectPages`, `disconnectPages`,
+## K3. Veze između kartica (povezivanje i raskidanje)
+
+Nit sa handle tačkice se **ne povlači** — tačkica je ~8 px. Vezu pravi **tap izvor →
+tap cilj**: „Poveži sa…" u sheet-u čvora prebaci kanvas u biranje (gornja traka +
+pun prsten oko izvora), a tap na drugu karticu je upis. Raskidanje ide iz imenovane
+liste „Veze" u istom sheet-u, jer se linija od 1–2 px prstom ne pogađa.
+
+- [x] `areasV2.connectPages` — tap na cilj pravi vezu.
+      Upis: `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx:1294`
+      (`useMutation`), `handleConnectNodes` (`:1433`), okidač
+      `onNodeClick={connecting ? handleConnectPick : …}` (`:900`), sam picker
+      `:740` sa `connectBusyRef` (`:738`) protiv duplog tapa. Ulaz u biranje je
+      native: `apps/mobile/src/components/canvas/page-node-sheet.tsx:153`
+      („Poveži sa…") → `startConnect` (`apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx:247`)
+      → poruka `{type:'connect'}`; traka
+      `apps/mobile/src/components/canvas/connect-bar.tsx:16` (montaža `[id].tsx:647`).
+      **Duplikat se ne pravi**: klijentska provera para (`canvasPairs`, `:1416`) šalje
+      `toast level:'info'` i mutaciju NE zove (`[id].tsx:471` → `Alert('Obaveštenje')`).
+      „Poništi" zove `disconnectPages` nad novom ivicom:
+      `apps/mobile/src/components/undo-bar.tsx:56` + `case 'pageEdgeConnect'` (`:139`),
+      unija u `apps/mobile/src/lib/undo.ts:68`.
+      Dokazi: `lanac4/dokazi/k3-sheet.png` (sheet čvora sa „Poveži sa…" i praznim
+      stanjem „Nema veza sa ove kartice."), `k3-biranje.png` (traka „Izaberi karticu
+      za vezu" + „Izvor: F7 zadatak telefon", pun prsten oko izvora, pilula
+      „Uređivanje rasporeda" nestala), `k3-pre.png` → `k3-posle.png` (linija između
+      dve kartice + traka „Poništi"), `k3-duplikat.png` (Alert „Ove kartice su već
+      povezane.", biranje ostaje), `k3-logovi.txt` (16:50:51 — tačno jedan
+      `areasV2:connectPages`; u 16:53 posle duplikata **nijedan**).
+      Baza: `k3-baza.txt` (red u `pageCanvasEdgesV2` sa `archivedAt: null`).
+- [x] `areasV2.disconnectPages` — ✕ na redu suseda u sheet-u čvora.
+      `apps/mobile/src/components/canvas/page-node-sheet.tsx:67` (`useMutation`),
+      `breakEdge` (`:73`) → `Alert` potvrda → `pushUndo({kind:'pageEdgeDisconnect'})`
+      → `onClose()` (traka mora da bude VIDLJIVA, a `Sheet` je `Modal`). Lista suseda
+      stiže uz `node:actions`/`selection` — embed je izračuna jednom za ceo graf
+      (`canvas-embed.tsx:1470–1494`, `PageNodeEdgeDetail` `:1216`), pa native ne radi
+      nijedan dodatni upit. Tuđa veza dobija „Zatraži brisanje"
+      (`requestEdgeDeletion`, `:117`, `collaboration.requestDeletion` sa
+      `kind:'page_edge'`, `:122`) — glasanje već postoji na ekranu „Odobrenja".
+      Relacija se prikazuje **bez dugmeta** („Relacija — uklanja se na stranici").
+      „Poništi" zove `connectPages` sa istim parom i istim `label`-om (`connectPages`
+      NE oživljava arhiviranu ivicu): `undo-bar.tsx:57` + `case 'pageEdgeDisconnect'`
+      (`:150`), unija u `lib/undo.ts:81`.
+      Dokazi: `k3-veze-lista.png` (red „F7W zadatak web / Veza" + ✕),
+      `k3-raskid-potvrda.png` (Alert „Prekinuti vezu?"), `k3-raskid.png` (linija
+      nestala, sheet zatvoren, traka „Poništi" vidljiva), `k3-logovi.txt`
+      (16:55:22 `disconnectPages`). Baza: `k3-baza.txt` (isti red sada ima
+      `archivedAt ≠ null`).
+- [x] „Poništi" u oba smera, izmereno u logu i u bazi — `k3-undo-pre.png` →
+      `k3-undo-posle.png` (linija se vratila). `k3-logovi.txt`: 16:57:29
+      `connectPages` → 16:57:33 `disconnectPages` (poništena veza); 16:59:01
+      `disconnectPages` → 16:59:04 `connectPages` (poništen raskid). Poništen raskid
+      pravi **nov** red — vidljivo u `k3-baza.txt` (`ph7a8v4e…`, `archivedAt: null`).
+- [x] Dodirne mete i čitač ekrana — `k3-mete.txt`, **izmereno na uređaju**
+      (`uiautomator dump`, ne procenjeno iz koda): „Poveži sa…" i redovi veza
+      386.7 × 58.3 dp (`ui/row.tsx` `minHeight: 56`), ✕ 44.2 × 44.2 dp
+      (`page-node-sheet.tsx:224`), „Otkaži" u traci 69.7 × 43.8 dp
+      (`connect-bar.tsx:41`). Traka nosi `accessibilityLiveRegion="polite"`
+      (`connect-bar.tsx:26`), a ulazak/uspeh/otkazivanje idu i kroz
+      `AccessibilityInfo.announceForAccessibility`.
+- [x] **Z7 zatvoren** (dug koji je K2 dodelio K3) — ručke se odmontiraju kad native
+      sloj preuzme ekran (`canvas-embed.tsx:781`, izvedeno stanje `:476–478`), a oba
+      listenera na `window` prebačena su u **capture** fazu jer `d3-zoom`/`d3-drag`
+      zovu `stopImmediatePropagation` (`:496`, `:654`; stražar odlaže posao
+      `setTimeout(0)` da ne pregazi novu veličinu, `:648`). Dokazi:
+      `k3-z7-sheet-sa-rucke.png` (sheet iz dugog pritiska NA RUČKU, kartica ostala
+      288 × 196), `k3-z7.png` (posle istog niza upis iz native sheet-a se **vidi** u
+      WebView-u — 259 × 176; pre popravke je prikaz ostajao zamrznut na 288 × 196,
+      `ZA-POPRAVKU.md` Z7).
+
+**Ostaje za K4–K5** (i dalje u sekciji Z do tada):
 `taskCheckpoints.saveCanvasPlacement`, `resetCanvasSize`,
 `taskCheckpointCanvasEdges.connect`/`disconnect`.
 
@@ -759,8 +830,6 @@ Prazan razlog ne važi. „Nije bitno" nije razlog.
 | `taskCheckpointCanvasEdges.disconnect` | Isto; uz to glasanje o brisanju tuđe canvas veze već radi na mobilnom (odobrenja.tsx, `task_checkpoint_edge`), pa tim tokovima ništa ne fali. |
 | `areasV2.getCanvas` | Šira desktop-samo pretplata (ceo startup odjednom — `area-canvas-view.tsx`, `area-view.tsx`, `page-workspace-view.tsx`, `workspace-shell.tsx`). Mobilni embed (`canvas/[kind]/[id].tsx` → `canvas-embed.tsx`) zove UŽE resolvere po meti: `getAreaCanvasByArea`/`getPageCanvasByPage` — funkcionalno zamenjuju `getCanvas` za tačno onaj scope koji se prikazuje, ne rupa. |
 | `areasV2.getPageCanvasByPage` | Nije "web-only" u pravom smislu — poziva ga `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`, DELJENI kod koji mobilni učitava kroz WebView (00-PLAN §5.2). Grep metod ga vidi kao web-only jer broji samo `apps/web/components`+`app`. |
-| `areasV2.connectPages` | Crtanje veza između stranica na kanvasu — vizuelna radnja u koordinatnom prostoru kanvasa. |
-| `areasV2.disconnectPages` | Isto, obrnuta radnja. |
 | `activity.listForStartup` | Mobilni koristi `activity.listPaginated` (bez tvrdog limita 50, sa nastavkom) — funkcionalno superiorna zamena, ne rupa. Obrnut paritet, već objašnjeno u ZA-POPRAVKU §5.8. |
 
 ## Z-gestovi — obrasci sa desktop kanvasa koji se NE prenose (K1)
@@ -777,3 +846,9 @@ kasnije ne otkriju kao „rupa".
 | Bočne ručke za veličinu (`top`/`right`/`bottom`/`left`) i radijalni obod `PerimeterResizeControl` (K2) | Desktop kontrola je geometrija za miš koji lebdi nad obodom (~8 px zona, `pointermove` za kursor, skaliranje oko centra); prstom je obod kartice isto što i sama kartica. Mobilni ima **četiri ugaone ručke od 44pt** (isti `resizePage`, zumo-svesna matematika iz xyflow-a) i „±10%" u sheet-u za fino doterivanje. Desktop komponenta se ne dira i ne uvozi. |
 | Ručke ispod zuma 0.5 (K2) | Kartica od 288 px je na `minZoom=0.15` široka ~43 px na ekranu — četiri mete od 44pt bi je potpuno prekrile. Ispod praga se veličina menja iz rail-a („Veličina kartice" → ±10%). |
 | Zadržavanje odnosa stranica pri promeni veličine (`keepAspectRatio`) | Web ga nema; uvođenje bi značilo da isti potez daje različit rezultat na dva klijenta. |
+| Povlačenje niti sa `Handle` tačkice (`nodesConnectable`, K3) | Tačkica je ~8 px, a povećanje mete bi je pretvorilo u metu koja jede i tap i potez kartice. Isti ishod (`connectPages`) daje **tap izvor → tap cilj**; `isConnectable={false}` ostaje zauvek (`embed-node.tsx:32–37`). |
+| Tap na samu liniju veze (selekcija ivice + `Delete`, K3) | Linija je 1–2 px i najčešće ide ispod kartica; „pogodi liniju prstom" je promašaj za promašajem. Raskidanje ide iz sheet-a čvora, gde je veza red od 56pt sa imenom druge strane. |
+| Imenovanje veze (`label`) pri crtanju (K3) | Ni web ga ne unosi na kanvasu (`connectPages` bez `label`). Labela se **prikazuje** u listi „Veze", a „Poništi" je čuva pri vraćanju raskida. Mutacija za preimenovanje page-veze ne postoji ni na jednom klijentu. |
+| Uklanjanje **relacije** (`pageRelations`) sa kanvasa (K3) | Put već postoji native na ekranu stranice (`relations-section.tsx:92–93`). Drugi ulaz za istu radnju je duplirani tok, ne paritet. Na kanvasu se relacija vidi i objasni („Relacija — uklanja se na stranici"). |
+| Optimistička ivica pre odgovora servera (K3) | Convex razrešava mutaciju tek kad je pretplata istog klijenta osvežena, pa je linija tu u istom trenutku. Lokalno stanje ivica bi uvelo drugi izvor istine bez ijedne dobiti. |
+| Grupno povezivanje (jedan izvor → više ciljeva odjednom, K3) | `connectPages` prima jedan par; ni web to nema. Ponavljanje „Poveži sa…" pokriva slučaj. |

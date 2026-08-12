@@ -195,12 +195,15 @@ WebView → native:  { type: "node:open", nodeId, node }  → otvara native deta
 WebView → native:  { type: "selection", ids, node? }    → menja akcioni rail (node kad je izabran 1)
 WebView → native:  { type: "moved", …scope, count, before } → traka „Poništi" posle pomeranja kartica
 WebView → native:  { type: "resized", …scope, pageId, width, height, previous } → traka „Poništi" posle promene veličine
-WebView → native:  { type: "node:actions", nodeId, node } → dugi pritisak: native sheet „Veličina kartice"
+WebView → native:  { type: "node:actions", nodeId, node } → dugi pritisak: native sheet „Akcije kartice"
+WebView → native:  { type: "connected", …scope, edgeId }  → traka „Poništi" posle nove veze
 WebView → native:  { type: "viewport", …scope, x, y, zoom } → prigušen `saveViewport` (800 ms)
-WebView → native:  { type: "toast", level, message }     → Alert (embed nema toast površinu)
+WebView → native:  { type: "toast", level, message }     → Alert (embed nema toast površinu);
+                                                           level "error" = kvar, "info" = objašnjenje
 native → WebView:  { type: "auth",  token }              → osvežavanje tokena (nekritično)
 native → WebView:  { type: "theme", mode: "dark" }       → živa promena šeme
 native → WebView:  { type: "mode",  value: "edit"|"view" } → režim „Uredi raspored" (lanac 4)
+native → WebView:  { type: "connect", sourceId | null }   → biranje cilja za vezu (lanac 4, K3)
 native → WebView:  { type: "focus", nodeId }             → centriraj čvor (na zatvaranje detalja)
 native → WebView:  { type: "zoom",  direction }          → rail: uvećaj/umanji
 native → WebView:  { type: "fit" }                       → rail: centriraj sve
@@ -213,9 +216,13 @@ ne mora da radi drugi upit da bi upisao poziciju ili kameru.
 (`mode`) čvorovi postaju povlačivi i potez se na kraju upisuje kroz `areasV2.movePages`
 (jedan upis po potezu, sa „Poništi"). Izabrana **svoja** kartica uz to dobija četiri
 ugaone ručke od 44pt (`areasV2.resizePage`), a dugi pritisak otvara native sheet sa
-„±10%" i „Vrati podrazumevanu veličinu" (`areasV2.resetPageSize`). Van režima je sve
-kao pre — pregled, navigacija i dodavanje. Pun protokol režima, uz pravila za sledeće
-faze: `docs/mobile/lanac4/REZIM.md`.
+„±10%" i „Vrati podrazumevanu veličinu" (`areasV2.resetPageSize`). Isti sheet nosi i
+veze (K3): „Poveži sa…" prebacuje kanvas u **biranje cilja** — tap na drugu karticu je
+`areasV2.connectPages` — a imenovana lista suseda raskida vezu kroz
+`areasV2.disconnectPages`. Nit sa handle tačkice se **ne povlači** (tačkica je ~8 px);
+`nodesConnectable` ostaje `false` zauvek. Van režima je sve kao pre — pregled,
+navigacija i dodavanje. Pun protokol režima, uz pravila za sledeće faze:
+`docs/mobile/lanac4/REZIM.md`.
 
 `node:open` nosi i podatke čvora, pa native ne mora da radi drugi `ideas.list`
 upit; `selection` sa jednim čvorom pretvara primarno dugme rail-a u „Otvori ideju".

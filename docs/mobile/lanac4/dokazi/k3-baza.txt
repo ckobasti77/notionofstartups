@@ -1,0 +1,30 @@
+K3 — veza u BAZI, pre i posle (dokaz zahteva „napravljena i raskinuta veza,
+oba puta vidljiva u bazi"). Komanda: `npx convex data pageCanvasEdgesV2 --limit 10`
+iz korena repoa. Deployment: dev/jovan-milojevic (deafening-otter-504).
+Par: nodeAId = „F7 zadatak telefon" (moja kartica), nodeBId = „F7W zadatak web" (tuđa).
+
+## 1) POSLE T2 (tap na cilj, 16:50:51) — nov red, `archivedAt: null`
+
+_id                                  archivedAt   createdAt       attribution
+"ph79f7z7rhm096768f91yfj2918cbqja"   null         1786546251865   "author"
+
+## 2) POSLE T5 (raskid iz sheet-a, 16:55:22) — ISTI red, `archivedAt` popunjen
+
+_id                                  archivedAt      updatedAt       attribution
+"ph79f7z7rhm096768f91yfj2918cbqja"   1786546522929   1786546522929   "author"
+
+## 3) POSLE T6 (poništavanja u oba smera) — pun snimak tabele
+
+_id                                  archivedAt      createdAt       šta je to
+"ph7a8v4e1appwdsv843wgamx2x8caemr"   null            1786546744736   T6b: „Poništi" nad raskidom
+                                                                      (16:59:04 connectPages) — AKTIVNA
+"ph7a1n8c8vt67c9b1t8ta1fkxs8caezy"   1786546741049   1786546730816   T6b setup: veza u 16:58:50,
+                                                                      raskinuta u 16:59:01
+"ph75pakp43s0nfet6pby6ygs8n8cak7q"   1786546653077   1786546649264   T6a: veza u 16:57:29,
+                                                                      „Poništi" u 16:57:33
+"ph79f7z7rhm096768f91yfj2918cbqja"   1786546522929   1786546251865   T2/T5 iz gornjih snimaka
+
+Zaključak: poništen RASKID pravi NOV red (`connectPages` ne oživljava arhiviranu
+ivicu — traži aktivnu), zato `UndoAction.pageEdgeDisconnect` nosi par i `label`, a ne
+`edgeId` (`apps/mobile/src/lib/undo.ts:81`). Poništena VEZA arhivira baš onu ivicu
+koju je server vratio (`pageEdgeConnect` nosi `edgeId`).

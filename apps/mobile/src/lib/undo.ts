@@ -59,6 +59,32 @@ export type UndoAction =
       height: number;
       x?: number;
       y?: number;
+    }
+  /**
+   * Napravljena veza između dve kartice na kanvasu (K3). Inverz je `disconnectPages`
+   * nad ivicom koju je server upravo vratio — zato nosi `edgeId`, ne par.
+   */
+  | {
+      kind: 'pageEdgeConnect';
+      startupId: Id<'startups'>;
+      areaId: Id<'startupAreas'>;
+      rootPageId: Id<'pages'> | null;
+      edgeId: Id<'pageCanvasEdgesV2'>;
+    }
+  /**
+   * Raskinuta veza (K3). Nosi PAR, a ne `edgeId`, jer `connectPages` — za razliku od
+   * `ideas.connect` — arhiviranu ivicu NE oživljava (traži aktivnu, pa pravi novu).
+   * Poništavanje zato pravi novu vezu i mora da ponese `label` da se naziv ne izgubi;
+   * isto radi desktop redo (`area-canvas-view.tsx`).
+   */
+  | {
+      kind: 'pageEdgeDisconnect';
+      startupId: Id<'startups'>;
+      areaId: Id<'startupAreas'>;
+      rootPageId: Id<'pages'> | null;
+      sourcePageId: Id<'pages'>;
+      targetPageId: Id<'pages'>;
+      label?: string;
     };
 
 export type UndoEntry = {

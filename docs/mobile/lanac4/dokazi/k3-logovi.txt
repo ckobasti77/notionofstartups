@@ -1,0 +1,45 @@
+▌ Showing logs of deployment:
+▌ [Development] ckobasti77:notion-clone:dev/jovan-milojevic (dev) (dashboard: https://dashboard.convex.dev/t/ckobasti77/notion-clone/deafening-otter-504)
+▌ └─ https://deafening-otter-504.eu-west-1.convex.cloud
+Watching logs for dev deployment deafening-otter-504...
+8/12/2026, 4:47:19 PM [CONVEX H(GET /.well-known/openid-configuration)] Function executed in 14 ms
+8/12/2026, 4:47:19 PM [CONVEX H(GET /.well-known/jwks.json)] Function executed in 7 ms
+8/12/2026, 4:47:19 PM [CONVEX Q(profiles:getCurrent)] Function executed in 1 ms
+8/12/2026, 4:47:19 PM [CONVEX M(auth:store)] [INFO] '`auth:store` type: refreshSession'
+8/12/2026, 4:47:19 PM [CONVEX M(auth:store)] Function executed in 22 ms
+8/12/2026, 4:47:19 PM [CONVEX A(auth:signIn)] Function executed in 36 ms
+8/12/2026, 4:47:20 PM [CONVEX Q(startups:listForCurrent)] Function executed in 30 ms
+8/12/2026, 4:47:21 PM [CONVEX Q(startups:listForCurrent)] Function executed in 21 ms
+8/12/2026, 4:47:21 PM [CONVEX Q(chat:unreadSummary)] Function executed in 16 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(startups:listForCurrent)] Function executed in 1 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(startups:listForCurrent)] Function executed in 1 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(chat:unreadSummary)] Function executed in 1 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(profiles:getCurrent)] Function executed in 9 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(startups:get)] Function executed in 18 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(startups:listMembers)] Function executed in 26 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(notifications:unreadCount)] Function executed in 38 ms
+8/12/2026, 4:47:22 PM [CONVEX Q(tasks:commandCenter)] Function executed in 41 ms
+8/12/2026, 4:47:25 PM [CONVEX Q(taskAssignees:listForTasks)] Function executed in 45 ms
+8/12/2026, 4:48:23 PM [CONVEX Q(startups:listForCurrent)] Function executed in 22 ms
+8/12/2026, 4:48:23 PM [CONVEX Q(pages:areaTopLevelCounts)] Function executed in 25 ms
+8/12/2026, 4:48:23 PM [CONVEX Q(pages:recentForStartup)] Function executed in 21 ms
+8/12/2026, 4:48:42 PM [CONVEX Q(startups:listForCurrent)] Function executed in 19 ms
+8/12/2026, 4:48:42 PM [CONVEX Q(pages:listChildren)] Function executed in 19 ms
+8/12/2026, 4:48:43 PM [CONVEX Q(pages:childCounts)] Function executed in 18 ms
+8/12/2026, 4:49:09 PM [CONVEX H(GET /.well-known/openid-configuration)] Function executed in 11 ms
+8/12/2026, 4:49:09 PM [CONVEX H(GET /.well-known/jwks.json)] Function executed in 7 ms
+8/12/2026, 4:49:09 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 33 ms
+8/12/2026, 4:50:51 PM [CONVEX M(areasV2:connectPages)] Function executed in 33 ms
+8/12/2026, 4:50:51 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 29 ms
+8/12/2026, 4:55:22 PM [CONVEX M(areasV2:disconnectPages)] Function executed in 28 ms
+8/12/2026, 4:55:23 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 48 ms
+8/12/2026, 4:57:29 PM [CONVEX M(areasV2:connectPages)] Function executed in 28 ms
+8/12/2026, 4:57:29 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 28 ms
+8/12/2026, 4:57:33 PM [CONVEX M(areasV2:disconnectPages)] Function executed in 21 ms
+8/12/2026, 4:57:33 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 27 ms
+8/12/2026, 4:58:50 PM [CONVEX M(areasV2:connectPages)] Function executed in 26 ms
+8/12/2026, 4:58:50 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 26 ms
+8/12/2026, 4:59:01 PM [CONVEX M(areasV2:disconnectPages)] Function executed in 20 ms
+8/12/2026, 4:59:01 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 27 ms
+8/12/2026, 4:59:04 PM [CONVEX M(areasV2:connectPages)] Function executed in 29 ms
+8/12/2026, 4:59:04 PM [CONVEX Q(areasV2:getAreaCanvasByArea)] Function executed in 30 ms

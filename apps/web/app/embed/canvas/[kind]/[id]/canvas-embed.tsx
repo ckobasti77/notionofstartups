@@ -224,6 +224,12 @@ function CanvasInner({
   // native rail — ovde je samo odjek poslednje `mode` poruke. Podrazumevano je gledanje,
   // pa reload WebView-a uvek pada na sigurnu stranu (native ga ponovo upali u `onLoadEnd`).
   const [editMode, setEditMode] = useState(false);
+  // Biranje cilja za vezu (K3): id KARTICE-IZVORA koju je native izabrao kroz sheet
+  // („Poveži sa…"), ili `null` kad se ne bira. Vlasnik stanja je native — ovde je,
+  // kao i `editMode`, samo odjek poslednje `connect` poruke. Povlačenje niti sa
+  // handle tačkice ostaje isključeno zauvek (`nodesConnectable={false}`): tačkica je
+  // ~8 px i prstom se ne pogađa, pa vezu pravi tap na cilj.
+  const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   useEffect(() => {
@@ -242,7 +248,14 @@ function CanvasInner({
   useEffect(() => {
     const handle = (raw: unknown) => {
       if (typeof raw !== "string") return;
-      let msg: { type?: string; mode?: string; value?: string; nodeId?: string; direction?: string };
+      let msg: {
+        type?: string;
+        mode?: string;
+        value?: string;
+        nodeId?: string;
+        direction?: string;
+        sourceId?: string | null;
+      };
       try {
         msg = JSON.parse(raw);
       } catch {
@@ -251,6 +264,9 @@ function CanvasInner({
       if (msg.type === "mode") {
         // Nepoznata vrednost = gledanje: režim se pali samo eksplicitno.
         setEditMode(msg.value === "edit");
+      } else if (msg.type === "connect") {
+        // `sourceId: null` je izlazak iz biranja („Otkaži", uspeh, izlazak iz režima).
+        setConnectSourceId(msg.sourceId ?? null);
       } else if (msg.type === "theme" && (msg.mode === "light" || msg.mode === "dark")) {
         setColorMode(msg.mode);
       } else if (msg.type === "focus" && msg.nodeId) {
@@ -272,21 +288,48 @@ function CanvasInner({
     };
   }, [fitView, zoomIn, zoomOut]);
 
-  // `editMode` ide svim vrstama; ideje i misli ga u K1 dobijaju bez handlera za
-  // pomeranje, pa je kod njih režim inertan (K5 doda samo handler).
+  // `editMode` i `connectSourceId` idu svim vrstama; ideje i misli ih dobijaju bez
+  // handlera (za pomeranje odnosno povezivanje), pa je kod njih i režim i biranje
+  // inertno (pravilo 7 iz `REZIM.md` — K5 dodaje samo handler).
   if (kind === "ideas") {
-    return <IdeasFlow startupId={id as Id<"startups">} colorMode={colorMode} editMode={editMode} />;
+    return (
+      <IdeasFlow
+        startupId={id as Id<"startups">}
+        colorMode={colorMode}
+        editMode={editMode}
+        connectSourceId={connectSourceId}
+      />
+    );
   }
   if (kind === "thoughts") {
     return (
-      <ThoughtsFlow startupId={id as Id<"startups">} colorMode={colorMode} editMode={editMode} />
+      <ThoughtsFlow
+        startupId={id as Id<"startups">}
+        colorMode={colorMode}
+        editMode={editMode}
+        connectSourceId={connectSourceId}
+      />
     );
   }
   if (kind === "area") {
-    return <AreaFlow areaId={id as Id<"startupAreas">} colorMode={colorMode} editMode={editMode} />;
+    return (
+      <AreaFlow
+        areaId={id as Id<"startupAreas">}
+        colorMode={colorMode}
+        editMode={editMode}
+        connectSourceId={connectSourceId}
+      />
+    );
   }
   // Preostaje "page" (page.tsx validira `kind`, pa su sve četiri vrste pokrivene).
-  return <PageFlow pageId={id as Id<"pages">} colorMode={colorMode} editMode={editMode} />;
+  return (
+    <PageFlow
+      pageId={id as Id<"pages">}
+      colorMode={colorMode}
+      editMode={editMode}
+      connectSourceId={connectSourceId}
+    />
+  );
 }
 
 /** Jedan pomeraj čvora — generički (`id`, ne `pageId`) da isti potpis služi i K5. */
@@ -359,6 +402,8 @@ function EmbedFlow({
   ariaLabel,
   emptyLabel,
   editMode = false,
+  connectSourceId = null,
+  onConnectNodes,
   onMoveNodes,
   onResizeNode,
   initialViewport = null,
@@ -372,6 +417,14 @@ function EmbedFlow({
   emptyLabel: string;
   /** Režim „Uredi raspored" iz native rail-a (`{type:"mode"}`). */
   editMode?: boolean;
+  /** Kartica-izvor dok se bira cilj veze (`{type:"connect"}`), inače `null`. */
+  connectSourceId?: string | null;
+  /**
+   * Upis nove veze (tap na cilj). Bez njega je biranje inertno — isti obrazac kao
+   * `canEdit`/`canResize`: vrsta kanvasa bez upisa ne dobija ni oznaku izvora koja
+   * bi obećala radnju koje nema.
+   */
+  onConnectNodes?: (sourceId: string, targetId: string) => Promise<void>;
   /** Upis poteza. Odbijeno obećanje vraća kartice na `before` (rollback je ovde). */
   onMoveNodes?: (before: NodeMove[], after: NodeMove[]) => Promise<void>;
   /**
@@ -402,6 +455,53 @@ function EmbedFlow({
 
   const canEdit = editMode && !!onMoveNodes;
   const canResize = editMode && !!onResizeNode;
+  /**
+   * Bira se cilj veze. Dok traje, kanvas se ponaša drukčije nego u ostatku režima:
+   * ništa se ne povlači i ne menja veličinu, jer bi svaka od te dve mete pojela tap
+   * kojim se cilj bira (§4 P1/P2 plana K3).
+   */
+  const connecting = !!connectSourceId && !!onConnectNodes;
+  /**
+   * Native sloj je preuzeo ekran (sheet iz dugog pritiska), pa se ručke odmontiraju:
+   * `d3-drag` za dodir sluša na SAMOM elementu ručke, pa gest umire zajedno sa njom.
+   * Ovo je treći i poslednji sloj odbrane od Z7 — bez njega dodir koji je počeo na
+   * ručki a završio „u vazduhu" može da bude nastavljen sledećim dodirom po platnu
+   * i napiše promenu veličine koju korisnik nije tražio (`ZA-POPRAVKU.md` Z7).
+   */
+  /**
+   * Pamti se KLJUČ stanja u kom je odmontiranje zatraženo, ne go boolean: promena
+   * režima ili ulazak/izlazak iz biranja tako sama poništava odmontiranje (izvedeno
+   * stanje), bez efekta koji sinhrono zove `setState` i pravi kaskadni render.
+   */
+  const gateKey = `${editMode ? "edit" : "view"}:${connectSourceId ?? ""}`;
+  const [suspendedKey, setSuspendedKey] = useState<string | null>(null);
+  const handlesSuspended = suspendedKey === gateKey;
+
+  /**
+   * Otključavanje BEZ poruke iz native-a: prvi `touchstart` koji ponovo stigne do
+   * stranice znači da je native sheet zatvoren i da dodir opet pripada WebView-u.
+   * `setTimeout(0)` je obavezan — bez njega bi listener uhvatio baš onaj dodir koji
+   * je sheet i otvorio, pa bi se ručke vratile pre nego što native sloj preuzme ekran.
+   *
+   * `capture: true` NIJE kozmetika: `d3-zoom` na svom `touchstart` handleru zove
+   * `stopImmediatePropagation()` (`nopropagation` u `d3-zoom`), pa dodir koji je počeo
+   * nad platnom NIKAD ne dobubla do `window`-a. U bubble fazi su ručke ostajale
+   * odmontirane zauvek (izmereno na emulatoru: posle jednog dugog pritiska nijedna
+   * ručka se više nije crtala do reload-a). Capture faza ide PRE targeta, pa je
+   * nijedan handler ispod ne može preseći.
+   */
+  useEffect(() => {
+    if (!handlesSuspended) return;
+    const resume = () => setSuspendedKey(null);
+    const options = { once: true, passive: true, capture: true } as const;
+    const arm = setTimeout(() => {
+      window.addEventListener("touchstart", resume, options);
+    }, 0);
+    return () => {
+      clearTimeout(arm);
+      window.removeEventListener("touchstart", resume, options);
+    };
+  }, [handlesSuspended]);
 
   /**
    * Prag zuma ispod kog se ručke ne crtaju. Na `minZoom={0.15}` je kartica od 288 px
@@ -518,9 +618,16 @@ function EmbedFlow({
    * zaista promenio dimenziju (`resizeDetected` u `XYResizer`), a `onResizeStart` se
    * okida već na dodir. Dodir ručke bez pomeraja bi zato ostavio `draggingRef`
    * podignut — i živi upit bi od tog trenutka bio trajno zamrznut. Slušamo baš
-   * `mouseup`/`touchend` (iste događaje koje koristi d3-drag, pa naš listener na
-   * `window` uvek ide POSLE njegovog), ne `pointerup` — taj na dodir stiže PRE
-   * `touchend`-a i pregazio bi našu novu veličinu starim snimkom.
+   * `mouseup`/`touchend` (iste događaje koje koristi d3-drag), ne `pointerup` — taj na
+   * dodir stiže PRE `touchend`-a i pregazio bi našu novu veličinu starim snimkom.
+   *
+   * K3 popravka: listeneri su u **capture** fazi, a posao se odlaže na sledeći task.
+   * U bubble fazi stražar za dodir nikad nije radio — `d3-drag.touchended` zove
+   * `nopropagation()` (`stopImmediatePropagation`) na elementu ručke, pa `touchend`
+   * ne dobubla do `window`-a; gate je do sada otključavao samo `GESTURE_STALE_MS`
+   * posle 8 s (K2 REVIZIJA §6.3). Capture faza ide PRE svih handlera ispod, a
+   * `setTimeout(0)` vraća redosled na mesto: kad se posao izvrši, `onResizeEnd` je
+   * već upisao novu veličinu, pa je ne možemo pregaziti starim snimkom.
    */
   const resizeWatchdogRef = useRef<(() => void) | null>(null);
 
@@ -533,14 +640,21 @@ function EmbedFlow({
     draggingRef.current = true;
     gestureStartedAtRef.current = Date.now();
     disarmResizeWatchdog();
-    const finish = () => {
-      disarmResizeWatchdog();
-      releaseGesture();
+    // Uslov je „nema više aktivnih dodira", ne „stigao je bilo koji touchend":
+    // drugi prst spušten usred poteza (pokušaj pinča) bi inače otključao kapiju
+    // ranije i dolazni snimak bi trgnuo karticu do kraja poteza (K2 REVIZIJA §6.3).
+    const finish = (event: Event) => {
+      if (event.type.startsWith("touch") && (event as TouchEvent).touches.length > 0) return;
+      setTimeout(() => {
+        disarmResizeWatchdog();
+        releaseGesture();
+      }, 0);
     };
     const events = ["mouseup", "touchend", "touchcancel"] as const;
-    events.forEach((name) => window.addEventListener(name, finish));
+    const options = { capture: true } as const;
+    events.forEach((name) => window.addEventListener(name, finish, options));
     resizeWatchdogRef.current = () => {
-      events.forEach((name) => window.removeEventListener(name, finish));
+      events.forEach((name) => window.removeEventListener(name, finish, options));
     };
   }, [disarmResizeWatchdog, releaseGesture]);
 
@@ -605,11 +719,45 @@ function EmbedFlow({
   // prezidao sve čvorove (svaki `EmbedNodeCard` je potrošač).
   const resizeApi = useMemo<EmbedResizeApi>(
     () => ({
-      enabled: canResize && zoomAllowsHandles,
+      // `!connecting`: ugaone mete od 44pt bi u biranju pojele tap kojim se bira cilj
+      // (§4 P2). `!handlesSuspended`: native sheet je preuzeo ekran (Z7).
+      enabled: canResize && zoomAllowsHandles && !connecting && !handlesSuspended,
       onStart: handleResizeStart,
       onEnd: handleResizeEnd,
     }),
-    [canResize, zoomAllowsHandles, handleResizeStart, handleResizeEnd],
+    [canResize, zoomAllowsHandles, connecting, handlesSuspended, handleResizeStart, handleResizeEnd],
+  );
+
+  /**
+   * Tap na cilj = veza. Ovo je ceo „gest" povezivanja na telefonu: nit sa handle
+   * tačkice se ne povlači (tačkica je ~8 px), pa se izvor bira u native sheet-u, a
+   * cilj običnim tapom. `connectBusyRef` je zaštita od duplog tapa — server na
+   * postojeći par vraća isti `_id`, ali dva paralelna poziva bi dala dve trake
+   * „Poništi" od kojih druga ne bi imala šta da poništi.
+   */
+  const connectBusyRef = useRef(false);
+
+  const handleConnectPick = useCallback(
+    (_event: React.MouseEvent, node: EmbedFlowNode) => {
+      if (!connectSourceId || !onConnectNodes || connectBusyRef.current) return;
+      if (node.data.ghost) {
+        postNative({
+          type: "toast",
+          level: "info",
+          message: "Kartica čeka odobrenje i ne može da se poveže.",
+        });
+        return;
+      }
+      if (node.id === connectSourceId) {
+        postNative({ type: "toast", level: "info", message: "Izaberi drugu karticu." });
+        return;
+      }
+      connectBusyRef.current = true;
+      void onConnectNodes(connectSourceId, node.id).finally(() => {
+        connectBusyRef.current = false;
+      });
+    },
+    [connectSourceId, onConnectNodes],
   );
 
   /**
@@ -627,12 +775,16 @@ function EmbedFlow({
       // (`GESTURE_STALE_MS`) ostaje kao mreža za slučajeve koje ne znamo.
       disarmResizeWatchdog();
       releaseGesture();
+      // …a ručke se uz to i ODMONTIRAJU: `d3-drag` za dodir sluša na samom elementu
+      // ručke, pa gest koji je počeo na njoj umire zajedno sa čvorom. Time je Z7
+      // zatvoren i za slučaj kad `touchend` nikad ne stigne (K2 REVIZIJA §6).
+      setSuspendedKey(gateKey);
       if (node.data.ghost) return;
       const detail = detailById.get(node.id);
       if (!detail) return;
       postNative({ type: "node:actions", nodeId: node.id, node: detail });
     },
-    [detailById, disarmResizeWatchdog, releaseGesture],
+    [detailById, disarmResizeWatchdog, gateKey, releaseGesture],
   );
 
   // Poslednja PRIJAVLJENA kamera (već zaokružena). Kreće od zapamćene vrednosti da ni
@@ -696,8 +848,20 @@ function EmbedFlow({
   return (
     // `role="application"` + ime idu na sam `<ReactFlow>` (koji ga i tako postavlja i
     // prima fokus/tastaturu), ne na omotač — inače dupli `role="application"` bez imena.
-    <div className={cn("fixed inset-0 bg-background", canEdit && "embed-edit")}>
+    <div className={cn("fixed inset-0 bg-background", canEdit && "embed-edit", connecting && "embed-connect")}>
       <EmbedStyles />
+      {/* Izvor mora da se vidi, a nov prop u `data` bi prezidao SVE čvorove. xyflow
+          već stavlja `data-id` na omotač čvora, pa je oznaka jedno CSS pravilo.
+          Ide POSLE `EmbedStyles` — ista specifičnost, pobeđuje kasnije pravilo. */}
+      {connecting && connectSourceId ? (
+        <style>{`
+          .embed-connect .react-flow__node[data-id=${JSON.stringify(connectSourceId)}] {
+            outline: 3px solid var(--primary);
+            outline-offset: 4px;
+            border-radius: 0.75rem;
+          }
+        `}</style>
+      ) : null}
       {/* Provajder obavija ceo graf: ručke se renderuju unutar komponente čvora
           (`embed-node.tsx`), a odluka i upis su ovde. */}
       <EmbedResizeContext.Provider value={resizeApi}>
@@ -715,8 +879,10 @@ function EmbedFlow({
           minZoom={0.15}
           maxZoom={2}
           // Povlačenje se pali SAMO u režimu. Čvor koji nije naš nosi `draggable:false` i
-          // ostaje nepomičan i tada (backend bi ga ionako odbio).
-          nodesDraggable={canEdit}
+          // ostaje nepomičan i tada (backend bi ga ionako odbio). U biranju cilja se gasi
+          // i za svoje kartice: povlačivom čvoru xyflow dodaje `nopan`, pa bi dodir na
+          // njemu bio potez umesto tapa kojim se bira cilj (§4 P1).
+          nodesDraggable={canEdit && !connecting}
           // Prst uvek malo zadrhti: bez praga bi i običan tap ušao u potez.
           nodeDragThreshold={5}
           nodesConnectable={false}
@@ -729,10 +895,12 @@ function EmbedFlow({
           onNodeDragStart={handleNodeDragStart}
           onNodeDragStop={handleNodeDragStop}
           onMoveEnd={handleMoveEnd}
-          // U režimu tap BIRA karticu (ne otvara je) — inače bi isti dodir imao dva ishoda.
-          onNodeClick={canEdit ? undefined : handleNodeClick}
-          // Van režima dugi pritisak ne sme ništa da otvori: kanvas je tada za gledanje.
-          onNodeContextMenu={canEdit ? handleNodeContextMenu : undefined}
+          // U biranju tap PRAVI vezu; u ostatku režima BIRA karticu (ne otvara je) —
+          // inače bi isti dodir imao dva ishoda; van režima otvara čvor.
+          onNodeClick={connecting ? handleConnectPick : canEdit ? undefined : handleNodeClick}
+          // Van režima dugi pritisak ne sme ništa da otvori (kanvas je tada za gledanje),
+          // a u biranju bi otvorio sheet preko trake koja traži tap na cilj.
+          onNodeContextMenu={canEdit && !connecting ? handleNodeContextMenu : undefined}
           onSelectionChange={handleSelectionChange}
         >
           <Background
@@ -763,14 +931,18 @@ function EmbedFlow({
             aria-hidden
             className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-primary"
           />
-          <div
-            role="status"
-            className="pointer-events-none absolute inset-x-0 top-3 flex justify-center"
-          >
-            <span className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-sm">
-              Uređivanje rasporeda
-            </span>
-          </div>
+          {/* U biranju cilja pilula NESTAJE: poruku tada nosi native traka iznad
+              WebView-a, na istom mestu — dva sloja iste poruke se ne slažu. */}
+          {connecting ? null : (
+            <div
+              role="status"
+              className="pointer-events-none absolute inset-x-0 top-3 flex justify-center"
+            >
+              <span className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-sm">
+                Uređivanje rasporeda
+              </span>
+            </div>
+          )}
         </>
       ) : null}
     </div>
@@ -812,10 +984,12 @@ function IdeasFlow({
   startupId,
   colorMode,
   editMode,
+  connectSourceId,
 }: {
   startupId: Id<"startups">;
   colorMode: ThemeMode;
   editMode: boolean;
+  connectSourceId: string | null;
 }) {
   const data = useQuery(api.ideas.list, { startupId });
 
@@ -885,6 +1059,7 @@ function IdeasFlow({
       detailById={detailById}
       colorMode={colorMode}
       editMode={editMode}
+      connectSourceId={connectSourceId}
       ariaLabel="Kanvas ideja"
       emptyLabel="Prazan kanvas ideja."
     />
@@ -931,10 +1106,12 @@ function ThoughtsFlow({
   startupId,
   colorMode,
   editMode,
+  connectSourceId,
 }: {
   startupId: Id<"startups">;
   colorMode: ThemeMode;
   editMode: boolean;
+  connectSourceId: string | null;
 }) {
   const {
     results: nodeResults,
@@ -1013,6 +1190,7 @@ function ThoughtsFlow({
       detailById={detailById}
       colorMode={colorMode}
       editMode={editMode}
+      connectSourceId={connectSourceId}
       ariaLabel="Kanvas misli"
       emptyLabel="Prazan kanvas misli."
     />
@@ -1023,9 +1201,26 @@ function ThoughtsFlow({
 type PageCanvasData = FunctionReturnType<typeof api.areasV2.getAreaCanvasByArea>;
 
 /**
+ * Jedan sused čvora u native sheet-u „Akcije kartice" — i canvas veza i relacija.
+ * Relacija je tu samo da se VIDI (uklanja se na ekranu stranice, `relations-section.tsx`):
+ * na kanvasu je linija 1–2 px koju prst ne pogađa, pa je imenovana lista jedini čitljiv
+ * prikaz onoga što je povezano.
+ */
+type PageNodeEdgeDetail = {
+  _id: string;
+  kind: "canvas" | "relation";
+  otherPageId: string;
+  otherTitle: string;
+  label: string | null;
+  canDelete: boolean;
+  canRequestDeletion: boolean;
+};
+
+/**
  * Detalj page-čvora koji embed šalje native ljusci uz `node:open` / `selection` /
- * `node:actions` (na mobilnom otvara ekran stranice, odnosno sheet „Veličina kartice").
- * Nosi i scope i trenutnu veličinu, pa native za sheet ne mora nijedan drugi upit.
+ * `node:actions` (na mobilnom otvara ekran stranice, odnosno sheet „Akcije kartice").
+ * Nosi scope, trenutnu veličinu I susede, pa native za ceo sheet ne mora nijedan
+ * drugi upit — isti princip kao u K2.
  */
 type PageNodeDetail = {
   _id: Id<"pages">;
@@ -1037,7 +1232,21 @@ type PageNodeDetail = {
   startupId: Id<"startups">;
   areaId: Id<"startupAreas">;
   rootPageId: Id<"pages"> | null;
+  /**
+   * Sme li OVAJ korisnik da povuče vezu iz ove kartice. Isti uslov kao `canMove`
+   * (autor kartice) jer server traži da veza dodiruje MOJU karticu
+   * (`areasV2.ts` `connectPages` — „Vezu možete praviti samo od ili ka svojoj kartici.").
+   */
+  canConnect: boolean;
+  /** Broj kartica na kanvasu — ispod 2 nema koga da se poveže. */
+  pageCount: number;
+  edges: PageNodeEdgeDetail[];
 };
+
+/** Ključ para nezavisan od smera — isti oblik kao serverski `pairKey`. */
+function pairKey(a: string, b: string): string {
+  return [a, b].sort().join(":");
+}
 
 // Ghost-ovi ne nose placement dimenzije sa servera (samo x/y), pa dobijaju fiksnu
 // veličinu — usklađenu sa podrazumevanom karticom stranice da se ne izdvajaju oblikom.
@@ -1071,15 +1280,18 @@ function PageCanvasView({
   ariaLabel,
   emptyLabel,
   editMode,
+  connectSourceId,
 }: {
   data: PageCanvasData;
   colorMode: ThemeMode;
   ariaLabel: string;
   emptyLabel: string;
   editMode: boolean;
+  connectSourceId: string | null;
 }) {
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
+  const connectPages = useMutation(api.areasV2.connectPages);
   const { startupId, areaId, rootPageId } = data.scope;
   // Zamrznuto na mount-u: `defaultViewport` i `fitView` xyflow čita samo pri inicijalizaciji,
   // a `data.viewport.persisted` postaje `true` čim se prvi pan sačuva — tada se vrednost
@@ -1196,7 +1408,81 @@ function PageCanvasView({
     [areaId, rootPageId, startupId],
   );
 
+  /**
+   * Postojeći parovi — SAMO canvas veze. Relacija ne blokira canvas vezu (isto
+   * pravilo kao desktop, `area-canvas-view.tsx` `alreadyConnected`): to su dve
+   * različite vrste odnosa i server ih drži u različitim tabelama.
+   */
+  const canvasPairs = useMemo(
+    () => new Set(data.edges.map((edge) => pairKey(edge.source, edge.target))),
+    [data.edges],
+  );
+
+  /**
+   * Upis nove veze. Duplikat se hvata NA KLIJENTU i mutacija se tada ne zove (zahtev
+   * zadatka) — server bi na postojeći par vratio isti `_id`, pa bi „Poništi" ponudio
+   * brisanje veze koju korisnik nije napravio.
+   *
+   * Bez optimističke ivice: Convex razrešava mutaciju tek kad je pretplata ISTOG
+   * klijenta osvežena, pa se linija pojavi u istom trenutku. Lokalno stanje ivica bi
+   * uvelo drugi izvor istine bez ijedne dobiti (čvorovi ga imaju samo zbog poteza).
+   *
+   * Greška NE gasi biranje — vlasnik režima je native; poruka objasni, „Otkaži" je
+   * nadohvat prsta.
+   */
+  const handleConnectNodes = useCallback(
+    async (sourceId: string, targetId: string) => {
+      if (canvasPairs.has(pairKey(sourceId, targetId))) {
+        postNative({
+          type: "toast",
+          level: "info",
+          message: "Ove kartice su već povezane.",
+        });
+        return;
+      }
+      try {
+        const edgeId = await connectPages({
+          startupId,
+          areaId,
+          rootPageId,
+          sourcePageId: sourceId as Id<"pages">,
+          targetPageId: targetId as Id<"pages">,
+        });
+        postNative({ type: "connected", startupId, areaId, rootPageId, edgeId });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: error instanceof Error ? error.message : "Veza nije sačuvana.",
+        });
+      }
+    },
+    [areaId, canvasPairs, connectPages, rootPageId, startupId],
+  );
+
   const { nodes, edges, detailById } = useMemo(() => {
+    // Susedi po kartici — računaju se JEDNOM za ceo graf, pa native sheet dobija
+    // gotovu listu uz `node:actions`/`selection` (bez drugog upita, kao u K2).
+    const titleById = new Map(data.pages.map((page) => [page._id as string, page.title]));
+    const edgesByPage = new Map<string, PageNodeEdgeDetail[]>();
+    for (const edge of [...data.edges, ...data.relations]) {
+      const add = (own: string, other: string) => {
+        const list = edgesByPage.get(own);
+        const item: PageNodeEdgeDetail = {
+          _id: edge._id,
+          kind: edge.kind,
+          otherPageId: other,
+          otherTitle: titleById.get(other) || "Stranica bez naslova",
+          label: edge.label,
+          canDelete: edge.canDelete,
+          canRequestDeletion: edge.canRequestDeletion,
+        };
+        if (list) list.push(item);
+        else edgesByPage.set(own, [item]);
+      };
+      add(edge.source, edge.target);
+      add(edge.target, edge.source);
+    }
     const detailById = new Map<string, unknown>(
       data.pages.map((page) => [
         page._id as string,
@@ -1210,6 +1496,9 @@ function PageCanvasView({
           startupId: data.scope.startupId,
           areaId: data.scope.areaId,
           rootPageId: data.scope.rootPageId,
+          canConnect: page.canMove,
+          pageCount: data.pages.length,
+          edges: edgesByPage.get(page._id as string) ?? [],
         } satisfies PageNodeDetail,
       ]),
     );
@@ -1259,10 +1548,13 @@ function PageCanvasView({
     return {
       nodes: [...pageNodes, ...ghostNodes],
       // Canvas ivice + relacije stranica dele isti oblik (source/target po id-u stranice).
+      // `data.kind` se ČUVA (vizuelno i dalje ne razlikujemo linije): po njemu se u
+      // sheet-u zna šta se sme raskinuti odavde, a šta se uklanja na ekranu stranice.
       edges: [...data.edges, ...data.relations].map((edge) => ({
         id: edge._id,
         source: edge.source,
         target: edge.target,
+        data: { kind: edge.kind },
       })) as Edge[],
       detailById,
     };
@@ -1277,6 +1569,8 @@ function PageCanvasView({
       ariaLabel={ariaLabel}
       emptyLabel={emptyLabel}
       editMode={editMode}
+      connectSourceId={connectSourceId}
+      onConnectNodes={handleConnectNodes}
       onMoveNodes={handleMoveNodes}
       onResizeNode={handleResizeNode}
       initialViewport={initialViewport}
@@ -1290,10 +1584,12 @@ function AreaFlow({
   areaId,
   colorMode,
   editMode,
+  connectSourceId,
 }: {
   areaId: Id<"startupAreas">;
   colorMode: ThemeMode;
   editMode: boolean;
+  connectSourceId: string | null;
 }) {
   const data = useQuery(api.areasV2.getAreaCanvasByArea, { areaId });
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
@@ -1302,6 +1598,7 @@ function AreaFlow({
       data={data}
       colorMode={colorMode}
       editMode={editMode}
+      connectSourceId={connectSourceId}
       ariaLabel="Kanvas oblasti"
       emptyLabel="Prazan kanvas oblasti."
     />
@@ -1313,10 +1610,12 @@ function PageFlow({
   pageId,
   colorMode,
   editMode,
+  connectSourceId,
 }: {
   pageId: Id<"pages">;
   colorMode: ThemeMode;
   editMode: boolean;
+  connectSourceId: string | null;
 }) {
   const data = useQuery(api.areasV2.getPageCanvasByPage, { pageId });
   if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
@@ -1325,6 +1624,7 @@ function PageFlow({
       data={data}
       colorMode={colorMode}
       editMode={editMode}
+      connectSourceId={connectSourceId}
       ariaLabel="Kanvas stranice"
       emptyLabel="Prazan kanvas stranice."
     />
@@ -1387,6 +1687,17 @@ function EmbedStyles() {
          i menja samo stil linije — boju, širinu i odmak nasleđuje od njega. */
       .embed-edit .react-flow__node.selected {
         outline-style: solid;
+      }
+      /* Biranje cilja za vezu: u tom stanju se ništa ne povlači, pa ni jedna kartica
+         nema xyflow klasu \`draggable\` — ostalo bi samo \`outline-style: solid\` iz
+         pravila iznad, a to je (bez širine i boje) sivi \`medium\` obod koji ništa ne
+         znači. Gasi se ovde; izvor svoj puni prsten dobija iz dinamičkog pravila po
+         \`data-id\`, koje stoji POSLE ovog bloka. */
+      .embed-connect .react-flow__node.selected {
+        outline: none;
+      }
+      .embed-connect .react-flow__node {
+        cursor: pointer;
       }
       /* Dugi pritisak (put do native sheet-a) ne sme da postane „izaberi tekst" ni da
          otvori sistemski meni nad karticom. */

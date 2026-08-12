@@ -535,19 +535,101 @@ Dokaz: `k3-mete.txt` (izmerene visine kroz CDP/ručno) + rečenica u izveštaju.
 
 ## 7. Definicija „gotovo" za K3
 
-- [ ] T0–T11 prolaze; snimci i logovi u `docs/mobile/lanac4/dokazi/`
-- [ ] veza **napravljena i raskinuta**, oba puta vidljiva u bazi (T3, T5)
-- [ ] `git diff -- apps/web/components/ packages/backend/` je prazan (T8)
-- [ ] `PARITET.md`: sekcija K3 ima `[x]` sa dokazima; dva reda uklonjena iz Z, novi
-      redovi iz §5 dodati; K2 dokazne linije ispravljene
-- [ ] `REZIM.md` §3/§7 i `00-PLAN.md` §5.2 imaju `connect` i `connected`
-- [ ] `ZA-POPRAVKU.md` Z7 označen kao zatvoren, sa mehanizmom
-- [ ] `IZVESTAJ.md` popunjen za K3 **i** dopunjen za K2
-- [ ] `apps/mobile/package.json` nije menjan (nema unosa u `NATIVE-BUILD.md`)
-- [ ] T9 odrađen **ili** izričito zapisan kao i dalje otvoren, sa razlogom
+- [x] T0–T8 i T10–T11 prolaze; snimci i logovi u `docs/mobile/lanac4/dokazi/`
+      (15 fajlova, prefiks `k3-`). **T9 nije** — vidi zadnji red.
+- [x] veza **napravljena i raskinuta**, oba puta vidljiva u bazi (T3, T5) —
+      `dokazi/k3-baza.txt` §1 (`archivedAt: null`) i §2 (`archivedAt` popunjen)
+- [x] `git status -- apps/web/components/ packages/backend/` je prazan (T8)
+- [x] `PARITET.md`: sekcija K3 ima `[x]` sa dokazima; dva reda uklonjena iz Z, sedam
+      novih redova iz §5 dodato; K1/K2 dokazne linije ispravljene
+- [x] `REZIM.md` §3/§7 i `00-PLAN.md` §5.2 imaju `connect` i `connected`
+- [x] `ZA-POPRAVKU.md` Z7 označen kao zatvoren, sa mehanizmom i dopunskim nalazom
+      (capture faza — d3 preseca bubble)
+- [x] `IZVESTAJ.md` popunjen za K3 **i** dopunjen za K2
+- [x] `apps/mobile/package.json` nije menjan (nema unosa u `NATIVE-BUILD.md`)
+- [x] T9 **izričito zapisan kao i dalje otvoren, sa razlogom** — §8.5
 
 ---
 
 ## 8. REALIZACIJA — odstupanja od plana i zašto
 
-*(popunjava agent koji sprovodi fazu, posle izvođenja)*
+Cilj je ispunjen: veza je napravljena prstom (tap izvor → tap cilj) i raskinuta iz
+sheet-a, oba puta vidljivo u bazi (`dokazi/k3-baza.txt`). Paritet 13 → 11, izmereno
+metodom iz `PARITET.md:15–19`.
+
+### 8.1 `handlesSuspended` je IZVEDENO stanje, ne boolean + efekat (izmena 1c)
+
+Plan je predviđao `useState(false)` uz `useEffect(() => setHandlesSuspended(false), [editMode, connectSourceId])`.
+To ne prolazi lint: `react-hooks/set-state-in-effect` javlja **grešku** za sinhroni
+`setState` u telu efekta. Umesto toga se pamti **ključ stanja** u kom je odmontiranje
+zatraženo:
+
+```tsx
+const gateKey = `${editMode ? "edit" : "view"}:${connectSourceId ?? ""}`;
+const [suspendedKey, setSuspendedKey] = useState<string | null>(null);
+const handlesSuspended = suspendedKey === gateKey;
+```
+
+Promena režima ili ulazak/izlazak iz biranja tako sama poništava odmontiranje, bez
+ijednog efekta i bez kaskadnog rendera. `canvas-embed.tsx:476–478`, `:781`.
+
+### 8.2 Oba `window` listenera su u CAPTURE fazi — nalaz sa emulatora, nije bio u planu
+
+Ovo je najvažnije odstupanje i jedini pravi bug uhvaćen u fazi. Plan 1c je listener
+„prvi `touchstart` znači da je native sheet zatvoren" stavio u bubble fazu. Na
+emulatoru se posle prvog dugog pritiska **nijedna ručka više nije crtala do reload-a**:
+`d3-zoom.touchstarted` zove `nopropagation(event)` (`stopImmediatePropagation`), pa
+dodir nad platnom nikad ne dobubla do `window`-a.
+
+Isti mehanizam razotkriva da **ni K2 stražar kraja gesta za dodir nikad nije radio**
+(`d3-drag.touchended` isto preseca), pa je kapiju otključavao samo `GESTURE_STALE_MS`
+od 8 s — što je K2 REVIZIJA §6.3 prijavila kao „reaguje na svaki `touchend`", a stvarno
+stanje je bilo „ne reaguje ni na jedan". Popravka je za oba:
+
+- `{capture: true}` na `addEventListener` **i** na `removeEventListener`
+  (`:496` za `touchstart`, `:654` za `mouseup`/`touchend`/`touchcancel`);
+- kod stražara posao je uz to odložen na sledeći task (`setTimeout(0)`, `:648`).
+  Capture ide PRE `onResizeEnd`, pa bi `releaseGesture()` bez odlaganja pregazio novu
+  veličinu starim snimkom — tačno ono čega se K2 bojao kad je izabrao bubble fazu.
+  Odlaganje čuva redosled, a ne fazu.
+
+Uslov „nema više aktivnih dodira" (`event.touches.length === 0`) iz plana 1d je
+zadržan i sada zaista ima efekta.
+
+### 8.3 `page-size-sheet.tsx` je PREIMENOVAN u `page-size-section.tsx`
+
+Plan (izmena 4) je zadržavao ime fajla i brisao samo omotač `PageSizeSheet`. Fajl koji
+se zove `-sheet` a ne sadrži nijedan sheet je zamka za sledeću fazu, pa je
+preimenovan preko `git mv` (istorija sačuvana). `PageSizeTarget` i `PageSizeSection`
+su i dalje u njemu; K2 dokazne linije u `PARITET.md` su ažurirane.
+
+### 8.4 Sitnije od plana
+
+- **`.embed-connect .react-flow__node.draggable { outline: none }`** (plan 1f) NIJE
+  dodato — u biranju `nodesDraggable` je `false`, pa nijedan čvor ne nosi klasu
+  `draggable` i pravilo bi bilo mrtvo. Umesto njega je dodato
+  `.embed-connect .react-flow__node.selected { outline: none }` (`:1696`): to pravilo
+  je trebalo neutralisati, jer bi `outline-style: solid` iz `embed-edit` bloka bez
+  širine i boje nacrtao sivi `medium` obod koji ništa ne znači.
+- **Ikonica rail-a je `Ellipsis`, ne `MoreHorizontal`** — `MoreHorizontal` je u
+  `lucide-react-native` zastareo alias; kanonsko ime je `Ellipsis`.
+- **Naslov sekcije je „Veze", bez brojača `(N)`** (plan §5 tabela). Broj već nosi sama
+  lista, a stabilan naslov ne poskakuje pri raskidanju veze; prazno stanje ostaje
+  „Nema veza sa ove kartice.".
+- **Redovi veza se raskidaju dugmetom, bez svajpa** — plan §... „svajpom ili dugmetom";
+  izabrano je dugme od 44pt, jer red već sedi u `ScrollView`-u sheet-a i horizontalni
+  svajp bi se bio sa `Sheet` pan gestom.
+- **`npx convex logs` traži `--success`** da bi prikazao uspešne mutacije. K1/K2 to
+  nisu zapisali, pa je prva runda logova izgledala kao da mutacija nema. Za sledeće
+  faze: `npx convex logs --success --history 40`.
+
+### 8.5 T9 (desktop mišem) — i dalje otvoreno, sa razlogom
+
+Plan §6/T9 je predviđao postavljanje lozinke **drugom** profilu. Dev baza ima tačno
+dva profila i drugi je stvarna tuđa adresa (`majstorakod@gmail.com`), a
+`adminSetPassword` gasi sve sesije tog korisnika — to nije izmena koju je ispravno
+uraditi nenadzirano samo da bi se pokrenula UI provera. Lozinka naloga sa živom
+mobilnom sesijom nije poznata. Zapisano kao otvoreno (plan §7 to izričito dozvoljava),
+uz statički dokaz koji je za K3 jači nego u K2: **nijedan fajl van
+`apps/web/app/embed/`, `apps/mobile/src` i `docs/` nije menjan** — `git status` nad
+`apps/web/components/` i `packages/backend/` je prazan.
