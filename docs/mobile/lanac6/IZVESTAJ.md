@@ -139,3 +139,17 @@ dokument nalaza, `PARITET-REVIZIJA-12-08.md`).
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Trajanje: 58 min
+
+## P2 - Editor beleske: tabela, slika, prilog, kod
+
+**Cilj:** Beleska koja sadrzi tabelu, sliku, prilog ili blok koda moze da se uredjuje sa telefona.
+
+| Korak | Model | Effort |
+|---|---|---|
+| PLAN | `opus` | `max` |
+| IZVRSI | `opus` | `max` |
+| REVIZIJA | `opus` | `max` |
+
+- Start: 2026-08-13T00:21:58
+- PLAN: napisan
