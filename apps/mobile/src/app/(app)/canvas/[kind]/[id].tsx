@@ -368,6 +368,12 @@ export default function CanvasScreen() {
         pageId?: string;
         count?: number;
         before?: Array<{ pageId: string; x: number; y: number }>;
+        /**
+         * `moved`: koraci zadatka iz ISTOG poteza, sa koordinatama od PRE njega (K4).
+         * Stiže uz `before` (kartice) jer traka „Poništi" ima jedan slot — embed zato i
+         * šalje jednu poruku za oba niza (`canvas-embed.tsx` `handleMoveNodes`).
+         */
+        checkpoints?: Array<{ checkpointId: string; x: number; y: number }>;
         /** `resized`: stanje kartice PRE poteza (ime je drugo od `before` jer je i oblik drugi). */
         previous?: { x: number; y: number; width: number; height: number };
         width?: number;
@@ -460,8 +466,15 @@ export default function CanvasScreen() {
         // samo potvrda prstu i put nazad. Koordinate su iz memorije, ne iz baze —
         // baza u ovom trenutku već drži NOVE.
         haptics.success();
+        // Isti potez može da ponese i korake zadatka (K4). Idu u ISTU stavku „Poništi":
+        // potez je bio jedan, pa i poništavanje mora da vrati oboje odjednom.
+        const movedCheckpoints = (msg.checkpoints ?? []).map((move) => ({
+          checkpointId: move.checkpointId as Id<'taskCheckpoints'>,
+          x: move.x,
+          y: move.y,
+        }));
         pushUndo({
-          label: movedLabel(msg.count ?? msg.before.length),
+          label: movedLabel(msg.count ?? msg.before.length, movedCheckpoints.length),
           action: {
             kind: 'pageMove',
             startupId: msg.startupId as Id<'startups'>,
@@ -472,6 +485,7 @@ export default function CanvasScreen() {
               x: move.x,
               y: move.y,
             })),
+            checkpoints: movedCheckpoints,
           },
         });
       } else if (

@@ -518,6 +518,53 @@ menja: dodati red „Registrovano na N uređaja" pozivom
 
 ---
 
+## 8. Faza K4: native ljuska kanvasa nikad nije povezana (Izmene 11 i 12 nisu sprovedene)
+
+**Stanje.** Commit `ef87e84` („Faza K4 — Checkpointi zadataka na kanvasu") isporučio
+je ceo embed deo (`canvas-embed.tsx`: checkpoint čvorovi, ivice, potez, veza, poruka
+`checkpoints`), sve nove native delove (`checkpoint-node-sheet.tsx`,
+`node-edges-section.tsx`, `node-size-section.tsx`, `canvas-endpoints.ts`,
+`lib/undo.ts` + `undo-bar.tsx`) i „Prikaži korake (N)" red u `page-node-sheet.tsx:188`
+— ali **Izmena 11 iz `docs/mobile/lanac4/planovi/faza-k4.md:441` nikad nije ušla u
+`apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx`**. U taj fajl je stiglo samo ono
+što je K4 diff dodao na vrh: uvoz `CheckpointNodeSheet` (`:29`), state
+`checkpointTarget` (`:145`), state `expandedTaskId` (`:149`) i nova dvoargumentna
+`movedLabel` (`:83`). Nijedno se dalje ne koristi.
+
+Posledica po fazama: K5 je zatekao **`npx tsc --noEmit` u `apps/mobile` u crvenom** —
+`movedLabel(msg.count ?? msg.before.length)` (jedan argument) protiv potpisa sa dva.
+To je jedina rupa koju je TS mogao da vidi (`onMessage` poruku parsira u labav
+inline tip, pa nepročitana polja ne prijavljuje) i **popravljena je** 2026-08-12:
+grana `moved` sada čita `msg.checkpoints` i prosleđuje ih u istu `pushUndo` stavku
+(`[id].tsx:464–490`) — što je i bio zahtev plana (`faza-k4.md:452`).
+
+**Šta i dalje NEDOSTAJE** (nijedan gejt ovo ne vidi — kompajlira se i prolazi):
+
+| Plan | Šta fali u `[id].tsx` | Posledica |
+|---|---|---|
+| Izmena 11, `expandedTaskId` | Poruka `{type:'checkpoints', taskPageId}` se **nikad ne šalje**; `onToggleCheckpoints` se ne prosleđuje `PageNodeSheet`-u (`:786`) | Red „Prikaži korake (N)" se ne renderuje (`page-node-sheet.tsx:170` traži taj prop) → koraci se na kanvasu oblasti/stranice **ne mogu prikazati** |
+| Izmena 11, `node:actions`/`selection` | Ne grana se po `node.nodeKind`; `checkpointTarget` se nikad ne puni, `CheckpointNodeSheet` se nikad ne montira | Sheet „Akcije koraka" je mrtav kod; oblačić bi otvorio `PageNodeSheet` sa checkpoint detaljem |
+| Izmena 11, `node:open` | Checkpoint detalj se šalje u `openPage()` (`:405–408`) | `router.push('/stranica/<taskCheckpoints id>')` umesto `/zadatak/<taskPageId>` |
+| Izmena 11, `connected` | `msg.edgeKind` se ignoriše (`:415`) | Checkpoint veza bi dobila `pushUndo({kind:'pageEdgeConnect'})` → „Poništi" zove `areasV2.disconnectPages` sa `taskCheckpointCanvasEdges` id-jem → serverska greška |
+| Izmena 11, rail i `applyNodeSize` | Labela je uvek „Akcije kartice" (`:580`); `applyNodeSize` ne dira `checkpointTarget` (`:345–356`) | — |
+| Izmena 12 | `zadatak/[id].tsx` nema dugme „Canvas zadatka" | Kanvas zadatka (jedini na kom su koraci vidljivi bez poruke `checkpoints`) **nije dostupan sa telefona** |
+
+**Zašto to danas ne pravi kvar korisniku.** Sve tri latentne greške iz tabele traže
+checkpoint čvor na platnu. Bez poruke `checkpoints` oblačići se crtaju samo na kanvasu
+SAMOG zadatka (`canvas-embed.tsx:1418`, `ownTaskPageId`), a jedina ruta ka `kind:'page'`
+kanvasu ide iz `stranica/[id].tsx:68` — zadatak se na mobilnom otvara kao `/zadatak/[id]`,
+koji ulaz u kanvas nema. Dakle: **cela K4 funkcionalnost je na telefonu nedostupna**, ne
+pokvarena.
+
+**USLOV za zatvaranje.** Sprovesti Izmene 11 i 12 iz `docs/mobile/lanac4/planovi/faza-k4.md`
+u celini (uz `onLoadEnd` ponovno slanje `checkpoints`, pored postojećeg `mode` na
+`[id].tsx:654`) i T14 iz iste tabele dokaza.
+Do tada `PARITET.md` A8 ne sme da bude čekiran.
+
+**Nalaz:** provera gejtova posle plana Faze K5 (2026-08-12).
+
+---
+
 # Naučene zamke — ne ponavljaj
 
 Ove nisu „čeka se na uslov" — već rešene greške koje se lako vrate. Zapisane da

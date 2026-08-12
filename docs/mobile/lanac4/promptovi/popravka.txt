@@ -1,6 +1,6 @@
 think harder
 
-Posle faze "Faza K4 - Checkpointi zadataka na kanvasu" padaju: tsc mobilni
+Posle faze "Faza K5 - Ideje i Misli u istom rezimu" padaju: tsc mobilni
 
 Pokreni svaku, procitaj greske i popravi ih. Ne ucutkuj pravilo da bi proslo -
 popravi pravi uzrok. Ako je greska zatecena i van opsega faze, zapisi je u
