@@ -264,3 +264,17 @@ npm run editor:build --workspace @devotion/mobile → 678 KB, provera markera pr
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Trajanje: 80 min
+
+## P3 - Chat: diskusija nad idejom, clanovi kanala, prilozi
+
+**Cilj:** Chat na telefonu radi sve sto radi na webu: diskusija uz ideju, clanovi privatnog kanala, vise fajlova, video, kopiranje teksta.
+
+| Korak | Model | Effort |
+|---|---|---|
+| PLAN | `opus` | `max` |
+| IZVRSI | `opus` | `max` |
+| REVIZIJA | `opus` | `max` |
+
+- Start: 2026-08-13T01:41:42
+- PLAN: napisan
