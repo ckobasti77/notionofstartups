@@ -36,6 +36,7 @@ export function MentionTextarea({
   onChange,
   members,
   onSubmit,
+  onPaste,
   placeholder,
   disabled,
 }: {
@@ -43,6 +44,8 @@ export function MentionTextarea({
   onChange: (value: string) => void;
   members: StartupMember[] | undefined;
   onSubmit: () => void;
+  /** Nalepljen sadržaj (slika iz clipboard-a) — vidi `message-composer.tsx`. */
+  onPaste?: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   disabled?: boolean;
 }) {
@@ -142,6 +145,7 @@ export function MentionTextarea({
           onChange(event.target.value);
           syncMention(event.target);
         }}
+        onPaste={onPaste}
         onClick={(event) => syncMention(event.currentTarget)}
         onKeyUp={(event) => {
           if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {

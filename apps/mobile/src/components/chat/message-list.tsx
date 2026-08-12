@@ -48,6 +48,7 @@ export function MessageList({
   members,
   onReplyTo,
   onEdit,
+  onAtBottomChange,
   scrollToBottomSignal = 0,
 }: {
   channelId: Id<'chatChannels'>;
@@ -56,6 +57,12 @@ export function MessageList({
   members: ChatMember[] | undefined;
   onReplyTo: (message: ChatMessage) => void;
   onEdit: (message: ChatMessage) => void;
+  /**
+   * „Korisnik gleda dno" — prijavljuje se samo kad se BOOLEAN promeni, ne na svaki
+   * skrol događaj. Roditelj od toga pravi prisustvo (`hooks/use-chat-presence.ts`):
+   * jedini slučaj u kome nova poruka ne pravi obaveštenje.
+   */
+  onAtBottomChange?: (atBottom: boolean) => void;
   /**
    * Broj koji roditelj uveća kad korisnik POŠALJE poruku. Signal, ne podatak:
    * bitna je samo promena. Ide odvojeno od `results` da bi skok na dno bio
@@ -129,25 +136,44 @@ export function MessageList({
     );
   }, [actionsFor, currentProfileId, deleteMessage]);
 
+  /**
+   * `atBottomRef` je namerno ref (čita se iz efekta koji se ne sme vezivati na
+   * svaki skrol), pa promena ide roditelju kroz ovu jednu tačku — i to SAMO kad se
+   * boolean stvarno promeni, ne na svaki `onScroll` frejm.
+   */
+  const reportAtBottom = useCallback(
+    (next: boolean) => {
+      if (atBottomRef.current === next) return;
+      atBottomRef.current = next;
+      onAtBottomChange?.(next);
+    },
+    [onAtBottomChange],
+  );
+
+  // Prvo montiranje: obrnuta lista starta na dnu, pa i prisustvo kreće odatle.
+  useEffect(() => {
+    onAtBottomChange?.(atBottomRef.current);
+  }, [onAtBottomChange]);
+
   const scrollToBottom = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
     // Brojač pada odmah, ne po završetku animacije: dugme ne sme da stoji sa
     // brojem dok lista već putuje na dno.
     setNewCount(0);
-    atBottomRef.current = true;
-  }, []);
+    reportAtBottom(true);
+  }, [reportAtBottom]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       // Na inverted listi je dno na offset 0; prikaži „skoči na dno" kad se odmakne.
       const y = event.nativeEvent.contentOffset.y;
       const atBottom = y <= 80;
-      atBottomRef.current = atBottom;
+      reportAtBottom(atBottom);
       setShowJump(y > 280);
       // Vrati se na dno = video si sve; brojač nema više šta da broji.
       if (atBottom) setNewCount(0);
     },
-    [],
+    [reportAtBottom],
   );
 
   /**

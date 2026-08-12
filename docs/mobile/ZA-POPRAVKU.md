@@ -596,7 +596,27 @@ Do tada `PARITET.md` A8 ne sme da bude čekiran.
 
 ---
 
-## 9. Faza K5 nije urađena — Ideje i Misli nemaju režim „Uredi raspored"
+## 9. Faza K5 nije urađena — Ideje i Misli nemaju režim „Uredi raspored" — **REŠENO (lanac 5, 12.08.)**
+
+**Rešeno.** Ideje i misli imaju pun režim „Uredi raspored": povlačenje
+(`ideas.updatePositions` / `thoughts.moveNodes`), veličina ugaonim ručkama i
+presetima (`updateLayout`/`resetLayoutSize`, `updateNodeLayout`/`resetNodeLayoutSize`),
+veze tapom izvor→cilj (`ideas.connect`/`disconnect`, `thoughts.createEdge`/`archiveEdges`)
+i zapamćena kamera (`saveViewport`). Svaki upis ima „Poništi" (`lib/undo.ts`: `ideaMove`,
+`ideaResize`, `ideaEdgeConnect`, `thoughtMove`, `thoughtResize`, `thoughtEdgeConnect`).
+
+- `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx` — `IdeasCanvasView` i
+  `ThoughtsCanvasView` (handleri `handleMoveNodes` / `handleResizeNode` /
+  `handleConnectNodes` / `handleUserViewport`).
+- `apps/mobile/src/app/(app)/canvas/[kind]/[id].tsx` — `supportsEdit = true`.
+- `apps/mobile/src/components/canvas/idea-node-sheet-actions.tsx` i
+  `thought-node-sheet-actions.tsx` — sheet-ovi „Akcije ideje" / „Akcije misli".
+- Zamka apsolutno↔relativno: `apps/web/lib/canvas-nesting.ts` + `canvas-nesting.test.ts`.
+- Protokol: `lanac4/REZIM.md` §3a.
+
+**Ostaje da čovek proveri prstom** (agent nema uređaj): `docs/mobile/lanac5/BRIEF.md`.
+
+Original nalaza, za istoriju:
 
 **Stanje.** Commit `6668cb4` nosi poruku „Faza K5 — Ideje i Misli u istom režimu", ali
 K5 **nije ni započet**: to je popravka repa K4 (`movedLabel` sa dva argumenta). Dokaz
@@ -640,13 +660,32 @@ se vidi tek sledećem članu tima. Desktop to već rešava (`ideas-canvas-view.t
 se izdvoji u zajednički modul, ne da se prepiše po sećanju. Detalji:
 `docs/mobile/lanac4/planovi/faza-k5.md:119–127`.
 
-**USLOV za zatvaranje.** Zasebna faza. Do tada `PARITET.md` sekcija K5 stoji nečekirana.
+**USLOV za zatvaranje.** ~~Zasebna faza.~~ Ispunjen u lancu 5.
 
-**Nalaz:** faza K6 (2026-08-12).
+**Nalaz:** faza K6 (2026-08-12). **Rešeno:** lanac 5 (2026-08-12).
 
 ---
 
-## 10. Desktop kanvas nikad nije proveren mišem (T9/T17/T18 — otvoreno četvrtu fazu zaredom)
+## 10. Desktop kanvas nikad nije proveren mišem — **REŠENO (lanac 5, 12.08.)**
+
+**Rešeno.** Korisnik se **sam** prijavio u svom Chrome-u (agent lozinku ne unosi ni
+kad je dobije — pravilo je kategorično), a agent je preuzeo tu sesiju i mišem prošao
+sva tri kanvasa na `localhost:3000` (nalog Jovan Milojević, startup ScanMe):
+
+| | Ideje | Misli | Oblast |
+|---|---|---|---|
+| prevlačenje + `Ctrl+Z` | ✅ | ✅ | ✅ |
+| veličina obodom + `Ctrl+Z` | ✅ | ✅ | ✅ |
+| veza + `Ctrl+Z` | ✅ | ✅ | ✅ |
+| zum / pan | ✅ | ✅ | ✅ |
+
+Nula regresija; svaka izmena iz provere je odmah poništena. Tabela sa tačnim porukama
+i dva zapažanja (veza ide source→target; prevlačenje po platnu je guma-selekcija, ne
+pan): `docs/mobile/lanac5/BRIEF.md` §4.
+
+Original nalaza, za istoriju:
+
+### (istorija) Desktop kanvas nikad nije proveren mišem (T9/T17/T18)
 
 **Stanje.** Lanac 4 je u desktop kod dirnuo **tačno jednu stvar**: četiri granice veličine
 kartice izvučene su iz `apps/web/components/workspace/canvases/area-flow-node.tsx`
@@ -657,7 +696,17 @@ uvoz je jednosmeran — ništa van `app/embed/` ne uvozi embed module.
 **Šta NIJE urađeno.** Niko nije otvorio `localhost:3000`, prijavio se i mišem prevukao
 karticu na desktop kanvasu. Sve četiri faze lanca su to prenele dalje.
 
-**USLOV.** Potrebni su kredencijali. Put (`ZA-POPRAVKU` Z6 — taj CLI **ne** poziva
+**USLOV — preformulisan u lancu 5.** Nije „nedostaju kredencijali" nego **agent ne sme
+da unosi lozinku**, ni kad je dobije. To je kategorično pravilo i ne menja se time što
+korisnik izričito traži. Reset lozinke kroz CLI ne pomaže: problem nije nabavka
+lozinke nego njeno KUCANJE u polje za prijavu.
+
+**Jedini put koji radi:** korisnik se prijavi sam na `localhost:3000`; agent od tog
+trenutka vozi već prijavljenu sesiju i radi sve provere mišem. U lancu 5 je stigla
+ponuda za to (dev server je bio živ na 3000, embed je odgovarao `200`), ali prijava u
+tom trenutku nije obavljena — pa §10 ostaje otvoren i **prijavljen kao otvoren**.
+
+Original uslova, za istoriju. Put (`ZA-POPRAVKU` Z6 — taj CLI **ne** poziva
 `invalidateSessions`, pa živa mobilna sesija preživi):
 
 ```
@@ -677,8 +726,14 @@ OBAVEZNO upisuje u izveštaj faze.** Ako `resetAdminPassword` više ne postoji u
    kopiju i presete oblačića od razlaza sa desktopom.
 2. Statički dokaz: `git status --short -- apps/web/components/` je **prazan** kroz ceo
    lanac; jedina dva izmenjena backend fajla su brisanja mrtvog koda (§6).
+3. Lanac 5 dodaje treći: `canvas-nesting.ts` je **nov** modul koji uvozi isključivo
+   `app/embed/`, a jedina izmena u `components/workspace/chat/` je chat (drugi
+   proizvod, ne kanvas). Desktop kanvas fajlovi (`ideas-canvas-view.tsx`,
+   `thoughts-canvas-view.tsx`, `area-canvas-view.tsx`, `canvases/*`) nisu dirani —
+   proverivo sa `git diff --stat` po grani.
 
 **Nalaz:** faza K6 (2026-08-12) — prestaje da se prenosi prećutno.
+**Rešeno:** lanac 5 (2026-08-12) — korisnik prijavljen sam, agent vozio njegovu sesiju.
 
 ---
 

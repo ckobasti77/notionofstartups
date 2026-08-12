@@ -1324,6 +1324,26 @@ export default defineSchema({
     .index("by_profile", ["profileId"])
     .index("by_profile_and_startup", ["profileId", "startupId"]),
 
+  // Prisustvo u kanalu — jedini razlog zašto poruka NE zvoni (04-CHAT.md 5,
+  // `docs/mobile/lanac5/PLAN.md` §1.3). Red postoji po paru (kanal, profil) i
+  // nosi samo žig isteka koji klijent obnavlja dok gleda dno tog razgovora.
+  //
+  // Zašto zasebna tabela, a ne polje na `chatReads`: `chatReads` čitaju
+  // `unreadSummary` i `listChannels`, pa bi otkucaj na svakih 15 s prezidavao
+  // listu razgovora i badge dok korisnik samo gleda otvoren chat. Ovu tabelu ne
+  // pretplaćuje nijedan upit — upis nikoga ne budi.
+  //
+  // TTL je OBAVEZAN: bez njega ugašen ekran ili prekinuta mreža ostave korisnika
+  // zauvek „prisutnim" i on više nikad ne dobije obaveštenje.
+  chatPresence: defineTable({
+    channelId: v.id("chatChannels"),
+    profileId: v.id("profiles"),
+    startupId: v.id("startups"),
+    /** `Date.now() + CHAT_PRESENCE_TTL_MS`; `0` = eksplicitno odjavljen. */
+    expiresAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_channel_and_profile", ["channelId", "profileId"]),
+
   chatReactions: defineTable({
     messageId: v.id("chatMessages"),
     profileId: v.id("profiles"),

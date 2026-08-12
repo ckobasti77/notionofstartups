@@ -866,22 +866,36 @@ do lanca 4 stajale u sekciji Z — dokazne linije po funkciji su gore u **A8**, 
       (rail, sheet kartice, sheet koraka); bez toga bi sledeći ±10% računao iz zastarele
       veličine.
 
-## K5. Ideje i Misli u režimu — **NIJE URAĐENO**
+## K5. Ideje i Misli u režimu — **ISPORUČENO (lanac 5, 12.08.)**
 
-- [ ] Režim „Uredi raspored" na kanvasu **ideja** i **misli** (potez prstom, veličina,
-      veze) — `canvas-embed.tsx:312–314` doslovno kaže da `IdeasFlow`/`ThoughtsFlow`
-      dobijaju `editMode`/`connectSourceId` **bez handlera**, pa je režim tamo inertan;
-      `canvas/[kind]/[id].tsx:272` (`supportsEdit = isPageKind`) ni ne pali prekidač.
-      Commit `6668cb4` („Faza K5 — Ideje i Misli u istom režimu") je popravka repa K4,
-      ne K5. Razlog, spisak postojećih backend funkcija i **zamka apsolutnih vs
-      relativnih koordinata ugnježdenih čvorova**: `ZA-POPRAVKU.md §9`.
+- [x] Režim „Uredi raspored" na kanvasu **ideja** i **misli** — prekidač se prikazuje
+      (`canvas/[kind]/[id].tsx`, `supportsEdit = true`), a embed ima sve handlere
+      (`canvas-embed.tsx`, `IdeasCanvasView` / `ThoughtsCanvasView`).
+- [x] Potez prstom → `ideas.updatePositions` / `thoughts.moveNodes`, jedan upis po
+      potezu, „Poništi" (`undo.ts`: `ideaMove`, `thoughtMove`).
+- [x] Veličina: ugaone ručke (44pt, isti `EmbedResizeContext` kao K2) →
+      `ideas.updateLayout` / `thoughts.updateNodeLayout`; preseti + „Automatska
+      veličina" u sheet-u → `resetLayoutSize` / `resetNodeLayoutSize`. „Poništi" je
+      USLOVAN (`ideaResize`/`thoughtResize` nose `manuallySized`).
+- [x] Veze tapom izvor→cilj → `ideas.connect` / `thoughts.createEdge`; raskidanje iz
+      imenovane liste suseda → `ideas.disconnect` / `thoughts.archiveEdges`.
+- [x] Kamera → `ideas.saveViewport` / `thoughts.saveViewport` (prigušeno 800 ms,
+      upis iz native-a, kao u K1).
+- [x] Sheet-ovi „Akcije ideje" / „Akcije misli" nad **deljenim** sekcijama
+      (`node-edges-section.tsx`, `node-size-section.tsx`) — bez treće kopije.
+- [x] Zamka apsolutnih vs relativnih koordinata rešena u zajedničkom modulu sa testom:
+      `apps/web/lib/canvas-nesting.ts` + `canvas-nesting.test.ts` (9 testova).
+      Protokol: `lanac4/REZIM.md` §3a.
 
-> **Razlika pariteta je 7 i sa K5 i bez njega** — `thoughts.moveNodes`,
+> **Zašto brojač pariteta ovo nije video, ni pre ni posle.** `thoughts.moveNodes`,
 > `ideas.updatePositions`, `updateLayout` i drugovi su odavno prebrojani preko NATIVE
 > listi („Sredi raspored", „Veličina oblačića": `misli.tsx:82`, `ideje.tsx:131`,
-> `thought-actions-sheet.tsx:101`, `idea-actions-sheet.tsx:111`). **Broj 7 se zato ne
-> sme čitati kao „sve je urađeno".** Uz `thoughts.moveNodes` (`:111` gore) dokaz je
-> „Sredi raspored" sa liste — **ne** potez prstom po kanvasu.
+> `thought-actions-sheet.tsx:101`, `idea-actions-sheet.tsx:111`). Razlika pariteta je
+> bila 7 i sa K5 i bez njega. **Broj se ne čita kao „sve je urađeno" — ni kad je
+> tačan.** Dokaz za ovu sekciju su fajlovi i linije gore, ne brojač.
+>
+> **Ostaje da čovek proveri prstom** (agent nema uređaj): spisak u
+> `docs/mobile/lanac5/BRIEF.md`.
 
 ---
 

@@ -3,6 +3,11 @@
 > Napisano u fazi K1. Svaka sledeća faza lanca 4 kači svoje uređivanje **na ovaj
 > režim** — ne pravi drugi prekidač, ne otvara drugi kanal i ne uvodi drugi obrazac
 > za „Poništi".
+>
+> **Dopuna, lanac 5 (K5 stvarno urađen).** Režim od sada radi na **sve četiri**
+> vrste kanvasa. Ideje i misli imaju svoje handlere, pa pravilo 7 („režim je
+> inertan bez handlera") više nigde ne isključuje uređivanje. Poruke mosta koje
+> nose upis dobile su diskriminator `canvas` — vidi §3a.
 
 ---
 
@@ -102,6 +107,60 @@ cilj ne uradi ništa, i nigde nema poruke o grešci.
 
 ---
 
+## 3a. Kanvas ideja i misli (K5, lanac 5)
+
+Isti režim, isti kanal, isti obrazac za „Poništi" — ali **druge tabele i druge
+mutacije**, pa poruke koje nose upis dobijaju diskriminator `canvas`.
+
+| Poruka | `canvas` | Nosi | Native zove |
+|---|---|---|---|
+| `moved` | `"ideas"` | `startupId`, `count`, `moves:[{id,x,y}]` | `ideas.updatePositions` (Poništi) |
+| `moved` | `"thoughts"` | `startupId`, `count`, `moves:[{id,x,y}]` | `thoughts.moveNodes` (Poništi) |
+| `resized` | `"ideas"` | `startupId`, `id`, `width`, `height`, `previous`, `manuallySized` | `ideas.updateLayout` / `resetLayoutSize` |
+| `resized` | `"thoughts"` | `startupId`, `id`, `width`, `height`, `previous`, `manuallySized` | `thoughts.updateNodeLayout` / `resetNodeLayoutSize` |
+| `connected` | `"ideas"` | `startupId`, `edgeId` | `ideas.disconnect` (Poništi) |
+| `connected` | `"thoughts"` | `edgeId` | `thoughts.archiveEdges` (Poništi) |
+| `viewport` | `"ideas"` / `"thoughts"` | `startupId`, `x`, `y`, `zoom` | `ideas.saveViewport` / `thoughts.saveViewport` |
+
+**Odsustvo polja `canvas` znači `"page"`** — K1–K4 poruke se nisu menjale.
+
+**`moves` nije `before`.** Isti razlog kao `previous` vs `before` iz K2: oblik je
+drugi (`id` umesto `pageId`). Isto ime za dva oblika bi značilo union koji TS ne
+razlikuje bez diskriminatora u svakom elementu.
+
+**Detalji čvora nose `nodeKind: "idea" | "thought"`** (uz postojeće `"page"` i
+`"checkpoint"`). Native po njemu bira sheet — `IdeaNodeActionsSheet` odnosno
+`ThoughtNodeActionsSheet`, oba nad istim deljenim sekcijama
+(`node-edges-section.tsx`, `node-size-section.tsx`).
+
+### ZAMKA: apsolutne vs relativne koordinate
+
+Ideje i misli podržavaju **ugnježdene** čvorove (`parentIdeaId` /
+`parentThoughtId`). Baza čuva poziciju takvog čvora **relativno na roditelja**;
+embed ga **crta apsolutno** (ravan graf, bez xyflow `parentId` — jer
+`thoughts.listNodes` pagira po `updatedAt`, pa roditelj nije garantovano pre
+deteta). Desktop ovaj prevod nema jer koristi `parentId`, pa mu je `node.position`
+već relativan.
+
+Prevod radi **jedan modul sa testom**: `apps/web/lib/canvas-nesting.ts`
+(`absolutePositions` za crtanje, `storedMovesFor` za upis) i
+`canvas-nesting.test.ts`. Ne prepisivati po sećanju: greška je tiha — čvor sleti
+na poziciju uvećanu za offset roditelja i to vidi tek neko drugi.
+
+`storedMovesFor` uz to **izostavlja** dete koje je povučeno zajedno sa roditeljem:
+oba su se pomerila za isti pomeraj, pa im je odnos ostao isti i u bazi nema šta da
+se menja.
+
+### Prihvaćeno ograničenje (ne prijavljivati kao bag)
+
+- **Deca ne prate roditelja tokom poteza.** Embed ih crta kao nezavisne čvorove, pa
+  dok se roditelj vuče, ugnježdeni čvorovi stoje — i doskoče tek posle upisa. Baza
+  ih drži relativno, pa je KRAJNJE stanje identično desktopu. Cena je jedan frejm
+  iznenađenja; alternativa (xyflow `parentId` u embedu) traži topološki sortiran
+  graf i menja render koji trenutno radi.
+
+---
+
 ## 4. Pravila koja važe za svaku sledeću fazu
 
 1. **Jedan upis po potezu.** Piše se na `onNodeDragStop` (odnosno na kraj
@@ -121,7 +180,9 @@ cilj ne uradi ništa, i nigde nema poruke o grešci.
    „Uređivanje rasporeda", oboje `pointer-events-none`.
 7. **Režim je inertan bez handlera.** `canEdit = editMode && !!onMoveNodes` —
    vrsta kanvasa koja još nema upis ne dobija ni povlačive čvorove ni vizuelni
-   znak koji bi lagao. **K5 za ideje/misli dodaje samo handler.**
+   znak koji bi lagao. ~~K5 za ideje/misli dodaje samo handler.~~ **Urađeno u
+   lancu 5** — sve četiri vrste sada imaju handlere (§3a). Mehanizam ostaje: nova
+   vrsta kanvasa bez upisa i dalje ne sme da dobije režim koji ne radi.
 8. **Nijedan nov objektni prop na `<WebView>`.** Sve živo ide kroz `postMessage`
    (ZA-POPRAVKU Z1: promena reference propa reloaduje stranicu).
 9. **Swipe-back ostaje isključen** (`(app)/_layout.tsx`, `gestureEnabled:false`).

@@ -34,12 +34,19 @@ export function MessageList({
   profile,
   members,
   onReply,
+  onAtBottomChange,
   scrollToBottomSignal = 0,
 }: {
   channel: ChatChannel;
   profile: ProfileWithAvatar;
   members: StartupMember[] | undefined;
   onReply: (message: ChatMessage) => void;
+  /**
+   * „Korisnik gleda dno" — prijavljuje se samo kad se BOOLEAN promeni, ne na svaki
+   * `onScroll`. Roditelj od toga pravi prisustvo (`use-chat-presence.ts`): jedini
+   * slučaj u kome nova poruka ne pravi obaveštenje.
+   */
+  onAtBottomChange?: (atBottom: boolean) => void;
   /**
    * Broj koji roditelj uveća kad korisnik POŠALJE poruku. Bitna je samo promena,
    * ne vrednost — skok na dno tako ne čeka da poruka obiđe server.
@@ -73,20 +80,39 @@ export function MessageList({
   const [newCount, setNewCount] = useState(0);
   const [showJump, setShowJump] = useState(false);
 
+  /**
+   * `nearBottomRef` je namerno ref (čita se iz efekata koji se ne smeju vezivati na
+   * svaki skrol), pa se promena prijavljuje roditelju kroz ovu jednu tačku — i to
+   * SAMO kad se boolean stvarno promeni, ne na svaki `onScroll`.
+   */
+  const reportAtBottom = useCallback(
+    (next: boolean) => {
+      if (nearBottomRef.current === next) return;
+      nearBottomRef.current = next;
+      onAtBottomChange?.(next);
+    },
+    [onAtBottomChange],
+  );
+
+  // Prvo montiranje: lista starta na dnu, pa i prisustvo mora da krene odatle.
+  useEffect(() => {
+    onAtBottomChange?.(nearBottomRef.current);
+  }, [onAtBottomChange]);
+
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    nearBottomRef.current = true;
+    reportAtBottom(true);
     setNewCount(0);
     setShowJump(false);
-  }, []);
+  }, [reportAtBottom]);
 
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    nearBottomRef.current = distanceFromBottom < 120;
+    reportAtBottom(distanceFromBottom < 120);
     setShowJump(distanceFromBottom > 240);
     // Vratio se na dno = video je sve; brojač nema više šta da broji.
     if (nearBottomRef.current) setNewCount(0);

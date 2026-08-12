@@ -1070,3 +1070,187 @@ describe("Z1.3 — sedam scenarija iz specifikacije", () => {
     ).resolves.toBeNull();
   });
 });
+
+/**
+ * Obaveštenja o porukama (lanac 5, §1). Ranije je `dedupeKey` bio kanta od jednog
+ * kalendarskog minuta, pa je od rafala poruka zvonila samo prva — ovi testovi
+ * zakivaju da svaka poruka zvoni, i da postoji tačno jedan izuzetak.
+ */
+function notificationsFor(s: ChatWorkspace, profileId: Id<"profiles">) {
+  return s.t.run((ctx) =>
+    ctx.db
+      .query("notifications")
+      .withIndex("by_recipient_and_startup_and_createdAt", (q) =>
+        q.eq("recipientProfileId", profileId).eq("startupId", s.startupId),
+      )
+      .collect(),
+  );
+}
+
+describe("chat obaveštenja", () => {
+  test("rafal poruka daje po jedno obaveštenje za svaku", async () => {
+    const s = await seedChatWorkspace();
+    for (const body of ["1", "2", "3", "4", "5"]) {
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body,
+      });
+    }
+
+    const received = await notificationsFor(s, s.member.profileId);
+    expect(received).toHaveLength(5);
+    // Ključ je po PORUCI: pet različitih ključeva, nijedan po minutu.
+    expect(new Set(received.map((row) => row.dedupeKey)).size).toBe(5);
+    // Autor nikad ne dobija obaveštenje o svojoj poruci.
+    expect(await notificationsFor(s, s.owner.profileId)).toHaveLength(0);
+  });
+
+  test("prisutan primalac (gleda kanal, na dnu) ne dobija obaveštenja, ali unread ostaje tačan", async () => {
+    const s = await seedChatWorkspace();
+    await s.asMember.mutation(api.chat.setPresence, {
+      channelId: s.general,
+      present: true,
+    });
+
+    for (const body of ["a", "b", "c"]) {
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body,
+      });
+    }
+
+    expect(await notificationsFor(s, s.member.profileId)).toHaveLength(0);
+    // Prisustvo gasi SAMO obaveštenje — badge mora da ostane tačan i ako
+    // `markChannelRead` sa klijenta padne.
+    expect((await readFor(s, s.general, s.member.profileId))?.unreadCount).toBe(3);
+    // Prisustvo je po kanalu i po korisniku: drugi član i dalje dobija svoje.
+    expect(await notificationsFor(s, s.bystander.profileId)).toHaveLength(3);
+  });
+
+  test("pominjanje prisutnog primaoca takođe ćuti — video ga je uživo", async () => {
+    const s = await seedChatWorkspace();
+    await s.asMember.mutation(api.chat.setPresence, {
+      channelId: s.general,
+      present: true,
+    });
+    await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "@Member pogledaj ovo",
+      mentions: [s.member.profileId],
+    });
+    expect(await notificationsFor(s, s.member.profileId)).toHaveLength(0);
+  });
+
+  test("istekao žig prisustva ponovo pušta obaveštenja", async () => {
+    const s = await seedChatWorkspace();
+    await s.asMember.mutation(api.chat.setPresence, {
+      channelId: s.general,
+      present: true,
+    });
+    // Simulacija ugašenog ekrana / pukle mreže: otkucaj više ne stiže.
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("chatPresence")
+        .withIndex("by_channel_and_profile", (q) =>
+          q.eq("channelId", s.general).eq("profileId", s.member.profileId),
+        )
+        .unique();
+      if (row === null) throw new Error("Red prisustva nije napravljen.");
+      await ctx.db.patch("chatPresence", row._id, { expiresAt: Date.now() - 1 });
+    });
+
+    await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "posle isteka",
+    });
+    expect(await notificationsFor(s, s.member.profileId)).toHaveLength(1);
+  });
+
+  test("eksplicitno gašenje prisustva (skrol gore, blur) odmah vraća obaveštenja", async () => {
+    const s = await seedChatWorkspace();
+    await s.asMember.mutation(api.chat.setPresence, {
+      channelId: s.general,
+      present: true,
+    });
+    await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "dok gleda",
+    });
+    await s.asMember.mutation(api.chat.setPresence, {
+      channelId: s.general,
+      present: false,
+    });
+    await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "pošto je skrolovao gore",
+    });
+
+    const received = await notificationsFor(s, s.member.profileId);
+    expect(received).toHaveLength(1);
+    expect(received[0].body).toBe("pošto je skrolovao gore");
+  });
+
+  test("prisustvo u DRUGOM kanalu ne gasi obaveštenja iz ovog", async () => {
+    const s = await seedChatWorkspace();
+    // DM je najjeftiniji „drugi kanal" kome primalac sigurno ima pristup.
+    const other = await s.asOwner.mutation(api.chat.openDirectMessage, {
+      startupId: s.startupId,
+      otherProfileId: s.member.profileId,
+    });
+    await s.asMember.mutation(api.chat.setPresence, {
+      channelId: other,
+      present: true,
+    });
+    await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "iz opšteg",
+    });
+    expect(await notificationsFor(s, s.member.profileId)).toHaveLength(1);
+  });
+});
+
+describe("chat prilozi", () => {
+  test("tip i veličina se čitaju sa servera; nepodržan tip se odbija", async () => {
+    const s = await seedChatWorkspace();
+    const storageId = await s.t.run((ctx) =>
+      ctx.storage.store(new Blob(["MZ"], { type: "application/x-msdownload" })),
+    );
+    await expect(
+      s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "",
+        kind: "file",
+        attachmentStorageId: storageId,
+        attachmentName: "virus.exe",
+        // Klijent laže da je slika — server mu ne veruje.
+        attachmentType: "image/png",
+        attachmentSize: 2,
+      }),
+    ).rejects.toThrow("Ovaj tip fajla nije podržan");
+  });
+
+  test("prihvaćen prilog dobija tip i veličinu iz metapodataka, ne iz argumenata", async () => {
+    const s = await seedChatWorkspace();
+    const storageId = await s.t.run((ctx) =>
+      ctx.storage.store(new Blob(["12345"], { type: "image/png" })),
+    );
+    const messageId = await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "",
+      kind: "file",
+      attachmentStorageId: storageId,
+      attachmentName: "snimak-2026-08-12-14-03-51.png",
+      // Klijent laže i o tipu i o veličini; oba se moraju pregaziti serverskim.
+      attachmentType: "image/png",
+      attachmentSize: 999_999,
+    });
+    const message = await s.t.run((ctx) =>
+      ctx.db.get("chatMessages", messageId),
+    );
+    expect(message?.attachmentSize).toBe(5);
+    // `convex-test` skladište ne pamti `contentType` bloba (metapodaci su samo
+    // `size`/`sha256`), pa ovde pada na rezervu — a kategorija se izvede iz
+    // ekstenzije. Poenta testa je ista: upisana vrednost NIJE ona iz argumenata.
+    expect(message?.attachmentType).toBe("application/octet-stream");
+  });
+});

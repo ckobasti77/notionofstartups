@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import {
@@ -14,10 +14,13 @@ import {
   Hash,
   MessagesSquare,
   MoreVertical,
+  Upload,
 } from "lucide-react";
 
 import { MessageComposer } from "@/components/workspace/chat/message-composer";
 import { MessageList } from "@/components/workspace/chat/message-list";
+import { useAttachmentSender } from "@/components/workspace/chat/use-attachment-sender";
+import { useChatPresence } from "@/components/workspace/chat/use-chat-presence";
 import {
   AREA_ICONS,
   getAreaTint,
@@ -74,6 +77,15 @@ export function ConversationPane({
    * raste pri svakom slanju, vrednost ne znači ništa osim „upravo je poslato".
    */
   const [sentTick, setSentTick] = useState(0);
+  /**
+   * Gleda li korisnik dno ovog razgovora. Jedini potrošač je prisustvo: dok je
+   * `true` (i prozor vidljiv), nova poruka u OVOM kanalu ne pravi obaveštenje —
+   * korisnik ju je video uživo (`docs/mobile/lanac5/PLAN.md` §1.3).
+   */
+  const [atBottom, setAtBottom] = useState(true);
+  /** Brojač `dragenter`/`dragleave` — ulazak u dete-element inače gasi overlay. */
+  const dragDepthRef = useRef(0);
+  const [dragging, setDragging] = useState(false);
   const markChannelRead = useMutation(api.chat.markChannelRead);
   const setNotificationLevel = useMutation(api.chat.setNotificationLevel);
   const archiveChannel = useMutation(api.chat.archiveChannel);
@@ -85,6 +97,19 @@ export function ConversationPane({
       // Neuspelo označavanje ne sme da blokira čitanje.
     });
   }, [channel._id, channel.lastMessageAt, markChannelRead]);
+
+  useChatPresence(channel._id, atBottom);
+
+  const handleSent = useCallback(() => {
+    setReplyTo(null);
+    setSentTick((tick) => tick + 1);
+  }, []);
+
+  const { uploading, sendAttachment, sendFiles } = useAttachmentSender({
+    channel,
+    replyTo,
+    onSent: handleSent,
+  });
 
   const name = channelDisplayName(channel);
   const areaKey =
@@ -117,8 +142,38 @@ export function ConversationPane({
 
   const canArchive = profile.role === "admin" && channel.kind !== "startup";
 
+  /** Ima li drag uopšte fajlove — prevučen tekst ne sme da otvori zonu za slanje. */
+  function dragHasFiles(event: React.DragEvent<HTMLDivElement>): boolean {
+    return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      className="relative flex h-full min-h-0 flex-col bg-background"
+      onDragEnter={(event) => {
+        if (!dragHasFiles(event)) return;
+        dragDepthRef.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(event) => {
+        // Bez ovoga pregledač otvori fajl umesto da ga preda `onDrop`-u.
+        if (!dragHasFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (!dragHasFiles(event)) return;
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!dragHasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setDragging(false);
+        sendFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
       <header className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl sm:px-4">
         <Button
           type="button"
@@ -202,6 +257,7 @@ export function ConversationPane({
         profile={profile}
         members={members}
         onReply={setReplyTo}
+        onAtBottomChange={setAtBottom}
         scrollToBottomSignal={sentTick}
       />
 
@@ -210,12 +266,30 @@ export function ConversationPane({
         profile={profile}
         members={members}
         replyTo={replyTo}
+        uploading={uploading}
+        sendAttachment={sendAttachment}
+        sendFiles={sendFiles}
         onCancelReply={() => setReplyTo(null)}
-        onSent={() => {
-          setReplyTo(null);
-          setSentTick((tick) => tick + 1);
-        }}
+        onSent={handleSent}
       />
+
+      {/* Zona za puštanje pokriva CEO prozor razgovora — fajl se ne mora spustiti
+          baš na spajalicu. `pointer-events-none` da ne pojede `dragover` roditelja
+          (bez toga overlay treperi dok se prelazi preko njega). */}
+      {dragging ? (
+        <div
+          role="status"
+          className="pointer-events-none absolute inset-2 z-40 grid place-items-center rounded-2xl border-2 border-dashed border-primary bg-background/85 backdrop-blur-sm"
+        >
+          <div className="flex flex-col items-center gap-2 text-primary">
+            <Upload className="size-8" aria-hidden="true" />
+            <p className="text-sm font-semibold">Pusti da pošalješ</p>
+            <p className="text-xs text-muted-foreground">
+              Više fajlova odjednom je u redu — idu kao zasebne poruke.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

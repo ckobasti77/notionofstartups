@@ -50,6 +50,14 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const restoreEdges = useMutation(api.thoughts.restoreEdges);
   const restoreIdea = useMutation(api.ideas.restoreOwn);
   const connectIdeas = useMutation(api.ideas.connect);
+  const disconnectIdeas = useMutation(api.ideas.disconnect);
+  const updateIdeaPositions = useMutation(api.ideas.updatePositions);
+  const updateIdeaLayout = useMutation(api.ideas.updateLayout);
+  const resetIdeaLayoutSize = useMutation(api.ideas.resetLayoutSize);
+  const moveThoughtNodes = useMutation(api.thoughts.moveNodes);
+  const updateThoughtLayout = useMutation(api.thoughts.updateNodeLayout);
+  const resetThoughtLayoutSize = useMutation(api.thoughts.resetNodeLayoutSize);
+  const archiveThoughtEdges = useMutation(api.thoughts.archiveEdges);
   const restoreCheckpoint = useMutation(api.taskCheckpoints.restoreOwn);
   const restoreContribution = useMutation(api.collaboration.restoreOwnContribution);
   const movePages = useMutation(api.areasV2.movePages);
@@ -223,6 +231,68 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           source: action.source,
           target: action.target,
         });
+        return;
+      case 'ideaMove':
+        // Inverz poteza je isti poziv sa PRETHODNIM (stored) koordinatama.
+        if (action.updates.length > 0) {
+          await updateIdeaPositions({
+            startupId: action.startupId,
+            updates: action.updates,
+          });
+        }
+        return;
+      case 'ideaResize':
+        // USLOVAN inverz: kartica koja pre poteza nije imala ručnu veličinu mora da
+        // je i IZGUBI, inače ostaje ručno dimenzionisana zauvek. `resetLayoutSize`
+        // ne dira poziciju, pa se ona vraća zasebno.
+        if (action.manuallySized) {
+          await updateIdeaLayout({
+            startupId: action.startupId,
+            ideaId: action.ideaId,
+            x: action.x,
+            y: action.y,
+            width: action.width,
+            height: action.height,
+          });
+          return;
+        }
+        await updateIdeaPositions({
+          startupId: action.startupId,
+          updates: [{ id: action.ideaId, x: action.x, y: action.y }],
+        });
+        await resetIdeaLayoutSize({
+          startupId: action.startupId,
+          ideaId: action.ideaId,
+        });
+        return;
+      case 'ideaEdgeConnect':
+        await disconnectIdeas({
+          startupId: action.startupId,
+          edgeId: action.edgeId,
+        });
+        return;
+      case 'thoughtMove':
+        if (action.moves.length > 0) await moveThoughtNodes({ moves: action.moves });
+        return;
+      case 'thoughtResize':
+        if (action.manuallySized) {
+          await updateThoughtLayout({
+            nodeId: action.nodeId,
+            x: action.x,
+            y: action.y,
+            width: action.width,
+            height: action.height,
+          });
+          return;
+        }
+        await moveThoughtNodes({
+          moves: [{ nodeId: action.nodeId, x: action.x, y: action.y }],
+        });
+        await resetThoughtLayoutSize({ nodeId: action.nodeId });
+        return;
+      case 'thoughtEdgeConnect':
+        // Inverz PRAVLJENJA veze je arhiviranje — ne `restoreEdges`.
+        await archiveThoughtEdges({ edgeIds: [action.edgeId] });
         return;
     }
   };

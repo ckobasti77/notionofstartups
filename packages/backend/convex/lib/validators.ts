@@ -175,6 +175,18 @@ export const CHAT_UNREAD_SUMMARY_CAP = 500;
 export const CHAT_SEARCH_CAP = 50;
 /** Koliko primalaca dobija unread/notifikaciju po poruci pre batch obrasca. */
 export const CHAT_RECIPIENTS_CAP = 200;
+/**
+ * Koliko dugo posle poslednjeg otkucaja korisnik i dalje važi kao „gleda ovaj
+ * kanal i stoji na dnu" — jedini slučaj u kome poruka ne pravi obaveštenje.
+ *
+ * Ovo je MREŽA ZA PAD, ne primarni mehanizam: klijent prisustvo gasi eksplicitno
+ * (blur, odlazak sa ekrana, skrol gore). TTL pokriva samo nasilno gašenje app-a i
+ * pucanje mreže — i zato mora da postoji: bez njega bi takav korisnik ostao
+ * „prisutan" zauvek i više nikad ne bi dobio obaveštenje iz tog kanala.
+ */
+export const CHAT_PRESENCE_TTL_MS = 45_000;
+/** Klijentski interval obnavljanja prisustva — TTL/3, da jedan promašaj ne gasi. */
+export const CHAT_PRESENCE_REFRESH_MS = 15_000;
 
 export type TaskCheckpointInput = {
   id: string;

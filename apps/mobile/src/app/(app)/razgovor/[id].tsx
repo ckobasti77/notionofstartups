@@ -26,6 +26,7 @@ import { MessageList } from '@/components/chat/message-list';
 import { EmptyState } from '@/components/empty-state';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
+import { useChatPresence } from '@/hooks/use-chat-presence';
 import type { Id } from '@/convex/_generated/dataModel';
 import type { ChatMessage } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -52,6 +53,13 @@ export default function ConversationScreen() {
    * pri svakom slanju, vrednost ne znači ništa osim „upravo je poslato".
    */
   const [sentTick, setSentTick] = useState(0);
+  /**
+   * Gleda li korisnik dno ovog razgovora i da li je ekran u prvom planu. Jedini
+   * potrošač je prisustvo: dok su oba tačna, nova poruka u OVOM kanalu ne pravi
+   * obaveštenje — korisnik ju je video uživo (`docs/mobile/lanac5/PLAN.md` §1.3).
+   */
+  const [atBottom, setAtBottom] = useState(true);
+  const [focused, setFocused] = useState(false);
 
   const channels = useQuery(
     api.chat.listChannels,
@@ -76,6 +84,17 @@ export default function ConversationScreen() {
       });
     }, [channelId, lastMessageAt, markChannelRead]),
   );
+
+  // Fokus ekrana kao STANJE (ne samo efekat): prisustvo mora da se ugasi čim se
+  // ode na drugi ekran, inače bi do isteka TTL-a poruke iz ovog kanala ćutale.
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+
+  useChatPresence(channelId, focused && atBottom);
 
   const beginReply = useCallback((message: ChatMessage) => {
     setEditing(null);
@@ -157,6 +176,7 @@ export default function ConversationScreen() {
             members={members}
             onReplyTo={beginReply}
             onEdit={beginEdit}
+            onAtBottomChange={setAtBottom}
             scrollToBottomSignal={sentTick}
           />
           <MessageComposer

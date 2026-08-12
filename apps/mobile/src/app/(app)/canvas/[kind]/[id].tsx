@@ -32,10 +32,18 @@ import {
 import { ConnectBar } from '@/components/canvas/connect-bar';
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { IdeaNodeSheet, type IdeaDetail } from '@/components/canvas/idea-node-sheet';
+import {
+  IdeaNodeActionsSheet,
+  type IdeaNodeTarget,
+} from '@/components/canvas/idea-node-sheet-actions';
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
 import { PageNodeSheet, type PageNodeTarget } from '@/components/canvas/page-node-sheet';
 import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
 import { ThoughtNodeSheet, type ThoughtDetail } from '@/components/canvas/thought-node-sheet';
+import {
+  ThoughtNodeActionsSheet,
+  type ThoughtNodeTarget,
+} from '@/components/canvas/thought-node-sheet-actions';
 import { EmptyState } from '@/components/empty-state';
 import { ThoughtConversionSheet } from '@/components/misli/thought-conversion-sheet';
 import { UndoBar } from '@/components/undo-bar';
@@ -65,8 +73,20 @@ type CanvasScope = {
   rootPageId: Id<'pages'> | null;
 };
 
-/** Kamera koja čeka upis (poslednja pobeđuje). */
-type PendingViewport = CanvasScope & { x: number; y: number; zoom: number };
+/**
+ * Kamera koja čeka upis (poslednja pobeđuje). Tri kanvasa pamte kameru u tri
+ * različite tabele i kroz tri mutacije, pa je i red diskriminisana unija — `canvas`
+ * polje stiže uz poruku iz embeda (K5).
+ */
+type PendingViewport =
+  | ({ canvas: 'page'; x: number; y: number; zoom: number } & CanvasScope)
+  | {
+      canvas: 'ideas' | 'thoughts';
+      startupId: Id<'startups'>;
+      x: number;
+      y: number;
+      zoom: number;
+    };
 
 /** Srpski paukal: 2–4 (osim 12–14) traži drugačiji oblik od ostalih brojeva. */
 function isPaucal(count: number): boolean {
@@ -140,6 +160,9 @@ export default function CanvasScreen() {
   // dugi pritisak u WebView-u (`node:actions`) ili četvrta ikonica rail-a — dva puta
   // do iste radnje, jer je `contextmenu` u WKWebView-u nepouzdan.
   const [nodeTarget, setNodeTarget] = useState<PageNodeTarget | null>(null);
+  // Isti slot za kanvas ideja i misli (K5): „Akcije ideje" / „Akcije misli".
+  const [ideaTarget, setIdeaTarget] = useState<IdeaNodeTarget | null>(null);
+  const [thoughtTarget, setThoughtTarget] = useState<ThoughtNodeTarget | null>(null);
   // Korak nad kojim je otvoren sheet „Akcije koraka" (K4) — isti put kao za karticu
   // (dugi pritisak ili četvrta ikonica rail-a), samo drugi tip čvora.
   const [checkpointTarget, setCheckpointTarget] = useState<CheckpointNodeTarget | null>(null);
@@ -267,9 +290,11 @@ export default function CanvasScreen() {
     return () => clearTimeout(timer);
   }, [loading]);
 
-  // Uređivanje za sada postoji samo na kanvasu oblasti i stranice (kartice = stranice,
-  // upis je `areasV2.movePages`). Ideje i misli dobijaju isti režim u K5.
-  const supportsEdit = isPageKind;
+  // Od K5 režim „Uredi raspored" postoji na SVE ČETIRI vrste kanvasa: kartice
+  // stranica idu kroz `areasV2.movePages`, ideje kroz `ideas.updatePositions`, misli
+  // kroz `thoughts.moveNodes`. Embed za svaku ima handler, pa režim nigde nije inertan
+  // (pravilo 7 iz `docs/mobile/lanac4/REZIM.md`).
+  const supportsEdit = true;
 
   /**
    * Ulazak u biranje cilja veze. Oba sheet-a se zatvaraju (traka i sheet ne smeju da
@@ -286,6 +311,8 @@ export default function CanvasScreen() {
     (source: { nodeId: string; title: string }) => {
       setNodeTarget(null);
       setCheckpointTarget(null);
+      setIdeaTarget(null);
+      setThoughtTarget(null);
       setConnectSource(source);
       postToWeb({ type: 'connect', sourceId: source.nodeId });
       haptics.tap();
@@ -336,6 +363,8 @@ export default function CanvasScreen() {
   // Kamera se piše iz native-a (ne iz embeda): prigušuje se, nema optimističko stanje,
   // i native je već vlasnik dugmadi koja kameru pomeraju. Scope stiže uz poruku.
   const saveViewport = useMutation(api.areasV2.saveViewport);
+  const saveIdeasViewport = useMutation(api.ideas.saveViewport);
+  const saveThoughtsViewport = useMutation(api.thoughts.saveViewport);
   const pendingViewportRef = useRef<PendingViewport | null>(null);
   const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -343,12 +372,26 @@ export default function CanvasScreen() {
     const pending = pendingViewportRef.current;
     pendingViewportRef.current = null;
     if (!pending) return;
+    const { x, y, zoom } = pending;
     // Tiho: pamćenje pogleda je udobnost, ne radnja korisnika — greška ovde ne sme da
     // prekine rad Alert-om.
-    void saveViewport(pending).catch((error: unknown) => {
+    const write =
+      pending.canvas === 'page'
+        ? saveViewport({
+            startupId: pending.startupId,
+            areaId: pending.areaId,
+            rootPageId: pending.rootPageId,
+            x,
+            y,
+            zoom,
+          })
+        : pending.canvas === 'ideas'
+          ? saveIdeasViewport({ startupId: pending.startupId, x, y, zoom })
+          : saveThoughtsViewport({ startupId: pending.startupId, x, y, zoom });
+    void write.catch((error: unknown) => {
       if (__DEV__) console.log('[canvas] saveViewport nije uspeo:', error);
     });
-  }, [saveViewport]);
+  }, [saveViewport, saveIdeasViewport, saveThoughtsViewport]);
 
   // Poslednji pan pre izlaska sa ekrana se ne sme izgubiti: cleanup flush-uje ono što
   // je ostalo u redu, pa tek onda gasi tajmer.
@@ -374,7 +417,9 @@ export default function CanvasScreen() {
     setSelectedNode((current: unknown) => {
       const node = current as { _id?: string } | null;
       if (!node || node._id !== nodeId) return current;
-      return { ...node, width, height };
+      // `manuallySized` se menja zajedno sa veličinom: posle upisa dimenzija čvor
+      // JESTE ručno dimenzionisan, pa sledeći „Poništi" mora da zna tačan inverz.
+      return { ...node, width, height, manuallySized: true };
     });
     setNodeTarget((current) =>
       current && current._id === nodeId ? { ...current, width, height } : current,
@@ -382,12 +427,29 @@ export default function CanvasScreen() {
     setCheckpointTarget((current) =>
       current && current._id === nodeId ? { ...current, width, height } : current,
     );
+    setIdeaTarget((current) =>
+      current && current._id === nodeId
+        ? { ...current, width, height, manuallySized: true }
+        : current,
+    );
+    setThoughtTarget((current) =>
+      current && current._id === nodeId
+        ? { ...current, width, height, manuallySized: true }
+        : current,
+    );
   }, []);
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
       let msg: {
         type?: string;
+        /**
+         * Vrsta kanvasa sa koje poruka stiže (K5). Kartice stranica nose `areaId` i
+         * `rootPageId`, kojih na kanvasu ideja i misli NEMA — a i mutacije su druge
+         * (`ideas.updatePositions` vs `areasV2.movePages`). Native zato grana po ovom
+         * polju, isto kao po `nodeKind` iz K4. Odsustvo = `"page"` (K1–K4 protokol).
+         */
+        canvas?: string;
         nodeId?: string;
         node?: unknown;
         ids?: string[];
@@ -395,8 +457,18 @@ export default function CanvasScreen() {
         areaId?: string;
         rootPageId?: string | null;
         pageId?: string;
+        /** `moved`/`resized` na kanvasu ideja/misli — id ČVORA (= id dokumenta). */
+        id?: string;
+        /** `resized` na kanvasu ideja/misli: da li je čvor PRE poteza imao ručnu veličinu. */
+        manuallySized?: boolean;
         count?: number;
         before?: Array<{ pageId: string; x: number; y: number }>;
+        /**
+         * `moved` na kanvasu ideja/misli: STORED koordinate od PRE poteza. Ime je
+         * drugo od `before` jer je i oblik drugi (`id` umesto `pageId`) — ista
+         * konvencija kao `before` vs `previous` iz K2.
+         */
+        moves?: Array<{ id: string; x: number; y: number }>;
         /**
          * `moved`: koraci zadatka iz ISTOG poteza, sa koordinatama od PRE njega (K4).
          * Stiže uz `before` (kartice) jer traka „Poništi" ima jedan slot — embed zato i
@@ -455,11 +527,36 @@ export default function CanvasScreen() {
         }
       } else if (msg.type === 'node:actions' && msg.node) {
         // Dugi pritisak na čvor u režimu → native sheet: „Akcije kartice" (veze K3 +
-        // veličina K2) ili „Akcije koraka" (veze + preseti veličine, K4). Ideje i misli
-        // ovu poruku ne šalju.
+        // veličina K2), „Akcije koraka" (K4) ili „Akcije ideje"/„Akcije misli" (K5).
+        // Grana ide po `nodeKind` iz embeda, ne po vrsti kanvasa.
         haptics.tap();
         if (nodeKind === 'checkpoint') setCheckpointTarget(msg.node as CheckpointNodeTarget);
+        else if (nodeKind === 'idea') setIdeaTarget(msg.node as IdeaNodeTarget);
+        else if (nodeKind === 'thought') setThoughtTarget(msg.node as ThoughtNodeTarget);
         else if (isPageKind) setNodeTarget(msg.node as PageNodeTarget);
+      } else if (
+        msg.type === 'connected' &&
+        msg.edgeId &&
+        (msg.canvas === 'ideas' || msg.canvas === 'thoughts')
+      ) {
+        // Veza na kanvasu ideja/misli (K5): druge tabele, druge mutacije, ali isti
+        // tok — upis je prošao, linija se pojavila sama, native zatvara biranje.
+        haptics.success();
+        setConnectSource(null);
+        postToWeb({ type: 'connect', sourceId: null });
+        const label = msg.canvas === 'ideas' ? 'Ideje su povezane.' : 'Misli su povezane.';
+        pushUndo({
+          label,
+          action:
+            msg.canvas === 'ideas'
+              ? {
+                  kind: 'ideaEdgeConnect',
+                  startupId: msg.startupId as Id<'startups'>,
+                  edgeId: msg.edgeId as Id<'ideaEdges'>,
+                }
+              : { kind: 'thoughtEdgeConnect', edgeId: msg.edgeId as Id<'thoughtEdges'> },
+        });
+        AccessibilityInfo.announceForAccessibility(label);
       } else if (msg.type === 'connected' && msg.startupId && msg.areaId && msg.edgeId) {
         // Upis je prošao; linija se u WebView-u pojavila sama (isti Convex klijent).
         // Native ovde samo zatvara biranje i nudi put nazad.
@@ -494,6 +591,99 @@ export default function CanvasScreen() {
         const ids = msg.ids ?? [];
         setSelectedNodeIds(ids);
         setSelectedNode(ids.length === 1 ? msg.node ?? null : null);
+      } else if (
+        msg.type === 'resized' &&
+        (msg.canvas === 'ideas' || msg.canvas === 'thoughts') &&
+        msg.id &&
+        msg.previous &&
+        typeof msg.width === 'number' &&
+        typeof msg.height === 'number'
+      ) {
+        // Veličina ideje/misli iz poteza ugaonom ručkom (K5). Upis je već prošao;
+        // `previous` je iz memorije (STORED koordinate), ne iz baze.
+        haptics.success();
+        applyNodeSize(msg.id, msg.width, msg.height);
+        const isIdea = msg.canvas === 'ideas';
+        pushUndo({
+          label: `Veličina ${isIdea ? 'ideje' : 'misli'}: ${msg.width} × ${msg.height}.`,
+          action: isIdea
+            ? {
+                kind: 'ideaResize',
+                startupId: msg.startupId as Id<'startups'>,
+                ideaId: msg.id as Id<'ideaNodes'>,
+                x: msg.previous.x,
+                y: msg.previous.y,
+                width: msg.previous.width,
+                height: msg.previous.height,
+                manuallySized: msg.manuallySized === true,
+              }
+            : {
+                kind: 'thoughtResize',
+                nodeId: msg.id as Id<'thoughtNodes'>,
+                x: msg.previous.x,
+                y: msg.previous.y,
+                width: msg.previous.width,
+                height: msg.previous.height,
+                manuallySized: msg.manuallySized === true,
+              },
+        });
+      } else if (
+        msg.type === 'moved' &&
+        (msg.canvas === 'ideas' || msg.canvas === 'thoughts') &&
+        msg.moves
+      ) {
+        // Potez na kanvasu ideja/misli (K5). Koordinate su STORED (relativne na
+        // roditelja) — embed ih je već preveo (`lib/canvas-nesting.ts`), pa
+        // „Poništi" ide pravo u mutaciju bez druge konverzije.
+        haptics.success();
+        const moves = msg.moves;
+        const count = msg.count ?? moves.length;
+        pushUndo({
+          label:
+            msg.canvas === 'ideas'
+              ? count === 1
+                ? 'Ideja je pomerena.'
+                : `${count} ${isPaucal(count) ? 'ideje su pomerene' : 'ideja je pomereno'}.`
+              : count === 1
+                ? 'Misao je pomerena.'
+                : `${count} misli je pomereno.`,
+          action:
+            msg.canvas === 'ideas'
+              ? {
+                  kind: 'ideaMove',
+                  startupId: msg.startupId as Id<'startups'>,
+                  updates: moves.map((move) => ({
+                    id: move.id as Id<'ideaNodes'>,
+                    x: move.x,
+                    y: move.y,
+                  })),
+                }
+              : {
+                  kind: 'thoughtMove',
+                  moves: moves.map((move) => ({
+                    nodeId: move.id as Id<'thoughtNodes'>,
+                    x: move.x,
+                    y: move.y,
+                  })),
+                },
+        });
+      } else if (
+        msg.type === 'viewport' &&
+        (msg.canvas === 'ideas' || msg.canvas === 'thoughts') &&
+        msg.startupId &&
+        typeof msg.x === 'number' &&
+        typeof msg.y === 'number' &&
+        typeof msg.zoom === 'number'
+      ) {
+        pendingViewportRef.current = {
+          canvas: msg.canvas,
+          startupId: msg.startupId as Id<'startups'>,
+          x: msg.x,
+          y: msg.y,
+          zoom: msg.zoom,
+        };
+        if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+        viewportTimerRef.current = setTimeout(flushViewport, VIEWPORT_DEBOUNCE_MS);
       } else if (
         msg.type === 'resized' &&
         msg.startupId &&
@@ -558,6 +748,7 @@ export default function CanvasScreen() {
         typeof msg.zoom === 'number'
       ) {
         pendingViewportRef.current = {
+          canvas: 'page',
           startupId: msg.startupId as Id<'startups'>,
           areaId: msg.areaId as Id<'startupAreas'>,
           rootPageId: (msg.rootPageId ?? null) as Id<'pages'> | null,
@@ -646,15 +837,38 @@ export default function CanvasScreen() {
     isPageKind && hasSingleSelection && selectedKind === 'checkpoint'
       ? (selectedNode as CheckpointNodeTarget)
       : null;
+  // Isti slot, druge vrste čvora (K5). Grana ide po `nodeKind` iz embeda.
+  const selectedIdea =
+    isIdeas && hasSingleSelection && selectedKind === 'idea'
+      ? (selectedNode as IdeaNodeTarget)
+      : null;
+  const selectedThought =
+    isThoughts && hasSingleSelection && selectedKind === 'thought'
+      ? (selectedNode as ThoughtNodeTarget)
+      : null;
+  const hasNodeActions =
+    selectedPage !== null ||
+    selectedCheckpoint !== null ||
+    selectedIdea !== null ||
+    selectedThought !== null;
+  const nodeActionLabel = selectedCheckpoint
+    ? 'Akcije koraka'
+    : selectedIdea
+      ? 'Akcije ideje'
+      : selectedThought
+        ? 'Akcije misli'
+        : 'Akcije kartice';
   const nodeAction: RailAction | undefined =
-    editMode && !connectSource && (selectedPage || selectedCheckpoint)
+    editMode && !connectSource && hasNodeActions
       ? {
-          label: selectedCheckpoint ? 'Akcije koraka' : 'Akcije kartice',
+          label: nodeActionLabel,
           icon: <Ellipsis size={20} color={colors.foreground} />,
-          onPress: () =>
-            selectedCheckpoint
-              ? setCheckpointTarget(selectedCheckpoint)
-              : setNodeTarget(selectedPage),
+          onPress: () => {
+            if (selectedCheckpoint) setCheckpointTarget(selectedCheckpoint);
+            else if (selectedIdea) setIdeaTarget(selectedIdea);
+            else if (selectedThought) setThoughtTarget(selectedThought);
+            else if (selectedPage) setNodeTarget(selectedPage);
+          },
         }
       : undefined;
 
@@ -806,6 +1020,21 @@ export default function CanvasScreen() {
               setOpenIdea(null);
             }}
           />
+          {/* Akcije ideje (K5): veličina + veze. Otvara ih dugi pritisak u režimu
+              (`node:actions`) ili četvrta ikonica rail-a — dva puta do iste radnje. */}
+          <IdeaNodeActionsSheet
+            idea={ideaTarget}
+            onClose={() => setIdeaTarget(null)}
+            onStartConnect={(idea) =>
+              startConnect({
+                nodeId: idea._id,
+                title: (idea.title ?? idea.text).trim() || 'Ideja',
+              })
+            }
+            onApplied={(width, height) => {
+              if (ideaTarget) applyNodeSize(ideaTarget._id, width, height);
+            }}
+          />
         </>
       ) : null}
 
@@ -840,6 +1069,21 @@ export default function CanvasScreen() {
             onConverted={() => {
               setSelectedNodeIds([]);
               setSelectedNode(null);
+            }}
+          />
+          {/* Akcije misli (K5) — blizanac sheet-a ideje; misli su privatne, pa nema
+              tuđih oblačića ni glasanja o brisanju veze. */}
+          <ThoughtNodeActionsSheet
+            thought={thoughtTarget}
+            onClose={() => setThoughtTarget(null)}
+            onStartConnect={(thought) =>
+              startConnect({
+                nodeId: thought._id,
+                title: (thought.title ?? thought.text).trim() || 'Misao',
+              })
+            }
+            onApplied={(width, height) => {
+              if (thoughtTarget) applyNodeSize(thoughtTarget._id, width, height);
             }}
           />
         </>

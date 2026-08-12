@@ -31,6 +31,7 @@ import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { maxPageFileBytesFor, pageFileCategoryFor } from '@/convex/lib/page_files';
 import { haptics } from '@/lib/haptics';
 import {
   OPTIMISTIC_ID_PREFIX,
@@ -245,6 +246,27 @@ export function MessageComposer({
     kind: 'file' | 'voice';
     voiceDurationMs?: number;
   }) {
+    // Ista granica koju server ponavlja (`chat.sendMessage` → `resolveAttachment`).
+    // Ovde je da fajl koji će ionako biti odbijen ne ode kroz upload i ne ostavi
+    // siroč blob — poruka je namerno identična serverskoj.
+    const category = pageFileCategoryFor(input.mimeType || undefined, input.name);
+    if (category === null) {
+      haptics.error();
+      Alert.alert(
+        'Prilog',
+        `Ovaj tip fajla nije podržan${input.mimeType ? `: ${input.mimeType}` : ''}.`,
+      );
+      return;
+    }
+    const maxBytes = maxPageFileBytesFor(category);
+    if (input.size !== null && input.size > maxBytes) {
+      haptics.error();
+      Alert.alert(
+        'Prilog',
+        `Prilog može imati najviše ${Math.round(maxBytes / (1024 * 1024))} MB.`,
+      );
+      return;
+    }
     setUploading(true);
     const replyId = replyTo?._id;
     try {

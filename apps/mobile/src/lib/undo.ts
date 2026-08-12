@@ -131,7 +131,58 @@ export type UndoAction =
       rootPageId: Id<'pages'> | null;
       source: CheckpointEndpoint;
       target: CheckpointEndpoint;
-    };
+    }
+  /**
+   * Pomeranje ideja na kanvasu (K5). Kao `pageMove` — inverzan potez, ne vraćanje
+   * arhiviranog. `updates` nosi ono što je u BAZI pisalo pre poteza, dakle STORED
+   * (relativne) koordinate; embed ih tako i šalje (`lib/canvas-nesting.ts`).
+   */
+  | {
+      kind: 'ideaMove';
+      startupId: Id<'startups'>;
+      updates: Array<{ id: Id<'ideaNodes'>; x: number; y: number }>;
+    }
+  /**
+   * Promena veličine ideje (K5). Inverz je USLOVAN, kao kod `checkpointResize`: ako
+   * kartica PRE poteza nije imala ručnu veličinu, vraćanje samo dimenzija bi je
+   * zauvek ostavilo ručno dimenzionisanom — treba `resetLayoutSize`, a pozicija se
+   * vraća zasebno (`resetLayoutSize` je ne dira).
+   */
+  | {
+      kind: 'ideaResize';
+      startupId: Id<'startups'>;
+      ideaId: Id<'ideaNodes'>;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      manuallySized: boolean;
+    }
+  /**
+   * Napravljena veza između dve ideje (K5). Inverz je `ideas.disconnect` nad ivicom
+   * koju je server upravo vratio — zato `edgeId`, ne par.
+   */
+  | { kind: 'ideaEdgeConnect'; startupId: Id<'startups'>; edgeId: Id<'ideaEdges'> }
+  /** Pomeranje misli na kanvasu (K5) — blizanac `ideaMove`; `moveNodes` nema startupId. */
+  | {
+      kind: 'thoughtMove';
+      moves: Array<{ nodeId: Id<'thoughtNodes'>; x: number; y: number }>;
+    }
+  /** Promena veličine misli (K5) — blizanac `ideaResize`. */
+  | {
+      kind: 'thoughtResize';
+      nodeId: Id<'thoughtNodes'>;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      manuallySized: boolean;
+    }
+  /**
+   * Napravljena veza između dve misli (K5). Inverz je `archiveEdges` — a ne
+   * `restoreEdges`, koji vraća ono što je arhivirano.
+   */
+  | { kind: 'thoughtEdgeConnect'; edgeId: Id<'thoughtEdges'> };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */

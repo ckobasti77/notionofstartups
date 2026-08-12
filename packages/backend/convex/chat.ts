@@ -23,6 +23,7 @@ import {
   chatNotificationLevelValidator,
   CHAT_CHANNELS_CAP,
   CHAT_EDIT_WINDOW_MS,
+  CHAT_PRESENCE_TTL_MS,
   CHAT_PREVIEW_LENGTH,
   CHAT_RECIPIENTS_CAP,
   CHAT_SEARCH_CAP,
@@ -31,6 +32,11 @@ import {
   MAX_CHAT_MENTIONS,
   MAX_CHAT_MESSAGE_LENGTH,
 } from "./lib/validators";
+import {
+  maxPageFileBytesFor,
+  pageFileCategoryFor,
+  cleanPageFileName,
+} from "./lib/page_files";
 
 // Klijent-neutralni chat sloj (web + mobilni troše isti API). Dizajn:
 // docs/mobile/04-CHAT.md. Šema, chat validatori i notifikacioni tipovi već
@@ -227,6 +233,35 @@ async function upsertChatRead(
     ...args.patch,
     updatedAt: now,
   });
+}
+
+async function getChatPresence(
+  ctx: ReadCtx,
+  channelId: Id<"chatChannels">,
+  profileId: Id<"profiles">,
+) {
+  return await ctx.db
+    .query("chatPresence")
+    .withIndex("by_channel_and_profile", (q) =>
+      q.eq("channelId", channelId).eq("profileId", profileId),
+    )
+    .unique();
+}
+
+/**
+ * Da li primalac U OVOM TRENUTKU gleda baš ovaj kanal i stoji na dnu. To je
+ * jedini slučaj u kome poruka ne pravi obaveštenje — video ju je uživo, kao na
+ * WhatsApp-u. Sve ostalo zvoni: drugi kanal, skrolovan gore, pozadina, ugašena
+ * app, drugi ekran, drugi uređaj.
+ */
+async function isPresentInChannel(
+  ctx: ReadCtx,
+  channelId: Id<"chatChannels">,
+  profileId: Id<"profiles">,
+  now: number,
+): Promise<boolean> {
+  const presence = await getChatPresence(ctx, channelId, profileId);
+  return presence !== null && presence.expiresAt > now;
 }
 
 /** Thread/custom: slanje ili @-pominjanje čini korisnika članom (participacija). */
@@ -522,6 +557,13 @@ async function insertMessage(
     if (level === "none") continue;
     if (level === "mentions" && !isMentioned) continue;
 
+    // Jedini izuzetak od „svaka poruka zvoni": primalac gleda BAŠ ovaj kanal i
+    // stoji na dnu. Guard stoji POSLE `upsertChatRead` namerno — nepročitano se i
+    // dalje broji, pa badge ostaje tačan i kad `markChannelRead` sa klijenta padne.
+    // Pominjanje nema izuzetak od izuzetka: ako gledaš poruku u kojoj te neko
+    // pomenuo, video si je.
+    if (await isPresentInChannel(ctx, channel._id, recipientId, now)) continue;
+
     const type = isMentioned
       ? "chat_mention"
       : channel.kind === "dm"
@@ -541,8 +583,15 @@ async function insertMessage(
       targetType: "chat",
       targetId: channel._id,
       actorProfileId: authorProfileId,
-      // Jedno obaveštenje po kanalu po primaocu po minutu — inače alarm.
-      dedupeKey: `chat:${channel._id}:${recipientId}:${Math.floor(now / 60_000)}`,
+      /**
+       * Ključ po PORUCI, ne po minutu. Raniji ključ
+       * (`chat:<channel>:<recipient>:<minut>`) je bio kanta od jednog kalendarskog
+       * minuta: prva poruka prođe, a sve ostale `createNotification` tiho odbaci
+       * na `by_dedupeKey` proveri — korisnik je dobio jedno obaveštenje pa tišinu.
+       * Ovako zaštita od dvostrukog upisa (OCC retry ponovo izvrši celu mutaciju)
+       * ostaje, a prigušenje nestaje: svaka poruka zvoni.
+       */
+      dedupeKey: `chat:${messageId}:${recipientId}`,
     });
   }
 
@@ -771,6 +820,61 @@ async function enrichMessages(
 }
 
 // --- Validacija ulaza -----------------------------------------------------
+
+/**
+ * Prilog poruke: tip i veličina se čitaju SA SERVERA, ne iz argumenata. Klijent
+ * šalje `attachmentType`/`attachmentSize` samo kao nagoveštaj — o njima zavise i
+ * prikaz i potrošnja, pa mu se ne veruje (isti obrazac kao `pageFiles.ts:222–242`).
+ *
+ * Granice su namerno ISTE kao za priloge stranica (`lib/page_files.ts`): jedan
+ * spisak dozvoljenih tipova i jedan skup granica za ceo proizvod. Drugi, paralelni
+ * spisak samo za chat bi se vremenom razišao.
+ *
+ * Odbijeni blob se NE briše ovde: `ctx.storage.delete` je deo iste transakcije,
+ * pa bi ga `throw` odmah poništio (zato `pageFiles.ts` vraća rezultat umesto da
+ * baca). Klijent istu granicu proverava i pre uploada, pa je ovo poslednja kapija,
+ * ne prva.
+ */
+async function resolveAttachment(
+  ctx: MutationCtx,
+  input: {
+    storageId: Id<"_storage"> | undefined;
+    name: string | undefined;
+    type: string | undefined;
+    size: number | undefined;
+  },
+): Promise<{ name: string | null; type: string | null; size: number | null }> {
+  if (input.storageId === undefined) {
+    return {
+      name: input.name ?? null,
+      type: input.type ?? null,
+      size: input.size ?? null,
+    };
+  }
+  const metadata = await ctx.db.system.get("_storage", input.storageId);
+  if (metadata === null) throw new Error("Prilog nije pronađen.");
+  // Ime iz clipboard-a ume da bude prazno — rezerva umesto pada na praznom stringu.
+  const name = cleanPageFileName(input.name?.trim() || "prilog");
+  const category = pageFileCategoryFor(metadata.contentType, name);
+  if (category === null) {
+    throw new Error(
+      `Ovaj tip fajla nije podržan${
+        metadata.contentType ? `: ${metadata.contentType}` : ""
+      }.`,
+    );
+  }
+  const maxBytes = maxPageFileBytesFor(category);
+  if (metadata.size > maxBytes) {
+    throw new Error(
+      `Prilog može imati najviše ${Math.round(maxBytes / (1024 * 1024))} MB.`,
+    );
+  }
+  return {
+    name,
+    type: metadata.contentType ?? "application/octet-stream",
+    size: metadata.size,
+  };
+}
 
 async function validateMentions(
   ctx: ReadCtx,
@@ -1125,15 +1229,22 @@ export const sendMessage = mutation({
       }
     }
 
+    const attachment = await resolveAttachment(ctx, {
+      storageId: args.attachmentStorageId,
+      name: args.attachmentName,
+      type: args.attachmentType,
+      size: args.attachmentSize,
+    });
+
     return await insertMessage(ctx, channel, profile._id, profile.displayName, {
       body,
       kind,
       mentions,
       replyToMessageId,
       attachmentStorageId: args.attachmentStorageId,
-      attachmentName: args.attachmentName ?? null,
-      attachmentType: args.attachmentType ?? null,
-      attachmentSize: args.attachmentSize ?? null,
+      attachmentName: attachment.name,
+      attachmentType: attachment.type,
+      attachmentSize: attachment.size,
       voiceDurationMs: args.voiceDurationMs ?? null,
     });
   },
@@ -1379,6 +1490,42 @@ export const markChannelRead = mutation({
         lastReadAt: Date.now(),
         lastReadMessageId: last?._id ?? null,
       },
+    });
+    return null;
+  },
+});
+
+/**
+ * Otkucaj prisustva: „gledam ovaj kanal i stojim na dnu". Klijent ga šalje dok je
+ * ekran u prvom planu i lista na dnu, i obnavlja ga na `CHAT_PRESENCE_REFRESH_MS`;
+ * `present: false` gasi prisustvo odmah (blur, odlazak sa ekrana, skrol gore).
+ *
+ * Red se NE briše na gašenje — jedan je po paru (kanal, profil), pa je upsert
+ * jeftiniji od insert/delete ciklusa, a tabela ne raste sa brojem poruka.
+ */
+export const setPresence = mutation({
+  args: { channelId: v.id("chatChannels"), present: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { channel, profile } = await requireChannelAccess(ctx, args.channelId);
+    const now = Date.now();
+    const expiresAt = args.present ? now + CHAT_PRESENCE_TTL_MS : 0;
+    const existing = await getChatPresence(ctx, channel._id, profile._id);
+    if (existing === null) {
+      // Gašenje bez postojećeg reda nema šta da upiše — prazan red bi bio šum.
+      if (!args.present) return null;
+      await ctx.db.insert("chatPresence", {
+        channelId: channel._id,
+        profileId: profile._id,
+        startupId: channel.startupId,
+        expiresAt,
+        updatedAt: now,
+      });
+      return null;
+    }
+    await ctx.db.patch("chatPresence", existing._id, {
+      expiresAt,
+      updatedAt: now,
     });
     return null;
   },

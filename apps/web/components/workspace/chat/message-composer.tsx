@@ -64,6 +64,9 @@ export function MessageComposer({
   profile,
   members,
   replyTo,
+  uploading,
+  sendAttachment,
+  sendFiles,
   onCancelReply,
   onSent,
 }: {
@@ -71,11 +74,22 @@ export function MessageComposer({
   profile: ProfileWithAvatar;
   members: StartupMember[] | undefined;
   replyTo: ChatMessage | null;
+  /**
+   * Slanje priloga živi u `conversation-pane` (`use-attachment-sender.ts`), jer
+   * ista logika treba i drop zoni koja pokriva ceo prozor razgovora — a `replyTo`
+   * je tamo. Composer je samo jedan od tri ulaza (spajalica, `Ctrl+V`, drop).
+   */
+  uploading: boolean;
+  sendAttachment: (
+    file: File,
+    kind: "file" | "voice",
+    voiceDurationMs?: number,
+  ) => void;
+  sendFiles: (files: File[]) => void;
   onCancelReply: () => void;
   onSent: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Optimistički unos samo za tekst — prilog/glas čekaju upload, pa se šalju bez
@@ -91,8 +105,6 @@ export function MessageComposer({
       });
     },
   );
-  const generateUploadUrl = useMutation(api.chat.generateUploadUrl);
-
   async function sendText() {
     const body = draft.trim();
     if (!body) return;
@@ -114,41 +126,17 @@ export function MessageComposer({
     }
   }
 
-  async function sendAttachment(
-    file: File,
-    kind: "file" | "voice",
-    voiceDurationMs?: number,
-  ) {
-    setUploading(true);
-    const replyId = replyTo?._id;
-    try {
-      const uploadUrl = await generateUploadUrl({ channelId: channel._id });
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      if (!response.ok) throw new Error("Otpremanje nije uspelo.");
-      const { storageId } = (await response.json()) as {
-        storageId: Id<"_storage">;
-      };
-      await send({
-        channelId: channel._id,
-        body: "",
-        kind,
-        attachmentStorageId: storageId,
-        attachmentName: file.name,
-        attachmentType: file.type || "application/octet-stream",
-        attachmentSize: file.size,
-        voiceDurationMs,
-        replyToMessageId: replyId,
-      });
-      onSent();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Prilog nije poslat.");
-    } finally {
-      setUploading(false);
-    }
+  /**
+   * `Ctrl+V` sa slikom. Screenshot iz clipboard-a je `image/png` bez upotrebljivog
+   * imena — ime sa vremenskom oznakom pravi `use-attachment-sender.ts`. Kad u
+   * clipboard-u nema fajlova, `preventDefault` se NE zove: običan tekst se lepi kao
+   * i pre.
+   */
+  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    sendFiles(files);
   }
 
   return (
@@ -178,11 +166,12 @@ export function MessageComposer({
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="hidden"
           onChange={(event) => {
-            const file = event.target.files?.[0];
+            const files = Array.from(event.target.files ?? []);
             event.target.value = "";
-            if (file) void sendAttachment(file, "file");
+            sendFiles(files);
           }}
         />
         <Button
@@ -206,6 +195,7 @@ export function MessageComposer({
           onChange={setDraft}
           members={members}
           onSubmit={() => void sendText()}
+          onPaste={handlePaste}
           placeholder="Napiši poruku…  (@ za pominjanje)"
         />
 
@@ -223,7 +213,7 @@ export function MessageComposer({
           <VoiceRecorder
             disabled={uploading}
             onRecorded={(file, durationMs) =>
-              void sendAttachment(file, "voice", durationMs)
+              sendAttachment(file, "voice", durationMs)
             }
           />
         )}

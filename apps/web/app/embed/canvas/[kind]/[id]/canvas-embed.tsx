@@ -37,6 +37,14 @@ import {
 } from "@/components/workspace/canvases/task-checkpoint-layout";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+// Apsolutno ↔ relativno za ugnježdene čvorove (`ZA-POPRAVKU.md` §9). Kanvas ideja i
+// misli crta ravno, a baza čuva poziciju relativno na roditelja — prevod je ovde, sa
+// testom (`canvas-nesting.test.ts`), jer je greška u njemu tiha.
+import {
+  absolutePositions,
+  storedMovesFor,
+  type NestedNode,
+} from "@/lib/canvas-nesting";
 import { pageKindLabel } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 
@@ -309,9 +317,9 @@ function CanvasInner({
     };
   }, [fitView, zoomIn, zoomOut]);
 
-  // `editMode` i `connectSourceId` idu svim vrstama; ideje i misli ih dobijaju bez
-  // handlera (za pomeranje odnosno povezivanje), pa je kod njih i režim i biranje
-  // inertno (pravilo 7 iz `REZIM.md` — K5 dodaje samo handler).
+  // `editMode` i `connectSourceId` idu svim vrstama. Od K5 sve četiri imaju i
+  // handlere (pomeranje, veličina, veze), pa režim više nigde nije inertan
+  // (pravilo 7 iz `REZIM.md` — „K5 dodaje samo handler").
   if (kind === "ideas") {
     return (
       <IdeasFlow
@@ -989,8 +997,37 @@ function EmbedFlow({
  */
 type IdeaListNode = FunctionReturnType<typeof api.ideas.list>["nodes"][number];
 
-/** Detalj čvora koji embed šalje native ljusci (isti oblik kao mobilni `IdeaDetail`). */
+/**
+ * Sused čvora na kanvasu ideja/misli. Isti oblik kao `PageNodeEdgeDetail` (mobilni
+ * `NodeEdgeRow`), pa native koristi ISTU deljenu sekciju „Veze" — bez trećeg oblika.
+ */
+type SimpleEdgeDetail = {
+  _id: string;
+  kind: "canvas";
+  otherId: string;
+  otherTitle: string;
+  label: string | null;
+  canDelete: boolean;
+  canRequestDeletion: boolean;
+};
+
+/**
+ * Koliko čvorova sme u jedan potez. Broj je desktopov („Pomeraj najviše 50 ideja
+ * odjednom." / „…50 izabranih misli odjednom.") i poklapa se sa serverskim
+ * `MAX_BULK_ITEMS` za `thoughts.moveNodes`. Prekoračenje se ne seče tiho nego
+ * odbija — kao na desktopu.
+ */
+const MAX_NESTED_MOVE_UPDATES = 50;
+
+/**
+ * Detalj ideje koji embed šalje native ljusci. Prvi deo je `IdeaDetail` (mobilni
+ * `idea-node-sheet.tsx` — glasanje i tekst), ostalo je ono što traži sheet „Akcije
+ * ideje" (K5): veličina, veze i scope. Sve ide uz jednu poruku, pa native ne radi
+ * drugi upit.
+ */
 type IdeaNodeDetail = {
+  /** Diskriminator — native po njemu bira sheet, ne pogađa po vrsti kanvasa (K4). */
+  nodeKind: "idea";
   _id: Id<"ideaNodes">;
   title: string | null;
   text: string;
@@ -998,19 +1035,19 @@ type IdeaNodeDetail = {
   downvotes: number;
   userVote: "up" | "down" | null;
   author: { displayName: string } | null;
+  startupId: Id<"startups">;
+  /** STORED (relativne) koordinate — `updateLayout` prima baš njih. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Da li kartica ima RUČNU veličinu — od toga zavisi tačan inverz „Poništi". */
+  manuallySized: boolean;
+  canResize: boolean;
+  canConnect: boolean;
+  nodeCount: number;
+  edges: SimpleEdgeDetail[];
 };
-
-function toNodeDetail(node: IdeaListNode): IdeaNodeDetail {
-  return {
-    _id: node._id,
-    title: node.title,
-    text: node.text,
-    upvotes: node.upvotes,
-    downvotes: node.downvotes,
-    userVote: node.userVote,
-    author: node.author ? { displayName: node.author.displayName } : null,
-  };
-}
 
 function IdeasFlow({
   startupId,
@@ -1024,52 +1061,292 @@ function IdeasFlow({
   connectSourceId: string | null;
 }) {
   const data = useQuery(api.ideas.list, { startupId });
+  if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
+  // Podela na upit i prikaz nije kozmetika: `initialViewport` se ZAMRZAVA na mount-u
+  // (xyflow `defaultViewport` čita samo pri inicijalizaciji), pa komponenta koja ga
+  // čita sme da se montira tek kad podaci postoje.
+  return (
+    <IdeasCanvasView
+      data={data}
+      startupId={startupId}
+      colorMode={colorMode}
+      editMode={editMode}
+      connectSourceId={connectSourceId}
+    />
+  );
+}
+
+function IdeasCanvasView({
+  data,
+  startupId,
+  colorMode,
+  editMode,
+  connectSourceId,
+}: {
+  data: FunctionReturnType<typeof api.ideas.list>;
+  startupId: Id<"startups">;
+  colorMode: ThemeMode;
+  editMode: boolean;
+  connectSourceId: string | null;
+}) {
+  const updatePositions = useMutation(api.ideas.updatePositions);
+  const updateLayout = useMutation(api.ideas.updateLayout);
+  const connectIdeas = useMutation(api.ideas.connect);
+
+  /** Zapamćena kamera; `canvasState` bez `_id` je rezerva sa servera, ne upis. */
+  const [initialViewport] = useState<Viewport | null>(() =>
+    "_id" in data.canvasState
+      ? { x: data.canvasState.x, y: data.canvasState.y, zoom: data.canvasState.zoom }
+      : null,
+  );
+
+  const rawById = useMemo(
+    () => new Map(data.nodes.map((node) => [node._id as string, node])),
+    [data.nodes],
+  );
+  /** Ono što baza stvarno drži: pozicija ugnježdene ideje je RELATIVNA na roditelja. */
+  const nested = useMemo<NestedNode[]>(
+    () =>
+      data.nodes.map((node) => ({
+        id: node._id as string,
+        x: node.x,
+        y: node.y,
+        parentId: (node.parentIdeaId as string | undefined) ?? null,
+      })),
+    [data.nodes],
+  );
+
+  /**
+   * Upis poteza. `after` iz `EmbedFlow` nosi APSOLUTNE pozicije sa platna, a
+   * `updatePositions` očekuje ono što baza drži — prevod radi `storedMovesFor`
+   * (`lib/canvas-nesting.ts`). Bez njega bi svaka ugnježdena ideja tiho sletela na
+   * poziciju uvećanu za offset roditelja (`ZA-POPRAVKU.md` §9).
+   */
+  const handleMoveNodes = useCallback(
+    async (_before: NodeMove[], after: NodeMove[]) => {
+      const writes = storedMovesFor(after, nested);
+      if (writes.length === 0) return;
+      if (writes.length > MAX_NESTED_MOVE_UPDATES) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: `Pomeraj najviše ${MAX_NESTED_MOVE_UPDATES} ideja odjednom.`,
+        });
+        throw new Error("Previše ideja u jednom potezu.");
+      }
+      // Koordinate od PRE poteza čita se iz podataka (STORED oblik), ne iz `_before`
+      // — taj je apsolutan, pa bi „Poništi" upisao pogrešnu vrednost.
+      const previous = writes.flatMap((move) => {
+        const node = rawById.get(move.id);
+        return node === undefined
+          ? []
+          : [{ id: move.id, x: Math.round(node.x), y: Math.round(node.y) }];
+      });
+      try {
+        await updatePositions({
+          startupId,
+          updates: writes.map((move) => ({
+            id: move.id as Id<"ideaNodes">,
+            x: move.x,
+            y: move.y,
+          })),
+        });
+        postNative({
+          type: "moved",
+          canvas: "ideas",
+          startupId,
+          count: writes.length,
+          moves: previous,
+        });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: error instanceof Error ? error.message : "Pozicija nije sačuvana.",
+        });
+        throw error;
+      }
+    },
+    [nested, rawById, startupId, updatePositions],
+  );
+
+  /**
+   * Upis nove veličine. `updateLayout` traži i `x`/`y` (server ih prima zajedno),
+   * pa ugaona ručka koja pomeri gornji/levi rub mora da pošalje i prevedenu poziciju.
+   */
+  const handleResizeNode = useCallback(
+    async (nodeId: string, _before: EmbedResizeBox, after: EmbedResizeBox) => {
+      const node = rawById.get(nodeId);
+      if (node === undefined) return;
+      const absoluteById = absolutePositions(nested);
+      const parentId = nested.find((item) => item.id === nodeId)?.parentId ?? null;
+      const parent = parentId === null ? null : absoluteById.get(parentId) ?? null;
+      const x = Math.round(after.x - (parent?.x ?? 0));
+      const y = Math.round(after.y - (parent?.y ?? 0));
+      try {
+        await updateLayout({
+          startupId,
+          ideaId: nodeId as Id<"ideaNodes">,
+          x,
+          y,
+          width: after.width,
+          height: after.height,
+        });
+        postNative({
+          type: "resized",
+          canvas: "ideas",
+          startupId,
+          id: nodeId,
+          width: after.width,
+          height: after.height,
+          previous: {
+            x: Math.round(node.x),
+            y: Math.round(node.y),
+            width: node.width ?? EMBED_NODE_WIDTH,
+            height: node.height ?? EMBED_NODE_HEIGHT,
+          },
+          // Kartica koja PRE poteza nije imala ručnu veličinu se ne vraća samo
+          // dimenzijama — inače ostaje ručno dimenzionisana zauvek (isto pravilo
+          // kao `checkpointResize` u K4).
+          manuallySized: node.width != null && node.height != null,
+        });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message:
+            error instanceof Error ? error.message : "Veličina ideje nije sačuvana.",
+        });
+        throw error;
+      }
+    },
+    [nested, rawById, startupId, updateLayout],
+  );
+
+  const pairs = useMemo(
+    () => new Set(data.edges.map((edge) => pairKey(edge.nodeAId, edge.nodeBId))),
+    [data.edges],
+  );
+
+  const handleConnectNodes = useCallback(
+    async (sourceId: string, targetId: string) => {
+      if (pairs.has(pairKey(sourceId, targetId))) {
+        postNative({
+          type: "toast",
+          level: "info",
+          message: "Ove ideje su već povezane.",
+        });
+        return;
+      }
+      try {
+        const edgeId = await connectIdeas({
+          startupId,
+          nodeAId: sourceId as Id<"ideaNodes">,
+          nodeBId: targetId as Id<"ideaNodes">,
+        });
+        postNative({ type: "connected", canvas: "ideas", startupId, edgeId });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: error instanceof Error ? error.message : "Veza nije sačuvana.",
+        });
+      }
+    },
+    [connectIdeas, pairs, startupId],
+  );
+
+  const handleUserViewport = useCallback(
+    (viewport: Viewport) => {
+      postNative({
+        type: "viewport",
+        canvas: "ideas",
+        startupId,
+        x: viewport.x,
+        y: viewport.y,
+        zoom: viewport.zoom,
+      });
+    },
+    [startupId],
+  );
 
   const { nodes, edges, detailById } = useMemo(() => {
-    if (!data)
-      return {
-        nodes: [] as EmbedFlowNode[],
-        edges: [] as Edge[],
-        detailById: new Map<string, IdeaNodeDetail>(),
-      };
     const raw = data.nodes;
-    const byId = new Map(raw.map((n) => [n._id, n]));
-    // Detalj po id-u: native ga dobija uz `node:open`/`selection` (bez drugog upita).
-    const detailById = new Map<string, IdeaNodeDetail>(
-      raw.map((n) => [n._id as string, toNodeDetail(n)]),
-    );
-    // Pozicije ugnježdenih čvorova su relativne u odnosu na roditelja; ovde ih
-    // sabiramo uz lanac roditelja u apsolutne, pa render ide ravno (bez
-    // ReactFlow parent/child grafike koja traži poseban redosled).
-    const absolute = (node: IdeaListNode) => {
-      let x = node.x;
-      let y = node.y;
-      let parent = node.parentIdeaId;
-      const seen = new Set<string>([node._id]);
-      while (parent && !seen.has(parent)) {
-        seen.add(parent);
-        const parentNode = byId.get(parent);
-        if (!parentNode) break;
-        x += parentNode.x;
-        y += parentNode.y;
-        parent = parentNode.parentIdeaId;
-      }
-      return { x, y };
+    const absolute = absolutePositions(nested);
+    const titleOf = (node: IdeaListNode) =>
+      (node.title ?? node.text ?? "Ideja").trim().slice(0, 80) || "Ideja";
+    const titleById = new Map(raw.map((node) => [node._id as string, titleOf(node)]));
+
+    // Susedi po čvoru — računaju se JEDNOM za ceo graf, pa native sheet dobija
+    // gotovu listu uz `node:actions`/`selection` (bez drugog upita, kao u K3).
+    const edgesByNode = new Map<string, SimpleEdgeDetail[]>();
+    const addNeighbour = (own: string, item: SimpleEdgeDetail) => {
+      const list = edgesByNode.get(own);
+      if (list) list.push(item);
+      else edgesByNode.set(own, [item]);
     };
+    for (const edge of data.edges) {
+      const add = (own: string, other: string) => {
+        addNeighbour(own, {
+          _id: edge._id,
+          kind: "canvas",
+          otherId: other,
+          otherTitle: titleById.get(other) ?? "Ideja",
+          label: edge.label,
+          canDelete: edge.canDeleteDirectly,
+          canRequestDeletion: edge.canRequestDeletion,
+        });
+      };
+      add(edge.nodeAId as string, edge.nodeBId as string);
+      add(edge.nodeBId as string, edge.nodeAId as string);
+    }
+
+    const detailById = new Map<string, IdeaNodeDetail>(
+      raw.map((node) => [
+        node._id as string,
+        {
+          nodeKind: "idea",
+          _id: node._id,
+          title: node.title,
+          text: node.text,
+          upvotes: node.upvotes,
+          downvotes: node.downvotes,
+          userVote: node.userVote,
+          author: node.author ? { displayName: node.author.displayName } : null,
+          startupId,
+          x: Math.round(node.x),
+          y: Math.round(node.y),
+          width: node.width ?? EMBED_NODE_WIDTH,
+          height: node.height ?? EMBED_NODE_HEIGHT,
+          manuallySized: node.width != null && node.height != null,
+          canResize: node.canResize,
+          // Server traži da si autor BAR JEDNE od dve kartice
+          // (`ideas.connect`: „Vezu možete napraviti samo ako posedujete bar
+          // jednu karticu."). Izvor koji je tvoj uvek prolazi, pa se bira taj
+          // uslov — obrnuto bi zavisilo od cilja i davalo grešku posle tapa.
+          canConnect: node.canEdit,
+          nodeCount: raw.length,
+          edges: edgesByNode.get(node._id as string) ?? [],
+        } satisfies IdeaNodeDetail,
+      ]),
+    );
+
     return {
       nodes: raw.map<EmbedFlowNode>((node) => ({
         id: node._id,
         type: EMBED_NODE_TYPE,
-        position: absolute(node),
+        position: absolute.get(node._id as string) ?? { x: node.x, y: node.y },
         // Veličina ide i u čvor i u `style` — vidi `embed-node.tsx` (granice za `fitView`
         // moraju da postoje pre nego što xyflow izmeri DOM).
         width: node.width ?? EMBED_NODE_WIDTH,
         height: node.height ?? EMBED_NODE_HEIGHT,
         style: { width: node.width ?? EMBED_NODE_WIDTH, height: node.height ?? EMBED_NODE_HEIGHT },
         data: {
-          label: (node.title ?? node.text ?? "Ideja").trim().slice(0, 80) || "Ideja",
+          label: titleOf(node),
           meta: `${node.upvotes} za · ${node.downvotes} protiv`,
           accent: node.isApproved,
+          // Ručke dobija samo autor — server bi tuđu ideju ionako odbio.
+          canResize: node.canResize,
         },
         ariaLabel: `Ideja: ${node.title ?? node.text}`,
       })),
@@ -1078,11 +1355,9 @@ function IdeasFlow({
         source: edge.nodeAId,
         target: edge.nodeBId,
       })),
-      detailById,
+      detailById: detailById as Map<string, unknown>,
     };
-  }, [data]);
-
-  if (data === undefined) return <Center>Učitavanje kanvasa…</Center>;
+  }, [data.edges, data.nodes, nested, startupId]);
 
   return (
     <EmbedFlow
@@ -1092,32 +1367,43 @@ function IdeasFlow({
       colorMode={colorMode}
       editMode={editMode}
       connectSourceId={connectSourceId}
+      onConnectNodes={handleConnectNodes}
+      onMoveNodes={handleMoveNodes}
+      onResizeNode={handleResizeNode}
+      initialViewport={initialViewport}
+      onUserViewport={handleUserViewport}
       ariaLabel="Kanvas ideja"
       emptyLabel="Prazan kanvas ideja."
     />
   );
 }
 
-/** Detalj misli koji embed šalje native ljusci (isti oblik kao mobilni `ThoughtDetail`). */
+/**
+ * Detalj misli koji embed šalje native ljusci. Prvi deo je `ThoughtDetail` (mobilni
+ * `thought-node-sheet.tsx`), ostalo je ono što traži sheet „Akcije misli" (K5).
+ */
 type ThoughtNodeDetail = {
+  nodeKind: "thought";
   _id: Id<"thoughtNodes">;
   title: string | null;
   text: string;
   color: string;
   isParent: boolean;
+  startupId: Id<"startups">;
+  /** STORED (relativne) koordinate — `updateNodeLayout` prima baš njih. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  manuallySized: boolean;
+  canResize: boolean;
+  canConnect: boolean;
+  nodeCount: number;
+  edges: SimpleEdgeDetail[];
 };
 
 type ThoughtListNode = FunctionReturnType<typeof api.thoughts.listNodes>["page"][number];
-
-function toThoughtDetail(node: ThoughtListNode): ThoughtNodeDetail {
-  return {
-    _id: node._id,
-    title: node.title,
-    text: node.text,
-    color: node.color,
-    isParent: node.isParent ?? false,
-  };
-}
+type ThoughtListEdge = FunctionReturnType<typeof api.thoughts.listEdges>["page"][number];
 
 /** Server cap-ovi paginacije (`thoughts.ts`): 100 čvorova / 200 ivica po stranici. */
 const THOUGHT_NODE_PAGE = 100;
@@ -1156,6 +1442,8 @@ function ThoughtsFlow({
     loadMore: loadMoreEdges,
   } = usePaginatedQuery(api.thoughts.listEdges, { startupId }, { initialNumItems: THOUGHT_EDGE_PAGE });
 
+  const canvas = useQuery(api.thoughts.getCanvas, { startupId });
+
   useEffect(() => {
     if (nodeStatus === "CanLoadMore") loadMoreNodes(THOUGHT_NODE_PAGE);
   }, [nodeStatus, loadMoreNodes]);
@@ -1163,38 +1451,272 @@ function ThoughtsFlow({
     if (edgeStatus === "CanLoadMore") loadMoreEdges(THOUGHT_EDGE_PAGE);
   }, [edgeStatus, loadMoreEdges]);
 
+  // Renderuj tek kad su i čvorovi i ivice do kraja učitani. `listNodes`/`listEdges`
+  // pagira po `updatedAt` (ne po hijerarhiji), pa roditelj ugnježdene misli nije
+  // garantovano stigao pre deteta — prerani render bi čvor privremeno crtao na
+  // relativnoj poziciji, a ivice bez oba kraja. Auto-load do iscrpljenja je brz.
+  if (nodeStatus !== "Exhausted" || edgeStatus !== "Exhausted" || canvas === undefined) {
+    return <Center>Učitavanje kanvasa…</Center>;
+  }
+
+  return (
+    <ThoughtsCanvasView
+      startupId={startupId}
+      nodeResults={nodeResults}
+      edgeResults={edgeResults}
+      canvas={canvas}
+      colorMode={colorMode}
+      editMode={editMode}
+      connectSourceId={connectSourceId}
+    />
+  );
+}
+
+function ThoughtsCanvasView({
+  startupId,
+  nodeResults,
+  edgeResults,
+  canvas,
+  colorMode,
+  editMode,
+  connectSourceId,
+}: {
+  startupId: Id<"startups">;
+  nodeResults: ThoughtListNode[];
+  edgeResults: ThoughtListEdge[];
+  canvas: FunctionReturnType<typeof api.thoughts.getCanvas>;
+  colorMode: ThemeMode;
+  editMode: boolean;
+  connectSourceId: string | null;
+}) {
+  const moveNodes = useMutation(api.thoughts.moveNodes);
+  const updateNodeLayout = useMutation(api.thoughts.updateNodeLayout);
+  const createEdge = useMutation(api.thoughts.createEdge);
+
+  const [initialViewport] = useState<Viewport | null>(() =>
+    canvas === null ? null : { x: canvas.x, y: canvas.y, zoom: canvas.zoom },
+  );
+
+  const rawById = useMemo(
+    () => new Map(nodeResults.map((node) => [node._id as string, node])),
+    [nodeResults],
+  );
+  /** Ono što baza drži: pozicija ugnježdene misli je RELATIVNA na roditelja. */
+  const nested = useMemo<NestedNode[]>(
+    () =>
+      nodeResults.map((node) => ({
+        id: node._id as string,
+        x: node.x,
+        y: node.y,
+        parentId: (node.parentThoughtId as string | undefined) ?? null,
+      })),
+    [nodeResults],
+  );
+
+  const handleMoveNodes = useCallback(
+    async (_before: NodeMove[], after: NodeMove[]) => {
+      const writes = storedMovesFor(after, nested);
+      if (writes.length === 0) return;
+      if (writes.length > MAX_NESTED_MOVE_UPDATES) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: `Pomeraj najviše ${MAX_NESTED_MOVE_UPDATES} misli odjednom.`,
+        });
+        throw new Error("Previše misli u jednom potezu.");
+      }
+      const previous = writes.flatMap((move) => {
+        const node = rawById.get(move.id);
+        return node === undefined
+          ? []
+          : [{ id: move.id, x: Math.round(node.x), y: Math.round(node.y) }];
+      });
+      try {
+        await moveNodes({
+          moves: writes.map((move) => ({
+            nodeId: move.id as Id<"thoughtNodes">,
+            x: move.x,
+            y: move.y,
+          })),
+        });
+        postNative({
+          type: "moved",
+          canvas: "thoughts",
+          startupId,
+          count: writes.length,
+          moves: previous,
+        });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: error instanceof Error ? error.message : "Pozicija nije sačuvana.",
+        });
+        throw error;
+      }
+    },
+    [moveNodes, nested, rawById, startupId],
+  );
+
+  const handleResizeNode = useCallback(
+    async (nodeId: string, _before: EmbedResizeBox, after: EmbedResizeBox) => {
+      const node = rawById.get(nodeId);
+      if (node === undefined) return;
+      const absoluteById = absolutePositions(nested);
+      const parentId = nested.find((item) => item.id === nodeId)?.parentId ?? null;
+      const parent = parentId === null ? null : absoluteById.get(parentId) ?? null;
+      try {
+        await updateNodeLayout({
+          nodeId: nodeId as Id<"thoughtNodes">,
+          x: Math.round(after.x - (parent?.x ?? 0)),
+          y: Math.round(after.y - (parent?.y ?? 0)),
+          width: after.width,
+          height: after.height,
+        });
+        postNative({
+          type: "resized",
+          canvas: "thoughts",
+          startupId,
+          id: nodeId,
+          width: after.width,
+          height: after.height,
+          previous: {
+            x: Math.round(node.x),
+            y: Math.round(node.y),
+            width: node.width ?? EMBED_NODE_WIDTH,
+            height: node.height ?? EMBED_NODE_HEIGHT,
+          },
+          manuallySized: node.width != null && node.height != null,
+        });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message:
+            error instanceof Error ? error.message : "Veličina misli nije sačuvana.",
+        });
+        throw error;
+      }
+    },
+    [nested, rawById, startupId, updateNodeLayout],
+  );
+
+  const pairs = useMemo(
+    () => new Set(edgeResults.map((edge) => pairKey(edge.nodeAId, edge.nodeBId))),
+    [edgeResults],
+  );
+
+  const handleConnectNodes = useCallback(
+    async (sourceId: string, targetId: string) => {
+      if (pairs.has(pairKey(sourceId, targetId))) {
+        postNative({
+          type: "toast",
+          level: "info",
+          message: "Ove misli su već povezane.",
+        });
+        return;
+      }
+      try {
+        const edgeId = await createEdge({
+          startupId,
+          nodeAId: sourceId as Id<"thoughtNodes">,
+          nodeBId: targetId as Id<"thoughtNodes">,
+        });
+        postNative({ type: "connected", canvas: "thoughts", startupId, edgeId });
+      } catch (error) {
+        postNative({
+          type: "toast",
+          level: "error",
+          message: error instanceof Error ? error.message : "Veza nije sačuvana.",
+        });
+      }
+    },
+    [createEdge, pairs, startupId],
+  );
+
+  const handleUserViewport = useCallback(
+    (viewport: Viewport) => {
+      postNative({
+        type: "viewport",
+        canvas: "thoughts",
+        startupId,
+        x: viewport.x,
+        y: viewport.y,
+        zoom: viewport.zoom,
+      });
+    },
+    [startupId],
+  );
+
   const { nodes, edges, detailById } = useMemo(() => {
     const raw = nodeResults;
-    const byId = new Map(raw.map((n) => [n._id, n]));
-    const detailById = new Map<string, unknown>(
-      raw.map((n) => [n._id as string, toThoughtDetail(n)]),
-    );
-    const absolute = (node: ThoughtListNode) => {
-      let x = node.x;
-      let y = node.y;
-      let parent = node.parentThoughtId;
-      const seen = new Set<string>([node._id]);
-      while (parent && !seen.has(parent)) {
-        seen.add(parent);
-        const parentNode = byId.get(parent);
-        if (!parentNode) break;
-        x += parentNode.x;
-        y += parentNode.y;
-        parent = parentNode.parentThoughtId;
-      }
-      return { x, y };
+    const absolute = absolutePositions(nested);
+    const titleOf = (node: ThoughtListNode) =>
+      (node.title ?? node.text ?? "Misao").trim().slice(0, 80) || "Misao";
+    const titleById = new Map(raw.map((node) => [node._id as string, titleOf(node)]));
+
+    const edgesByNode = new Map<string, SimpleEdgeDetail[]>();
+    const addNeighbour = (own: string, item: SimpleEdgeDetail) => {
+      const list = edgesByNode.get(own);
+      if (list) list.push(item);
+      else edgesByNode.set(own, [item]);
     };
+    for (const edge of edgeResults) {
+      const add = (own: string, other: string) => {
+        addNeighbour(own, {
+          _id: edge._id,
+          kind: "canvas",
+          otherId: other,
+          otherTitle: titleById.get(other) ?? "Misao",
+          label: edge.label,
+          // Misli su privatne po vlasniku (`thoughts.listNodes` filtrira
+          // `ownerProfileId`), pa je sve na ovom platnu tvoje: veza se raskida
+          // direktno i glasanja o brisanju nema.
+          canDelete: true,
+          canRequestDeletion: false,
+        });
+      };
+      add(edge.nodeAId as string, edge.nodeBId as string);
+      add(edge.nodeBId as string, edge.nodeAId as string);
+    }
+
+    const detailById = new Map<string, ThoughtNodeDetail>(
+      raw.map((node) => [
+        node._id as string,
+        {
+          nodeKind: "thought",
+          _id: node._id,
+          title: node.title,
+          text: node.text,
+          color: node.color,
+          isParent: node.isParent ?? false,
+          startupId,
+          x: Math.round(node.x),
+          y: Math.round(node.y),
+          width: node.width ?? EMBED_NODE_WIDTH,
+          height: node.height ?? EMBED_NODE_HEIGHT,
+          manuallySized: node.width != null && node.height != null,
+          canResize: true,
+          canConnect: true,
+          nodeCount: raw.length,
+          edges: edgesByNode.get(node._id as string) ?? [],
+        } satisfies ThoughtNodeDetail,
+      ]),
+    );
+
     return {
       nodes: raw.map<EmbedFlowNode>((node) => ({
         id: node._id,
         type: EMBED_NODE_TYPE,
-        position: absolute(node),
+        position: absolute.get(node._id as string) ?? { x: node.x, y: node.y },
         width: node.width ?? EMBED_NODE_WIDTH,
         height: node.height ?? EMBED_NODE_HEIGHT,
         style: { width: node.width ?? EMBED_NODE_WIDTH, height: node.height ?? EMBED_NODE_HEIGHT },
         data: {
-          label: (node.title ?? node.text ?? "Misao").trim().slice(0, 80) || "Misao",
+          label: titleOf(node),
           meta: node.isParent ? "Roditeljska misao" : undefined,
+          // Sve misli na platnu su vlasnikove, pa ručke dobija svaka.
+          canResize: true,
         },
         ariaLabel: `${node.isParent ? "Roditeljska misao" : "Misao"}: ${node.title ?? node.text}`,
       })),
@@ -1203,17 +1725,9 @@ function ThoughtsFlow({
         source: edge.nodeAId,
         target: edge.nodeBId,
       })) as Edge[],
-      detailById,
+      detailById: detailById as Map<string, unknown>,
     };
-  }, [nodeResults, edgeResults]);
-
-  // Renderuj tek kad su i čvorovi i ivice do kraja učitani. `listNodes`/`listEdges`
-  // pagira po `updatedAt` (ne po hijerarhiji), pa roditelj ugnježdene misli nije
-  // garantovano stigao pre deteta — prerani render bi čvor privremeno crtao na
-  // relativnoj poziciji, a ivice bez oba kraja. Auto-load do iscrpljenja je brz.
-  if (nodeStatus !== "Exhausted" || edgeStatus !== "Exhausted") {
-    return <Center>Učitavanje kanvasa…</Center>;
-  }
+  }, [edgeResults, nested, nodeResults, startupId]);
 
   return (
     <EmbedFlow
@@ -1223,6 +1737,11 @@ function ThoughtsFlow({
       colorMode={colorMode}
       editMode={editMode}
       connectSourceId={connectSourceId}
+      onConnectNodes={handleConnectNodes}
+      onMoveNodes={handleMoveNodes}
+      onResizeNode={handleResizeNode}
+      initialViewport={initialViewport}
+      onUserViewport={handleUserViewport}
       ariaLabel="Kanvas misli"
       emptyLabel="Prazan kanvas misli."
     />
