@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -9,6 +10,7 @@ import {
 import { useColorScheme } from 'react-native';
 import { colorScheme as nativewindColorScheme } from 'nativewind';
 
+import { readThemePreference, writeThemePreference } from '@/lib/device-prefs';
 import { themes, type ColorTokens, type ThemeName } from '@/theme/tokens';
 
 /**
@@ -32,7 +34,14 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreference] = useState<ThemePreference>('system');
+  // Sinhrono čitanje — `ThemeProvider` je najspoljniji provajder (`app/_layout.tsx`),
+  // pa gejtovanje njegove dece odlaže i splash overlay. `SecureStore.getItem`
+  // (sinhroni) je čist try/catch iznutra (`lib/device-prefs.ts`), pa ne baca.
+  const [preference, setPreferenceState] = useState<ThemePreference>(() => readThemePreference());
+  const setPreference = useCallback((next: ThemePreference) => {
+    writeThemePreference(next);
+    setPreferenceState(next);
+  }, []);
   const systemScheme = useColorScheme();
 
   // Prosledi izbor NativeWind-u da i `dark:` klase prate temu. NativeWind podržava
@@ -46,7 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThemeContextValue>(
     () => ({ preference, setPreference, scheme, colors: themes[scheme] }),
-    [preference, scheme],
+    [preference, setPreference, scheme],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

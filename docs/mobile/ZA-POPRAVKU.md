@@ -572,7 +572,13 @@ identifikatora; tek tada PARITET sekcija B sme da čekira „nula upozorenja".
 
 ---
 
-## 7. Broj registrovanih uređaja za push (`expoPushTokens.myDeviceCount`) nije izložen na mobilnom
+## 7. Broj registrovanih uređaja za push (`expoPushTokens.myDeviceCount`) nije izložen na mobilnom — REŠENO (zastarelo, potvrđeno u lancu 6, P6)
+
+> **REŠENO — ova stavka je bila ZASTARELA već pre P6.** `expoPushTokens.myDeviceCount`
+> je izložen: `podesavanja-obavestenja.tsx:316` (`useQuery(api.expoPushTokens.myDeviceCount, {})`)
+> i prikazan u `summary` (`:322-333`, „ukupno uređaja: N"). Nije ponovo implementirano —
+> P6 je samo potvrdio zatečeno stanje i zatvorio stavku (plan P6, §1 „Šta je već urađeno").
+> Tekst ispod je istorijat.
 
 **Kontekst.** `packages/backend/convex/expoPushTokens.ts:119` izvozi
 `myDeviceCount` (broj Expo push tokena registrovanih za trenutni profil,
@@ -827,6 +833,75 @@ Kapija: `grep -rn "15 \* 60" apps/` više nema nijedan pogodak.
 uvoze je **oba** klijenta (`new-conversation-sheet.tsx`, `channel-members-sheet.tsx`)
 i sam backend. Ako se ikad ponovo doda konstanta koju ne uvozi niko, to je isti
 nalaz A.1 u novom ruhu.
+
+---
+
+## 12. Redo na mobilnom: odluka, ne propust
+
+**Kontekst.** Faza P6 (lanac 6, C12) je undo pretvorila u stek (`lib/undo.ts`,
+`app/(app)/istorija.tsx`) — poništavanje sad ide više koraka unazad. Redo
+(„vrati poništeno") **nije implementiran.** Ovo je namerna odluka, ne rupa
+zaboravljena u žurbi — tri razloga, po težini:
+
+1. **Razlog zbog kog redo postoji na desktopu ne postoji na telefonu.**
+   `Ctrl+Z` je jeftin, ponovljiv i **neoznačen** gest — držiš taster i prebaciš
+   se koji-put slučajno jedan korak previše. Redo je lek za taj promašaj. Na
+   telefonu je svako poništavanje tap na **imenovano** dugme („Poništi —
+   Ideja je obrisana."), bez auto-repeat-a. Promašaj koji redo leči se ovde ne
+   dešava.
+2. **Tačan redo traži da se inverz gradi IZ ODGOVORA SERVERA posle svakog
+   poništavanja, za svaki od 23 člana unije `UndoAction`.** Konkretno:
+   `pageEdgeConnect` posle poništavanja dobija **nov `edgeId`**
+   (`connectPages` ne oživljava arhiviranu ivicu — `lib/undo.ts:80-85`);
+   `pageRename` dobija **novu `expectedRevision`**; `checkpoint`/`contribution`
+   dobijaju **nov `undoUntil`** (`taskCheckpoints.ts:381`,
+   `collaboration.ts:778`). Redo koji to ne prati radi tiho pogrešnu stvar nad
+   pogrešnim redom — gore nego da ga nema.
+3. **Web sam nema globalan redo u UI-ju.** Vidljiva dugmad sa brojačima
+   postoje samo u toolbar-ima kanvasa (`area-canvas-view.tsx:2202-2223`,
+   `ideas-canvas-view.tsx:1132-1150`); `ideas-view.tsx` gura u istoriju bez
+   ijednog dugmeta. Preslikavanje „weba" bi značilo dugme na kanvasu — a rail
+   kanvasa je pun (`canvas-rail.tsx:46-49`: „4 × 44 + 3 × 8 razmaka staje i na
+   360 dp"; peta ikonica probija budžet i obara dodirnu metu ispod 44pt).
+
+**Šta korisnik dobija umesto.** Ponavljanje same radnje. Sve radnje u steku
+su jednoobjektne i udaljene jedan do tri tapa (obriši ideju ponovo, prevuci
+karticu ponovo) — za razliku od desktopa, gde `Ctrl+Y` vraća potez koji je
+mišem skup.
+
+**USLOV za reviziju odluke.** Ako se u upotrebi pokaže da ljudi prečesto
+poništavaju pa se predomišljaju, redo se radi **simetrično** — `pushUndo`
+dobija opciono polje `redo?: UndoAction` (bez novih članova unije, jer su
+`pageMove`/`pageResize`/`ideaResize`/`thoughtResize`/`pageReparent`/
+`channelMembers`/`ideaMove`/`thoughtMove` apsolutni upisi i sami sebi
+inverz), a `hooks/use-undo-runner.ts` vraća nov deskriptor za nesimetrične
+članove. To je zaseban posao, ne repariranje ove odluke.
+
+**Nalaz:** lanac 6, plan P6 (13.08.2026).
+
+---
+
+## 13. Poništavanje (stek „Poništi") ne preživljava restart aplikacije
+
+**Kontekst.** Faza P6 je temu, aktivan startup i push opt-out učinila
+trajnim (`lib/device-prefs.ts`, `SecureStore`). Stek poništavanja
+(`lib/undo.ts`) je **svesno ostavljen u memoriji procesa** — restart
+aplikacije ga prazni.
+
+**Zašto.** Upis id-jeva radnji u `SecureStore` bi posle restarta nudio
+„Poništi" za nešto što je server u međuvremenu učinio nemogućim (istekao
+serverski rok, tuđa izmena u međuvremenu, arhivirana grana), a poruka o
+grešci bi stigla tek posle tapa — korisnik bi video dugme koje izgleda
+ispravno, pa ga pritisne i dobije grešku bez konteksta. Postojanost je za
+**postavke** (tema, startup, push) — one su idempotentne i bezopasne da se
+obnove tačno kakve su bile. Namera („poništi baš OVU radnju") nije.
+
+**Posledica.** Korisnik koji ubije aplikaciju posle brisanja ideje i pre nego
+što je stigao da tapne „Poništi" — poništavanje više nije dostupno ni kroz
+traku ni kroz „Istoriju radnji". Isti razlog zbog kog ni web undo stek
+(`workspace-history.tsx`) ne preživljava reload stranice.
+
+**Nalaz:** lanac 6, plan P6 (13.08.2026).
 
 ---
 

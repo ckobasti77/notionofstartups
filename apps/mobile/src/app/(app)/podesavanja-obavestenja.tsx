@@ -1,6 +1,7 @@
 import { useAudioPlayer } from 'expo-audio';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
+  BellOff,
   BellRing,
   CircleAlert,
   CircleCheck,
@@ -33,7 +34,11 @@ import {
   type SettingsRow,
 } from '@/convex/lib/notificationSettingsCatalog';
 import { hasSoundPreview, SOUND_PREVIEWS } from '@/lib/notifications/sound-previews';
-import { usePushStatus, useRegisterPushDevice } from '@/lib/notifications/register';
+import {
+  useDisablePushDevice,
+  usePushStatus,
+  useRegisterPushDevice,
+} from '@/lib/notifications/register';
 import { describeNotificationChannels } from '@/lib/notifications/channels';
 import { useThemeColors } from '@/theme/theme-provider';
 import {
@@ -312,12 +317,14 @@ function SettingsForm({
 function PushDeviceCard({ colors }: { colors: ColorTokens }) {
   const status = usePushStatus();
   const register = useRegisterPushDevice();
+  const disable = useDisablePushDevice();
   const sendTest = useAction(api.pushTest.sendTest);
   const deviceCount = useQuery(api.expoPushTokens.myDeviceCount, {});
-  const [busy, setBusy] = useState<'register' | 'test' | null>(null);
+  const [busy, setBusy] = useState<'register' | 'test' | 'disable' | null>(null);
 
   const ok = status.state === 'ok';
   const failed = status.state === 'error';
+  const off = status.state === 'off';
 
   const summary =
     status.state === 'ok'
@@ -330,7 +337,9 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
         ? status.reason
         : status.state === 'running'
           ? 'Registrujem uređaj…'
-          : 'Registracija još nije završena.';
+          : status.state === 'off'
+            ? 'Obaveštenja su isključena na ovom uređaju.'
+            : 'Registracija još nije završena.';
 
   async function onRegister() {
     haptics.tap();
@@ -383,6 +392,34 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
     }
   }
 
+  async function onDisable() {
+    setBusy('disable');
+    try {
+      const result = await disable();
+      if (result.ok) {
+        haptics.success();
+        Alert.alert('Isključeno', result.message);
+      } else {
+        haptics.error();
+        Alert.alert('Nije uspelo', result.message);
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function confirmDisable() {
+    haptics.warning();
+    Alert.alert(
+      'Isključiti obaveštenja na ovom uređaju?',
+      'Ovaj telefon više neće zvoniti ni prikazivati obaveštenja — ni za dodeljen zadatak, ni za rok, ni za poruku u chatu. Obaveštenja i dalje stižu u tab „Obaveštenja" kad otvoriš aplikaciju, i na tvoje druge uređaje. Uključuje se ponovo dugmetom „Uključi na ovom uređaju" na ovom ekranu.',
+      [
+        { text: 'Odustani', style: 'cancel' },
+        { text: 'Isključi', style: 'destructive', onPress: () => void onDisable() },
+      ],
+    );
+  }
+
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>OVAJ UREĐAJ</Text>
@@ -393,6 +430,8 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
               <CircleCheck size={18} color={colors.primary} />
             ) : failed ? (
               <CircleAlert size={18} color={colors.destructive} />
+            ) : off ? (
+              <BellOff size={18} color={colors.mutedForeground} />
             ) : (
               <Info size={18} color={colors.mutedForeground} />
             )}
@@ -406,45 +445,72 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
         </View>
 
         <View style={[styles.pushActions, styles.rowDivider, { borderTopColor: colors.border }]}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Pošalji probno obaveštenje"
-            accessibilityState={{ disabled: busy !== null }}
-            disabled={busy !== null}
-            onPress={() => {
-              void onTest();
-            }}
-            style={({ pressed }) => [
-              styles.pushBtn,
-              { backgroundColor: colors.primary },
-              busy !== null && styles.pushBtnDisabled,
-              pressed && { opacity: 0.85 },
-            ]}>
-            <BellRing size={16} color={colors.primaryForeground} />
-            <Text style={[styles.pushBtnLabel, { color: colors.primaryForeground }]}>
-              {busy === 'test' ? 'Šaljem…' : 'Probno obaveštenje'}
-            </Text>
-          </Pressable>
+          {off ? (
+            // Bez tokena na ovom uređaju „Probno obaveštenje" bi otišlo na TUĐ
+            // uređaj istog naloga i javilo „Poslato" — netačna dijagnostika je
+            // gora od nijedne, zato se sakriva dok je stanje `off`.
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Uključi na ovom uređaju"
+              accessibilityState={{ disabled: busy !== null }}
+              disabled={busy !== null}
+              onPress={() => {
+                void onRegister();
+              }}
+              style={({ pressed }) => [
+                styles.pushBtn,
+                { backgroundColor: colors.primary },
+                busy !== null && styles.pushBtnDisabled,
+                pressed && { opacity: 0.85 },
+              ]}>
+              <BellRing size={16} color={colors.primaryForeground} />
+              <Text style={[styles.pushBtnLabel, { color: colors.primaryForeground }]}>
+                {busy === 'register' ? 'Uključujem…' : 'Uključi na ovom uređaju'}
+              </Text>
+            </Pressable>
+          ) : (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Pošalji probno obaveštenje"
+                accessibilityState={{ disabled: busy !== null }}
+                disabled={busy !== null}
+                onPress={() => {
+                  void onTest();
+                }}
+                style={({ pressed }) => [
+                  styles.pushBtn,
+                  { backgroundColor: colors.primary },
+                  busy !== null && styles.pushBtnDisabled,
+                  pressed && { opacity: 0.85 },
+                ]}>
+                <BellRing size={16} color={colors.primaryForeground} />
+                <Text style={[styles.pushBtnLabel, { color: colors.primaryForeground }]}>
+                  {busy === 'test' ? 'Šaljem…' : 'Probno obaveštenje'}
+                </Text>
+              </Pressable>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Registruj uređaj ponovo"
-            accessibilityState={{ disabled: busy !== null }}
-            disabled={busy !== null}
-            onPress={() => {
-              void onRegister();
-            }}
-            style={({ pressed }) => [
-              styles.pushBtn,
-              { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-              busy !== null && styles.pushBtnDisabled,
-              pressed && { backgroundColor: colors.muted },
-            ]}>
-            <RefreshCw size={16} color={colors.foreground} />
-            <Text style={[styles.pushBtnLabel, { color: colors.foreground }]}>
-              {busy === 'register' ? 'Registrujem…' : 'Registruj ponovo'}
-            </Text>
-          </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Registruj uređaj ponovo"
+                accessibilityState={{ disabled: busy !== null }}
+                disabled={busy !== null}
+                onPress={() => {
+                  void onRegister();
+                }}
+                style={({ pressed }) => [
+                  styles.pushBtn,
+                  { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+                  busy !== null && styles.pushBtnDisabled,
+                  pressed && { backgroundColor: colors.muted },
+                ]}>
+                <RefreshCw size={16} color={colors.foreground} />
+                <Text style={[styles.pushBtnLabel, { color: colors.foreground }]}>
+                  {busy === 'register' ? 'Registrujem…' : 'Registruj ponovo'}
+                </Text>
+              </Pressable>
+            </>
+          )}
         </View>
 
         {/* Poslednja linija odbrane kad „sve je štiklirano, a ne iskače":
@@ -465,6 +531,27 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
             Provera kanala obaveštenja
           </Text>
         </Pressable>
+
+        {/* Isključivanje NIJE undo trakom (PARITET-REVIZIJA C15, odluka): izlaz je
+            trajno dugme „Uključi na ovom uređaju" gore, ne traka koja ističe za 8s. */}
+        {ok ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Isključi na ovom uređaju"
+            accessibilityState={{ disabled: busy !== null }}
+            disabled={busy !== null}
+            onPress={confirmDisable}
+            style={({ pressed }) => [
+              styles.channelCheck,
+              styles.rowDivider,
+              { borderTopColor: colors.border },
+              pressed && { backgroundColor: colors.muted },
+            ]}>
+            <Text style={[styles.channelCheckLabel, { color: colors.destructive }]}>
+              {busy === 'disable' ? 'Isključujem…' : 'Isključi na ovom uređaju'}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

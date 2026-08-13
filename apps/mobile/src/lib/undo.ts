@@ -258,35 +258,131 @@ export type UndoEntry = {
   action: UndoAction;
   /**
    * Serverski rok za vraćanje (archive mutacije ga vraćaju kao `now + 8s`).
-   * Kad postoji, tajmer trake ga poštuje umesto klijentskih 8s.
+   * Kad postoji, i traka i stek ga poštuju umesto proizvoljnog roka.
    */
   undoUntil?: number;
   /** Raste na svaki push — restartuje tajmer trake i za sadržinski istu stavku. */
   key: number;
+  /** Kad je radnja izvršena — za vreme u „Istoriji radnji" (`app/(app)/istorija.tsx`). */
+  createdAt: number;
 };
 
-let entry: UndoEntry | null = null;
+/**
+ * Poništavanje ide VIŠE koraka unazad (PARITET-REVIZIJA C12): stek, ne jedna
+ * stavka. Traka „Poništi" i dalje prikazuje samo JEDNU stavku odjednom
+ * (`visibleKey`) — to je namerno, ekran „Istorija radnji" je mesto za dublje
+ * poništavanje (`docs/mobile/ZA-POPRAVKU.md` §12 objašnjava zašto redo NIJE
+ * urađen, samo dublji undo).
+ *
+ * Zašto stavka sa isteklim `undoUntil` ispada iz steka na sledeći push/pop, iako
+ * npr. `ideas.restoreOwn` taj rok serverski ne proverava: jedno pravilo umesto
+ * tabele izuzetaka po članu unije — i nije regresija, traka je i pre ovog steka
+ * nestajala na isteku (isti rok, isto ponašanje). Serverski TVRD rok postoji
+ * samo za `checkpoint` (`taskCheckpoints.ts`) i `contribution` (`collaboration.ts`).
+ */
+const MAX_UNDO_ENTRIES = 20;
+
+let entries: UndoEntry[] = []; // najstarija prva; vrh (najnovija) je poslednji element
+let visibleKey: number | null = null; // stavka koju traka SME da prikaže
 let counter = 0;
 const listeners = new Set<() => void>();
 
-function publish(next: UndoEntry | null) {
-  entry = next;
+// `useSyncExternalStore` traži STABILNU referencu dok se ništa ne menja — snimci
+// se preračunavaju isključivo u `publish()`, nikad u getteru.
+let stackSnapshot: UndoEntry[] = entries;
+let barSnapshot: UndoEntry | null = null;
+
+function publish(): void {
+  stackSnapshot = [...entries].reverse(); // najnovija prva, za `useUndoStack`
+  barSnapshot = visibleKey === null ? null : (entries.find((e) => e.key === visibleKey) ?? null);
   listeners.forEach((listener) => listener());
 }
 
-/** Nova stavka za poništavanje — pregazi prethodnu (jedna traka, poslednja radnja). */
-export function pushUndo(input: { label: string; action: UndoAction; undoUntil?: number }) {
-  counter += 1;
-  publish({
-    label: input.label,
-    action: input.action,
-    undoUntil: input.undoUntil,
-    key: counter,
-  });
+/** Uklanja istekle stavke; vraća `true` ako je stek stvarno promenjen. */
+function pruneExpired(now: number): boolean {
+  const before = entries.length;
+  entries = entries.filter((e) => e.undoUntil === undefined || e.undoUntil > now);
+  if (entries.length === before) return false;
+  if (visibleKey !== null && !entries.some((e) => e.key === visibleKey)) {
+    visibleKey = null;
+  }
+  return true;
 }
 
-export function clearUndo() {
-  if (entry !== null) publish(null);
+let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Zakazuje proveru na najraniji `undoUntil` u steku. `Date.now()` se čita
+ * ISKLJUČIVO ovde i u tajmeru — nikad u renderu (React zabranjuje nečiste
+ * pozive tokom rendera; isti obrazac kao `notifications-panel.tsx` na webu).
+ */
+function scheduleExpiry(): void {
+  if (expiryTimer !== null) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+  const deadlines = entries
+    .map((e) => e.undoUntil)
+    .filter((value): value is number => value !== undefined);
+  if (deadlines.length === 0) return;
+  const delay = Math.max(0, Math.min(...deadlines) - Date.now());
+  expiryTimer = setTimeout(() => {
+    expiryTimer = null;
+    if (pruneExpired(Date.now())) publish();
+    scheduleExpiry();
+  }, delay);
+}
+
+/** Nova stavka na vrh steka. Potpis je NEPROMENJEN — 32 postojeća pozivaoca ne dodiruju se. */
+export function pushUndo(input: { label: string; action: UndoAction; undoUntil?: number }): void {
+  const now = Date.now();
+  pruneExpired(now);
+  counter += 1;
+  entries = [
+    ...entries,
+    { label: input.label, action: input.action, undoUntil: input.undoUntil, key: counter, createdAt: now },
+  ];
+  if (entries.length > MAX_UNDO_ENTRIES) {
+    entries = entries.slice(entries.length - MAX_UNDO_ENTRIES); // baci najstarije
+  }
+  visibleKey = counter;
+  publish();
+  scheduleExpiry();
+}
+
+/**
+ * Uklanja JEDNU stavku (poništena ili sklonjena bez poništavanja).
+ * `advertiseNext: true` → traka odmah nudi NOVI vrh steka (višekoračno
+ * poništavanje u mestu — traka posle „Poništi" ponudi sledeću stavku). Bez
+ * opcije traka se sklanja, a stavka ostaje samo u „Istoriji radnji".
+ */
+export function popUndo(key: number, opts?: { advertiseNext?: boolean }): void {
+  pruneExpired(Date.now());
+  const index = entries.findIndex((e) => e.key === key);
+  if (index !== -1) entries = entries.slice(0, index).concat(entries.slice(index + 1));
+  visibleKey =
+    opts?.advertiseNext === true && entries.length > 0 ? entries[entries.length - 1].key : null;
+  publish();
+  scheduleExpiry();
+}
+
+/** Sklanja traku bez brisanja steka (npr. ✕, ili istek tajmera trake). */
+export function hideUndoBar(): void {
+  if (visibleKey === null) return;
+  visibleKey = null;
+  publish();
+}
+
+/** Prazni CEO stek i traku (npr. promena aktivnog startupa). */
+export function clearUndo(): void {
+  if (entries.length === 0 && visibleKey === null) return;
+  entries = [];
+  visibleKey = null;
+  if (expiryTimer !== null) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+  publish();
 }
 
 function subscribe(listener: () => void): () => void {
@@ -296,9 +392,24 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-const getSnapshot = () => entry;
+const getStackSnapshot = () => stackSnapshot;
+const getBarSnapshot = () => barSnapshot;
 
-/** Trenutna stavka za poništavanje (ili `null`) — reaktivno za `UndoBar`. */
-export function useUndo(): UndoEntry | null {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+/** Ceo stek za ekran „Istorija radnji" (`app/(app)/istorija.tsx`) — najnovija prva. */
+export function useUndoStack(): UndoEntry[] {
+  return useSyncExternalStore(subscribe, getStackSnapshot, getStackSnapshot);
+}
+
+/** Stavka koju traka SME da prikaže (ili `null`) — reaktivno za `UndoBar`. */
+export function useUndoBarEntry(): UndoEntry | null {
+  return useSyncExternalStore(subscribe, getBarSnapshot, getBarSnapshot);
+}
+
+/**
+ * Plain (ne-hook) čitanje steka — SAMO za `undo.test.ts`, koji testira modul
+ * bez React-a. Nijedan komponent ga ne uvozi; `useUndoStack`/`useUndoBarEntry`
+ * su put za UI.
+ */
+export function getUndoSnapshotForTest(): { stack: UndoEntry[]; bar: UndoEntry | null } {
+  return { stack: stackSnapshot, bar: barSnapshot };
 }

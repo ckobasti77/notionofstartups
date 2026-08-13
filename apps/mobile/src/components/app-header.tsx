@@ -35,7 +35,7 @@ export type AppHeaderProps = {
 export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
   const colors = useThemeColors();
   const router = useRouter();
-  const { activeStartupId, setActiveStartupId } = useActiveStartup();
+  const { activeStartupId, setActiveStartupId, restoring } = useActiveStartup();
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const profile = useQuery(api.profiles.getCurrent, {});
@@ -47,15 +47,31 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
 
   const loadingStartups = status === 'LoadingFirstPage';
 
-  // Podrazumevano izaberi prvi startup čim lista stigne.
+  // (1) Podrazumevano izaberi prvi startup čim lista stigne — ali NE dok traje
+  // obnavljanje zapamćenog izbora (C2, restart aplikacije). Bez ovog uslova bi
+  // lista (koja ume da stigne pre provere članstva) odmah nametnula prvi startup
+  // i pregazila zapamćen izbor.
   useEffect(() => {
+    if (restoring) return;
     if (activeStartupId === null && startups.length > 0) {
       setActiveStartupId(startups[0]._id);
     }
-  }, [activeStartupId, startups, setActiveStartupId]);
+  }, [restoring, activeStartupId, startups, setActiveStartupId]);
 
-  const active = startups.find((s) => s._id === activeStartupId) ?? startups[0];
-  const activeName = active?.name ?? 'Bez startupa';
+  const active = startups.find((s) => s._id === activeStartupId);
+
+  // (2) Zapamćen startup može biti na SLEDEĆOJ strani (paginacija po 20) — dovuci
+  // dok se ne nađe ili dok liste ne ponestane.
+  useEffect(() => {
+    if (activeStartupId === null || active !== undefined) return;
+    if (status === 'CanLoadMore') loadMore(20);
+  }, [activeStartupId, active, status, loadMore]);
+
+  // Dok je izabran startup a stranica sa njim još nije stigla, eyebrow pokazuje
+  // skeleton — NE ime prvog startupa (`?? startups[0]` je za NEIZABRAN startup).
+  const resolving = loadingStartups || (activeStartupId !== null && active === undefined);
+  const fallback = activeStartupId === null ? startups[0] : undefined;
+  const activeName = (active ?? fallback)?.name ?? 'Bez startupa';
 
   const switcherStartups: SwitcherStartup[] = startups.map((s) => ({
     _id: s._id,
@@ -68,7 +84,7 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
       <ScreenHeader
         title={title}
         onBack={onBack}
-        eyebrow={loadingStartups ? <Skeleton width={110} height={13} /> : activeName}
+        eyebrow={resolving ? <Skeleton width={110} height={13} /> : activeName}
         onEyebrowPress={() => {
           haptics.tap();
           setSwitcherOpen(true);

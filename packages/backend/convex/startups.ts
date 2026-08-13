@@ -91,6 +91,30 @@ export const get = query({
   },
 });
 
+/**
+ * Da li trenutni profil i dalje ima aktivno članstvo u datom startupu. Za
+ * obnavljanje ZAPAMĆENOG izbora na mobilnom (`context/active-startup.tsx`):
+ * `startups.get` za ne-člana BACA, a ovde je „nije član" normalan odgovor,
+ * ne kvar — korisnik uklonjen iz tima mora tiho da padne na prvi dostupan
+ * startup, ne u belo/crveno.
+ */
+export const isCurrentMember = query({
+  args: { startupId: v.id("startups") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    const membership = await ctx.db
+      .query("startupMembers")
+      .withIndex("by_profileId_and_startupId", (q) =>
+        q.eq("profileId", profile._id).eq("startupId", args.startupId),
+      )
+      .unique();
+    if (membership === null || membership.archivedAt !== null) return false;
+    const startup = await ctx.db.get("startups", args.startupId);
+    return startup !== null && startup.archivedAt === null;
+  },
+});
+
 export const generateLogoUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {

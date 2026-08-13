@@ -6,6 +6,7 @@ import {
   Brain,
   ChartColumn,
   FlaskConical,
+  History,
   KeyRound,
   Lightbulb,
   ListTodo,
@@ -34,6 +35,7 @@ import { Row } from '@/components/ui/row';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { haptics } from '@/lib/haptics';
+import { useUndoStack } from '@/lib/undo';
 import { useAppTheme, useThemeColors, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
 
@@ -60,6 +62,7 @@ const MENU: MenuItem[][] = [
     { icon: Lightbulb, label: 'Ideje', route: '/ideje' },
     { icon: Brain, label: 'Misli', route: '/misli' },
     { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
+    { icon: History, label: 'Istorija radnji', route: '/istorija' },
   ],
   [
     { icon: UserRound, label: 'Moj profil', route: '/profil' },
@@ -108,6 +111,11 @@ export default function ViseScreen() {
     }
     return item.badge;
   };
+
+  // Broj stavki u steku „Poništi" (PARITET-REVIZIJA C12) — desna VREDNOST reda kao
+  // prigušen tekst, ne `Badge`: crveno „na čekanju" bi lagalo, ovo nije posao koji
+  // čeka odgovor.
+  const undoCount = useUndoStack().length;
 
   return (
     <TabScreen title="Više">
@@ -178,19 +186,36 @@ export default function ViseScreen() {
                 );
               }
 
+              const isHistory = item.label === 'Istorija radnji';
+              const historyValue = isHistory && undoCount > 0 ? String(undoCount) : undefined;
+
               return (
                 <Row
                   key={item.label}
                   icon={<Icon size={20} color={colors.foreground} />}
                   title={item.label}
-                  value={badge ? <Badge label={badge} variant="destructive" /> : undefined}
+                  value={
+                    isHistory
+                      ? historyValue
+                      : badge
+                        ? <Badge label={badge} variant="destructive" />
+                        : undefined
+                  }
                   onPress={() => {
                     if (item.route) {
                       haptics.tap();
                       router.push(item.route);
                     }
                   }}
-                  accessibilityLabel={badge ? `${item.label}, ${badge} na čekanju` : item.label}
+                  accessibilityLabel={
+                    isHistory
+                      ? historyValue
+                        ? `${item.label}, ${historyValue} za poništavanje`
+                        : item.label
+                      : badge
+                        ? `${item.label}, ${badge} na čekanju`
+                        : item.label
+                  }
                   style={topBorder || undefined}
                 />
               );

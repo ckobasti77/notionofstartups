@@ -7,6 +7,7 @@ import { useMutation } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import { CHANNEL_VERSION } from "@/convex/lib/notificationChannels";
+import { readPushOptOut, writePushOptOut } from "@/lib/device-prefs";
 
 import { registerNotificationChannels } from "./channels";
 
@@ -37,7 +38,9 @@ export type PushRegistrationStatus =
   | { state: "idle" }
   | { state: "running" }
   | { state: "ok"; token: string }
-  | { state: "error"; reason: string; detail: string | null };
+  | { state: "error"; reason: string; detail: string | null }
+  /** Korisnik je svesno isključio push NA OVOM UREĐAJU (PARITET-REVIZIJA C15). */
+  | { state: "off" };
 
 let currentStatus: PushRegistrationStatus = { state: "idle" };
 const listeners = new Set<() => void>();
@@ -99,6 +102,9 @@ export function useRegisterPushDevice(): () => Promise<PushRegistrationStatus> {
   const save = useMutation(api.expoPushTokens.save);
 
   return useCallback(async (): Promise<PushRegistrationStatus> => {
+    // Ručno "Registruj (ponovo)" je EKSPLICITAN pristanak — briše zastavicu
+    // isključivanja pre nego što uopšte pokuša (PARITET-REVIZIJA C15).
+    writePushOptOut(false);
     setStatus({ state: "running" });
 
     if (Platform.OS !== "ios" && Platform.OS !== "android") {
@@ -211,6 +217,44 @@ export function usePushRegistration(): void {
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
+    // Korisnik je ranije isključio push NA OVOM UREĐAJU (PARITET-REVIZIJA C15) —
+    // taj izbor mora da preživi restart, inače „Isključi" važi samo do sledećeg
+    // hladnog starta i dugme laže.
+    if (readPushOptOut()) {
+      setStatus({ state: "off" });
+      return;
+    }
     void register();
   }, [register]);
+}
+
+/**
+ * Isključuje push NA OVOM UREĐAJU (PARITET-REVIZIJA C15; web pandan:
+ * `notifications-panel.tsx`, dugme "Isključi na ovom uređaju"). Radi samo dok
+ * je stanje `ok` — tek tada znamo token koji treba obrisati sa servera.
+ *
+ * Redosled je bitan: PRVO server (`expoPushTokens.remove`), PA lokalna
+ * zastavica. Obrnuto bi ostavilo uređaj koji misli da je isključen dok
+ * serverski red i dalje šalje na njega.
+ */
+export function useDisablePushDevice(): () => Promise<{ ok: boolean; message: string }> {
+  const remove = useMutation(api.expoPushTokens.remove);
+
+  return useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    const status = getSnapshot();
+    if (status.state !== "ok") {
+      return { ok: false, message: "Uređaj trenutno nije registrovan za obaveštenja." };
+    }
+    try {
+      await remove({ token: status.token });
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Isključivanje nije uspelo: ${errorText(error)}`,
+      };
+    }
+    writePushOptOut(true);
+    setStatus({ state: "off" });
+    return { ok: true, message: "Obaveštenja su isključena na ovom uređaju." };
+  }, [remove]);
 }
