@@ -833,3 +833,17 @@ koriste postojeće pakete). Native build nije obavezan; `NATIVE-BUILD.md` se ne 
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Trajanje: 75 min
+
+## P7 - Ostatak sitnog, revizija cele liste, zatvaranje
+
+**Cilj:** Svaka stavka iz sekcija B, C i D je ili uradjena ili zapisana kao odluka sa razlogom - nijedna necuta.
+
+| Korak | Model | Effort |
+|---|---|---|
+| PLAN | `opus` | `max` |
+| IZVRSI | `opus` | `xhigh` |
+| REVIZIJA | `opus` | `max` |
+
+- Start: 2026-08-13T06:06:41
+- PLAN: napisan
