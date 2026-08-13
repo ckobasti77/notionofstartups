@@ -621,3 +621,17 @@ nije obavezan; `NATIVE-BUILD.md` se ne dopunjuje.
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Trajanje: 60 min
+
+## P5 - Struktura: ugnjezdavanje, premestanje, putanja, doprinosi
+
+**Cilj:** Sa telefona se stranica moze smestiti bilo gde u stablu, a iz putanje se moze skociti na roditelja.
+
+| Korak | Model | Effort |
+|---|---|---|
+| PLAN | `opus` | `max` |
+| IZVRSI | `opus` | `high` |
+| REVIZIJA | `opus` | `max` |
+
+- Start: 2026-08-13T03:47:18
+- PLAN: napisan
