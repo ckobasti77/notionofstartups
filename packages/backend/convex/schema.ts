@@ -1284,6 +1284,9 @@ export default defineSchema({
     .index("by_channel_and_createdAt", ["channelId", "createdAt"])
     .index("by_channel_active", ["channelId", "deletedAt", "createdAt"])
     .index("by_author", ["authorProfileId", "createdAt"])
+    // Da odbijen prilog nikad ne obriše TUĐ blob: pre `storage.delete` mora da se
+    // dokaže da taj blob nije već zakačen (isti razlog kao `pageFiles.by_storageId`).
+    .index("by_attachmentStorageId", ["attachmentStorageId"])
     .searchIndex("search_body", {
       searchField: "body",
       filterFields: ["startupId", "channelId", "deletedAt"],

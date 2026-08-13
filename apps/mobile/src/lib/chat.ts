@@ -207,6 +207,34 @@ export function splitMentions(
   return segments;
 }
 
+export type MentionQuery = { start: number; query: string };
+
+/**
+ * Aktivni `@token` neposredno PRE KURSORA — port web `chat/mention-textarea.tsx`
+ * (`findMentionQuery`). Token počinje `@` na početku unosa ili posle razmaka /
+ * `(` / `<`, i ne sme da sadrži razmak.
+ *
+ * Zašto od kursora unazad, a ne `lastIndexOf('@')`: mobilni je do faze P3 gledao
+ * poslednji `@` u CELOM tekstu i pri izboru brisao sve iza njega — pomen usred
+ * rečenice je gutao ostatak poruke. Ovako se gleda samo reč pod kursorom.
+ */
+export function findMentionQuery(value: string, caret: number): MentionQuery | null {
+  let index = Math.min(caret, value.length) - 1;
+  while (index >= 0) {
+    const char = value[index];
+    if (char === '@') {
+      const before = index === 0 ? ' ' : value[index - 1];
+      if (index === 0 || /\s|[(<]/.test(before)) {
+        return { start: index, query: value.slice(index + 1, caret) };
+      }
+      return null;
+    }
+    if (/\s/.test(char)) return null;
+    index -= 1;
+  }
+  return null;
+}
+
 /**
  * Izvlači id-jeve pomenutih profila iz teksta pri slanju: član je pomenut ako se
  * `@Ime` (njegovo prikazano ime) pojavljuje kao ceo token. Negativni lookahead

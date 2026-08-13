@@ -15,8 +15,10 @@ import {
   MessagesSquare,
   MoreVertical,
   Upload,
+  Users,
 } from "lucide-react";
 
+import { ChannelMembersDialog } from "@/components/workspace/chat/channel-members-dialog";
 import { MessageComposer } from "@/components/workspace/chat/message-composer";
 import { MessageList } from "@/components/workspace/chat/message-list";
 import { useAttachmentSender } from "@/components/workspace/chat/use-attachment-sender";
@@ -86,6 +88,7 @@ export function ConversationPane({
   /** Brojač `dragenter`/`dragleave` — ulazak u dete-element inače gasi overlay. */
   const dragDepthRef = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const markChannelRead = useMutation(api.chat.markChannelRead);
   const setNotificationLevel = useMutation(api.chat.setNotificationLevel);
   const archiveChannel = useMutation(api.chat.archiveChannel);
@@ -141,6 +144,9 @@ export function ConversationPane({
   }
 
   const canArchive = profile.role === "admin" && channel.kind !== "startup";
+  // Ogledalo serverskog gejta iz `chat.setChannelMembers`: samo admin i samo
+  // `custom` kanal — članstvo ostalih vrsta je izvedeno iz pristupa.
+  const canManageMembers = profile.role === "admin" && channel.kind === "custom";
 
   /** Ima li drag uopšte fajlove — prevučen tekst ne sme da otvori zonu za slanje. */
   function dragHasFiles(event: React.DragEvent<HTMLDivElement>): boolean {
@@ -237,6 +243,14 @@ export function ConversationPane({
                 </DropdownMenuItem>
               );
             })}
+            {canManageMembers ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
+                  <Users className="size-4" /> Članovi kanala
+                </DropdownMenuItem>
+              </>
+            ) : null}
             {canArchive ? (
               <>
                 <DropdownMenuSeparator />
@@ -272,6 +286,17 @@ export function ConversationPane({
         onCancelReply={() => setReplyTo(null)}
         onSent={handleSent}
       />
+
+      {/* Jedini ulaz je stavka „Članovi kanala" u meniju iznad. */}
+      {canManageMembers ? (
+        <ChannelMembersDialog
+          open={membersOpen}
+          onOpenChange={setMembersOpen}
+          channel={channel}
+          profile={profile}
+          members={members}
+        />
+      ) : null}
 
       {/* Zona za puštanje pokriva CEO prozor razgovora — fajl se ne mora spustiti
           baš na spajalicu. `pointer-events-none` da ne pojede `dragover` roditelja

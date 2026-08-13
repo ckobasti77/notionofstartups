@@ -16,6 +16,16 @@ import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
+/**
+ * Entitet za koji je diskusija zakačena. Diskriminisana unija, a ne dva labava
+ * propa: `pageKind` ima smisla samo za stranicu, pa TS ne sme da dozvoli
+ * `{ type: 'idea', pageKind: 'task' }`. Backend prima `anchorId` kao `v.string()`
+ * (`chat.channelForAnchor`), pa oba id-ja idu bez konverzije.
+ */
+export type DiscussionAnchor =
+  | { type: 'page'; id: Id<'pages'>; pageKind: PageKind }
+  | { type: 'idea'; id: Id<'ideaNodes'> };
+
 /** Poziv na diskusiju mora da imenuje pravu vrstu stranice (bag E6). */
 const DISCUSSION_SUBTITLE: Record<PageKind, string> = {
   task: 'Otvori razgovor tima o ovom zadatku.',
@@ -24,29 +34,36 @@ const DISCUSSION_SUBTITLE: Record<PageKind, string> = {
   file: 'Otvori razgovor tima o ovom prilogu.',
 };
 
+function subtitleFor(anchor: DiscussionAnchor): string {
+  return anchor.type === 'idea'
+    ? 'Otvori razgovor tima o ovoj ideji.'
+    : DISCUSSION_SUBTITLE[anchor.pageKind];
+}
+
 /**
- * Red diskusije stranice (docs/mobile/02-EKRANI.md §9.2). Thread se pravi lenjo —
- * `channelForAnchor` je `null` dok neko ne pošalje prvu poruku (04-CHAT.md §4).
- * Ako postoji → link na pun razgovor; ako ne → dugme koje ga pravi prvom porukom
- * kroz `sendToAnchor`. Posle slanja reaktivni upit sam pretvori red u link.
- * Komponenta je anchorType-agnostična — montiraju je i zadatak i beleška/tabela/
- * prilog, pa tekst bira `pageKind`.
+ * Red diskusije nad entitetom (docs/mobile/02-EKRANI.md §9.2) — mobilni pandan
+ * web `chat/entity-discussion-panel.tsx`, koji isti `anchorType` par troši i za
+ * stranicu i za ideju. Thread se pravi lenjo — `channelForAnchor` je `null` dok
+ * neko ne pošalje prvu poruku (04-CHAT.md §4). Ako postoji → link na pun razgovor;
+ * ako ne → dugme koje ga pravi prvom porukom kroz `sendToAnchor`. Posle slanja
+ * reaktivni upit sam pretvori red u link.
+ *
+ * Živi u `components/chat/`, a ne u `components/zadatak/`: montiraju ga zadatak,
+ * beleška/tabela/prilog I ideja, pa je vezan za chat, ne za jedan tip stranice.
  */
 export function DiscussionLink({
-  pageId,
+  anchor,
   startupId,
-  pageKind,
 }: {
-  pageId: Id<'pages'>;
+  anchor: DiscussionAnchor;
   startupId: Id<'startups'>;
-  pageKind: PageKind;
 }) {
   const colors = useThemeColors();
   const router = useRouter();
   const channel = useQuery(api.chat.channelForAnchor, {
     startupId,
-    anchorType: 'page',
-    anchorId: pageId,
+    anchorType: anchor.type,
+    anchorId: anchor.id,
   });
   const sendToAnchor = useMutation(api.chat.sendToAnchor);
 
@@ -60,7 +77,12 @@ export function DiscussionLink({
     setSending(true);
     haptics.tap();
     try {
-      await sendToAnchor({ startupId, anchorType: 'page', anchorId: pageId, body });
+      await sendToAnchor({
+        startupId,
+        anchorType: anchor.type,
+        anchorId: anchor.id,
+        body,
+      });
       haptics.success();
       setDraft('');
       setComposerOpen(false);
@@ -100,7 +122,7 @@ export function DiscussionLink({
             </View>
           }
           title="Započni diskusiju"
-          subtitle={DISCUSSION_SUBTITLE[pageKind]}
+          subtitle={subtitleFor(anchor)}
           onPress={() => setComposerOpen(true)}
           showChevron={false}
         />

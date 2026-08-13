@@ -19,6 +19,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
+import { DiscussionLink } from '@/components/chat/discussion-link';
 import { ContributionThread } from '@/components/ideja/contribution-thread';
 import { IdeaActionsSheet } from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
@@ -248,13 +249,24 @@ export default function IdejaScreen() {
             onOpenEdge={setEdgeDetail}
           />
 
+          {/* Naziv je isti kao na webu (`ideas-view.tsx` „Predlozi izmena"): ovo su
+              doprinosi koje autor ideje odobrava, NE chat. Chat je red ispod. */}
           <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.foreground }]}>
-            Diskusija
+            Predlozi izmena
           </Text>
           <Text style={[styles.meta, text.body, { color: colors.mutedForeground }]}>
             Tekst članova ide na odobrenje autoru ideje — dok čeka, stoji označen.
           </Text>
           <ContributionThread target={{ kind: 'idea', id: ideaId }} canAdd />
+
+          {/* Prava diskusija tima nad idejom (PARITET B4) — isti `anchorType: 'idea'`
+              kanal koji web `EntityDiscussionPanel` otvara na oba svoja mesta
+              (`ideas-view.tsx:646` i `:818`). Redosled je isti kao na webu:
+              predlozi izmena, pa diskusija. */}
+          <DiscussionLink
+            anchor={{ type: 'idea', id: ideaId }}
+            startupId={activeStartupId}
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 

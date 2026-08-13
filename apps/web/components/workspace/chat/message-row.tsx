@@ -11,6 +11,9 @@ import type { ProfileWithAvatar, StartupMember } from "@/components/workspace/ty
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
+// Jedna konstanta za ceo proizvod (nalaz A.1): mobilni `message-actions-sheet.tsx`
+// uvozi istu, a server je već koristi u `chat.editMessage`.
+import { CHAT_EDIT_WINDOW_MS } from "@/convex/lib/validators";
 import {
   formatMessageTime,
   splitMentions,
@@ -19,8 +22,6 @@ import {
 } from "@/lib/chat";
 import { formatFileSize } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
-
-const EDIT_WINDOW_MS = 15 * 60 * 1_000;
 
 export function MessageRow({
   message,
@@ -60,7 +61,7 @@ export function MessageRow({
   const canDelete = (isOwn || isAdmin) && !message.deleted;
 
   function beginEdit() {
-    if (Date.now() - message.createdAt >= EDIT_WINDOW_MS) {
+    if (Date.now() - message.createdAt >= CHAT_EDIT_WINDOW_MS) {
       toast.error("Poruka se može izmeniti samo u prvih 15 minuta.");
       return;
     }

@@ -32,6 +32,20 @@
 2. **`chat.generateUploadUrl` i dalje nema granice**, a odbijen blob se ne briše
    (`chat.ts:833-836`, zapisano u samom kodu). Klijent koji preskoči predproveru puni
    storage siročićima — poruka se odbije, fajl ostaje.
+   **REŠENO (lanac 6, P3):** oba kraja, jer svaki sam zatvara pola.
+   - Predprovera: `chat.generateUploadUrl` ima OBAVEZNE `name`/`contentType`/`size`
+     i baca pre izdavanja URL-a (`chat.ts:2003`); klijenti ih šalju
+     (`apps/mobile/src/components/chat/message-composer.tsx:327`,
+     `apps/web/components/workspace/chat/use-attachment-sender.ts:93`).
+   - Brisanje: `resolveAttachment` odbijanje VRAĆA umesto da baca i pre toga zove
+     `ctx.storage.delete` (`chat.ts:943`); `sendMessage` zato vraća uniju
+     `{ok:true,messageId} | {ok:false,reason,message}` (`chat.ts:1321`).
+   - Tuđ blob se ne briše: `requireUnattachedBlob` (`chat.ts:878`) proverava
+     `pageFiles.by_storageId` i nov `chatMessages.by_attachmentStorageId`
+     (`schema.ts:1289`) pre svake grane koja briše.
+   - Testovi: `chat.test.ts` — „odbijen prilog se VRAĆA, a blob se briše",
+     „odbijanje ne briše blob koji je već zakačen negde drugde",
+     „generateUploadUrl: prevelik i nepodržan fajl ne stignu do storage-a".
 
 3. **Test dokazuje manje nego što tabela sugeriše.** `chat.test.ts:1254` tvrdi
    `attachmentType === "application/octet-stream"` jer `convex-test` ne pamti
@@ -47,9 +61,9 @@
 | B1 | **Urediti belešku koja sadrži tabelu, prilog ili blok koda** | uvek uredivo, `page-editor-view.tsx:1236` | **REŠENO (lanac 6, P2)** — sopstveni web bundle sa istom Tiptap šemom: `apps/mobile/src/lib/note-editor-bridges.ts` (lista), `apps/mobile/editor-web/` (izvor), `note-editor.tsx` (`customSource: NOTE_EDITOR_HTML`, `bodyEditable = canEditBody`). Zabranu je zamenio čuvar koji meri gubitak (`noteSignatureLoss`) |
 | B2 | **Preimenovati zadatak** | `page-editor-view.tsx:694` | **REŠENO (lanac 6, P1)** — red „Preimenuj" u `page-actions-sheet.tsx`, ista `areasV2.updatePage` mutacija |
 | B3 | **Preimenovati stranicu tipa Tabela ili Prilozi** | `page-editor-view.tsx:1097` | **REŠENO (lanac 6, P1)** — isti red kao B2 (`page.kind !== 'note'`), beleška namerno izuzeta (§4c plana P1) |
-| B4 | **Diskusija (chat) nad idejom** | `ideas-view.tsx:646`, `:818` | nema — `anchorType` se na mobilnom zove isključivo sa `'page'` (`discussion-link.tsx:48`) |
+| B4 | **Diskusija (chat) nad idejom** | `ideas-view.tsx:646`, `:818` | **REŠENO (lanac 6, P3)** — `DiscussionLink` premešten u `apps/mobile/src/components/chat/discussion-link.tsx` i uopšten na diskriminisanu uniju `{type:'page'\|'idea'}` (`:25-27`, `:64-67`); montiran na ekranu ideje (`app/(app)/ideja/[id].tsx:270-273`). Sekcija koja je bila dvosmisleno nazvana „Diskusija" preimenovana je u „Predlozi izmena" (`ideja/[id].tsx:255`) — isti naziv koji web koristi za doprinose |
 | B5 | **Kopirati pozivnicu kao LINK** | `admin-dialog.tsx:408` (`https://…/?invite=KOD`) | **REŠENO (lanac 6, P1)** — Alert sada nosi pun link (`inviteLinkUrl` pozvan), „Podeli"/„Kopiraj link"; ako `EXPO_PUBLIC_WEB_URL` nije podešen, pada na stari tok (samo kod) |
-| B6 | **Dodati članove privatnom kanalu** | `new-conversation.tsx:295-324` | `new-conversation-sheet.tsx:117` ne šalje članove, a `chat.setChannelMembers` **ne postoji uopšte** → privatan kanal sa telefona ostaje trajno prazan |
+| B6 | **Dodati članove privatnom kanalu** | `new-conversation.tsx:295-324` | **REŠENO (lanac 6, P3)** — nov upit `chat.channelMembers` (`packages/backend/convex/chat.ts:1104`) i nova mutacija `chat.setChannelMembers` (`:1616`). Mobilni: izbor članova pri kreiranju (`new-conversation-sheet.tsx`, korak „Novi kanal") i naknadna izmena kroz ⋯ → „Članovi kanala" (`components/chat/channel-members-sheet.tsx`, ulaz u `conversation-header.tsx`) uz „Poništi" (`lib/undo.ts`, `kind: 'channelMembers'`). **Ćorsokak je bio i na webu** (članovi samo pri kreiranju), pa je i web dobio izlaz: `components/workspace/chat/channel-members-dialog.tsx`, ulaz u `conversation-pane.tsx` |
 | B7 | **Ubaciti sliku, prilog, tabelu ili CSV u telo beleške** | `rich-text-editor.tsx:404,409,417,429` | **REŠENO (lanac 6, P2)** — dugme „Dodaj…" u traci (`note-toolbar.tsx`, prvo dugme) otvara `note-insert-sheet.tsx`: galerija, kamera, prilog, tabela 3×3, uvoz CSV/XLSX, blok koda. Alatke tabele (red/kolona/zaglavlje/briši) se pojavljuju u traci kad je kursor u tabeli |
 
 B1 je bio jedini nalaz u celoj reviziji gde mobilni korisnik ostaje bez pristupa
@@ -88,16 +102,39 @@ najviše koristiš — puštanje aplikacije drugarima.
 
 ## D. Sitno
 
-Kopiranje teksta poruke (`message-bubble.tsx:193` bez `selectable`) · više fajlova
-odjednom u chatu i u prilozima · video iz galerije u chat (`mediaTypes: ['images']`,
-a `files-panel.tsx:112` istog tima koristi `['images','videos']`) · pretraga članova
-pri otvaranju DM-a · pomen (@) u sredini teksta · izmena poruke koja nosi prilog ·
-objašnjenje zašto izmena više nije moguća · ikonica i naziv oblasti u zaglavlju kanala ·
-datum kreiranja ideje u listi · „nova grana ideje" u jednom potezu · „nova povezana
-misao" · rok kao pun kalendar pri kreiranju · sadržaj beleške u dijalogu kreiranja ·
-izbor oblasti pri kreiranju · pregled videa i „Preuzmi" u pregledaču priloga ·
-kanban „Tabla" za zadatke · „Sastav nedelje" na Pulsu · spisak tima za ne-admina ·
-poruka da je lista zahteva odsečena na 100.
+**Zatvoreno u lancu 6, P3 (chat):**
+
+- ~~Kopiranje teksta poruke~~ — red „Kopiraj tekst" u akcionom sheet-u
+  (`message-actions-sheet.tsx`), implementacija u `message-list.tsx` (`handleCopy`).
+  **`selectable` na mehuriću je svesno ODBIJENO**: na Androidu dugi pritisak nad
+  `selectable` tekstom pokreće native selekciju i pojede `onLongPress` — jedini ulaz
+  u taj isti sheet (odgovori, reakcije, izmeni, obriši).
+- ~~Više fajlova odjednom u chatu~~ — `allowsMultipleSelection` + `multiple: true`
+  i red čekanja (`message-composer.tsx`, `enqueue`): jedan upload → jedna poruka,
+  redom kojim su izabrani, kao web `use-attachment-sender.ts`. Granica je **10 po
+  izboru** (svesna, nije serverska). **Prilozi STRANICE i dalje idu jedan po jedan.**
+- ~~Video iz galerije u chat~~ — `mediaTypes: ['images','videos']`. Kamera namerno
+  ostaje jedna slika (isti izuzetak koji `files-panel.tsx` već nosi).
+  **Video se i dalje ne renderuje u mehuriću — ni na webu** (`message-row.tsx:307`
+  grana samo `image/`), pa to nije rupa pariteta nego nova funkcija za obe platforme.
+- ~~Pretraga članova pri otvaranju DM-a~~ — `components/chat/member-search-input.tsx`,
+  montiran u oba koraka „Nove poruke" i u sheet-u „Članovi kanala".
+- ~~Pomen (@) u sredini teksta~~ — `findMentionQuery` portovan u
+  `apps/mobile/src/lib/chat.ts` (traži unazad OD KURSORA); umetanje čuva tekst iza
+  kursora. Kapija: `apps/mobile/src/lib/chat.mention.test.ts` (8 tvrdnji).
+- ~~Izmena poruke koja nosi prilog~~ — `canEdit` više ne traži `kind === 'text'`
+  (`message-actions-sheet.tsx`), a kompozer dozvoljava prazno telo pri izmeni
+  priloga (`submit`, `allowEmptyBody`).
+- ~~Objašnjenje zašto izmena više nije moguća~~ — red „Izmeni" se više ne sakriva;
+  dodir van prozora daje `Alert` sa doslovno web tekstom („…samo u prvih 15
+  minuta."). Konstanta je sada jedna: obe platforme uvoze `CHAT_EDIT_WINDOW_MS`.
+
+**Ostaje otvoreno:** više fajlova odjednom u **prilozima stranice** · ikonica i naziv
+oblasti u zaglavlju kanala · datum kreiranja ideje u listi · „nova grana ideje" u
+jednom potezu · „nova povezana misao" · rok kao pun kalendar pri kreiranju · sadržaj
+beleške u dijalogu kreiranja · izbor oblasti pri kreiranju · pregled videa i
+„Preuzmi" u pregledaču priloga · kanban „Tabla" za zadatke · „Sastav nedelje" na
+Pulsu · spisak tima za ne-admina · poruka da je lista zahteva odsečena na 100.
 
 ---
 

@@ -665,20 +665,35 @@ kolona tabele dobila u ovoj reviziji: dva dugmeta umesto drag-a).
 
 ---
 
-### Izbor članova privatnog kanala pri kreiranju
+### ~~Izbor članova privatnog kanala pri kreiranju~~ — IZUZETAK VIŠE NE VAŽI (lanac 6, P3)
 
-**Šta je na webu.** `chat/new-conversation.tsx` u istom dijalogu nudi naziv,
-prekidač „privatan" i listu članova za izbor (`createChannel.memberProfileIds`).
+**Kako je bilo.** Mobilni `NewConversationSheet` je pravio kanal sa nazivom i
+privatnošću, ali bez izbora članova. Obrazloženje je bilo „članovi se dodaju na
+webu" — a to nije bilo tačno: web ih je nudio **samo pri kreiranju**, i
+`chat.setChannelMembers` nije postojala uopšte. Privatan kanal napravljen sa
+telefona zato je ostajao **trajno** bez ijednog člana. Ovaj odeljak je taj
+ćorsokak opisivao kao svestan izuzetak — istorijat ostaje da se greška ne ponovi.
 
-**Zašto se ne prenosi u celini.** Mobilni `NewConversationSheet` pravi kanal sa
-nazivom i privatnošću, ali bez izbora članova — to bi bio treći korak u sheet-u
-za radnju koja se u životu tima izvede nekoliko puta ukupno. Kanal se pravi
-prazan; članovi se dodaju na webu.
+**Kako je sada.** Dva ulaza, oba na obe platforme:
 
-**Ograničenje koje treba znati.** Privatan kanal napravljen sa telefona vidi samo
-onaj ko ga je napravio dok mu se članovi ne dodaju. Sheet to i piše na licu mesta
-(„Članove privatnog kanala za sada dodaje administrator na webu"), da niko ne
-otkrije tek posle.
+1. **Pri kreiranju.** Korak „Novi kanal" u `NewConversationSheet` ima pretragu i
+   listu članova sa čekiranjem; `createChannel` dobija `memberProfileIds` (isto
+   što web `NewChannelDialog` radi od početka).
+2. **Posle kreiranja.** ⋯ u razgovoru → **„Članovi kanala"**
+   (`components/chat/channel-members-sheet.tsx` na mobilnom,
+   `components/workspace/chat/channel-members-dialog.tsx` na webu). Vidi ga admin
+   nad kanalom vrste `custom` — isti gejt koji server nameće u
+   `chat.setChannelMembers`.
+
+**Šta i dalje treba znati.** Tvorac kanala (`chatMembers.role === 'owner'`) se ne
+može ukloniti — prikazan je čekiran i nedodirljiv, jer ga server ionako uvek
+zadrži. Isto važi i za samog administratora koji uređuje spisak: piker ne nudi
+sopstveni red, pa ga server automatski zadrži ako je već član. Bez ta dva pravila
+bi „Sačuvaj" umeo da zaključa poslednjeg čoveka van kanala — nov ćorsokak umesto
+zatvorenog.
+
+Izmena članova sa telefona ima **„Poništi"** (`lib/undo.ts`,
+`kind: 'channelMembers'`); web ga nema jer reverziju ima kroz sam dijalog.
 
 ---
 

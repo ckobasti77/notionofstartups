@@ -785,6 +785,31 @@ OBAVEZNO upisuje u izveštaj faze.** Ako `resetAdminPassword` više ne postoji u
 Ove nisu „čeka se na uslov" — već rešene greške koje se lako vrate. Zapisane da
 sledeći put ne izgubimo sat na dijagnostiku.
 
+## 11. Duplirane konstante chata — **REŠENO (lanac 6, P3, 13.08.)**
+
+Nastavak nalaza A.1 iz `PARITET-REVIZIJA-12-08.md` (`CHAT_PRESENCE_REFRESH_MS` je
+bio mrtav export, a oba klijenta su hardkodovala svoju vrednost). Ista bolest je
+postojala i za **prozor izmene poruke**:
+
+| Bilo | Sada |
+|---|---|
+| `apps/mobile/src/components/chat/message-actions-sheet.tsx:11` — `const EDIT_WINDOW_MS = 15 * 60 * 1_000` | uvozi `CHAT_EDIT_WINDOW_MS` iz `@/convex/lib/validators` |
+| `apps/web/components/workspace/chat/message-row.tsx:23` — ista kopija | uvozi istu konstantu |
+| server `chat.editMessage` — `CHAT_EDIT_WINDOW_MS` | nepromenjeno (uvek je bio izvor) |
+
+Kapija: `grep -rn "15 \* 60" apps/` više nema nijedan pogodak.
+
+**Zašto je `lib/validators.ts` bezbedan za oba klijenta:** uvozi samo
+`convex/values`, bez `_generated` i bez Node API-ja — isti razlog zbog kog
+`message-composer.tsx` već uvozi `@/convex/lib/page_files`.
+
+**Nova konstanta iz iste faze:** `MAX_CHAT_CHANNEL_MEMBERS` (`validators.ts`) —
+uvoze je **oba** klijenta (`new-conversation-sheet.tsx`, `channel-members-sheet.tsx`)
+i sam backend. Ako se ikad ponovo doda konstanta koju ne uvozi niko, to je isti
+nalaz A.1 u novom ruhu.
+
+---
+
 ## Z1. Inline objekti kao propovi `WebView`-a izazivaju reload petlju
 
 **Simptom.** WebView beskonačno učitava — u logu se `onLoadStart` ponavlja bez
@@ -1129,3 +1154,39 @@ izvršava. Uz to: `grep -c react-native` nad bundle-om vraća **0**.
 **Pravilo.** Kad se paket gradi iz TUĐEG izvora drugim bundlerom nego što ga autor gradi,
 `try { require(...) } catch` obrasci menjaju ishod umesto da samo menjaju put. Traži ih pre
 nego što objasniš pad — i proveri šta bi bilo da nije pao.
+
+---
+
+## Z11. Punjenje forme iz živog Convex upita: `setState` u efektu je LINT GREŠKA na webu
+
+**Otkriveno u fazi P3 (lanac 6),** pri pisanju dijaloga „Članovi kanala".
+
+**Simptom.** `npm run lint` pada sa
+`react-hooks/set-state-in-effect` („Calling setState synchronously within an effect
+can trigger cascading renders"). `tsc` je čist, mobilni tsc je čist — pukne tek
+korenski lint, i to samo za `apps/web` (`apps/mobile` nijedan linter ne pokriva,
+§5.12).
+
+**Uzrok obrasca.** Refleks je: „dijalog se otvori → prepiši lokalno stanje iz upita",
+pa se piše `useEffect(() => { if (open) setSelected(new Set(current…)) }, [open, current])`
+plus `hydrated` ref da živi upit ne pregazi kvadratić pod kursorom. Dva mehanizma
+(efekat + ref) za jednu stvar, i oba padnu na lintu.
+
+**Rešenje bez efekta** — jedno stanje, jedan izraz:
+
+```tsx
+// `null` = korisnik još nije dirao formu → prikaži živo stanje sa servera.
+const [draft, setDraft] = useState<Set<Id<"profiles">> | null>(null);
+const initial = useMemo(() => new Set(current?.map(...) ?? []), [current]);
+const selected = draft ?? initial;
+
+// Zatvaranje vraća na `null`; sledeće otvaranje opet kreće od servera.
+function change(next: boolean) { if (!next) setDraft(null); onOpenChange(next); }
+```
+
+Prvi dodir „zamrzava" izbor, a do tada je prikaz **reaktivan** — što je bolje od
+zamrzavanja na otvaranju: tuđa izmena se vidi dok korisnik gleda, a ne posle.
+
+**Gde je primenjeno:** `apps/web/components/workspace/chat/channel-members-dialog.tsx`
+i, radi doslednosti, `apps/mobile/src/components/chat/channel-members-sheet.tsx`
+(mobilni lint to ne bi ni prijavio — utoliko pre treba isti obrazac).

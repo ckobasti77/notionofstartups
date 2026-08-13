@@ -32,7 +32,7 @@ import { PageActionsSheet, type SheetView } from '@/components/stranica/page-act
 import { PageContributionsSection } from '@/components/stranica/page-contributions-section';
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
-import { DiscussionLink } from '@/components/zadatak/discussion-link';
+import { DiscussionLink } from '@/components/chat/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
 import { UndoBar } from '@/components/undo-bar';
@@ -304,7 +304,10 @@ export default function ZadatakScreen() {
             />
           </View>
 
-            <DiscussionLink pageId={pageId} startupId={page.startupId} pageKind="task" />
+            <DiscussionLink
+              anchor={{ type: 'page', id: pageId, pageKind: 'task' }}
+              startupId={page.startupId}
+            />
             <PageContributionsSection pageId={pageId} />
           </ScrollView>
         </KeyboardAvoidingView>

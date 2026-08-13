@@ -19,6 +19,7 @@ import { createNotification } from "./lib/notifications";
 import {
   chatAnchorTypeValidator,
   chatChannelKindValidator,
+  chatMemberRoleValidator,
   chatMessageKindValidator,
   chatNotificationLevelValidator,
   CHAT_CHANNELS_CAP,
@@ -28,6 +29,7 @@ import {
   CHAT_SEARCH_CAP,
   CHAT_UNREAD_SUMMARY_CAP,
   cleanRequiredText,
+  MAX_CHAT_CHANNEL_MEMBERS,
   MAX_CHAT_MENTIONS,
   MAX_CHAT_MESSAGE_LENGTH,
 } from "./lib/validators";
@@ -821,19 +823,94 @@ async function enrichMessages(
 
 // --- Validacija ulaza -----------------------------------------------------
 
+const attachmentRejectionReasonValidator = v.union(
+  v.literal("unsupported"),
+  v.literal("too_large"),
+);
+
+type AttachmentRejection = {
+  reason: "unsupported" | "too_large";
+  message: string;
+};
+
+/**
+ * Granice priloga na JEDNOM mestu: predprovera pre izdavanja upload URL-a
+ * (`generateUploadUrl`) i konačna provera nad serverskim metapodacima
+ * (`resolveAttachment`) dele isti tekst — korisnik ne sme da dobije dve različite
+ * poruke za istu granicu.
+ *
+ * Granice su namerno ISTE kao za priloge stranica (`lib/page_files.ts`): jedan
+ * spisak dozvoljenih tipova i jedan skup granica za ceo proizvod. Drugi, paralelni
+ * spisak samo za chat bi se vremenom razišao.
+ */
+function attachmentRejection(
+  contentType: string | undefined,
+  name: string,
+  size: number,
+): AttachmentRejection | null {
+  const category = pageFileCategoryFor(contentType, name);
+  if (category === null) {
+    return {
+      reason: "unsupported",
+      message: `Ovaj tip fajla nije podržan${
+        contentType ? `: ${contentType}` : ""
+      }.`,
+    };
+  }
+  const maxBytes = maxPageFileBytesFor(category);
+  if (size > maxBytes) {
+    return {
+      reason: "too_large",
+      message: `Prilog može imati najviše ${Math.round(
+        maxBytes / (1024 * 1024),
+      )} MB.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Da tuđi ili već zakačen blob nikada ne bude obrisan, provera ide PRE svake
+ * grane koja briše (obrazac `pageFiles.attach`). Bez nje bi neko sa poznatim
+ * `storageId`-jem mogao da namerno pošalje prilog sa lažnim imenom, dobije
+ * odbijanje — i usput obriše tuđ fajl.
+ */
+async function requireUnattachedBlob(
+  ctx: MutationCtx,
+  storageId: Id<"_storage">,
+): Promise<void> {
+  const onPage = await ctx.db
+    .query("pageFiles")
+    .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+    .first();
+  const onMessage = await ctx.db
+    .query("chatMessages")
+    .withIndex("by_attachmentStorageId", (q) =>
+      q.eq("attachmentStorageId", storageId),
+    )
+    .first();
+  if (onPage !== null || onMessage !== null) {
+    throw new Error("Ovaj fajl je već zakačen.");
+  }
+}
+
+type ResolvedAttachment =
+  | {
+      ok: true;
+      name: string | null;
+      type: string | null;
+      size: number | null;
+    }
+  | ({ ok: false } & AttachmentRejection);
+
 /**
  * Prilog poruke: tip i veličina se čitaju SA SERVERA, ne iz argumenata. Klijent
  * šalje `attachmentType`/`attachmentSize` samo kao nagoveštaj — o njima zavise i
  * prikaz i potrošnja, pa mu se ne veruje (isti obrazac kao `pageFiles.ts:222–242`).
  *
- * Granice su namerno ISTE kao za priloge stranica (`lib/page_files.ts`): jedan
- * spisak dozvoljenih tipova i jedan skup granica za ceo proizvod. Drugi, paralelni
- * spisak samo za chat bi se vremenom razišao.
- *
- * Odbijeni blob se NE briše ovde: `ctx.storage.delete` je deo iste transakcije,
- * pa bi ga `throw` odmah poništio (zato `pageFiles.ts` vraća rezultat umesto da
- * baca). Klijent istu granicu proverava i pre uploada, pa je ovo poslednja kapija,
- * ne prva.
+ * Odbijanje se VRAĆA, ne baca: `ctx.storage.delete` je deo iste transakcije, pa bi
+ * ga `throw` poništio i blob bi trajno ostao bez reference (zato `pageFiles.attach`
+ * radi isto). Ovako brisanje i odbijanje prolaze zajedno.
  */
 async function resolveAttachment(
   ctx: MutationCtx,
@@ -843,9 +920,10 @@ async function resolveAttachment(
     type: string | undefined;
     size: number | undefined;
   },
-): Promise<{ name: string | null; type: string | null; size: number | null }> {
+): Promise<ResolvedAttachment> {
   if (input.storageId === undefined) {
     return {
+      ok: true,
       name: input.name ?? null,
       type: input.type ?? null,
       size: input.size ?? null,
@@ -855,21 +933,18 @@ async function resolveAttachment(
   if (metadata === null) throw new Error("Prilog nije pronađen.");
   // Ime iz clipboard-a ume da bude prazno — rezerva umesto pada na praznom stringu.
   const name = cleanPageFileName(input.name?.trim() || "prilog");
-  const category = pageFileCategoryFor(metadata.contentType, name);
-  if (category === null) {
-    throw new Error(
-      `Ovaj tip fajla nije podržan${
-        metadata.contentType ? `: ${metadata.contentType}` : ""
-      }.`,
-    );
-  }
-  const maxBytes = maxPageFileBytesFor(category);
-  if (metadata.size > maxBytes) {
-    throw new Error(
-      `Prilog može imati najviše ${Math.round(maxBytes / (1024 * 1024))} MB.`,
-    );
+  const rejection = attachmentRejection(
+    metadata.contentType,
+    name,
+    metadata.size,
+  );
+  if (rejection !== null) {
+    await requireUnattachedBlob(ctx, input.storageId);
+    await ctx.storage.delete(input.storageId);
+    return { ok: false, ...rejection };
   }
   return {
+    ok: true,
     name,
     type: metadata.contentType ?? "application/octet-stream",
     size: metadata.size,
@@ -1018,6 +1093,40 @@ export const channelForAnchor = query({
         : summaries.get(channel.lastMessageAuthorId) ?? null,
       null,
     );
+  },
+});
+
+/**
+ * Aktivni članovi kanala — jedan `withIndex` nad `by_channel` (`leftAt: null`),
+ * bez skeniranja. Vidi ih svako ko i sam ima pristup kanalu; menja ih samo admin
+ * kroz `setChannelMembers`.
+ */
+export const channelMembers = query({
+  args: { channelId: v.id("chatChannels") },
+  returns: v.array(
+    v.object({
+      profile: chatProfileValidator,
+      role: chatMemberRoleValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireChannelAccess(ctx, args.channelId);
+    const rows = await ctx.db
+      .query("chatMembers")
+      .withIndex("by_channel", (q) =>
+        q.eq("channelId", args.channelId).eq("leftAt", null),
+      )
+      .take(MAX_CHAT_CHANNEL_MEMBERS + 1);
+    const summaries = await profileSummaries(
+      ctx,
+      rows.map((row) => row.profileId),
+    );
+    return rows.flatMap((row) => {
+      const profile = summaries.get(row.profileId) ?? null;
+      // Obrisan profil ostavlja članstvo bez imena — red se izostavlja umesto da
+      // se prikaže prazan (isti izbor kao `decorateChannels`).
+      return profile === null ? [] : [{ profile, role: row.role }];
+    });
   },
 });
 
@@ -1206,7 +1315,17 @@ export const sendMessage = mutation({
     attachmentSize: v.optional(v.number()),
     voiceDurationMs: v.optional(v.number()),
   },
-  returns: v.id("chatMessages"),
+  // Odbijen prilog se VRAĆA umesto da se baci — vidi `resolveAttachment`: samo
+  // tako brisanje siročeta preživi transakciju. Poruka bez priloga uvek vraća
+  // `{ ok: true }`, pa se tekstualni put ponaša isto kao pre.
+  returns: v.union(
+    v.object({ ok: v.literal(true), messageId: v.id("chatMessages") }),
+    v.object({
+      ok: v.literal(false),
+      reason: attachmentRejectionReasonValidator,
+      message: v.string(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const { channel, profile } = await requireChannelAccess(ctx, args.channelId);
     const kind: MessageKind = args.kind ?? "text";
@@ -1221,6 +1340,22 @@ export const sendMessage = mutation({
       args.replyToMessageId,
     );
 
+    // PRE `ensureThreadMember`: odbijen prilog završava `return`-om (transakcija
+    // commituje), pa ne sme da za sobom ostavi članstvo u threadu bez poruke.
+    const attachment = await resolveAttachment(ctx, {
+      storageId: args.attachmentStorageId,
+      name: args.attachmentName,
+      type: args.attachmentType,
+      size: args.attachmentSize,
+    });
+    if (!attachment.ok) {
+      return {
+        ok: false as const,
+        reason: attachment.reason,
+        message: attachment.message,
+      };
+    }
+
     // Thread: slanje/pominjanje čini korisnika članom (participacija).
     if (channel.kind === "thread") {
       await ensureThreadMember(ctx, channel, profile._id);
@@ -1229,24 +1364,24 @@ export const sendMessage = mutation({
       }
     }
 
-    const attachment = await resolveAttachment(ctx, {
-      storageId: args.attachmentStorageId,
-      name: args.attachmentName,
-      type: args.attachmentType,
-      size: args.attachmentSize,
-    });
-
-    return await insertMessage(ctx, channel, profile._id, profile.displayName, {
-      body,
-      kind,
-      mentions,
-      replyToMessageId,
-      attachmentStorageId: args.attachmentStorageId,
-      attachmentName: attachment.name,
-      attachmentType: attachment.type,
-      attachmentSize: attachment.size,
-      voiceDurationMs: args.voiceDurationMs ?? null,
-    });
+    const messageId = await insertMessage(
+      ctx,
+      channel,
+      profile._id,
+      profile.displayName,
+      {
+        body,
+        kind,
+        mentions,
+        replyToMessageId,
+        attachmentStorageId: args.attachmentStorageId,
+        attachmentName: attachment.name,
+        attachmentType: attachment.type,
+        attachmentSize: attachment.size,
+        voiceDurationMs: args.voiceDurationMs ?? null,
+      },
+    );
+    return { ok: true as const, messageId };
   },
 });
 
@@ -1463,6 +1598,118 @@ export const createChannel = mutation({
       isPrivate: args.isPrivate,
       memberProfileIds: args.memberProfileIds,
     });
+  },
+});
+
+/**
+ * Izmena članstva custom kanala posle kreiranja. Bez ove mutacije je privatan
+ * kanal ćorsokak: članovi su se birali SAMO pri kreiranju (web
+ * `new-conversation.tsx`), a kanal napravljen sa telefona nije imao ni to.
+ *
+ * Vraća `previousProfileIds` — spisak AKTIVNIH članova PRE poziva. To je jedini
+ * razlog zašto „Poništi" (`apps/mobile/src/lib/undo.ts`) uopšte može da postoji:
+ * inverz je isti poziv sa starim spiskom.
+ *
+ * NE postavlja sistemsku poruku u kanal: poništavanje bi odmah ostavilo dve
+ * sistemske poruke o suprotnim radnjama.
+ */
+export const setChannelMembers = mutation({
+  args: {
+    channelId: v.id("chatChannels"),
+    memberProfileIds: v.array(v.id("profiles")),
+  },
+  returns: v.object({
+    previousProfileIds: v.array(v.id("profiles")),
+    added: v.number(),
+    removed: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const channel = await ctx.db.get("chatChannels", args.channelId);
+    if (channel === null || channel.archivedAt !== null) {
+      throw new Error("Razgovor nije pronađen.");
+    }
+    // Isti gejt kao `createCustomChannel` i `archiveChannel` — kanale tima drži admin.
+    const { profile } = await requireStartupMember(ctx, channel.startupId);
+    if (profile.role !== "admin") {
+      throw new Error("Potreban je administratorski pristup.");
+    }
+    // Članstvo `startup`/`area`/`thread`/`dm` kanala je IZVEDENO
+    // (`requireChannelAccess`, `ensureThreadMember`) — ručno menjanje bi ga tiho
+    // razišlo sa pravilima pristupa, pa se odbija umesto da se „nekako" primeni.
+    if (channel.kind !== "custom") {
+      throw new Error("Članovi se biraju samo za kanale tima.");
+    }
+
+    const requested = [...new Set(args.memberProfileIds)];
+    if (requested.length > MAX_CHAT_CHANNEL_MEMBERS) {
+      throw new Error(
+        `Kanal može imati najviše ${MAX_CHAT_CHANNEL_MEMBERS} članova.`,
+      );
+    }
+    for (const profileId of requested) {
+      await requireProfileInStartup(ctx, channel.startupId, profileId);
+    }
+
+    const rows = await ctx.db
+      .query("chatMembers")
+      .withIndex("by_channel", (q) =>
+        q.eq("channelId", channel._id).eq("leftAt", null),
+      )
+      .take(MAX_CHAT_CHANNEL_MEMBERS + 1);
+    const previousProfileIds = rows.map((row) => row.profileId);
+
+    const wanted = new Set(requested);
+    for (const row of rows) {
+      // Vlasnik kanala ostaje uvek — inače admin može da zaključa tvorca van
+      // njegovog kanala i napravi nov ćorsokak.
+      // Pozivalac ostaje ako je VEĆ član — piker ne nudi samog sebe, pa bi
+      // doslovna primena spiska izbacila admina iz sopstvenog kanala. Admin koji
+      // nije unutra se NE ubacuje tiho (uslov je postojeći aktivan red).
+      if (row.role === "owner" || row.profileId === profile._id) {
+        wanted.add(row.profileId);
+      }
+    }
+
+    const now = Date.now();
+    let added = 0;
+    let removed = 0;
+
+    for (const profileId of wanted) {
+      const existing = await ctx.db
+        .query("chatMembers")
+        .withIndex("by_channel_and_profile", (q) =>
+          q.eq("channelId", channel._id).eq("profileId", profileId),
+        )
+        .unique();
+      if (existing === null) {
+        await ctx.db.insert("chatMembers", {
+          channelId: channel._id,
+          profileId,
+          startupId: channel.startupId,
+          role: "member",
+          joinedAt: now,
+          leftAt: null,
+        });
+        added += 1;
+        continue;
+      }
+      // Ponovno dodavanje OŽIVLJAVA postojeći red (obrazac `ensureThreadMember`),
+      // ne pravi drugi za isti par — inače bi `by_channel_and_profile.unique()`
+      // vremenom počeo da baca.
+      if (existing.leftAt !== null) {
+        await ctx.db.patch("chatMembers", existing._id, { leftAt: null });
+        added += 1;
+      }
+    }
+
+    for (const row of rows) {
+      if (wanted.has(row.profileId)) continue;
+      // Meko: istorija članstva ostaje, kao i pri napuštanju kanala.
+      await ctx.db.patch("chatMembers", row._id, { leftAt: now });
+      removed += 1;
+    }
+
+    return { previousProfileIds, added, removed };
   },
 });
 
@@ -1747,12 +1994,31 @@ export const archiveChannel = mutation({
  * URL za upload priloga (slika/fajl/glasovna poruka) u kanal. Vraća sirov
  * Convex upload URL; klijent zatim POST-uje fajl, dobija `storageId` i prosledi
  * ga u `sendMessage`. Autorizacija je ista kao za slanje poruke — član kanala.
+ *
+ * `name`/`contentType`/`size` su OBAVEZNI: nepodržan ili prevelik fajl se odbija
+ * PRE nego što blob uopšte nastane. Opciona predprovera koju klijent sme da
+ * preskoči je tačno ono što je pravilo siročiće u storage-u. Poruke su iste kao
+ * posle uploada (`attachmentRejection`).
  */
 export const generateUploadUrl = mutation({
-  args: { channelId: v.id("chatChannels") },
+  args: {
+    channelId: v.id("chatChannels"),
+    name: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+  },
   returns: v.string(),
   handler: async (ctx, args) => {
     await requireChannelAccess(ctx, args.channelId);
+    const name = cleanPageFileName(args.name.trim() || "prilog");
+    const rejection = attachmentRejection(
+      args.contentType || undefined,
+      name,
+      args.size,
+    );
+    // Ovde se BACA (za razliku od `sendMessage`): blob još ne postoji, pa nema
+    // šta da se briše ni šta da preživi transakciju.
+    if (rejection !== null) throw new Error(rejection.message);
     return await ctx.storage.generateUploadUrl();
   },
 });

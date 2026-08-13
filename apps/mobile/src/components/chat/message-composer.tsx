@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,6 +34,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { maxPageFileBytesFor, pageFileCategoryFor } from '@/convex/lib/page_files';
 import { haptics } from '@/lib/haptics';
 import {
+  findMentionQuery,
   OPTIMISTIC_ID_PREFIX,
   resolveMentions,
   type ChatChannel,
@@ -102,17 +103,38 @@ function buildOptimisticTextMessage(
   };
 }
 
-/** Aktivni `@` token na kraju unosa (ime članova može imati razmak). */
-function mentionQuery(text: string): { active: boolean; query: string; start: number } {
-  const at = text.lastIndexOf('@');
-  if (at === -1) return { active: false, query: '', start: -1 };
-  const before = at === 0 ? ' ' : text[at - 1];
-  if (!/\s/.test(before)) return { active: false, query: '', start: -1 };
-  const query = text.slice(at + 1);
-  if (query.includes('\n') || query.length > 40) {
-    return { active: false, query: '', start: -1 };
-  }
-  return { active: true, query, start: at };
+/**
+ * Koliko fajlova sme jedan izbor iz galerije/fajlova. Svesna granica: svaki fajl
+ * je jedan upload I jedna poruka, pa deset već napravi ekran pun priloga. Nije
+ * serverski limit — zapisano u `docs/mobile/lanac6/planovi/p3.md`.
+ */
+const MAX_ATTACHMENTS_PER_PICK = 10;
+
+/** Jedan izabran prilog na putu ka `sendMessage`. */
+type UploadInput = {
+  uri: string;
+  name: string;
+  mimeType: string;
+  size: number | null;
+  kind: 'file' | 'voice';
+  voiceDurationMs?: number;
+};
+
+/**
+ * Ime za snimak koji ga nema — galerija na Androidu ume da vrati `fileName: null`,
+ * a bez ekstenzije `pageFileCategoryFor` nema rezervu kad izostane i `mimeType`.
+ * Indeks i vreme razlikuju fajlove iz istog izbora (isti razlog kao web
+ * `timestampedName`).
+ */
+function assetFileName(
+  asset: { fileName?: string | null; mimeType?: string | null; type?: string | null },
+  index: number,
+): string {
+  if (asset.fileName) return asset.fileName;
+  const isVideo =
+    asset.type === 'video' || (asset.mimeType ?? '').startsWith('video/');
+  const stamp = `${Date.now()}-${index + 1}`;
+  return isVideo ? `video-${stamp}.mp4` : `slika-${stamp}.jpg`;
 }
 
 /**
@@ -142,11 +164,27 @@ export function MessageComposer({
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState('');
-  const [uploading, setUploading] = useState(false);
+  /** Pozicija kursora — pomen se traži OD NJE unazad, ne od kraja unosa. */
+  const [caret, setCaret] = useState(0);
+  /**
+   * Kursor koji tek treba postaviti posle umetanja pomena. Kontrolisan `selection`
+   * stoji SAMO jedan tick (`onSelectionChange`/`onChangeText` ga brišu) — trajno
+   * kontrolisan se na Androidu tuče sa kucanjem i vraća kursor na kraj.
+   */
+  const [pendingCaret, setPendingCaret] = useState<number | null>(null);
+  /** Broj priloga u letu; serija ne sme da spusti indikator između fajlova. */
+  const [uploads, setUploads] = useState(0);
   const [recording, setRecording] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [keyboardUp, setKeyboardUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * Serijalizuje slanje: više fajlova odjednom mora da stigne redom kojim su
+   * izabrani, a ne redom kojim se upload završi (isti `queueRef` obrazac kao web
+   * `chat/use-attachment-sender.ts`).
+   */
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const uploading = uploads > 0;
 
   // Kad je tastatura otvorena, ne dodaji `insets.bottom` (home indicator je pod
   // tastaturom) — inače ostaje prazan razmak između unosa i tastature.
@@ -175,12 +213,15 @@ export function MessageComposer({
 
   // Ulazak u izmenu popunjava unos tekstom poruke.
   useEffect(() => {
-    if (editing) setDraft(editing.body);
+    if (editing) {
+      setDraft(editing.body);
+      setCaret(editing.body.length);
+    }
   }, [editing]);
 
-  const mention = useMemo(() => mentionQuery(draft), [draft]);
+  const mention = useMemo(() => findMentionQuery(draft, caret), [draft, caret]);
   const mentionCandidates = useMemo(() => {
-    if (!mention.active || !members) return [];
+    if (mention === null || !members) return [];
     const query = mention.query.trim().toLowerCase();
     const list =
       query.length === 0
@@ -192,17 +233,30 @@ export function MessageComposer({
   }, [mention, members]);
 
   function selectMention(member: ChatMember) {
-    setDraft(draft.slice(0, mention.start) + '@' + member.profile.displayName + ' ');
+    if (mention === null) return;
+    // Umeće se NA POZICIJU KURSORA, a ostatak poruke ostaje: `draft.slice(caret)`
+    // je tačno ono što je stari `lastIndexOf('@')` obrazac brisao.
+    const insert = `@${member.profile.displayName} `;
+    const next = draft.slice(0, mention.start) + insert + draft.slice(caret);
+    const nextCaret = mention.start + insert.length;
+    setDraft(next);
+    setCaret(nextCaret);
+    setPendingCaret(nextCaret);
   }
 
   function cancelEdit() {
     onCancelEdit();
     setDraft('');
+    setCaret(0);
   }
 
   async function submit() {
     const body = draft.trim();
-    if (!body) return;
+    // Prilog i glasovna poruka smeju prazno telo — caption je opcion i sme da se
+    // obriše (`normalizeMessageBody` na serveru to izričito dozvoljava). Tekst i
+    // dalje mora imati sadržaj.
+    const allowEmptyBody = editing !== null && editing.kind !== 'text';
+    if (!body && !allowEmptyBody) return;
     if (submitting) return;
 
     // Slanje je primarna akcija ovog ekrana — haptika ide ODMAH, ne po potvrdi
@@ -214,6 +268,7 @@ export function MessageComposer({
       try {
         await editMessage({ messageId: editing._id, body });
         setDraft('');
+        setCaret(0);
         onCancelEdit();
       } catch (error) {
         haptics.error();
@@ -227,6 +282,7 @@ export function MessageComposer({
     const mentions = resolveMentions(body, members ?? []);
     const replyId = replyTo?._id;
     setDraft('');
+    setCaret(0);
     onCancelReply();
     try {
       await send({ channelId: channel._id, body, mentions, replyToMessageId: replyId });
@@ -238,14 +294,7 @@ export function MessageComposer({
     }
   }
 
-  async function uploadAndSend(input: {
-    uri: string;
-    name: string;
-    mimeType: string;
-    size: number | null;
-    kind: 'file' | 'voice';
-    voiceDurationMs?: number;
-  }) {
+  async function uploadAndSend(input: UploadInput) {
     // Ista granica koju server ponavlja (`chat.sendMessage` → `resolveAttachment`).
     // Ovde je da fajl koji će ionako biti odbijen ne ode kroz upload i ne ostavi
     // siroč blob — poruka je namerno identična serverskoj.
@@ -267,12 +316,20 @@ export function MessageComposer({
       );
       return;
     }
-    setUploading(true);
     const replyId = replyTo?._id;
     try {
-      const uploadUrl = await generateUploadUrl({ channelId: channel._id });
       const fileResponse = await fetch(input.uri);
       const blob = await fileResponse.blob();
+      // Veličina mora da se zna PRE izdavanja URL-a: server odbija prevelik fajl
+      // pre nego što blob uopšte nastane (`chat.generateUploadUrl`). Galerija ume
+      // da ne vrati `fileSize`, pa je `blob.size` merodavan.
+      const size = input.size ?? blob.size;
+      const uploadUrl = await generateUploadUrl({
+        channelId: channel._id,
+        name: input.name,
+        contentType: input.mimeType,
+        size,
+      });
       const uploadResponse = await fetch(uploadUrl, {
         method: 'POST',
         headers: { 'Content-Type': input.mimeType },
@@ -280,26 +337,53 @@ export function MessageComposer({
       });
       if (!uploadResponse.ok) throw new Error('Otpremanje nije uspelo.');
       const { storageId } = (await uploadResponse.json()) as { storageId: Id<'_storage'> };
-      await send({
+      const result = await send({
         channelId: channel._id,
         body: '',
         kind: input.kind,
         attachmentStorageId: storageId,
         attachmentName: input.name,
         attachmentType: input.mimeType,
-        attachmentSize: input.size ?? undefined,
+        attachmentSize: size,
         voiceDurationMs: input.voiceDurationMs,
         replyToMessageId: replyId,
       });
+      // Odbijen prilog se ne baca nego VRAĆA — server je u istoj transakciji
+      // obrisao blob, pa poruka o grešci stiže bez siročeta u storage-u.
+      if (!result.ok) {
+        haptics.error();
+        Alert.alert('Prilog', result.message);
+        return;
+      }
       haptics.success();
       onCancelReply();
       onSent();
     } catch (error) {
       haptics.error();
       Alert.alert('Greška', errorMessage(error, 'Prilog nije poslat.'));
-    } finally {
-      setUploading(false);
     }
+  }
+
+  /**
+   * Red čekanja za seriju priloga: jedan upload → jedna poruka, redom kojim su
+   * fajlovi izabrani. Brojač se podiže za CELU seriju odjednom — inače bi
+   * indikator pao na nulu između dva fajla i treptao.
+   *
+   * `replyTo` se zamrzava na trenutak izbora i važi za sve poruke serije, isto
+   * kao web (`use-attachment-sender.ts` ga hvata u `useCallback` zavisnosti).
+   */
+  function enqueue(inputs: UploadInput[]) {
+    if (inputs.length === 0) return;
+    setUploads((count) => count + inputs.length);
+    queueRef.current = queueRef.current.then(async () => {
+      for (const input of inputs) {
+        try {
+          await uploadAndSend(input);
+        } finally {
+          setUploads((count) => Math.max(0, count - 1));
+        }
+      }
+    });
   }
 
   async function pickImage(fromCamera: boolean) {
@@ -316,39 +400,61 @@ export function MessageComposer({
         );
         return;
       }
+      // Kamera ostaje jedan snimak i samo slika: sistemski picker snima jednom, a
+      // snimanje videa bi tražilo `expo-camera` sloj (isti svestan izuzetak koji
+      // `components/stranica/files-panel.tsx` već nosi). Galerija prima i video.
       const result = fromCamera
         ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images', 'videos'],
+            allowsMultipleSelection: true,
+            selectionLimit: MAX_ATTACHMENTS_PER_PICK,
+            quality: 0.8,
+          });
       if (result.canceled) return;
-      const asset = result.assets[0];
-      if (!asset) return;
-      await uploadAndSend({
-        uri: asset.uri,
-        name: asset.fileName ?? 'slika.jpg',
-        mimeType: asset.mimeType ?? 'image/jpeg',
-        size: asset.fileSize ?? null,
-        kind: 'file',
-      });
+      enqueue(
+        result.assets.map((asset, index) => ({
+          uri: asset.uri,
+          name: assetFileName(asset, index),
+          mimeType:
+            asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+          size: asset.fileSize ?? null,
+          kind: 'file' as const,
+        })),
+      );
     } catch (error) {
       haptics.error();
-      Alert.alert('Greška', errorMessage(error, 'Slika nije poslata.'));
+      Alert.alert('Greška', errorMessage(error, 'Prilog nije poslat.'));
     }
   }
 
   async function pickDocument() {
     setAttachOpen(false);
     try {
-      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
-      if (result.canceled) return;
-      const asset = result.assets[0];
-      if (!asset) return;
-      await uploadAndSend({
-        uri: asset.uri,
-        name: asset.name,
-        mimeType: asset.mimeType ?? 'application/octet-stream',
-        size: asset.size ?? null,
-        kind: 'file',
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: true,
       });
+      if (result.canceled) return;
+      // Galerija granicu nameće sama (`selectionLimit`), biraču fajlova se ne može
+      // zadati — pa se višak odseca OVDE i to se kaže naglas. Tiho odsecanje bi
+      // izgledalo kao da je fajl poslat pa nestao.
+      if (result.assets.length > MAX_ATTACHMENTS_PER_PICK) {
+        haptics.warning();
+        Alert.alert(
+          'Prilozi',
+          `Odjednom se šalje najviše ${MAX_ATTACHMENTS_PER_PICK} fajlova — poslato je prvih ${MAX_ATTACHMENTS_PER_PICK}.`,
+        );
+      }
+      enqueue(
+        result.assets.slice(0, MAX_ATTACHMENTS_PER_PICK).map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType ?? 'application/octet-stream',
+          size: asset.size ?? null,
+          kind: 'file' as const,
+        })),
+      );
     } catch (error) {
       haptics.error();
       Alert.alert('Greška', errorMessage(error, 'Fajl nije poslat.'));
@@ -356,14 +462,16 @@ export function MessageComposer({
   }
 
   function handleRecorded(voice: RecordedVoice) {
-    void uploadAndSend({
-      uri: voice.uri,
-      name: `glasovna-poruka-${Math.round(voice.durationMs)}.m4a`,
-      mimeType: 'audio/m4a',
-      size: null,
-      kind: 'voice',
-      voiceDurationMs: voice.durationMs,
-    });
+    enqueue([
+      {
+        uri: voice.uri,
+        name: `glasovna-poruka-${Math.round(voice.durationMs)}.m4a`,
+        mimeType: 'audio/m4a',
+        size: null,
+        kind: 'voice',
+        voiceDurationMs: voice.durationMs,
+      },
+    ]);
   }
 
   const canSubmit = draft.trim().length > 0 || editing !== null;
@@ -378,7 +486,7 @@ export function MessageComposer({
           paddingBottom: keyboardUp ? 8 : insets.bottom + 8,
         },
       ]}>
-      {mention.active && mentionCandidates.length > 0 ? (
+      {mention !== null && mentionCandidates.length > 0 ? (
         <MentionAutocomplete candidates={mentionCandidates} onSelect={selectMention} />
       ) : null}
 
@@ -433,11 +541,25 @@ export function MessageComposer({
               },
             ]}
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={(next) => {
+              setDraft(next);
+              // Kontrolisan `selection` se pušta čim korisnik kucne — pola
+              // sekunde kontrole je dovoljno da kursor sedne posle pomena.
+              setPendingCaret(null);
+            }}
+            onSelectionChange={(event) => {
+              setCaret(event.nativeEvent.selection.start);
+              setPendingCaret(null);
+            }}
+            selection={
+              pendingCaret === null
+                ? undefined
+                : { start: pendingCaret, end: pendingCaret }
+            }
             placeholder="Napiši poruku…  (@ za pominjanje)"
             placeholderTextColor={colors.mutedForeground}
             accessibilityLabel="Poruka"
-          multiline
+            multiline
             textAlignVertical="top"
           />
         ) : null}

@@ -88,7 +88,14 @@ export function useAttachmentSender({
       setUploading(true);
       const replyId = replyTo?._id;
       try {
-        const uploadUrl = await generateUploadUrl({ channelId: channel._id });
+        // Ime, tip i veličina idu i u predproveru: server odbija prevelik ili
+        // nepodržan fajl PRE nego što blob nastane (`chat.generateUploadUrl`).
+        const uploadUrl = await generateUploadUrl({
+          channelId: channel._id,
+          name: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        });
         const response = await fetch(uploadUrl, {
           method: "POST",
           headers: { "Content-Type": file.type || "application/octet-stream" },
@@ -98,7 +105,7 @@ export function useAttachmentSender({
         const { storageId } = (await response.json()) as {
           storageId: Id<"_storage">;
         };
-        await send({
+        const result = await send({
           channelId: channel._id,
           body: "",
           kind,
@@ -109,6 +116,12 @@ export function useAttachmentSender({
           voiceDurationMs,
           replyToMessageId: replyId,
         });
+        // Odbijen prilog se ne baca nego vraća — server je u istoj transakciji
+        // obrisao blob, pa greška stiže bez siročeta u storage-u.
+        if (!result.ok) {
+          toast.error(result.message);
+          return;
+        }
         onSent();
       } catch (error) {
         toast.error(

@@ -169,6 +169,13 @@ export const CHAT_PREVIEW_LENGTH = 100;
 /** Prozor u kome autor sme da izmeni poruku (04-CHAT.md 8, „~15 min"). */
 export const CHAT_EDIT_WINDOW_MS = 15 * 60 * 1_000;
 export const MAX_CHAT_MENTIONS = 50;
+/**
+ * Koliko članova sme da ima custom kanal. Ista granica koju `startups.listMembers`
+ * ionako nameće (`boundedLimit(…, 25, 50)`), pa piker ne može da ponudi više nego
+ * što izvor daje. Uvoze je OBA klijenta (mobilni sheet i web dijalog) — konstanta
+ * koju niko ne troši je mrtav export.
+ */
+export const MAX_CHAT_CHANNEL_MEMBERS = 50;
 /** Gornja granica čitanja u listama — zaštita, ne očekivanje. */
 export const CHAT_CHANNELS_CAP = 200;
 export const CHAT_UNREAD_SUMMARY_CAP = 500;

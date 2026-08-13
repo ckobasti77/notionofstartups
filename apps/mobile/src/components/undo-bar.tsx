@@ -69,6 +69,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const connectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.connect);
   const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
   const updatePage = useMutation(api.areasV2.updatePage);
+  const setChannelMembers = useMutation(api.chat.setChannelMembers);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -294,6 +295,15 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
       case 'thoughtEdgeConnect':
         // Inverz PRAVLJENJA veze je arhiviranje — ne `restoreEdges`.
         await archiveThoughtEdges({ edgeIds: [action.edgeId] });
+        return;
+      case 'channelMembers':
+        // Inverz je ISTI poziv sa spiskom od pre izmene. Ako je kanal u
+        // međuvremenu arhiviran ili je neko izgubio članstvo u startupu, ovo baci
+        // serversku poruku — traka tada namerno OSTAJE (ista konvencija kao gore).
+        await setChannelMembers({
+          channelId: action.channelId,
+          memberProfileIds: action.profileIds,
+        });
         return;
       case 'pageRename':
         // Ako je neko u međuvremenu izmenio stranicu, ovo baci `KONFLIKT_IZMENA` —

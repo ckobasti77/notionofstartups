@@ -278,3 +278,168 @@ npm run editor:build --workspace @devotion/mobile → 678 KB, provera markera pr
 
 - Start: 2026-08-13T01:41:42
 - PLAN: napisan
+- IZVRŠI: završeno 2026-08-13
+
+### 1. Nalazi — dokaz fajl:linija
+
+| # | Tvrdnja | Dokaz PRE | Šta je urađeno | Dokaz POSLE |
+|---|---|---|---|---|
+| B4 | Diskusija nad idejom ne postoji na mobilnom | `components/zadatak/discussion-link.tsx:48,63` — `anchorType: 'page'` tvrdo | Komponenta premeštena u `components/chat/` i uopštena u diskriminisanu uniju; montirana na ekranu ideje | `apps/mobile/src/components/chat/discussion-link.tsx:25` (`DiscussionAnchor`), `:65` + `:82` (`anchorType: anchor.type`); mount `app/(app)/ideja/[id].tsx:266` |
+| B4 | Sekcija „Diskusija" na ekranu ideje je zapravo bila lista doprinosa | `ideja/[id].tsx:252` | Preimenovana u „Predlozi izmena" (isti naziv koji web koristi, `ideas-view.tsx:635`/`:807`); chat je zaseban red ispod | `ideja/[id].tsx:255` (naslov), `:260` (`ContributionThread`), `:266` (`DiscussionLink`) |
+| B4 | Stari lanci ne smeju da puknu | `stranica/[id].tsx:147`, `zadatak/[id].tsx:307` | Prevedeni na nov prop | `stranica/[id].tsx:147`, `zadatak/[id].tsx:307` |
+| B6 | `chat.setChannelMembers` ne postoji | `grep -rn "setChannelMembers" packages/backend` → 0 | Nov upit + nova mutacija | `packages/backend/convex/chat.ts:1104` (`channelMembers`), `:1616` (`setChannelMembers`) |
+| B6 | Mobilni ne šalje članove pri kreiranju | `new-conversation-sheet.tsx:117` — `{startupId, name, isPrivate}` | Lista sa čekiranjem + pretraga u koraku „Novi kanal" | `new-conversation-sheet.tsx:148` (`memberProfileIds`), `:286` (pretraga), `:306` (`toggleMember`) |
+| B6 | Netačan tekst „članove dodaje administrator na webu" | `new-conversation-sheet.tsx:238` | Zamenjen istinitim uputstvom na stvarno mesto | `new-conversation-sheet.tsx:316-320` |
+| B6 | Ćorsokak je bio i na WEBU (članovi samo pri kreiranju) | `conversation-pane.tsx:222-251` — meni ima samo obaveštenja i arhiviranje | Nov dijalog + stavka u istom meniju | `apps/web/components/workspace/chat/channel-members-dialog.tsx`, ulaz `conversation-pane.tsx:246-252`, mount `:291` |
+| B6 | Izmena članstva je upis bez inverza | — | Nova grana „Poništi" | `apps/mobile/src/lib/undo.ts:202`, `components/undo-bar.tsx:299`, poziv `channel-members-sheet.tsx:123` |
+| D | Mobilni uzima samo prvi fajl | `message-composer.tsx:323`, `:343` (`assets[0]`) | Višestruki izbor + red čekanja (jedan upload → jedna poruka, redom) | `message-composer.tsx:410` (`allowsMultipleSelection`), `:436` (`multiple: true`), `:375` (`enqueue`) |
+| D | Nema videa iz galerije | `message-composer.tsx:320` `mediaTypes: ['images']` | Galerija prima i video; kamera namerno ostaje jedna slika | `message-composer.tsx:409` vs `:407` |
+| D | Pomen `@` briše sve posle kursora | `message-composer.tsx:106` (`lastIndexOf`), `:195` (`slice(0, start) + …`) | `findMentionQuery` portovan sa weba (traži unazad OD KURSORA) + praćenje kursora | `apps/mobile/src/lib/chat.ts:221`, kompozer `:222` (memo), `:540` (`onSelectionChange`); test `src/lib/chat.mention.test.ts` (8 tvrdnji) |
+| D | Poruka sa prilogom se ne može izmeniti | `message-actions-sheet.tsx:46` (`kind === 'text'`) | Uslov obrisan (kao web `message-row.tsx:59`); prazan caption dozvoljen pri izmeni | `message-actions-sheet.tsx:54`, kompozer `:258-259` |
+| D | Istek prozora izmene se ćuti (red nestane) | `message-actions-sheet.tsx:47` | Red ostaje, dodir van prozora daje objašnjenje doslovno kao web | `message-actions-sheet.tsx:57-63`, poziv `:107` |
+| D | Tekst poruke se ne može kopirati | `message-bubble.tsx:193` bez `selectable` | Red „Kopiraj tekst" u akcionom sheet-u (ne `selectable` — obrazloženje u §3) | `message-actions-sheet.tsx:98`, implementacija `message-list.tsx:120`, mount `:369` |
+| D | Nema pretrage članova pri otvaranju DM-a | web `new-conversation.tsx:154` | Deljeno polje, montirano na tri mesta | `components/chat/member-search-input.tsx`, uvozi `new-conversation-sheet.tsx:230` i `:286`, `channel-members-sheet.tsx` |
+| A.1 | `CHAT_EDIT_WINDOW_MS` dupliran na oba klijenta | `message-actions-sheet.tsx:11`, `message-row.tsx:23` | Oba uvoze serversku konstantu | `message-actions-sheet.tsx:10`, `message-row.tsx:16`; `grep -rn "15 \* 60" apps/` → **0 pogodaka** |
+| A.2 | `generateUploadUrl` bez granica | `chat.ts:1751` — samo `requireChannelAccess` | Obavezni `name`/`contentType`/`size`, provera pre izdavanja URL-a | `chat.ts:2003`; klijenti `message-composer.tsx:327`, `use-attachment-sender.ts:93` |
+| A.2 | Odbijen blob se ne briše | `chat.ts:833-836` (zapisano u kodu) | `sendMessage` vraća uniju; grana odbijanja briše blob i transakcija commituje | `chat.ts:1321` (`returns`), `:943` (`storage.delete`), klijenti `message-composer.tsx:353`, `use-attachment-sender.ts:121` |
+| A.2 | Brisanje ne sme da pogodi tuđ blob | — | `requireUnattachedBlob` pre svake grane koja briše + nov indeks | `chat.ts:878`, `schema.ts:1289` (`by_attachmentStorageId`) |
+
+### 2. Lanac uvoza — dokaz da nije mrtvo
+
+**`components/chat/discussion-link.tsx` (uopšten)**
+→ `app/(app)/ideja/[id].tsx:22` (uvoz) → `:266` (mount, unutar `ScrollView`)
+→ ruta `/ideja/[id]` → `app/(app)/ideje.tsx` (`router.push`) → ruta `/ideje`
+→ tab „Više" → red „Ideje" → tap na ideju.
+Drugi ulazi u istu rutu: `idea-edge-sheet.tsx`, `canvas/idea-node-sheet.tsx`.
+Stari lanci nedirnuti: `stranica/[id].tsx:17`→`:147` (tab „Prostor"),
+`zadatak/[id].tsx:35`→`:307` (tab „Danas"/„Zadaci").
+
+**`components/chat/channel-members-sheet.tsx`**
+→ `components/chat/conversation-header.tsx:27` (uvoz) → `:268` (mount)
+→ otvara ga JEDINI ulaz: red „Članovi kanala" u `⋯` meniju (`:233-249`)
+→ `app/(app)/razgovor/[id].tsx:152` (`<ConversationHeader canManageMembers={…}>`, `:160`)
+→ ruta `/razgovor/[id]` → tab „Chat" → tap na kanal → `⋯`.
+Red se vidi samo kad je `profile.role === 'admin' && channel.kind === 'custom'`
+(`razgovor/[id].tsx:160`) — klijentsko ogledalo serverskog gejta (`chat.ts:1634`, `:1640`).
+
+**`components/chat/member-search-input.tsx`**
+→ `new-conversation-sheet.tsx:6` → `:230` (korak „Direktna poruka") i `:286`
+(korak „Novi kanal") → tab „Chat" → ikonica „Nova poruka";
+→ `channel-members-sheet.tsx` → isti lanac kao gore.
+
+**`lib/undo.ts` grana `channelMembers`**
+→ `components/undo-bar.tsx:299` (`case`) → `app/(app)/razgovor/[id].tsx:26` (uvoz)
+→ `:204` (`<UndoBar bottomOffset={…} />`, **novo — ranije ga na tom ekranu nije bilo**)
+→ traka se vidi posle „Sačuvaj" u sheet-u članova (`channel-members-sheet.tsx:123`).
+
+**`lib/chat.ts` `findMentionQuery`**
+→ `message-composer.tsx:37` (uvoz) → `:222` (memo koji pali autocomplete)
+→ `razgovor/[id].tsx:185` (`<MessageComposer>`) → tab „Chat" → razgovor;
+→ i `src/lib/chat.mention.test.ts` (kapija).
+
+**`components/workspace/chat/channel-members-dialog.tsx` (web)**
+→ `conversation-pane.tsx:21` (uvoz) → `:292` (mount) → ulaz `:246-252`
+(`DropdownMenuItem` „Članovi kanala") → `view=chat` → izbor kanala → `⋯`.
+
+**Backend** — tri potrošača napisana u istoj fazi:
+`api.chat.channelMembers` → `channel-members-sheet.tsx:45`, `channel-members-dialog.tsx`;
+`api.chat.setChannelMembers` → `channel-members-sheet.tsx`, `undo-bar.tsx`, `channel-members-dialog.tsx`.
+`MAX_CHAT_CHANNEL_MEMBERS` → uvoze ga `new-conversation-sheet.tsx:13` i
+`channel-members-sheet.tsx:14` (nije mrtav export, nalaz A.1).
+
+### 3. Odstupanja od plana (i zašto)
+
+| Plan | Urađeno | Razlog |
+|---|---|---|
+| Izmena 2: „vlasnik se ne uklanja nikad" | vlasnik **i pozivalac** ostaju članovi | Piker ne nudi sopstveni red (kao web `NewChannelDialog`), pa bi doslovna primena spiska izbacila admina iz sopstvenog kanala — nov ćorsokak umesto zatvorenog. Pozivalac se čuva SAMO ako je već aktivan član; admin koji nije unutra se ne ubacuje tiho (`chat.ts:1663-1671`) |
+| Izmena 4: „skeleton dok bilo koji upit nije stigao" | `SkeletonRow leading="circle" subtitle` × 4 | Isti oblik reda koji ga smenjuje (`ui/skeletons.tsx` konvencija) |
+| Izmena 4: hidracija sheet-a kroz `useEffect` + `hydrated` ref | `draft ?? initial` bez ijednog efekta | `react-hooks/set-state-in-effect` je **greška**, ne upozorenje — lint je pao na web verziji. Isti obrazac primenjen i na mobilnom radi doslednosti. Zapisano kao `ZA-POPRAVKU` **Z11** |
+| Izmena 4: pretraga nije bila predviđena u sheet-u članova | dodata | Ista `MemberSearchInput` komponenta; tim ide do 50 ljudi, lista bez filtera je neupotrebljiva |
+| Izmena 7: „`replyTo` važi samo za prvu poruku serije, isto kao web" | `replyTo` važi za **sve** poruke serije | Plan je pogrešno opisao web: `use-attachment-sender.ts` hvata `replyTo` u `useCallback` zavisnosti i `sendFiles` ga zamrzava za ceo red — sve poruke iz jednog puštanja nose isti `replyToMessageId`. Zadržan **stvarni** web ugovor, ne opisani |
+| Izmena 7 nije predviđala brojač upload-a | `uploads` brojač umesto `uploading` boolean-a | Sa redom čekanja bi `setUploading(false)` posle svakog fajla oborio indikator između dva upload-a. Brojač se podiže za CELU seriju (`message-composer.tsx:375-386`) |
+| Izmena 9: „predprovera pre uploada" (samo redosled poziva) | mobilni **prvo** čita `blob`, pa traži URL | Galerija ume da ne vrati `fileSize`; bez `blob.size` predprovera ne bi imala šta da proveri (`message-composer.tsx:320-327`). Usput je popravljena i glasovna poruka koja je slala `size: null` |
+| Izmena 9 nije predviđala izmenu šeme | nov indeks `chatMessages.by_attachmentStorageId` | Bez njega provera „blob je već zakačen" traži skeniranje tabele, što `.claude/rules/convex.md` izričito zabranjuje (`schema.ts:1289`) |
+| Izmena 9: „mobilni `:232` (tekst) dobija proveru `result.ok`" | tekstualni put NE proverava | `sendMessage` bez `attachmentStorageId` vraća `{ok:true}` bezuslovno (`chat.ts:1351`, `:1384`) — grana `!ok` na tom putu je nedostižna, a mrtva grana je isti greh kao mrtva komponenta |
+| Izmena 10: `ZA-POPRAVKU` samo dopuna A.1 | dopuna + nova sekcija **§11** + nova zamka **Z11** | §11 nosi zatvorenu duplikaciju i pravilo za sledeću konstantu; Z11 je naučen na lintu ove faze |
+
+### 4. Gejtovi
+
+```
+apps/mobile   npx tsc --noEmit                                    → 0 grešaka
+apps/web      npx tsc --noEmit                                    → 0 grešaka
+packages/backend  npx tsc -p convex/tsconfig.json --noEmit        → 0 grešaka
+npm run lint                                                      → 0 grešaka, 0 upozorenja
+npm test      Test Files 43 passed (43) | Tests 379 passed (379)  (baseline P2: 42/367 → +1 fajl, +12 testova)
+npm run build → Next.js build uspešan, sve rute kompajlirane
+```
+
+Novih 12 testova: 8 u `apps/mobile/src/lib/chat.mention.test.ts`, 4 u
+`packages/backend/convex/chat.test.ts` (`setChannelMembers` ×2, predprovera
+`generateUploadUrl` ×1, „odbijanje ne briše tuđ blob" ×1). Postojeći test
+„nepodržan tip se odbija" je prepisan u „odbijen prilog se VRAĆA, a blob se briše"
+— tvrdi jače nego pre (`rejects` → `{ok:false}` **plus** `_storage` red je `null`).
+
+> `npm run lint` **ne pokriva `apps/mobile/**`** (`eslint.config.mjs:25`) — „lint
+> čist" za mobilni znači `tsc`, ne ESLint. Ista ograda kao u svakoj fazi
+> (`ZA-POPRAVKU` §5.12).
+
+**`apps/mobile/package.json` NIJE menjan** — `expo-clipboard`, `expo-image-picker`
+i `expo-document-picker` su već bili zavisnosti. Native build zato nije obavezan;
+`NATIVE-BUILD.md` se ne dopunjuje.
+
+### 5. Šta NIJE provereno — iskreno
+
+- **Ništa nije pokrenuto na uređaju ni u emulatoru.** Verifikacija je `tsc` +
+  `npm test` + `lint` + `build`. Ne tvrdim da sam video kako se bira član prstom.
+- **Nov indeks `chatMessages.by_attachmentStorageId` nije deployovan.** Na `convex
+  deploy` Convex ga gradi nad postojećim redovima; to nije mereno.
+- **`selectionLimit: 10` nije isprobano na uređaju** — svesna granica, ne serverska.
+  Ako se pokaže premalo, menja se jedna konstanta (`message-composer.tsx:111`).
+- **Kontrolisan `selection` na Androidu** (`pendingCaret`) je poznata škakljiva
+  tačka RN-a. Rešenje ga drži jedan tick i pušta na prvi `onChangeText`/
+  `onSelectionChange`, ali to nije izmereno prstom. Ako zaškripi: izbaci `selection`
+  prop — kursor tada ode na kraj, **ali tekst posle kursora se i dalje NE briše**,
+  što je i bio bag.
+- **Web „Poništi" za članove ne postoji** — namerno, zapisano i u `02-EKRANI.md`.
+  Reverzija na webu je otvoriti dijalog, odčekirati, sačuvati.
+- **Video se i dalje ne renderuje u mehuriću ni na jednoj platformi.** Slanje jeste
+  rupa pariteta i zatvorena je; prikaz nije rupa nego nova funkcija za obe platforme.
+- **Merni gejt `ZA-POPRAVKU` §2 ostaje otvoren** (agent nema uređaj), a **§0 plana
+  P3 se prenosi kao otvorena stavka**: `editor-web/inline.mjs:44` koristi
+  `String.replace(string, string)`, koji izvršava `$`-obrasce — commitovani
+  `note-editor-html.ts` je zato po nalazu revizije P2 neispravan JavaScript. P3 to
+  nije dirala (nije chat, a popravka nosi regeneraciju ~660 KB artefakta).
+
+### 6. Provera prstom (čeka korisnika)
+
+| # | Šta | Očekivano |
+|---|---|---|
+| T1 | „Više" → „Ideje" → ideja | Dve sekcije: **„Predlozi izmena"** (doprinosi) i red **„Započni diskusiju"** (chat) |
+| T2 | „Započni diskusiju" → prva poruka | Red postane „Diskusija, 1 poruka"; tap vodi u `/razgovor/[id]` |
+| T3 | Ista ideja na webu | `EntityDiscussionPanel` pokazuje **istu** poruku — dokaz da je isti `anchorId`, ne paralelni kanal |
+| T4 | Beleška i zadatak (regresija) | Diskusija radi kao pre |
+| T5 | „Chat" → „Nova poruka" → „Novi kanal" (admin) | Polje pretrage + lista članova sa kvačicama ispod prekidača „Privatan" |
+| T6 | Kucanje u pretragu | Lista se smanjuje; prazan rezultat ima svoj tekst |
+| T7 | Kreiraj privatan kanal sa čekiranim članom | **Drugi nalog** (web, taj član) vidi kanal u listi |
+| T8 | Razgovor → `⋯` | Red „Članovi kanala" postoji za admina nad custom kanalom; **ne postoji** u „Opšte" ni za ne-admina |
+| T9 | Ukloni člana → „Sačuvaj" | Traka „Poništi" iznad kompozera; tap vraća člana (proveriti na webu) |
+| T10 | Web: `view=chat` → custom kanal → `⋯` → „Članovi kanala" → odčekiraj → Sačuvaj | Mobilnom tom članu kanal nestane iz liste |
+| T11 | Spajalica → „Galerija" → izaberi 3 slike | **3 poruke** redom kojim su izabrane, ne jedna |
+| T12 | Galerija → video | Poruka sa imenom fajla; web otvara isti prilog |
+| T13 | Napiši „posle podne", vrati kursor iza „posle", kucaj `@Ime` | „ podne" **ostaje** u poruci |
+| T14 | Dugi pritisak na poruku → „Kopiraj tekst" | Nalepi u kompozer — isti tekst |
+| T15 | Pošalji sliku sa tekstom → dugi pritisak → „Izmeni" | Prilog se uređuje; brisanje teksta se sačuva prazno |
+| T16 | Poruka starija od 15 min → „Izmeni" | Red **postoji**, tap daje „Poruka se može izmeniti samo u prvih 15 minuta." |
+
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `tsc backend`: prolazi
+- `lint`: prolazi (0 grešaka, 0 upozorenja)
+- `test`: prolazi (43 fajla, 379 testova)
+- `build`: prolazi
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi

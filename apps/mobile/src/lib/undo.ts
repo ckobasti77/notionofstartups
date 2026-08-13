@@ -189,6 +189,20 @@ export type UndoAction =
    * vratilo — ako je neko u međuvremenu opet izmenio stranicu, poziv baca
    * `KONFLIKT_IZMENA` i traka namerno ostaje (isti obrazac kao ostale grane).
    */
+  /**
+   * Izmena članstva custom kanala (P3, B6). Kao `pageMove` — NIJE vraćanje
+   * arhiviranog nego inverzan upis: `profileIds` je spisak aktivnih članova OD PRE
+   * izmene, koji vraća sama mutacija (`chat.setChannelMembers.previousProfileIds`).
+   *
+   * Iskrena granica: vraća se SPISAK, ne `joinedAt` uklonjenog reda — datum
+   * pristupanja ponovo dodatog člana ostaje onaj originalni (red se oživljava
+   * patch-om `leftAt: null`), a novododatom ostaje trenutak dodavanja.
+   */
+  | {
+      kind: 'channelMembers';
+      channelId: Id<'chatChannels'>;
+      profileIds: Id<'profiles'>[];
+    }
   | {
       kind: 'pageRename';
       startupId: Id<'startups'>;

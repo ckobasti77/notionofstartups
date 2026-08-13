@@ -446,6 +446,21 @@ async function seedChatWorkspace() {
 
 type ChatWorkspace = Awaited<ReturnType<typeof seedChatWorkspace>>;
 
+/**
+ * Id uspešno poslate poruke. Od faze P3 `sendMessage` vraća UNIJU: odbijen prilog
+ * se vraća umesto da se baci, jer bi `throw` poništio i `storage.delete` odbijenog
+ * bloba (isti razlog koji `pageFiles.attach` već nosi). Testovima kojima treba
+ * samo id ovo je jedina promena.
+ */
+function messageIdOf(
+  result:
+    | { ok: true; messageId: Id<"chatMessages"> }
+    | { ok: false; reason: string; message: string },
+): Id<"chatMessages"> {
+  if (!result.ok) throw new Error(`Poruka nije poslata: ${result.message}`);
+  return result.messageId;
+}
+
 function readFor(
   s: ChatWorkspace,
   channelId: Id<"chatChannels">,
@@ -592,10 +607,12 @@ describe("chat funkcije", () => {
 
   test("createChannel od poruke pravi message-thread, idempotentno", async () => {
     const s = await seedChatWorkspace();
-    const messageId = await s.asOwner.mutation(api.chat.sendMessage, {
-      channelId: s.general,
-      body: "vredna poruka",
-    });
+    const messageId = messageIdOf(
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "vredna poruka",
+      }),
+    );
     const threadId = await s.asMember.mutation(api.chat.createChannel, {
       fromMessageId: messageId,
     });
@@ -611,10 +628,12 @@ describe("chat funkcije", () => {
 
   test("soft delete: telo se ne vraća, tombstone ostaje", async () => {
     const s = await seedChatWorkspace();
-    const messageId = await s.asOwner.mutation(api.chat.sendMessage, {
-      channelId: s.general,
-      body: "obriši me",
-    });
+    const messageId = messageIdOf(
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "obriši me",
+      }),
+    );
     await s.asOwner.mutation(api.chat.deleteMessage, { messageId });
 
     const page = await s.asOwner.query(api.chat.messages, {
@@ -638,10 +657,12 @@ describe("chat funkcije", () => {
 
   test("izmenu radi samo autor; reakcija se prebacuje", async () => {
     const s = await seedChatWorkspace();
-    const messageId = await s.asOwner.mutation(api.chat.sendMessage, {
-      channelId: s.general,
-      body: "original",
-    });
+    const messageId = messageIdOf(
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "original",
+      }),
+    );
     await expect(
       s.asMember.mutation(api.chat.editMessage, {
         messageId,
@@ -697,6 +718,102 @@ describe("chat funkcije", () => {
     expect(memberChannels.some((c) => c._id === customId)).toBe(true);
   });
 
+  test("setChannelMembers: dodaje, uklanja, oživljava red i čuva vlasnika", async () => {
+    const s = await seedChatWorkspace();
+    const channelId = await s.asOwner.mutation(api.chat.createChannel, {
+      startupId: s.startupId,
+      name: "Privatno",
+      isPrivate: true,
+    });
+
+    // Dodavanje dvoje: vlasnik + 2 = 3 aktivna člana.
+    const first = await s.asOwner.mutation(api.chat.setChannelMembers, {
+      channelId,
+      memberProfileIds: [s.member.profileId, s.bystander.profileId],
+    });
+    expect(first.previousProfileIds).toEqual([s.owner.profileId]);
+    expect(first.added).toBe(2);
+    expect(first.removed).toBe(0);
+    expect(
+      await s.asOwner.query(api.chat.channelMembers, { channelId }),
+    ).toHaveLength(3);
+    // Dodat član sada zaista čita kanal (dozvola, ne samo red u tabeli).
+    await s.asMember.query(api.chat.messages, {
+      channelId,
+      paginationOpts: NO_CURSOR,
+    });
+
+    // Uklanjanje: vlasnik je izostavljen iz spiska, ali OSTAJE član.
+    const second = await s.asOwner.mutation(api.chat.setChannelMembers, {
+      channelId,
+      memberProfileIds: [s.bystander.profileId],
+    });
+    expect(second.removed).toBe(1);
+    const afterRemove = await s.asOwner.query(api.chat.channelMembers, {
+      channelId,
+    });
+    expect(afterRemove.map((row) => row.profile._id).sort()).toEqual(
+      [s.owner.profileId, s.bystander.profileId].sort(),
+    );
+    await expect(
+      s.asMember.query(api.chat.messages, {
+        channelId,
+        paginationOpts: NO_CURSOR,
+      }),
+    ).rejects.toThrow("Nemate pristup ovom razgovoru.");
+
+    // Ponovno dodavanje: pristup se vraća, a red je i dalje TAČNO JEDAN za taj
+    // par (dokaz da je `leftAt: null` patch, a ne nov insert).
+    await s.asOwner.mutation(api.chat.setChannelMembers, {
+      channelId,
+      memberProfileIds: [s.member.profileId, s.bystander.profileId],
+    });
+    await s.asMember.query(api.chat.messages, {
+      channelId,
+      paginationOpts: NO_CURSOR,
+    });
+    const rows = await s.t.run((ctx) =>
+      ctx.db
+        .query("chatMembers")
+        .withIndex("by_channel_and_profile", (q) =>
+          q.eq("channelId", channelId).eq("profileId", s.member.profileId),
+        )
+        .collect(),
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  test("setChannelMembers: ne-admin, izvedeno članstvo i tuđi profil se odbijaju", async () => {
+    const s = await seedChatWorkspace();
+    const channelId = await s.asOwner.mutation(api.chat.createChannel, {
+      startupId: s.startupId,
+      name: "Privatno",
+      isPrivate: true,
+    });
+
+    await expect(
+      s.asMember.mutation(api.chat.setChannelMembers, {
+        channelId,
+        memberProfileIds: [s.bystander.profileId],
+      }),
+    ).rejects.toThrow("Potreban je administratorski pristup.");
+
+    // Opšti kanal ima IZVEDENO članstvo — ručna lista bi ga razišla sa pristupom.
+    await expect(
+      s.asOwner.mutation(api.chat.setChannelMembers, {
+        channelId: s.general,
+        memberProfileIds: [s.member.profileId],
+      }),
+    ).rejects.toThrow("Članovi se biraju samo za kanale tima.");
+
+    await expect(
+      s.asOwner.mutation(api.chat.setChannelMembers, {
+        channelId,
+        memberProfileIds: [s.outsider.profileId],
+      }),
+    ).rejects.toThrow("Dodeljeni član mora pripadati ovom startupu.");
+  });
+
   test("thread nad mišlju je vidljiv samo vlasniku misli", async () => {
     const s = await seedChatWorkspace();
     const thoughtId = await s.t.run((ctx) =>
@@ -740,14 +857,41 @@ describe("chat funkcije", () => {
     const s = await seedChatWorkspace();
     const url = await s.asMember.mutation(api.chat.generateUploadUrl, {
       channelId: s.general,
+      name: "slika.png",
+      contentType: "image/png",
+      size: 1024,
     });
     expect(typeof url).toBe("string");
     expect(url.length).toBeGreaterThan(0);
     await expect(
       s.asOutsider.mutation(api.chat.generateUploadUrl, {
         channelId: s.general,
+        name: "slika.png",
+        contentType: "image/png",
+        size: 1024,
       }),
     ).rejects.toThrow("Nemate pristup ovom startupu.");
+  });
+
+  test("generateUploadUrl: prevelik i nepodržan fajl ne stignu do storage-a", async () => {
+    const s = await seedChatWorkspace();
+    // 60 MB slike je preko granice za sve osim videa (`maxPageFileBytesFor`).
+    await expect(
+      s.asMember.mutation(api.chat.generateUploadUrl, {
+        channelId: s.general,
+        name: "ogromna.png",
+        contentType: "image/png",
+        size: 60 * 1024 * 1024,
+      }),
+    ).rejects.toThrow("Prilog može imati najviše 50 MB.");
+    await expect(
+      s.asMember.mutation(api.chat.generateUploadUrl, {
+        channelId: s.general,
+        name: "virus.exe",
+        contentType: "application/x-msdownload",
+        size: 2,
+      }),
+    ).rejects.toThrow("Ovaj tip fajla nije podržan");
   });
 });
 
@@ -921,11 +1065,13 @@ describe("Z1.3 — sedam scenarija iz specifikacije", () => {
 
   test("4 — markChannelRead nulira unreadCount i mentionCount i pomera lastRead", async () => {
     const s = await seedChatWorkspace();
-    const messageId = await s.asOwner.mutation(api.chat.sendMessage, {
-      channelId: s.general,
-      body: "hej Member",
-      mentions: [s.member.profileId],
-    });
+    const messageId = messageIdOf(
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "hej Member",
+        mentions: [s.member.profileId],
+      }),
+    );
     const before = await readFor(s, s.general, s.member.profileId);
     expect(before?.unreadCount).toBe(1);
     expect(before?.mentionCount).toBe(1);
@@ -1210,23 +1356,67 @@ describe("chat obaveštenja", () => {
 });
 
 describe("chat prilozi", () => {
-  test("tip i veličina se čitaju sa servera; nepodržan tip se odbija", async () => {
+  test("odbijen prilog se VRAĆA, a blob se briše (nema siročeta)", async () => {
     const s = await seedChatWorkspace();
     const storageId = await s.t.run((ctx) =>
       ctx.storage.store(new Blob(["MZ"], { type: "application/x-msdownload" })),
     );
+    const result = await s.asOwner.mutation(api.chat.sendMessage, {
+      channelId: s.general,
+      body: "",
+      kind: "file",
+      attachmentStorageId: storageId,
+      attachmentName: "virus.exe",
+      // Klijent laže da je slika — server mu ne veruje.
+      attachmentType: "image/png",
+      attachmentSize: 2,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Nepodržan prilog je prošao.");
+    expect(result.reason).toBe("unsupported");
+    expect(result.message).toContain("Ovaj tip fajla nije podržan");
+    // Suština izmene: `throw` bi poništio i brisanje, pa bi blob ostao zauvek.
+    expect(
+      await s.t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).toBeNull();
+    // Poruka se NE upisuje.
+    const page = await s.asOwner.query(api.chat.messages, {
+      channelId: s.general,
+      paginationOpts: NO_CURSOR,
+    });
+    expect(page.page).toHaveLength(0);
+  });
+
+  test("odbijanje ne briše blob koji je već zakačen negde drugde", async () => {
+    const s = await seedChatWorkspace();
+    const storageId = await s.t.run((ctx) =>
+      ctx.storage.store(new Blob(["12345"], { type: "image/png" })),
+    );
+    // Blob je legitimno zakačen za prvu poruku…
+    const first = messageIdOf(
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "",
+        kind: "file",
+        attachmentStorageId: storageId,
+        attachmentName: "snimak.png",
+      }),
+    );
+    expect(first).toBeDefined();
+
+    // …a drugi poziv laže ime da bi ga naterao u granu koja briše.
     await expect(
-      s.asOwner.mutation(api.chat.sendMessage, {
+      s.asMember.mutation(api.chat.sendMessage, {
         channelId: s.general,
         body: "",
         kind: "file",
         attachmentStorageId: storageId,
         attachmentName: "virus.exe",
-        // Klijent laže da je slika — server mu ne veruje.
-        attachmentType: "image/png",
-        attachmentSize: 2,
       }),
-    ).rejects.toThrow("Ovaj tip fajla nije podržan");
+    ).rejects.toThrow("Ovaj fajl je već zakačen.");
+    expect(
+      await s.t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).not.toBeNull();
   });
 
   test("prihvaćen prilog dobija tip i veličinu iz metapodataka, ne iz argumenata", async () => {
@@ -1234,16 +1424,18 @@ describe("chat prilozi", () => {
     const storageId = await s.t.run((ctx) =>
       ctx.storage.store(new Blob(["12345"], { type: "image/png" })),
     );
-    const messageId = await s.asOwner.mutation(api.chat.sendMessage, {
-      channelId: s.general,
-      body: "",
-      kind: "file",
-      attachmentStorageId: storageId,
-      attachmentName: "snimak-2026-08-12-14-03-51.png",
-      // Klijent laže i o tipu i o veličini; oba se moraju pregaziti serverskim.
-      attachmentType: "image/png",
-      attachmentSize: 999_999,
-    });
+    const messageId = messageIdOf(
+      await s.asOwner.mutation(api.chat.sendMessage, {
+        channelId: s.general,
+        body: "",
+        kind: "file",
+        attachmentStorageId: storageId,
+        attachmentName: "snimak-2026-08-12-14-03-51.png",
+        // Klijent laže i o tipu i o veličini; oba se moraju pregaziti serverskim.
+        attachmentType: "image/png",
+        attachmentSize: 999_999,
+      }),
+    );
     const message = await s.t.run((ctx) =>
       ctx.db.get("chatMessages", messageId),
     );

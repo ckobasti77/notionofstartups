@@ -21,8 +21,10 @@ import {
   Hash,
   MessagesSquare,
   MoreVertical,
+  Users,
 } from 'lucide-react-native';
 
+import { ChannelMembersSheet } from '@/components/chat/channel-members-sheet';
 import { Avatar } from '@/components/ui/avatar';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
@@ -33,6 +35,13 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
 type NotificationLevel = 'all' | 'mentions' | 'none';
+
+/**
+ * Pauza između zatvaranja menija i otvaranja sheet-a članova. Dva istovremena RN
+ * `Modal`-a na Androidu umeju da progutaju `onRequestClose` (isti obrazac i ista
+ * konstanta kao `ideja/[id].tsx:41–45`).
+ */
+const SHEET_HANDOFF_MS = 320;
 
 const LEVELS: { level: NotificationLevel; label: string; Icon: typeof Bell }[] = [
   { level: 'all', label: 'Sva obaveštenja', Icon: Bell },
@@ -71,6 +80,7 @@ function subtitle(channel: ChatChannel): string {
 export function ConversationHeader({
   channel,
   canArchive,
+  canManageMembers,
   onBack,
   onOpenAnchor,
   onArchived,
@@ -82,6 +92,11 @@ export function ConversationHeader({
    * OBAVEZAN — pozivalac mora da odluči, ne sme da se osloni na difolt.
    */
   canArchive: boolean;
+  /**
+   * Klijentski ogleda serverski gejt (`chat.setChannelMembers`: admin + kanal
+   * vrste `custom`). OBAVEZAN, iz istog razloga kao `canArchive`.
+   */
+  canManageMembers: boolean;
   onBack: () => void;
   onOpenAnchor?: () => void;
   /** Po uspešnom arhiviranju (npr. povratak na listu razgovora). OBAVEZAN. */
@@ -91,6 +106,7 @@ export function ConversationHeader({
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const setNotificationLevel = useMutation(api.chat.setNotificationLevel);
   const archiveChannel = useMutation(api.chat.archiveChannel);
@@ -214,6 +230,24 @@ export function ConversationHeader({
             />
           );
         })}
+        {canManageMembers ? (
+          <>
+            <View style={[styles.menuSeparator, { backgroundColor: colors.border }]} />
+            <Row
+              icon={<Users size={20} color={colors.foreground} />}
+              title="Članovi kanala"
+              subtitle="Dodaj ili ukloni članove ovog kanala"
+              onPress={() => {
+                haptics.tap();
+                // Dva RN `Modal`-a se ne otvaraju istovremeno: meni prvo ode,
+                // pa tek onda ulazi sheet članova.
+                setMenuOpen(false);
+                setTimeout(() => setMembersOpen(true), SHEET_HANDOFF_MS);
+              }}
+              showChevron={false}
+            />
+          </>
+        ) : null}
         {canArchive ? (
           <>
             <View style={[styles.menuSeparator, { backgroundColor: colors.border }]} />
@@ -229,6 +263,16 @@ export function ConversationHeader({
           </>
         ) : null}
       </Sheet>
+
+      {/* Jedini ulaz u sheet je red iznad — zato oboje živi u istom fajlu i pod
+          istim uslovom (isto što web `conversation-pane.tsx` radi sa dijalogom). */}
+      {canManageMembers ? (
+        <ChannelMembersSheet
+          open={membersOpen}
+          channel={channel}
+          onClose={() => setMembersOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }

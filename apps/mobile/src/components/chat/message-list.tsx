@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   FlatList,
@@ -11,6 +12,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { usePaginatedQuery, useMutation } from 'convex/react';
+import * as Clipboard from 'expo-clipboard';
 import { ChevronDown, MessageSquare } from 'lucide-react-native';
 
 import { MessageBubble } from '@/components/chat/message-bubble';
@@ -108,6 +110,27 @@ export function MessageList({
     },
     [toggleReaction],
   );
+
+  /**
+   * Kopiranje tela poruke. Sheet ostaje prezentacioni (nema pristup clipboardu),
+   * pa implementacija stoji ovde. Potvrda ide haptikom I najavom za čitač ekrana —
+   * konvencija app-a izbegava samonestajuće toast-ove, a `Alert` za uspešno
+   * kopiranje bi tražio drugi dodir ni za šta.
+   */
+  const handleCopy = useCallback(() => {
+    const target = actionsFor;
+    if (!target) return;
+    setActionsFor(null);
+    void Clipboard.setStringAsync(target.body)
+      .then(() => {
+        haptics.success();
+        AccessibilityInfo.announceForAccessibility('Tekst poruke je kopiran.');
+      })
+      .catch((error: unknown) => {
+        haptics.error();
+        Alert.alert('Kopiranje', errorMessage(error, 'Tekst nije kopiran.'));
+      });
+  }, [actionsFor]);
 
   const handleDelete = useCallback(() => {
     const target = actionsFor;
@@ -343,6 +366,7 @@ export function MessageList({
           if (actionsFor) handleToggleReaction(actionsFor._id, emoji);
           setActionsFor(null);
         }}
+        onCopy={handleCopy}
         onReply={() => {
           if (actionsFor) onReplyTo(actionsFor);
           setActionsFor(null);

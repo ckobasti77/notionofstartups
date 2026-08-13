@@ -23,6 +23,7 @@ import { ConversationHeader } from '@/components/chat/conversation-header';
 import { MessageComposer } from '@/components/chat/message-composer';
 import { MessageList } from '@/components/chat/message-list';
 import { EmptyState } from '@/components/empty-state';
+import { UndoBar } from '@/components/undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useChatPresence } from '@/hooks/use-chat-presence';
@@ -154,6 +155,9 @@ export default function ConversationScreen() {
           // a „Opšte" (kind `startup`) se ne arhivira nikad. Oba podatka ekran
           // već drži — nema novog upita.
           canArchive={profile.role === 'admin' && channel.kind !== 'startup'}
+          // Ogledalo gejta iz `chat.setChannelMembers`: samo admin i samo kanal
+          // vrste `custom` — članstvo ostalih vrsta je izvedeno iz pristupa.
+          canManageMembers={profile.role === 'admin' && channel.kind === 'custom'}
           onBack={() => router.back()}
           onOpenAnchor={openAnchor}
           onArchived={() => router.back()}
@@ -193,6 +197,11 @@ export default function ConversationScreen() {
             }}
           />
         </KeyboardAvoidingView>
+
+        {/* Traka „Poništi" posle izmene članova kanala (⋯ → Članovi kanala). Van
+            `KeyboardAvoidingView`-a i iznad kompozera — `bottomOffset` je visina
+            reda za unos, pa traka ne pokriva polje za pisanje. */}
+        <UndoBar bottomOffset={MIN_TOUCH_TARGET + 16} />
       </View>
     </GestureHandlerRootView>
   );

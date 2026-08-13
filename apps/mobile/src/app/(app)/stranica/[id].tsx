@@ -14,7 +14,7 @@ import { PageContributionsSection } from '@/components/stranica/page-contributio
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
-import { DiscussionLink } from '@/components/zadatak/discussion-link';
+import { DiscussionLink } from '@/components/chat/discussion-link';
 import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
@@ -144,7 +144,10 @@ function PageContent({
       {/* Diskusija uz stranicu — isti `chat.channelForAnchor`/`sendToAnchor` koji
           web `EntityDiscussionPanel` koristi za SVE tipove stranica, ne samo za
           zadatak. Komponenta je `anchorType`-agnostična, samo nije bila montirana. */}
-      <DiscussionLink pageId={page._id} startupId={page.startupId} pageKind={page.kind} />
+      <DiscussionLink
+        anchor={{ type: 'page', id: page._id, pageKind: page.kind }}
+        startupId={page.startupId}
+      />
       <PageContributionsSection pageId={page._id} />
       <View style={styles.kindContent}>
         {page.kind === 'note' ? (
