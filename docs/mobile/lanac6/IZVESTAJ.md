@@ -814,3 +814,17 @@ koriste postojeće pakete). Native build nije obavezan; `NATIVE-BUILD.md` se ne 
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Trajanje: 65 min
+
+## P6 - Pamcenje stanja, undo/redo, kontrola push-a
+
+**Cilj:** Tema i aktivan startup prezive restart, ponistavanje ide vise koraka unazad, i push se moze iskljuciti sa uredjaja.
+
+| Korak | Model | Effort |
+|---|---|---|
+| PLAN | `opus` | `max` |
+| IZVRSI | `sonnet` | `xhigh` |
+| REVIZIJA | `opus` | `max` |
+
+- Start: 2026-08-13T04:51:59
+- PLAN: napisan
