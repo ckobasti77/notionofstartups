@@ -1,7 +1,8 @@
 import { useMutation } from 'convex/react';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { ColorRow } from '@/components/ui/color-row';
 import { Button } from '@/components/ui/button';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
@@ -9,15 +10,10 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import {
-  THOUGHT_COLOR_LABEL,
-  THOUGHT_COLORS,
-  THOUGHT_SWATCH,
-  type ThoughtColor,
-} from '@/lib/thought-colors';
+import { type ThoughtColor } from '@/lib/thought-colors';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius } from '@/theme/tokens';
 
 /** Backend limiti (`thoughts.ts`): naslov ≤200, tekst ≤12000. */
 const MAX_TITLE = 200;
@@ -207,51 +203,6 @@ export function ThoughtNodeSheet({
   );
 }
 
-/** Red kružića za izbor boje misli (≥44pt dodirna meta po swatch-u). */
-export function ColorRow({
-  value,
-  onChange,
-  disabled,
-  colors,
-}: {
-  value: ThoughtColor;
-  onChange: (next: ThoughtColor) => void;
-  disabled: boolean;
-  colors: ColorTokens;
-}) {
-  return (
-    <View style={styles.colorRow}>
-      {THOUGHT_COLORS.map((option) => {
-        const selected = option === value;
-        return (
-          <Pressable
-            key={option}
-            accessibilityRole="button"
-            accessibilityLabel={`Boja: ${THOUGHT_COLOR_LABEL[option]}`}
-            accessibilityState={{ selected, disabled }}
-            disabled={disabled}
-            onPress={() => {
-              haptics.select();
-              onChange(option);
-            }}
-            style={styles.swatchHit}>
-            <View
-              style={[
-                styles.swatch,
-                {
-                  backgroundColor: THOUGHT_SWATCH[option],
-                  borderColor: selected ? colors.foreground : 'transparent',
-                  opacity: disabled ? 0.5 : 1,
-                },
-              ]}
-            />
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   sheet: {
     paddingHorizontal: 20,
@@ -280,26 +231,9 @@ const styles = StyleSheet.create({
     maxHeight: 200,
     textAlignVertical: 'top',
   },
-  colorRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 2,
-  },
   detailRow: {
     paddingHorizontal: 0,
     marginTop: 2,
-  },
-  swatchHit: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swatch: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
   },
   actions: {
     flexDirection: 'row',

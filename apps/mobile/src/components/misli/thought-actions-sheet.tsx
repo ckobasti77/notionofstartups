@@ -6,6 +6,7 @@ import {
   Copy,
   Crown,
   FolderInput,
+  GitBranchPlus,
   Link2,
   Scaling,
   Scissors,
@@ -60,6 +61,7 @@ export function ThoughtActionsSheet({
   initialView = 'menu',
   onClose,
   onConvert,
+  onCreateConnected,
   onBeforeArchive,
   onArchived,
   onArchiveFailed,
@@ -75,6 +77,8 @@ export function ThoughtActionsSheet({
    * — dva istovremena modala na Androidu gutaju `onRequestClose`.
    */
   onConvert: (nodes: Doc<'thoughtNodes'>[]) => void;
+  /** „Nova povezana misao…": isti handoff ugovor kao `onConvert`. */
+  onCreateConnected?: (node: Doc<'thoughtNodes'>) => void;
   /** Detalj misli: prebaci upit na `skip` PRE mutacije (trka sa ErrorBoundary). */
   onBeforeArchive?: () => void;
   onArchived?: () => void;
@@ -274,6 +278,16 @@ export function ThoughtActionsSheet({
               icon={<Copy size={20} color={colors.mutedForeground} />}
               value={busyId === 'duplicate' ? <ActivityIndicator color={colors.primary} /> : undefined}
             />
+            {onCreateConnected ? (
+              <Row
+                title="Nova povezana misao…"
+                subtitle="Nova misao, odmah povezana sa ovom"
+                onPress={() => onCreateConnected(target)}
+                disabled={busyId !== null}
+                style={styles.row}
+                icon={<GitBranchPlus size={20} color={colors.mutedForeground} />}
+              />
+            ) : null}
             <Row
               title="Veličina oblačića"
               subtitle={

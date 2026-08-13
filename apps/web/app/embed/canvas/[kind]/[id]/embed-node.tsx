@@ -42,11 +42,36 @@ export const EMBED_NODE_TYPE = "embed";
 export const EMBED_NODE_WIDTH = 240;
 export const EMBED_NODE_HEIGHT = 96;
 
+/** Ideje i misli dele isti union boja (`ideaColorValidator`/`thoughtColorValidator`). */
+export type EmbedNodeColor = "neutral" | "violet" | "blue" | "green" | "amber" | "rose";
+
+const EMBED_NODE_COLORS: ReadonlySet<string> = new Set<EmbedNodeColor>([
+  "neutral",
+  "violet",
+  "blue",
+  "green",
+  "amber",
+  "rose",
+]);
+
+/** Sirova vrednost sa servera → poznata boja; nepoznata (nova boja u šemi) → undefined. */
+export function embedNodeColor(value: string | undefined): EmbedNodeColor | undefined {
+  return value !== undefined && EMBED_NODE_COLORS.has(value)
+    ? (value as EmbedNodeColor)
+    : undefined;
+}
+
 export type EmbedNodeData = {
   /** Naslov čvora — jedini obavezan sadržaj. */
   label: string;
   /** Druga linija: glasovi (ideje), vrsta stranice, oznaka roditeljske misli. */
   meta?: string;
+  /**
+   * Boja čvora koju korisnik bira (ideje/misli, P4). Kartice stranica i checkpointi
+   * je ne nose (nemaju je ni u podacima). Crta se kao mala tačka pored naslova —
+   * ista konvencija koju native lista misli već koristi (`misli.tsx`).
+   */
+  color?: EmbedNodeColor;
   /** Ideja koja ima više glasova za nego protiv (`isApproved`) — prsten u `--primary`. */
   accent?: boolean;
   /**
@@ -183,7 +208,12 @@ function EmbedNodeCard({ id, data, selected }: NodeProps<EmbedFlowNode>) {
           Čeka odobrenje
         </span>
       ) : null}
-      <p className="line-clamp-3 text-sm font-medium leading-snug">{data.label}</p>
+      <div className="flex min-w-0 items-center gap-1.5">
+        {data.color ? (
+          <span className="embed-node-dot" data-node-color={data.color} aria-hidden />
+        ) : null}
+        <p className="line-clamp-3 min-w-0 text-sm font-medium leading-snug">{data.label}</p>
+      </div>
       {data.meta ? <p className="text-xs text-muted-foreground">{data.meta}</p> : null}
       <Handle
         type="source"

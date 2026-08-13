@@ -184,12 +184,6 @@ export type UndoAction =
    */
   | { kind: 'thoughtEdgeConnect'; edgeId: Id<'thoughtEdges'> }
   /**
-   * Preimenovanje stranice iz `PageActionsSheet` (P1, B2/B3). Inverz je isti
-   * `updatePage` poziv sa naslovom OD PRE i revizijom KOJU JE preimenovanje
-   * vratilo — ako je neko u međuvremenu opet izmenio stranicu, poziv baca
-   * `KONFLIKT_IZMENA` i traka namerno ostaje (isti obrazac kao ostale grane).
-   */
-  /**
    * Izmena članstva custom kanala (P3, B6). Kao `pageMove` — NIJE vraćanje
    * arhiviranog nego inverzan upis: `profileIds` je spisak aktivnih članova OD PRE
    * izmene, koji vraća sama mutacija (`chat.setChannelMembers.previousProfileIds`).
@@ -203,6 +197,12 @@ export type UndoAction =
       channelId: Id<'chatChannels'>;
       profileIds: Id<'profiles'>[];
     }
+  /**
+   * Preimenovanje stranice iz `PageActionsSheet` (P1, B2/B3). Inverz je isti
+   * `updatePage` poziv sa naslovom OD PRE i revizijom KOJU JE preimenovanje
+   * vratilo — ako je neko u međuvremenu opet izmenio stranicu, poziv baca
+   * `KONFLIKT_IZMENA` i traka namerno ostaje (isti obrazac kao ostale grane).
+   */
   | {
       kind: 'pageRename';
       startupId: Id<'startups'>;
@@ -211,7 +211,18 @@ export type UndoAction =
       title: string;
       /** Revizija koju je preimenovanje VRATILO — inverz kreće od nje. */
       expectedRevision: number;
-    };
+    }
+  /**
+   * Napravljena ideja (P4: duplikat i „nova grana"). NIJE vraćanje arhiviranog nego
+   * inverzan upis — inverz je `ideas.archive`, koji usput arhivira i ivice te ideje
+   * (`ideas.ts:1099-1112`), pa grana ne traži poseban član.
+   */
+  | { kind: 'ideaCreate'; startupId: Id<'startups'>; ideaId: Id<'ideaNodes'> }
+  /**
+   * Napravljena misao (P4: „nova povezana misao"). Inverz je `archiveNodes` — koji
+   * arhivira i ivicu ka izvoru (`thoughts.ts:943-955`), pa `edgeId` nije potreban.
+   */
+  | { kind: 'thoughtCreate'; nodeId: Id<'thoughtNodes'> };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */

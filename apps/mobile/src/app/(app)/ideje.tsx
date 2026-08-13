@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { LayoutGrid, Lightbulb, TriangleAlert, Wand2 } from 'lucide-react-native';
-import { useState } from 'react';
+import { LayoutGrid, Lightbulb, Search, TriangleAlert, Wand2 } from 'lucide-react-native';
+import { useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -14,21 +14,31 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { EmptyState } from '@/components/empty-state';
-import { IdeaActionsSheet, type IdeaListNode } from '@/components/ideja/idea-actions-sheet';
+import {
+  IdeaActionsSheet,
+  ideaDisplayTitle,
+  type IdeaListNode,
+} from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
 import { UndoBar } from '@/components/undo-bar';
 import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { SearchField } from '@/components/ui/search-field';
 import { SkeletonIdeaCard, SkeletonList } from '@/components/ui/skeletons';
 import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
+import { formatDayHeading } from '@/lib/activity';
+import { absoluteNodePosition } from '@/lib/canvas-position';
+import { startOfLocalDay } from '@/lib/deadline';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { tidyGridPosition } from '@/lib/thought-layout';
@@ -52,6 +62,8 @@ type IdeaItem = {
   downvotes: number;
   userVote: 'up' | 'down' | null;
   author: { displayName: string } | null;
+  isApproved: boolean;
+  createdAt: number;
 };
 
 /** Srpska množina za brojač u zaglavlju (isti obrazac kao `tasksWord`). */
@@ -85,6 +97,23 @@ export default function IdejeScreen() {
   const [actionNode, setActionNode] = useState<IdeaListNode | null>(null);
   const [convertIdea, setConvertIdea] = useState<IdeaListNode | null>(null);
   const [tidyBusy, setTidyBusy] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [branchParent, setBranchParent] = useState<{
+    id: Id<'ideaNodes'>;
+    title: string;
+    x?: number;
+    y?: number;
+  } | null>(null);
+
+  // Doslovno web filtriranje (`ideas-view.tsx:202-206`) — uživo, nad naslovom i tekstom.
+  const filteredNodes = useMemo(() => {
+    const nodes = ideas?.nodes ?? [];
+    const term = searchTerm.trim().toLowerCase();
+    if (term.length === 0) return nodes;
+    return nodes.filter(
+      (node) => (node.title?.toLowerCase().includes(term) ?? false) || node.text.toLowerCase().includes(term),
+    );
+  }, [ideas, searchTerm]);
 
   const openCanvas = () => {
     if (!activeStartupId) return;
@@ -156,14 +185,26 @@ export default function IdejeScreen() {
 
   const loading = activeStartupId !== null && ideas === undefined;
   const count = ideas?.nodes.length ?? 0;
+  const searchActive = searchTerm.trim().length > 0;
   const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Ideje"
-        eyebrow={count > 0 ? `${count} ${ideasWord(count)}` : undefined}
+        eyebrow={
+          count > 0
+            ? searchActive
+              ? `${filteredNodes.length} od ${count}`
+              : `${count} ${ideasWord(count)}`
+            : undefined
+        }
         onBack={() => router.back()}
+        below={
+          activeStartupId !== null && count > 0 ? (
+            <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Pretraži ideje…" />
+          ) : undefined
+        }
         actions={
           activeStartupId ? (
             <>
@@ -212,26 +253,36 @@ export default function IdejeScreen() {
             />
           }>
           {ideas ? (
-            <ScrollView
-              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-              showsVerticalScrollIndicator={false}
-              refreshControl={refreshControl}>
-              <StaggerGroup>
-                {ideas.nodes.map((node, index) => (
-                  <StaggerItem key={node._id} index={index}>
-                    <IdeaRow
-                      idea={node}
-                      startupId={activeStartupId}
-                      colors={colors}
-                      onLongPress={() => {
-                        haptics.select();
-                        setActionNode(node);
-                      }}
-                    />
-                  </StaggerItem>
-                ))}
-              </StaggerGroup>
-            </ScrollView>
+            filteredNodes.length === 0 ? (
+              <EmptyState
+                icon={<Search size={40} color={colors.mutedForeground} />}
+                title={`Nema rezultata za „${searchTerm.trim()}"`}
+                description="Pokušaj drugu reč ili obriši pretragu."
+                actionLabel="Obriši pretragu"
+                onAction={() => setSearchTerm('')}
+              />
+            ) : (
+              <ScrollView
+                contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+                showsVerticalScrollIndicator={false}
+                refreshControl={refreshControl}>
+                <StaggerGroup>
+                  {filteredNodes.map((node, index) => (
+                    <StaggerItem key={node._id} index={index}>
+                      <IdeaRow
+                        idea={node}
+                        startupId={activeStartupId}
+                        colors={colors}
+                        onLongPress={() => {
+                          haptics.select();
+                          setActionNode(node);
+                        }}
+                      />
+                    </StaggerItem>
+                  ))}
+                </StaggerGroup>
+              </ScrollView>
+            )
           ) : null}
         </LoadingSwap>
       )}
@@ -253,12 +304,29 @@ export default function IdejeScreen() {
                   setActionNode(null);
                   setTimeout(() => setConvertIdea(node), SHEET_HANDOFF_MS);
                 }}
+                onBranch={() => {
+                  if (actionNode === null) return;
+                  const at = absoluteNodePosition(ideas.nodes, actionNode._id, (n) => n.parentIdeaId);
+                  const parent = {
+                    id: actionNode._id,
+                    title: ideaDisplayTitle(actionNode),
+                    ...(at.complete ? { x: at.x, y: at.y } : {}),
+                  };
+                  setActionNode(null);
+                  setTimeout(() => setBranchParent(parent), SHEET_HANDOFF_MS);
+                }}
               />
               <IdeaConvertSheet
                 open={convertIdea !== null}
                 idea={convertIdea}
                 startupId={activeStartupId}
                 onClose={() => setConvertIdea(null)}
+              />
+              <IdeaCreateSheet
+                open={branchParent !== null}
+                startupId={activeStartupId}
+                parent={branchParent}
+                onClose={() => setBranchParent(null)}
               />
             </>
           ) : null}
@@ -342,15 +410,16 @@ function IdeaRow({
         </Text>
       ) : null}
       <View style={styles.footer}>
-        {idea.author ? (
-          <>
-            <Avatar name={idea.author.displayName} size={22} />
-            <Text numberOfLines={1} style={[styles.author, { color: colors.mutedForeground }]}>
-              {idea.author.displayName}
-            </Text>
-          </>
-        ) : null}
+        {idea.author ? <Avatar name={idea.author.displayName} size={22} /> : null}
+        <Text numberOfLines={1} style={[styles.author, { color: colors.mutedForeground }]}>
+          {idea.author ? `${idea.author.displayName} · ` : ''}
+          {formatDayHeading(startOfLocalDay(idea.createdAt), Date.now())}
+        </Text>
         <View style={styles.grow} />
+        <Badge
+          label={idea.isApproved ? 'Odobreno' : 'U razmatranju'}
+          variant={idea.isApproved ? 'success' : 'outline'}
+        />
         <VoteButtons
           upvotes={idea.upvotes}
           downvotes={idea.downvotes}

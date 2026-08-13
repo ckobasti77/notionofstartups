@@ -5,6 +5,8 @@
  * (Tailwind-500 ekvivalenti). Koristi se ISKLJUČIVO za kružiće izbora boje u
  * sheet-ovima misli — ne kao opšti stil. Ako web tokeni jednom stignu na mobilni,
  * ovo se menja u njihovu referencu.
+ *
+ * ISTU šestorku koristi i `ideaColorValidator` (`packages/backend/convex/ideas.ts:27-34`).
  */
 export type ThoughtColor =
   | 'neutral'
@@ -13,6 +15,9 @@ export type ThoughtColor =
   | 'green'
   | 'amber'
   | 'rose';
+
+/** Ideje i misli dele isti union boja — zajednički naziv za deljeni `ColorRow`. */
+export type NodeColor = ThoughtColor;
 
 export const THOUGHT_COLORS: readonly ThoughtColor[] = [
   'neutral',

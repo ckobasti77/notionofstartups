@@ -2,7 +2,7 @@ import { useMutation } from 'convex/react';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ColorRow } from '@/components/canvas/thought-node-sheet';
+import { ColorRow } from '@/components/ui/color-row';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
@@ -10,6 +10,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { type ThoughtColor } from '@/lib/thought-colors';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius } from '@/theme/tokens';
 
@@ -25,21 +26,31 @@ const MAX_TEXT = 12_000;
 const SPREAD = 240;
 
 /**
- * Kreiranje nove misli iz canvas rail-a (M4.4). Native unos naslov (obavezan) +
- * tekst + boja → `thoughts.createNode`; WebView (koji sluša `thoughts.listNodes`)
- * sam pokupi novi čvor realtime.
+ * Kreiranje nove misli iz canvas rail-a (M4.4) ili kao „Nova povezana misao…" iz
+ * `ThoughtActionsSheet` (P4). Native unos naslov (obavezan) + tekst + boja →
+ * `thoughts.createNode`; WebView (koji sluša `thoughts.listNodes`) sam pokupi novi
+ * čvor realtime.
  */
 export function ThoughtCreateSheet({
   open,
   startupId,
+  connectFrom,
   onClose,
 }: {
   open: boolean;
   startupId: Id<'startups'>;
+  /**
+   * Kad je zadat, nova misao se odmah povezuje sa ovom. `x`/`y` su APSOLUTNE
+   * koordinate izvora i OPCIONE su — pozivalac ih izostavlja kad
+   * `absoluteNodePosition` vrati `complete: false`, pa sheet pada na `SPREAD`.
+   */
+  connectFrom?: { id: Id<'thoughtNodes'>; title: string; x?: number; y?: number } | null;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
   const create = useMutation(api.thoughts.createNode);
+  const createEdge = useMutation(api.thoughts.createEdge);
+  const archiveNodes = useMutation(api.thoughts.archiveNodes);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [color, setColor] = useState<ThoughtColor>('neutral');
@@ -61,14 +72,30 @@ export function ThoughtCreateSheet({
     setBusy(true);
     haptics.tap();
     try {
-      await create({
+      const position =
+        connectFrom && connectFrom.x !== undefined && connectFrom.y !== undefined
+          ? { x: Math.round(connectFrom.x + 290), y: Math.round(connectFrom.y + 48) }
+          : {
+              x: Math.round((Math.random() - 0.5) * SPREAD),
+              y: Math.round((Math.random() - 0.5) * SPREAD),
+            };
+      const nodeId = await create({
         startupId,
         title: cleanTitle,
         text: text.trim(),
         color,
-        x: Math.round((Math.random() - 0.5) * SPREAD),
-        y: Math.round((Math.random() - 0.5) * SPREAD),
+        ...position,
       });
+      if (connectFrom) {
+        try {
+          await createEdge({ startupId, nodeAId: connectFrom.id, nodeBId: nodeId });
+        } catch (error) {
+          // Rollback: ivica je pukla, misao ostaje siroče koje korisnik nije tražio.
+          await archiveNodes({ nodeIds: [nodeId] });
+          throw error;
+        }
+        pushUndo({ label: 'Povezana misao je dodata.', action: { kind: 'thoughtCreate', nodeId } });
+      }
       haptics.success();
       reset();
       onClose();
@@ -87,7 +114,14 @@ export function ThoughtCreateSheet({
         style={styles.scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        <Text style={[styles.heading, { color: colors.foreground }]}>Nova misao</Text>
+        <Text style={[styles.heading, { color: colors.foreground }]}>
+          {connectFrom ? 'Nova povezana misao' : 'Nova misao'}
+        </Text>
+        {connectFrom ? (
+          <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+            Biće povezana sa „{connectFrom.title}".
+          </Text>
+        ) : null}
         <TextInput
           value={title}
           onChangeText={setTitle}
@@ -136,6 +170,10 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: fontWeight.semibold,
+  },
+  meta: {
+    fontSize: fontSize.xs,
+    marginTop: -4,
   },
   input: {
     minHeight: 48,

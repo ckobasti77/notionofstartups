@@ -61,7 +61,7 @@
 | B1 | **Urediti belešku koja sadrži tabelu, prilog ili blok koda** | uvek uredivo, `page-editor-view.tsx:1236` | **REŠENO (lanac 6, P2)** — sopstveni web bundle sa istom Tiptap šemom: `apps/mobile/src/lib/note-editor-bridges.ts` (lista), `apps/mobile/editor-web/` (izvor), `note-editor.tsx` (`customSource: NOTE_EDITOR_HTML`, `bodyEditable = canEditBody`). Zabranu je zamenio čuvar koji meri gubitak (`noteSignatureLoss`) |
 | B2 | **Preimenovati zadatak** | `page-editor-view.tsx:694` | **REŠENO (lanac 6, P1)** — red „Preimenuj" u `page-actions-sheet.tsx`, ista `areasV2.updatePage` mutacija |
 | B3 | **Preimenovati stranicu tipa Tabela ili Prilozi** | `page-editor-view.tsx:1097` | **REŠENO (lanac 6, P1)** — isti red kao B2 (`page.kind !== 'note'`), beleška namerno izuzeta (§4c plana P1) |
-| B4 | **Diskusija (chat) nad idejom** | `ideas-view.tsx:646`, `:818` | **REŠENO (lanac 6, P3)** — `DiscussionLink` premešten u `apps/mobile/src/components/chat/discussion-link.tsx` i uopšten na diskriminisanu uniju `{type:'page'\|'idea'}` (`:25-27`, `:64-67`); montiran na ekranu ideje (`app/(app)/ideja/[id].tsx:270-273`). Sekcija koja je bila dvosmisleno nazvana „Diskusija" preimenovana je u „Predlozi izmena" (`ideja/[id].tsx:255`) — isti naziv koji web koristi za doprinose |
+| B4 | **Diskusija (chat) nad idejom** | `ideas-view.tsx:646`, `:818` | **REŠENO (lanac 6, P3)** — `DiscussionLink` premešten u `apps/mobile/src/components/chat/discussion-link.tsx` i uopšten na diskriminisanu uniju `{type:'page'\|'idea'}` (`:25-27`, `:64-67`); montiran na ekranu ideje (`app/(app)/ideja/[id].tsx:283-286`, ispravljena referenca — revizija P3 §3 je pogrešno navela `:270-273`). Sekcija koja je bila dvosmisleno nazvana „Diskusija" preimenovana je u „Predlozi izmena" (`ideja/[id].tsx:272`) — isti naziv koji web koristi za doprinose |
 | B5 | **Kopirati pozivnicu kao LINK** | `admin-dialog.tsx:408` (`https://…/?invite=KOD`) | **REŠENO (lanac 6, P1)** — Alert sada nosi pun link (`inviteLinkUrl` pozvan), „Podeli"/„Kopiraj link"; ako `EXPO_PUBLIC_WEB_URL` nije podešen, pada na stari tok (samo kod) |
 | B6 | **Dodati članove privatnom kanalu** | `new-conversation.tsx:295-324` | **REŠENO (lanac 6, P3)** — nov upit `chat.channelMembers` (`packages/backend/convex/chat.ts:1104`) i nova mutacija `chat.setChannelMembers` (`:1616`). Mobilni: izbor članova pri kreiranju (`new-conversation-sheet.tsx`, korak „Novi kanal") i naknadna izmena kroz ⋯ → „Članovi kanala" (`components/chat/channel-members-sheet.tsx`, ulaz u `conversation-header.tsx`) uz „Poništi" (`lib/undo.ts`, `kind: 'channelMembers'`). **Ćorsokak je bio i na webu** (članovi samo pri kreiranju), pa je i web dobio izlaz: `components/workspace/chat/channel-members-dialog.tsx`, ulaz u `conversation-pane.tsx` |
 | B7 | **Ubaciti sliku, prilog, tabelu ili CSV u telo beleške** | `rich-text-editor.tsx:404,409,417,429` | **REŠENO (lanac 6, P2)** — dugme „Dodaj…" u traci (`note-toolbar.tsx`, prvo dugme) otvara `note-insert-sheet.tsx`: galerija, kamera, prilog, tabela 3×3, uvoz CSV/XLSX, blok koda. Alatke tabele (red/kolona/zaglavlje/briši) se pojavljuju u traci kad je kursor u tabeli |
@@ -82,12 +82,12 @@ najviše koristiš — puštanje aplikacije drugarima.
 |---|---|---|
 | C1 | Tema ostaje posle restarta | `theme-provider.tsx:35` — `useState('system')`, bez `AsyncStorage` |
 | C2 | Aktivan startup ostaje posle restarta | `active-startup.tsx:17` — uvek pada na `startups[0]` |
-| C3 | Boja kartice ideje | nema (misli je imaju — nedoslednost, ne platforma) |
-| C4 | Duplirati ideju | nema (misli imaju) |
-| C5 | Oznaka veze se VIDI na kanvasu | upisuje se (`idea-edge-sheet.tsx:145`), ali embed je ne renderuje (`canvas-embed.tsx:1353`) |
-| C6 | Boja čvora se vidi na kanvasu | podatak stiže, `embed-node.tsx:186` crta samo tekst |
+| C3 | Boja kartice ideje | **REŠENO (lanac 6, P4)** — deljen `ui/color-row.tsx` (preseljen iz `thought-node-sheet.tsx`); `idea-create-sheet.tsx` šalje `color` pri kreiranju, `ideja/[id].tsx` (`draftColor`, `:294`) pri izmeni |
+| C4 | Duplirati ideju | **REŠENO (lanac 6, P4)** — red „Dupliraj" u `idea-actions-sheet.tsx` (`duplicate()`), apsolutna pozicija preko `lib/canvas-position.ts`, undo kroz nov `ideaCreate` član (`lib/undo.ts`) |
+| C5 | Oznaka veze se VIDI na kanvasu | **REŠENO (lanac 6, P4)** — upisuje se (`idea-edge-sheet.tsx:145`), embed sad renderuje (`canvas-embed.tsx`, `edge.label` u mapiranju ivica za ideje/misli/oblasti/stranice) + CSS za `.react-flow__edge-text` u `EmbedStyles` |
+| C6 | Boja čvora se vidi na kanvasu | **REŠENO (lanac 6, P4)** — `embed-node.tsx` (`EmbedNodeColor`, `embedNodeColor()`, tačka pored naslova), `canvas-embed.tsx` puni `data.color` za ideje i misli |
 | C7 | Filter po tipu u oblasti | nema (`prostor.tsx`) |
-| C8 | Filter/pretraga unutar ideja i misli | nema |
+| C8 | Filter/pretraga unutar ideja i misli | **REŠENO (lanac 6, P4)** — deljen `ui/search-field.tsx`; `ideje.tsx` i `misli.tsx` filtriraju uživo nad naslovom/tekstom (klijentski, kao web); misli imaju napomenu da filter važi nad učitanom stranicom dok je paginacija u toku |
 | C9 | Ugnjezditi pod stranicu koja nije u korenu | `page-actions-sheet.tsx:94` nudi samo korenske |
 | C10 | Premestiti u oblast POD određenu stranicu | `:129` uvek `targetParentPageId: null` |
 | C11 | Breadcrumbs kao dugmad | `breadcrumbs-eyebrow.tsx:74` — nedodirljiv tekst |
@@ -95,7 +95,7 @@ najviše koristiš — puštanje aplikacije drugarima.
 | C13 | Nit doprinosa na checkpointu | nema |
 | C14 | Potpisani doprinosi na nivou oblasti | nema |
 | C15 | Isključiti push na ovom uređaju | `expoPushTokens.remove` postoji, mobilni ga ne zove |
-| C16 | Status odobrenja ideje se prikazuje | `isApproved` je skriven uslov, stavka se pojavljuje bez objašnjenja |
+| C16 | Status odobrenja ideje se prikazuje | **REŠENO (lanac 6, P4)** — `Badge` u `ideje.tsx` (lista) i `ideja/[id].tsx` (detalj, `:227-233`); „Pretvori u stranicu" u `idea-actions-sheet.tsx` više se ne sakriva, prikazuje se onemogućen sa razlogom kad ideja nije odobrena |
 | C17 | Ponovo kopirati kod postojeće pozivnice | **REŠENO (lanac 6, P1)** — sesijsko pamćenje (`lib/invite-codes.ts`, in-memory, NE na disk); dugme za deljenje u redu pozivnice dok je kod poznat u ovoj sesiji |
 
 ---
@@ -129,9 +129,19 @@ najviše koristiš — puštanje aplikacije drugarima.
   dodir van prozora daje `Alert` sa doslovno web tekstom („…samo u prvih 15
   minuta."). Konstanta je sada jedna: obe platforme uvoze `CHAT_EDIT_WINDOW_MS`.
 
+**Zatvoreno u lancu 6, P4 (ideje i misli):**
+
+- ~~Datum kreiranja ideje u listi~~ — `ideje.tsx` (`IdeaItem.createdAt`),
+  `formatDayHeading(startOfLocalDay(...))` u podnožju kartice, isti obrazac kao web.
+- ~~„Nova grana ideje" u jednom potezu~~ — `IdeaCreateSheet` dobija opcioni `parent`
+  (`ideas.create.parentIdeaId` + apsolutna pozicija preko `lib/canvas-position.ts`);
+  ulaz je nov red u `idea-actions-sheet.tsx` („Nova grana ideje…").
+- ~~„Nova povezana misao"~~ — `ThoughtCreateSheet` dobija opcioni `connectFrom`;
+  `createNode` pa `createEdge` sa rollback-om (`archiveNodes`) ako ivica pukne, isto
+  kao web `thoughts-canvas-view.tsx`. Ulaz je nov red u `thought-actions-sheet.tsx`.
+
 **Ostaje otvoreno:** više fajlova odjednom u **prilozima stranice** · ikonica i naziv
-oblasti u zaglavlju kanala · datum kreiranja ideje u listi · „nova grana ideje" u
-jednom potezu · „nova povezana misao" · rok kao pun kalendar pri kreiranju · sadržaj
+oblasti u zaglavlju kanala · rok kao pun kalendar pri kreiranju · sadržaj
 beleške u dijalogu kreiranja · izbor oblasti pri kreiranju · pregled videa i
 „Preuzmi" u pregledaču priloga · kanban „Tabla" za zadatke · „Sastav nedelje" na
 Pulsu · spisak tima za ne-admina · poruka da je lista zahteva odsečena na 100.

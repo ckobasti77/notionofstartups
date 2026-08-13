@@ -647,13 +647,17 @@ nude pun `@xyflow` uređivač: prevlačenje čvorova (`updatePositions`, `moveNo
 `disconnect`, `createEdge`, `updateEdgeLabel`, `connectPages`, `disconnectPages`,
 `taskCheckpointCanvasEdges.*`) i pamćenje pan/zoom-a (`saveViewport`).
 
-**Zašto se ne prenosi.** Ovo je **ergonomska** odluka, ne tehnička prepreka —
-kaže je `00-PLAN.md` §5.2: mobilni kanvas je za **pregled, navigaciju i dodavanje
-čvora**. Ista odluka je i sprovedena, ne samo zapisana: embed renderuje ReactFlow
-sa `nodesDraggable={false}` i `nodesConnectable={false}`
-(`apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx`), i **ne zove nijednu
-mutaciju** — samo upite. Precizno preuređivanje grafa prstom na 6 inča daje lošiji
-rezultat od nikakvog: čvor se pomeri slučajno, a tim to vidi kao stvarnu izmenu.
+**Zašto se ne prenosi (kao slobodno prevlačenje).** Ovo je **ergonomska** odluka,
+ne tehnička prepreka — kaže je `00-PLAN.md` §5.2: mobilni kanvas je pre svega za
+**pregled, navigaciju i dodavanje čvora**. Precizno preuređivanje grafa prstom na
+6 inča daje lošiji rezultat od nikakvog: čvor se pomeri slučajno, a tim to vidi kao
+stvarnu izmenu.
+
+> **Ažurirano (lanac 4/5).** Tvrdnja ispod da embed „ne zove nijednu mutaciju" više
+> NE VAŽI — režim „Uredi raspored" postoji i piše (pomeranje, veličina, veze,
+> pamćenje kamere), za ideje, misli i kanvas oblasti/stranice. `nodesDraggable`
+> je uslovljen režimom, ne tvrdo `false`. Pun protokol i zamke: `lanac4/REZIM.md`.
+> Tekst ispod je istorijat sa dana kad je odluka bila „nikad".
 
 **Šta mobilni radi umesto toga.** Rail na dnu: uvećaj/umanji, centriraj sve,
 otvori čvor, dodaj čvor. Sadržaj čvora (naslov, tekst, boja, glasovi, brisanje)

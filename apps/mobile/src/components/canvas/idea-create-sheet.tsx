@@ -3,11 +3,14 @@ import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { ColorRow } from '@/components/ui/color-row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import type { NodeColor } from '@/lib/thought-colors';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius } from '@/theme/tokens';
 
@@ -17,27 +20,39 @@ const MAX_TITLE = 120;
 const MAX_TEXT = 12_000;
 
 /**
- * Kreiranje nove ideje iz canvas rail-a (M4.3). Native unos naslova + teksta →
- * `ideas.create`; WebView (koji sluša `ideas.list`) sam pokupi novi čvor realtime.
+ * Kreiranje nove ideje iz canvas rail-a (M4.3) ili kao „Nova grana ideje…" iz
+ * `IdeaActionsSheet` (P4). Native unos naslova + teksta → `ideas.create`; WebView
+ * (koji sluša `ideas.list`) sam pokupi novi čvor realtime.
  */
 export function IdeaCreateSheet({
   open,
   startupId,
+  parent,
   onClose,
 }: {
   open: boolean;
   startupId: Id<'startups'>;
+  /**
+   * Kad je zadat, nova ideja se odmah povezuje sa ovom (`ideas.create.parentIdeaId`
+   * pravi IVICU, ne ugnježdenje — `ideas.ts:357-373`).
+   * `x`/`y` su APSOLUTNE koordinate roditelja i OPCIONE su: pozivalac ih izostavlja
+   * kad `absoluteNodePosition` vrati `complete: false` (roditelj van učitane liste).
+   */
+  parent?: { id: Id<'ideaNodes'>; title: string; x?: number; y?: number } | null;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
   const create = useMutation(api.ideas.create);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
+  // 'violet' je serverski difolt (`ideas.ts:326`) — ko boju ne dira dobija isto ponašanje kao pre.
+  const [color, setColor] = useState<NodeColor>('violet');
   const [busy, setBusy] = useState(false);
 
   const reset = () => {
     setTitle('');
     setText('');
+    setColor('violet');
   };
 
   const submit = async () => {
@@ -53,8 +68,24 @@ export function IdeaCreateSheet({
     setBusy(true);
     haptics.tap();
     try {
-      await create({ startupId, title: cleanTitle, text: cleanText });
+      const ideaId = await create({
+        startupId,
+        title: cleanTitle,
+        text: cleanText,
+        color,
+        ...(parent ? { parentIdeaId: parent.id } : {}),
+        // Pozicija grane samo kad je roditeljska POZNATA u oba dela — bez nje
+        // server bira poziciju sam (`ideas.ts:324-325`), grana tada nije pored
+        // korena ali nije ni preko tuđe kartice.
+        ...(parent && parent.x !== undefined && parent.y !== undefined
+          ? { x: Math.round(parent.x + 300), y: Math.round(parent.y + 40) }
+          : {}),
+      });
       haptics.success();
+      pushUndo({
+        label: parent ? 'Grana ideje je dodata.' : 'Ideja je dodata.',
+        action: { kind: 'ideaCreate', startupId, ideaId },
+      });
       reset();
       onClose();
     } catch (error) {
@@ -74,7 +105,14 @@ export function IdeaCreateSheet({
         style={styles.scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        <Text style={[styles.heading, { color: colors.foreground }]}>Nova ideja</Text>
+        <Text style={[styles.heading, { color: colors.foreground }]}>
+          {parent ? 'Nova grana ideje' : 'Nova ideja'}
+        </Text>
+        {parent ? (
+          <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+            Biće povezana sa „{parent.title}".
+          </Text>
+        ) : null}
         <TextInput
           value={title}
           onChangeText={setTitle}
@@ -99,6 +137,7 @@ export function IdeaCreateSheet({
             { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
           ]}
         />
+        <ColorRow value={color} onChange={setColor} disabled={busy} colors={colors} />
         <View style={styles.actions}>
           <Button label="Otkaži" variant="ghost" onPress={onClose} disabled={busy} style={styles.flexBtn} />
           <Button label="Dodaj" onPress={() => void submit()} loading={busy} style={styles.flexBtn} />
@@ -121,6 +160,10 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: fontWeight.semibold,
+  },
+  meta: {
+    fontSize: fontSize.xs,
+    marginTop: -4,
   },
   input: {
     minHeight: 48,

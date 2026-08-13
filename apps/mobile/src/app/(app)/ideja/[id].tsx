@@ -13,15 +13,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ColorRow } from '@/components/ui/color-row';
 import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { DiscussionLink } from '@/components/chat/discussion-link';
 import { ContributionThread } from '@/components/ideja/contribution-thread';
-import { IdeaActionsSheet } from '@/components/ideja/idea-actions-sheet';
+import { IdeaActionsSheet, ideaDisplayTitle } from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { IdeaEdgeSheet, type IdeaEdgeDetail } from '@/components/ideja/idea-edge-sheet';
 import { IdeaEdgesSection } from '@/components/ideja/idea-edges-section';
@@ -33,8 +36,10 @@ import { SkeletonCard, SkeletonList, SkeletonMessage } from '@/components/ui/ske
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { absoluteNodePosition } from '@/lib/canvas-position';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import type { NodeColor } from '@/lib/thought-colors';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, space, text } from '@/theme/tokens';
 
@@ -75,11 +80,18 @@ export default function IdejaScreen() {
   const [voting, setVoting] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
+  const [branchParent, setBranchParent] = useState<{
+    id: Id<'ideaNodes'>;
+    title: string;
+    x?: number;
+    y?: number;
+  } | null>(null);
   const [edgeDetail, setEdgeDetail] = useState<IdeaEdgeDetail | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftText, setDraftText] = useState('');
+  const [draftColor, setDraftColor] = useState<NodeColor>('violet');
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -100,11 +112,7 @@ export default function IdejaScreen() {
     }
   };
 
-  /**
-   * Izmena ideje - pandan `ideas.update` sa weba. Boja se prosleđuje nepromenjena:
-   * mobilni još nema piker boje ideje (embed kanvas je read-only), pa se čuva
-   * postojeća vrednost da je `update` ne pregazi.
-   */
+  /** Izmena ideje — pandan `ideas.update` sa weba. Boja se bira u `ColorRow`-u, isto kao kod misli. */
   async function saveEdit() {
     if (!activeStartupId || idea === null || saving) return;
     const nextTitle = draftTitle.trim();
@@ -121,7 +129,7 @@ export default function IdejaScreen() {
         ideaId,
         title: nextTitle,
         text: nextText,
-        color: idea.color ?? 'violet',
+        color: draftColor,
       });
       haptics.success();
       setEditing(false);
@@ -216,6 +224,15 @@ export default function IdejaScreen() {
                 Autor: {idea.author.displayName}
               </Text>
             ) : null}
+            <View style={styles.statusRow}>
+              <Badge
+                label={idea.isApproved ? 'Odobreno' : 'U razmatranju'}
+                variant={idea.isApproved ? 'success' : 'outline'}
+              />
+              <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+                Odobrena je ideja koja ima više glasova za nego protiv.
+              </Text>
+            </View>
             <VoteButtons
               upvotes={idea.upvotes}
               downvotes={idea.downvotes}
@@ -283,6 +300,7 @@ export default function IdejaScreen() {
           setTimeout(() => {
             setDraftTitle(idea.title ?? '');
             setDraftText(idea.text);
+            setDraftColor(idea.color ?? 'violet');
             setEditError(null);
             setEditing(true);
           }, SHEET_HANDOFF_MS);
@@ -290,6 +308,16 @@ export default function IdejaScreen() {
         onConvert={() => {
           setActionsOpen(false);
           setTimeout(() => setConvertOpen(true), SHEET_HANDOFF_MS);
+        }}
+        onBranch={() => {
+          const at = absoluteNodePosition(data.nodes, idea._id, (n) => n.parentIdeaId);
+          const parent = {
+            id: idea._id,
+            title: ideaDisplayTitle(idea),
+            ...(at.complete ? { x: at.x, y: at.y } : {}),
+          };
+          setActionsOpen(false);
+          setTimeout(() => setBranchParent(parent), SHEET_HANDOFF_MS);
         }}
         onArchived={() => router.back()}
       />
@@ -299,6 +327,13 @@ export default function IdejaScreen() {
         idea={convertOpen ? idea : null}
         startupId={activeStartupId}
         onClose={() => setConvertOpen(false)}
+      />
+
+      <IdeaCreateSheet
+        open={branchParent !== null}
+        startupId={activeStartupId}
+        parent={branchParent}
+        onClose={() => setBranchParent(null)}
       />
 
       <IdeaEdgeSheet
@@ -352,6 +387,7 @@ export default function IdejaScreen() {
           placeholder="O čemu se radi?"
           style={styles.editBody}
         />
+        <ColorRow value={draftColor} onChange={setDraftColor} disabled={saving} colors={colors} />
         <View style={styles.editActions}>
           <Button
             label="Otkaži"
@@ -457,6 +493,11 @@ const styles = StyleSheet.create({
   },
   meta: {
     ...text.meta,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   sectionTitle: {
     ...text.title,

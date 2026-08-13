@@ -4,8 +4,10 @@ import {
   Archive,
   Check,
   ChevronLeft,
+  Copy,
   FileOutput,
   FolderInput,
+  GitBranchPlus,
   Lightbulb,
   Link2,
   Pencil,
@@ -19,6 +21,7 @@ import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { absoluteNodePosition } from '@/lib/canvas-position';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import {
@@ -70,6 +73,7 @@ export function IdeaActionsSheet({
   onClose,
   onEdit,
   onConvert,
+  onBranch,
   onArchived,
 }: {
   open: boolean;
@@ -89,6 +93,11 @@ export function IdeaActionsSheet({
   onEdit?: () => void;
   /** „Pretvori u stranicu": isti handoff ugovor kao `onEdit`. */
   onConvert: (idea: IdeaListNode) => void;
+  /**
+   * „Nova grana ideje…": isti handoff ugovor kao `onEdit` — roditelj zatvara OVAJ
+   * sheet pa (uz pauzu) otvara `IdeaCreateSheet` sa `parent` popunjenim.
+   */
+  onBranch?: () => void;
   /** Detalj: `router.back()` posle brisanja; lista ne prosleđuje ništa. */
   onArchived?: () => void;
 }) {
@@ -112,6 +121,7 @@ export function IdeaActionsSheet({
   const resetLayoutSize = useMutation(api.ideas.resetLayoutSize);
   const archiveIdea = useMutation(api.ideas.archive);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
+  const createIdea = useMutation(api.ideas.create);
 
   // Već povezane ideje — „Poveži" ih obeležava umesto da server tiho no-op-uje.
   const connectedIds = useMemo(() => {
@@ -155,6 +165,24 @@ export function IdeaActionsSheet({
   const isMine = target.authorProfileId === currentProfileId;
   const activeSize = activeThoughtSizePreset(target.width);
   const candidates = nodes.filter((candidate) => candidate._id !== target._id);
+
+  const duplicate = () =>
+    void runAction('duplicate', async () => {
+      // Apsolutna pozicija: `target.x/y` je RELATIVNA ako je ugnježdena
+      // (`ZA-POPRAVKU` §9) — kopija mora da sleti pored VIDLJIVOG položaja, ne
+      // preko tuđe kartice. Kad lanac roditelja nije pun, x/y se izostavljaju i
+      // server bira poziciju sam (`ideas.ts:324-325`).
+      const at = absoluteNodePosition(nodes, target._id, (n) => n.parentIdeaId);
+      const ideaId = await createIdea({
+        startupId,
+        title: (target.title ?? '').trim() || 'Kopija ideje',
+        text: target.text,
+        color: target.color ?? 'violet',
+        ...(at.complete ? { x: Math.round(at.x + 36), y: Math.round(at.y + 36) } : {}),
+      });
+      pushUndo({ label: 'Ideja je duplirana.', action: { kind: 'ideaCreate', startupId, ideaId } });
+      return null;
+    });
 
   const archive = () => {
     if (busyId !== null) return;
@@ -221,6 +249,26 @@ export function IdeaActionsSheet({
               />
             ) : null}
             <Row
+              title="Dupliraj"
+              subtitle="Kopija odmah pored originala; veze se ne kopiraju"
+              onPress={duplicate}
+              disabled={busyId !== null}
+              showChevron={false}
+              style={styles.row}
+              icon={<Copy size={20} color={colors.mutedForeground} />}
+              value={busyId === 'duplicate' ? <ActivityIndicator color={colors.primary} /> : undefined}
+            />
+            {onBranch ? (
+              <Row
+                title="Nova grana ideje…"
+                subtitle="Nova ideja, odmah povezana sa ovom"
+                onPress={onBranch}
+                disabled={busyId !== null}
+                style={styles.row}
+                icon={<GitBranchPlus size={20} color={colors.mutedForeground} />}
+              />
+            ) : null}
+            <Row
               title="Poveži sa idejom…"
               subtitle="Veza ka drugoj ideji, vidljiva na kanvasu"
               onPress={() => setView('connect')}
@@ -266,14 +314,20 @@ export function IdeaActionsSheet({
                 icon={<Scaling size={20} color={colors.mutedForeground} />}
               />
             ) : null}
-            {target.isApproved && !target.convertedPageId ? (
-              // Ista vidljivost kao web (`ideas-view.tsx`). Server NE čuva od
-              // dvostruke konverzije — sakrivanje po `convertedPageId` je brana.
+            {!target.convertedPageId ? (
+              // Već pretvorena ideja i dalje nema ovaj red (detalj tada nudi
+              // „Pretvorena u stranicu", `ideja/[id].tsx`). Neodobrena ideja OSTAJE
+              // vidljiva ali onemogućena — objašnjenje u podnaslovu (C16), umesto
+              // da red tiho nestane i pojavi se bez razloga.
               <Row
                 title="Pretvori u stranicu"
-                subtitle="Odobrena ideja postaje zadatak ili beleška"
+                subtitle={
+                  target.isApproved
+                    ? 'Odobrena ideja postaje zadatak ili beleška'
+                    : 'Treba više glasova za nego protiv.'
+                }
                 onPress={() => onConvert(target)}
-                disabled={busyId !== null}
+                disabled={busyId !== null || !target.isApproved}
                 style={styles.row}
                 icon={<FileOutput size={20} color={colors.mutedForeground} />}
               />

@@ -70,6 +70,8 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
   const updatePage = useMutation(api.areasV2.updatePage);
   const setChannelMembers = useMutation(api.chat.setChannelMembers);
+  const archiveIdea = useMutation(api.ideas.archive);
+  const archiveThoughtNodes = useMutation(api.thoughts.archiveNodes);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -314,6 +316,16 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           expectedRevision: action.expectedRevision,
           title: action.title,
         });
+        return;
+      case 'ideaCreate':
+        // Inverz NOVE ideje (duplikat, „nova grana") je arhiviranje — `archive` usput
+        // arhivira i sve ivice te ideje, pa grana nema poseban član.
+        await archiveIdea({ startupId: action.startupId, ideaId: action.ideaId });
+        return;
+      case 'thoughtCreate':
+        // Inverz NOVE misli („nova povezana misao") je arhiviranje — `archiveNodes`
+        // usput arhivira i ivicu ka izvoru.
+        await archiveThoughtNodes({ nodeIds: [action.nodeId] });
         return;
     }
   };

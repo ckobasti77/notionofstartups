@@ -457,3 +457,167 @@ i `expo-document-picker` su već bili zavisnosti. Native build zato nije obaveza
 
 - Start: 2026-08-13T02:47:18
 - PLAN: napisan
+- IZVRŠI: završeno 2026-08-13
+
+### 1. Nalazi — dokaz fajl:linija
+
+Backend nije menjan — sve funkcije koje su trebale (`create.color`, `create.parentIdeaId`,
+`update.color`, `edge.label`, `node.color`, `isApproved`) su već postojale (plan §1).
+
+| # | Tvrdnja | Dokaz PRE | Šta je urađeno | Dokaz POSLE |
+|---|---|---|---|---|
+| C3 | Boja ideje se ne bira pri kreiranju | `idea-create-sheet.tsx:56` — `create({startupId,title,text})` bez `color` | `ColorRow` preseljen u deljen primitiv; sheet dobija `color` state + red kružića | `components/ui/color-row.tsx:12` (definicija); `idea-create-sheet.tsx:49` (`color` state), `:140` (mount), `create({…, color})` |
+| C3 | Izmena prosleđuje staru boju bez izbora | `ideja/[id].tsx` stari komentar „mobilni još nema piker boje ideje" | `draftColor` state, `ColorRow` u edit sheet-u, komentar ispravljen | `ideja/[id].tsx:94` (`draftColor`), `:390` (mount), `:132` (`saveEdit` šalje `draftColor`) |
+| C4 | `ideas.duplicate` ne postoji ni na mobilnom ni u backendu | `grep "Dupliraj" idea-actions-sheet.tsx` → 0 pogodaka | Red „Dupliraj" duplira kroz postojeći `ideas.create` (kao web), apsolutna pozicija + `+36` ofset | `idea-actions-sheet.tsx:124` (`createIdea`), `:169` (`duplicate()`), `:252` (red) |
+| C4 | Nema undo za novu ideju | `lib/undo.ts` bez `ideaCreate` člana | Nov član `ideaCreate`, inverz `ideas.archive` | `lib/undo.ts` (`ideaCreate` član), `undo-bar.tsx` (`case 'ideaCreate'` → `archiveIdea`) |
+| C5 | Oznaka veze se upisuje ali se ne vidi na kanvasu | `canvas-embed.tsx` mapiranje ivica bez `label` (ideje `:1353`, misli `:1723` iz revizije) | Sve četiri grane ivica (ideje, misli, oblast/stranica, — checkpoint nema `label` u šemi) sada nose `label` | `canvas-embed.tsx:1359`, `:1731`, `:2454` (`label: edge.label ?? undefined`); CSS `:2700-2705` |
+| C6 | Boja čvora stiže do klijenta ali se ne crta | `embed-node.tsx` `EmbedNodeData` bez `color` polja | Nov `EmbedNodeColor` union + `embedNodeColor()` čuvar + tačka pored naslova | `embed-node.tsx:46` (tip), `:58` (funkcija), `:74` (polje), `:213` (render); `canvas-embed.tsx:1351`, `:1723` (popunjavanje) |
+| C8 | Nema filtera u idejama ni mislima | `ideje.tsx`/`misli.tsx` bez `TextInput`-a | Deljen `SearchField`, klijentski filter (doslovno web) nad naslovom/tekstom | `components/ui/search-field.tsx`; `ideje.tsx:109` (`filteredNodes`), `:205` (mount); `misli.tsx:101`, `:210` |
+| C16 | `isApproved` skriven uslov, red se pojavljuje/nestaje bez objašnjenja | `idea-actions-sheet.tsx` stari uslov `target.isApproved && !target.convertedPageId` | Status vidljiv (`Badge`) na listi i detalju; red „Pretvori u stranicu" se više ne sakriva, prikazuje se onemogućen sa razlogom | `ideje.tsx:419` (`Badge`); `ideja/[id].tsx:227-233` (`Badge` + meta linija); `idea-actions-sheet.tsx` (uslov `!target.convertedPageId`, `disabled={… || !target.isApproved}`) |
+| sitno | Datum kreiranja ideje ne stoji u listi | `IdeaItem` bez `createdAt` | `IdeaItem.createdAt` + `formatDayHeading(startOfLocalDay(...))` u podnožju | `ideje.tsx` (`IdeaItem` tip, `IdeaRow` podnožje) |
+| sitno | „Nova grana ideje" traži dva odvojena poteza | `IdeaCreateSheet` bez `parent` prop-a | Opcioni `parent` prop; `parentIdeaId` + apsolutna pozicija roditelja (`+300/+40`) | `idea-create-sheet.tsx:41` (prop), `:85` (`pushUndo`); ulaz `idea-actions-sheet.tsx:261` („Nova grana ideje…"); `ideje.tsx`/`ideja/[id].tsx:312` (`onBranch`) |
+| sitno | „Nova povezana misao" traži dva odvojena poteza | `ThoughtCreateSheet` bez `connectFrom` prop-a | Opcioni `connectFrom` prop; `createNode` pa `createEdge` sa rollback-om (`archiveNodes`) ako ivica pukne | `thought-create-sheet.tsx:37` (prop), `:89-98` (rollback + `pushUndo`); ulaz `thought-actions-sheet.tsx:281`; `misli.tsx:91` (`connectFrom` state) |
+
+### 2. Lanac uvoza — dokaz da nije mrtvo
+
+**`components/ui/color-row.tsx`** (preseljen iz `thought-node-sheet.tsx`)
+→ `thought-node-sheet.tsx` (mount, nedirnuto ponašanje) → kanvas misli → tap na čvor;
+→ `thought-create-sheet.tsx:5` (uvoz, putanja promenjena) → „Misli" → FAB „Nova misao";
+→ **novo:** `idea-create-sheet.tsx:6` → „Ideje" → kanvas → rail „Nova ideja" (i „Nova
+grana ideje…", vidi niže) → `ideja/[id].tsx:19` → ⋯ → „Izmeni ideju".
+
+**`idea-actions-sheet.tsx` red „Dupliraj"**
+→ `ideje.tsx:18` (uvoz, postojeći) → mount `:300` (dugi pritisak na karticu) →
+tab „Više" → „Ideje" → dugi pritisak; → `ideja/[id].tsx:26` → mount `:281` (ikonica
+„Akcije ideje" u zaglavlju). `ideaCreate` (undo) → `undo-bar.tsx` `case` →
+`<UndoBar>` već montiran na oba ekrana.
+
+**`idea-actions-sheet.tsx` red „Nova grana ideje…" → `idea-create-sheet.tsx` sa `parent`**
+→ `onBranch` prop na `IdeaActionsSheet` → `ideje.tsx` (`branchParent` state `:101`,
+handler `:307`) i `ideja/[id].tsx` (`branchParent` state, handler `:312`) → oba
+montiraju `<IdeaCreateSheet parent={branchParent}>` (`ideje.tsx:326-329`) → jedini
+ulaz je red u akcionom sheet-u, koji je već dostupan (dugi pritisak / ikonica
+„Akcije ideje").
+
+**`thought-actions-sheet.tsx` red „Nova povezana misao…" → `thought-create-sheet.tsx` sa `connectFrom`**
+→ `onCreateConnected` prop → `misli.tsx:91` (`connectFrom` state) → mount
+`ThoughtCreateSheet` sa `open={createOpen || connectFrom !== null}` (`:325-330`) →
+jedini ulaz je red u `ThoughtActionsSheet`, otvoren dugim pritiskom na red misli.
+
+**`components/ui/search-field.tsx`** (izvučen iz `pretraga.tsx`)
+→ `ideje.tsx:32` → `ScreenHeader below` (`:205`) → tab „Više" → „Ideje";
+→ `misli.tsx:21` → `ScreenHeader below` (`:210`) → tab „Više" → „Misli".
+Dva mounta, oba na ekranu koji se otvara u dva tapa; `pretraga.tsx` nedirnut
+(zaseban primitiv, plan §5.6).
+
+**`lib/canvas-position.ts` `absoluteNodePosition`**
+→ `idea-actions-sheet.tsx` (`duplicate`, `:169`) → `ideje.tsx`/`ideja/[id].tsx`
+(`onBranch`) → `misli.tsx` (`onCreateConnected`). Plus `canvas-position.test.ts`
+(6 tvrdnji, `npx vitest run` provereno pojedinačno pre nastavka faze).
+
+**`embed-node.tsx` `embedNodeColor` / `color` polje**
+→ `canvas-embed.tsx` (uvoz `:52-60`) → dva pozivaoca (`:1351` ideje, `:1723` misli)
+→ ruta `/embed/canvas/[kind]/[id]` → mobilni WebView (`canvas/[kind]/[id].tsx`) →
+„Ideje"/„Misli" → ikonica kanvasa. Dokazano i `npx tsc --noEmit` u `apps/web` (čisto)
+i `npm run build` (ruta `/embed/canvas/[kind]/[id]` kompajlirana, izlaz build-a niže).
+
+**`edge.label` u mapiranju ivica (C5)** — nema nove jedinice, izmena je u postojećem
+mapiranju koje `EmbedFlow` već crta (`edges={edges}`). Dokaz da nije mrtvo: naziv
+veze se upisuje sa telefona (`idea-edge-sheet.tsx:145`) i posle ove izmene se vidi
+na istom kanvasu (`canvas-embed.tsx` + `EmbedStyles` CSS `:2700-2705`).
+
+### 3. Odstupanja od plana (i zašto)
+
+| Plan | Urađeno | Razlog |
+|---|---|---|
+| Meta stil u `idea-create-sheet.tsx`/`thought-create-sheet.tsx` nije precizirao token | `fontSize: fontSize.xs` (12) umesto magičnog broja | Oba fajla već isključivo koriste `fontSize` skalu iz `theme/tokens.ts` (ne `text.*`) — dosledno lokalnoj konvenciji fajla, ne uvodi drugi sistem stilova u isti fajl |
+| Plan nije eksplicitno rekao da li `pushUndo` za OBIČNO (ne-connected) kreiranje misli treba da postoji | `ThoughtCreateSheet` NE zove `pushUndo` kad `connectFrom` nije zadat | Plan §7 test-tabela testira „Poništi" samo za POVEZANU misao; obična „Nova misao" sa rail-a/FAB-a nije bila u opsegu C3-C16/sitno spiska i dodavanje undo tamo bi bio scope creep van onoga što je zadatak tražio |
+| Ostalo | Sprovedeno bukvalno po planu | — |
+
+Plan je unapred zapisao dva **svesna** odstupanja od weba (izmena 6 tačka 1, izmena 8
+tačka 3) — oba su sprovedena kako je opisano:
+- „Nova grana ideje" DOBIJA pozicioniranu koordinatu pored roditelja
+  (`x: parent.x + 300, y: parent.y + 40`) kad je poznata, dok web pušta granu bez
+  pozicije (server randomizuje ±150). Bez ovoga reč „grana" nema smisla na malom ekranu.
+- Red „Pretvori u stranicu" na mobilnom OSTAJE VIDLJIV ali onemogućen kad ideja nije
+  odobrena (sa razlogom u podnaslovu); web ga i dalje sakriva. Objašnjenje umesto
+  tihog pojavljivanja/nestajanja je bio izričit zahtev C16.
+
+### 4. Gejtovi
+
+```
+apps/mobile       npx tsc --noEmit                              → 0 grešaka
+apps/web          npx tsc --noEmit                               → 0 grešaka
+packages/backend  npx tsc -p convex/tsconfig.json --noEmit       → 0 grešaka (nula izmena u backendu)
+npm run lint                                                     → 0 grešaka, 0 upozorenja
+npm test          Test Files 44 passed (44) | Tests 385 passed (385)  (baseline P3: 43/379 → +1 fajl, +6 testova)
+npm run build     → Next.js build uspešan; /embed/canvas/[kind]/[id] kompajlirana ruta
+```
+
+Novi test: `apps/mobile/src/lib/canvas-position.test.ts` (6 tvrdnji — top-level,
+jedan nivo ugnježdenja, dva nivoa, roditelj van liste, ciklus, nepoznat id).
+
+> `npm run lint` **ne pokriva `apps/mobile/**`** (`eslint.config.mjs:25`) — „lint
+> čist" za mobilni znači `tsc`, ne ESLint. Ista ograda kao u svakoj prethodnoj fazi
+> (`ZA-POPRAVKU` §5.12).
+
+**`apps/mobile/package.json` NIJE menjan** — nema novih zavisnosti (svi novi fajlovi
+koriste postojeće pakete: `lucide-react-native`, `convex/react`). Native build zato
+nije obavezan; `NATIVE-BUILD.md` se ne dopunjuje.
+
+### 5. Šta NIJE provereno — iskreno
+
+- **Ništa nije pokrenuto na uređaju ni u emulatoru.** Verifikacija je isključivo
+  `tsc` (mobile/web/backend) + `npm test` + `npm run lint` + `npm run build`. Nijedan
+  novi red, sheet ili tačka boje na kanvasu nije viđen kako radi na ekranu.
+- **Boja čvora i oznaka veze na kanvasu (izmene 11-12) nisu vizuelno provereni.**
+  `npm run build` dokazuje da ruta `/embed/canvas/[kind]/[id]` kompajlira i da `tsc`
+  ne vidi grešku tipa, ali ne dokazuje da tačka ima očekivanu boju na ekranu niti da
+  je tekst veze čitljiv na tamnoj temi (rizik iz plana §4, red „Oznaka veze nečitljiva").
+- **`ColorRow` seljenje nije provereno prstom** — dokaz je isključivo da `tsc` ne baca
+  grešku na jedini spoljni uvoz (`thought-create-sheet.tsx`) i da postojeći testovi
+  prolaze; vizuelni izgled nedirnut po dizajnu (kopija koda, ne prepis).
+- **Rollback „povezane misli" (createEdge pukne → archiveNodes)** nije izazvan —
+  grana `catch` postoji (`thought-create-sheet.tsx:89-98`), ali test scenario koji bi
+  je aktivirao (npr. server odbija vezu) nije simuliran ni testom ni ručno.
+- **Apsolutna pozicija za dupliranje/granu/povezanu misao nad STVARNO ugnježdenim
+  čvorom** nije provereno na uređaju — pokriveno je isključivo jedinstvenim testom
+  `canvas-position.test.ts` nad sintetičkim podacima, ne nad pravim Convex upitom.
+- **Merni gejt `ZA-POPRAVKU` §2 ostaje otvoren** (agent nema uređaj) — nepromenjen
+  ovom fazom, prenosi se dalje.
+- **`inline.mjs:44` (`String.replace` sa `$`-obrascima)** — prenosi se dalje po plan §0,
+  van opsega ove faze (nije ideja ni misao).
+
+### 6. Provera prstom (čeka korisnika)
+
+| # | Šta | Očekivano |
+|---|---|---|
+| T1 | „Ideje" → kanvas → „Nova ideja" → izaberi `rose` → Dodaj | Kartica na kanvasu i u listi ima `rose` boju; na webu (`ideas-view` → Otvori) ista boja |
+| T2 | Detalj ideje → ⋯ → „Izmeni ideju" → promeni boju → Sačuvaj → ponovo otvori | Nova boja zatečena, naslov/tekst nedirnuti |
+| T3 | Lista ideja → dugi pritisak → „Dupliraj" | Nova kartica sa istim naslovom u listi; traka „Poništi" uklanja je; na kanvasu kopija je POKRAJ originala, ne preko njega |
+| T4 | Ugnjezdi ideju A u B → dupliraj A | Kopija je pored VIDLJIVOG položaja A, ne u koordinatnom početku (0,0) |
+| T5 | Detalj ideje → ⋯ → „Nova grana ideje…" → naslov + opis → Dodaj | Detalj originala u „Veze" pokazuje novu ideju; na webu kanvas prikazuje liniju između njih |
+| T6 | Rail kanvasa → „Nova ideja" → Dodaj | Traka „Poništi" se pojavljuje (ranije nije postojala za obično kreiranje) |
+| T7 | „Misli" → dugi pritisak → „Nova povezana misao…" → Dodaj | Red izvora pokazuje „+1 veza"; „Poništi" uklanja i misao i vezu |
+| T8 | Ideja sa više glasova protiv | Lista i detalj pokazuju „U razmatranju"; ⋯ → red „Pretvori u stranicu" postoji, ONEMOGUĆEN, sa razlogom |
+| T9 | Dodaj glas za dok je ideja otvorena na detalju | Status i red se menjaju BEZ ponovnog ulaska (živa pretplata) |
+| T10 | Ideja napravljena danas vs. starija | Lista pokazuje „Danas" vs. „7. avgust" |
+| T11 | „Ideje" → kucaj dve reči u pretragu | Lista se skuplja; `eyebrow` piše „2 od 9"; nepostojeći pojam daje „Nema rezultata za …" sa dugmetom koje briše pretragu |
+| T12 | „Misli" sa > 50 učitanih i aktivnim filterom | Footer poruka „Pretraga važi nad učitanih N misli — skroluj za još"; skrol dovlači još i lista raste |
+| T13 | Ideja obojena u T1 → otvori kanvas ideja (WebView) | Tačka u boji na kartici; ista boja kao desktop kanvas (`localhost:3000`, isti startup) |
+| T14 | Detalj ideje → „Veze" → veza → upiši naziv → Sačuvaj → otvori kanvas ideja | Naziv veze stoji na liniji; isto za misli i za kanvas oblasti (veza između dve stranice) |
+| T15 | Veza BEZ naziva | Nema ni pravougaonik ni prazan tekst — izgleda kao pre P4 |
+| T16 | Kanvas misli → tap na čvor → sheet detalja | Red kružića za boju i dalje postoji i bira se (regresija posle seljenja `ColorRow`) |
+
+- IZVRSI: prošlo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `tsc backend`: prolazi (nula izmena)
+- `lint`: prolazi (0 grešaka, 0 upozorenja)
+- `test`: prolazi (44 fajla, 385 testova)
+- `build`: prolazi
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi

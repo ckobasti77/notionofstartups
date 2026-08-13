@@ -54,6 +54,7 @@ import {
   EMBED_NODE_TYPES,
   EMBED_NODE_WIDTH,
   EmbedResizeContext,
+  embedNodeColor,
   type EmbedFlowNode,
   type EmbedResizeApi,
   type EmbedResizeBox,
@@ -1347,6 +1348,7 @@ function IdeasCanvasView({
           accent: node.isApproved,
           // Ručke dobija samo autor — server bi tuđu ideju ionako odbio.
           canResize: node.canResize,
+          color: embedNodeColor(node.color),
         },
         ariaLabel: `Ideja: ${node.title ?? node.text}`,
       })),
@@ -1354,6 +1356,7 @@ function IdeasCanvasView({
         id: edge._id,
         source: edge.nodeAId,
         target: edge.nodeBId,
+        label: edge.label ?? undefined,
       })),
       detailById: detailById as Map<string, unknown>,
     };
@@ -1717,6 +1720,7 @@ function ThoughtsCanvasView({
           meta: node.isParent ? "Roditeljska misao" : undefined,
           // Sve misli na platnu su vlasnikove, pa ručke dobija svaka.
           canResize: true,
+          color: embedNodeColor(node.color),
         },
         ariaLabel: `${node.isParent ? "Roditeljska misao" : "Misao"}: ${node.title ?? node.text}`,
       })),
@@ -1724,6 +1728,7 @@ function ThoughtsCanvasView({
         id: edge._id,
         source: edge.nodeAId,
         target: edge.nodeBId,
+        label: edge.label ?? undefined,
       })) as Edge[],
       detailById: detailById as Map<string, unknown>,
     };
@@ -1893,8 +1898,9 @@ const MAX_MOVE_UPDATES = 100;
  * NAMERNO IZOSTAVLJENO iz preglednog embeda (§5.2 — mobilni canvas je pregled/
  * navigacija/dodavanje, ne moderacija; izuzeci se zapisuju):
  * - `truncated` — baner „nije sve prikazano" se ne prikazuje.
- * - `label`/`kind` ivica — sve ivice se crtaju jednako (bez teksta veze i bez
- *   vizuelne razlike canvas/relacija/checkpoint); desktop to ima, embed pojednostavljuje.
+ * - `kind` ivica — sve ivice se crtaju istom linijom (bez vizuelne razlike
+ *   canvas/relacija/checkpoint); desktop to ima, embed pojednostavljuje. `label`
+ *   se OD P4 crta (`edge.label`) — checkpoint ivice ga nemaju pa ostaju bez teksta.
  *
  * `checkpointEdges` se OD K4 crtaju — zajedno sa oblačićima koraka zadatka koji je
  * „razvijen" (native sheet kartice → „Prikaži korake"), odnosno uvek na kanvasu samog
@@ -2445,10 +2451,12 @@ function PageCanvasView({
           id: edge._id,
           source: edge.source,
           target: edge.target,
+          label: edge.label ?? undefined,
           data: { kind: edge.kind },
         })),
         // Prefiks u id-u ivice: checkpoint veze su druga tabela, pa se ni slučajno ne
-        // sudaraju sa page-ivicom istog id-a.
+        // sudaraju sa page-ivicom istog id-a. Checkpoint veze nemaju naziv
+        // (`visibleCheckpointEdgeValidator` nema `label`), pa ostaju bez teksta.
         ...checkpointEdges.map(({ edge, sourceNodeId, targetNodeId }) => ({
           id: `checkpoint:${edge._id}`,
           source: sourceNodeId,
@@ -2670,6 +2678,31 @@ function EmbedStyles() {
         background: var(--primary);
         border: 2px solid var(--background);
         box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+      }
+      /* Boja čvora (P4) — tačka pored naslova. Vrednosti su PRESLIKANE iz desktop
+         \`connected-canvas.module.css\` (\`--node-accent\` po boji); embed ne uvozi taj
+         modul (šest pravila bi povuklo ceo desktop stylesheet sa \`:global\` pravilima). */
+      .embed-node-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex: none;
+        background: var(--node-accent, var(--muted-foreground));
+      }
+      .embed-node-dot[data-node-color="neutral"] { --node-accent: oklch(0.58 0.025 266); }
+      .embed-node-dot[data-node-color="violet"] { --node-accent: oklch(0.57 0.2 294); }
+      .embed-node-dot[data-node-color="blue"] { --node-accent: oklch(0.58 0.17 249); }
+      .embed-node-dot[data-node-color="green"] { --node-accent: oklch(0.57 0.14 155); }
+      .embed-node-dot[data-node-color="amber"] { --node-accent: oklch(0.68 0.16 78); }
+      .embed-node-dot[data-node-color="rose"] { --node-accent: oklch(0.61 0.19 18); }
+      /* Oznaka veze (P4, C5) — xyflow crta \`label\` kroz \`EdgeText\` (\`<text>\` +
+         pozadinski \`<rect>\`); stock boje su van naše palete. */
+      .react-flow__edge-text {
+        fill: var(--foreground);
+        font-size: 11px;
+      }
+      .react-flow__edge-textbg {
+        fill: var(--background);
       }
     `}</style>
   );

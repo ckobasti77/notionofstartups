@@ -1,6 +1,6 @@
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { Brain, Crown, LayoutGrid, Plus, TriangleAlert, Wand2 } from 'lucide-react-native';
+import { Brain, Crown, LayoutGrid, Plus, Search, TriangleAlert, Wand2 } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,13 +18,15 @@ import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { SearchField } from '@/components/ui/search-field';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList } from '@/components/ui/skeletons';
 import { StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
-import type { Doc } from '@/convex/_generated/dataModel';
+import type { Doc, Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
+import { absoluteNodePosition } from '@/lib/canvas-position';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { THOUGHT_SWATCH } from '@/lib/thought-colors';
@@ -86,6 +88,23 @@ export default function MisliScreen() {
   const [actionNode, setActionNode] = useState<Doc<'thoughtNodes'> | null>(null);
   const [conversionNodes, setConversionNodes] = useState<ThoughtConversionNode[] | null>(null);
   const [tidyBusy, setTidyBusy] = useState(false);
+  const [connectFrom, setConnectFrom] = useState<{
+    id: Id<'thoughtNodes'>;
+    title: string;
+    x?: number;
+    y?: number;
+  } | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Doslovno web filtriranje (`ideas-view.tsx:202-206`, isti obrazac za misli) —
+  // uživo, nad naslovom i tekstom UČITANIH misli (lista je paginirana).
+  const filteredNodes = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (term.length === 0) return nodesQuery.results;
+    return nodesQuery.results.filter(
+      (node) => (node.title?.toLowerCase().includes(term) ?? false) || node.text.toLowerCase().includes(term),
+    );
+  }, [nodesQuery.results, searchTerm]);
 
   useEffect(() => {
     if (edgesStatus === 'CanLoadMore') loadMoreEdges(200);
@@ -171,14 +190,26 @@ export default function MisliScreen() {
   const loadingFirst = activeStartupId === null || nodesQuery.status === 'LoadingFirstPage';
   const count = nodesQuery.results.length;
   const hasMore = nodesQuery.status === 'CanLoadMore' || nodesQuery.status === 'LoadingMore';
+  const searchActive = searchTerm.trim().length > 0;
   const refreshControl = useListRefresh();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Misli"
-        eyebrow={count > 0 ? `${count}${hasMore ? '+' : ''} ${misaoWord(count)}` : undefined}
+        eyebrow={
+          count > 0
+            ? searchActive
+              ? `${filteredNodes.length} od ${count}${hasMore ? '+' : ''}`
+              : `${count}${hasMore ? '+' : ''} ${misaoWord(count)}`
+            : undefined
+        }
         onBack={() => router.back()}
+        below={
+          activeStartupId !== null && count > 0 ? (
+            <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Pretraži misli…" />
+          ) : undefined
+        }
         actions={
           activeStartupId ? (
             <>
@@ -221,9 +252,17 @@ export default function MisliScreen() {
         />
       ) : (
         <LoadingSwap loading={loadingFirst} skeleton={<MisliSkeleton />}>
-          {loadingFirst ? null : (
+          {loadingFirst ? null : filteredNodes.length === 0 ? (
+            <EmptyState
+              icon={<Search size={40} color={colors.mutedForeground} />}
+              title={`Nema rezultata za „${searchTerm.trim()}"`}
+              description="Pokušaj drugu reč ili obriši pretragu."
+              actionLabel="Obriši pretragu"
+              onAction={() => setSearchTerm('')}
+            />
+          ) : (
             <FlatList
-              data={nodesQuery.results}
+              data={filteredNodes}
               keyExtractor={(item) => item._id}
               renderItem={({ item, index }) => (
                 <StaggerItem index={index}>
@@ -251,6 +290,14 @@ export default function MisliScreen() {
                   <View style={styles.footer}>
                     <ActivityIndicator color={colors.primary} />
                   </View>
+                ) : searchActive && nodesQuery.status === 'CanLoadMore' ? (
+                  // Iskrena granica: filter gađa samo UČITANE misli (paginacija) —
+                  // bez ove poruke „nema rezultata" bi lagalo dok stranica 2+ postoji.
+                  <View style={styles.footer}>
+                    <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
+                      Pretraga važi nad učitanih {count} misli — skroluj za još.
+                    </Text>
+                  </View>
                 ) : null
               }
               // Donji padding čisti i FAB (do insets+72) i traku „Poništi" iznad
@@ -275,9 +322,13 @@ export default function MisliScreen() {
             style={{ bottom: insets.bottom + 16 }}
           />
           <ThoughtCreateSheet
-            open={createOpen}
+            open={createOpen || connectFrom !== null}
             startupId={activeStartupId}
-            onClose={() => setCreateOpen(false)}
+            connectFrom={connectFrom}
+            onClose={() => {
+              setCreateOpen(false);
+              setConnectFrom(null);
+            }}
           />
           <ThoughtActionsSheet
             open={actionNode !== null}
@@ -287,6 +338,16 @@ export default function MisliScreen() {
             onConvert={(nodes) => {
               setActionNode(null);
               setTimeout(() => setConversionNodes(nodes), SHEET_HANDOFF_MS);
+            }}
+            onCreateConnected={(node) => {
+              const at = absoluteNodePosition(nodesQuery.results, node._id, (n) => n.parentThoughtId);
+              const from = {
+                id: node._id,
+                title: thoughtDisplayTitle(node),
+                ...(at.complete ? { x: at.x, y: at.y } : {}),
+              };
+              setActionNode(null);
+              setTimeout(() => setConnectFrom(from), SHEET_HANDOFF_MS);
             }}
           />
           <ThoughtConversionSheet
@@ -434,6 +495,11 @@ const styles = StyleSheet.create({
   footer: {
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  footerText: {
+    ...text.meta,
+    textAlign: 'center',
+    paddingHorizontal: 24,
   },
   skeleton: {
     paddingHorizontal: 16,
