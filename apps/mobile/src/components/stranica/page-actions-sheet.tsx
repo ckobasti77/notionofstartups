@@ -1,4 +1,4 @@
-import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
 import {
   ChevronLeft,
@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { PageTargetPicker } from '@/components/stranica/page-target-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Row } from '@/components/ui/row';
@@ -28,11 +29,16 @@ import { fontWeight, radius } from '@/theme/tokens';
 
 type PageDetails = FunctionReturnType<typeof api.pages.get>;
 
-/** Menija ima jedan nivo dubine: spisak akcija → spisak ciljeva za izabranu akciju. */
-export type SheetView = 'menu' | 'move' | 'nest' | 'relate' | 'rename';
+/**
+ * Menija ima jedan nivo dubine: spisak akcija → spisak ciljeva za izabranu akciju.
+ * Jedini izuzetak je „Premesti u oblast", koje ima dva koraka (oblast, pa mesto u
+ * njoj) — zato `moveTarget`.
+ */
+export type SheetView = 'menu' | 'move' | 'moveTarget' | 'nest' | 'relate' | 'rename';
 
 const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
   move: 'Premesti u oblast',
+  moveTarget: 'Mesto u oblasti',
   nest: 'Ugnjezdi pod…',
   relate: 'Poveži sa…',
   rename: 'Preimenuj',
@@ -109,16 +115,11 @@ export function PageActionsSheet({
     api.startups.get,
     open && view === 'move' ? { startupId: page.startupId } : 'skip',
   );
-  // Kandidati za ugnježđavanje su stranice u KORENU iste oblasti — ugnježđavanje je
-  // ionako dozvoljeno samo unutar oblasti (`requestNesting`), a web bira iz istog
-  // skupa (`canvasData.pages`).
-  const nestCandidates = usePaginatedQuery(
-    api.pages.listChildren,
-    open && view === 'nest'
-      ? { startupId: page.startupId, areaId: page.areaId, parentPageId: null }
-      : 'skip',
-    { initialNumItems: 50 },
-  );
+  /** Oblast izabrana u prvom koraku „Premesti u oblast" — cilj drugog koraka. */
+  const [moveArea, setMoveArea] = useState<{
+    id: Id<'startupAreas'>;
+    label: string;
+  } | null>(null);
   const relationData = useQuery(
     api.areasV2.listRelations,
     open && view === 'relate' ? { startupId: page.startupId, pageId: page._id } : 'skip',
@@ -126,6 +127,7 @@ export function PageActionsSheet({
 
   const close = () => {
     setView('menu');
+    setMoveArea(null);
     onClose();
   };
 
@@ -147,17 +149,49 @@ export function PageActionsSheet({
     }
   };
 
-  const moveTo = (targetAreaId: Id<'startupAreas'>, label: string) =>
-    void runAction(targetAreaId, async () => {
+  /** „Poništi" za oba poteza nad mestom stranice — vraća oblast i roditelja od PRE. */
+  const pushPlaceUndo = (label: string) =>
+    pushUndo({
+      label,
+      action: {
+        kind: 'pageReparent',
+        startupId: page.startupId,
+        pageId: page._id,
+        targetAreaId: page.areaId,
+        targetParentPageId: page.parentPageId,
+      },
+    });
+
+  /**
+   * Premeštanje u drugu oblast: u koren (`targetParent === null`) ili pod određenu
+   * stranicu te oblasti (C10). Drugi slučaj je dvokorak na serveru — ako je ciljni
+   * roditelj TUĐ, oblast je promenjena a ugnježdavanje čeka odobrenje. To se mora
+   * reći doslovno, inače izgleda kao da se ništa nije desilo.
+   */
+  const moveTo = (
+    targetAreaId: Id<'startupAreas'>,
+    label: string,
+    targetParent: { id: Id<'pages'>; title: string } | null,
+    busyKey: string,
+  ) =>
+    void runAction(busyKey, async () => {
       const result = await movePage({
         startupId: page.startupId,
         pageId: page._id,
         targetAreaId,
-        targetParentPageId: null,
+        targetParentPageId: targetParent?.id ?? null,
       });
-      return result.nestingStatus === 'pending'
-        ? 'Premeštanje čeka odobrenje autora roditeljske stranice.'
-        : `Stranica je premeštena u „${label}".`;
+      // Oblast je promenjena u OBA ishoda, pa traka „Poništi" ide uvek — a njena
+      // poruka nosi celu istinu umesto Alert-a. Alert bi stajao IZNAD trake i
+      // pojeo joj 8 sekundi (ista greška kao „Poništi" ispod sheet-a, K3).
+      pushPlaceUndo(
+        targetParent === null
+          ? `Premešteno u „${label}".`
+          : result.nestingStatus === 'pending'
+            ? `Premešteno u „${label}"; ugnježdavanje pod „${targetParent.title}" čeka odobrenje autora.`
+            : `Premešteno u „${label}" pod „${targetParent.title}".`,
+      );
+      return null;
     });
 
   const nestInto = (targetParentPageId: Id<'pages'>, targetTitle: string) =>
@@ -168,10 +202,15 @@ export function PageActionsSheet({
         targetParentPageId,
       });
       // Ugnježđavanje pod tuđu stranicu ide kroz odobrenje — to se mora reći, inače
-      // izgleda kao da se ništa nije desilo (stranica ostaje gde je bila).
-      return result.nestingStatus === 'pending'
-        ? `Zahtev je poslat autoru stranice „${targetTitle}". Ugnježđavanje čeka odobrenje.`
-        : `Stranica je ugnježdena pod „${targetTitle}".`;
+      // izgleda kao da se ništa nije desilo (stranica ostaje gde je bila). Tada nad
+      // stranicom ništa nije ni upisano, pa traka „Poništi" nema šta da vrati i
+      // Alert je jedina površina.
+      if (result.nestingStatus === 'pending') {
+        return `Zahtev je poslat autoru stranice „${targetTitle}". Ugnježđavanje čeka odobrenje.`;
+      }
+      // Uspeh ima traku „Poništi", pa Alert-a nema (isti obrazac kao „Preimenuj").
+      pushPlaceUndo(`Ugnježdeno pod „${targetTitle}".`);
+      return null;
     });
 
   const relateTo = (pageBId: Id<'pages'>, targetTitle: string) =>
@@ -319,7 +358,7 @@ export function PageActionsSheet({
             <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
               <Row
                 title="Premesti u oblast"
-                subtitle="Stranica sleće u koren izabrane oblasti"
+                subtitle="Bira se oblast, pa mesto u njoj"
                 onPress={() => setView('move')}
                 disabled={!page.permissions.canMove}
                 style={styles.row}
@@ -327,7 +366,7 @@ export function PageActionsSheet({
               />
               <Row
                 title="Ugnjezdi pod…"
-                subtitle="Unutar iste oblasti; tuđa stranica traži odobrenje"
+                subtitle="Bilo koja dubina u ovoj oblasti; tuđa stranica traži odobrenje"
                 onPress={() => setView('nest')}
                 disabled={!page.permissions.canMove}
                 style={styles.row}
@@ -388,11 +427,17 @@ export function PageActionsSheet({
         ) : (
           <>
             <Row
-              title={VIEW_TITLE[view]}
-              onPress={() => setView('menu')}
+              // „Mesto u oblasti" je drugi korak, pa „Nazad" vraća na izbor
+              // oblasti — ne na meni akcija.
+              title={view === 'moveTarget' ? `${VIEW_TITLE[view]} — ${moveArea?.label ?? ''}` : VIEW_TITLE[view]}
+              onPress={() => setView(view === 'moveTarget' ? 'move' : 'menu')}
               disabled={busyId !== null}
               showChevron={false}
-              accessibilityLabel={`Nazad na akcije stranice — ${VIEW_TITLE[view]}`}
+              accessibilityLabel={
+                view === 'moveTarget'
+                  ? 'Nazad na izbor oblasti'
+                  : `Nazad na akcije stranice — ${VIEW_TITLE[view]}`
+              }
               style={styles.row}
               icon={<ChevronLeft size={22} color={colors.foreground} />}
             />
@@ -448,38 +493,63 @@ export function PageActionsSheet({
                       .map((area) => ({
                         id: area._id,
                         title: area.label,
+                        subtitle: 'Zatim se bira mesto u oblasti',
                         tint: areaColor(colors, area.key),
-                        onPress: () => moveTo(area._id, area.label),
+                        onPress: () => {
+                          setMoveArea({ id: area._id, label: area.label });
+                          setView('moveTarget');
+                        },
                       }))}
                     busyId={busyId}
                   />
                 )
               ) : null}
 
-              {view === 'nest' ? (
-                nestCandidates.status === 'LoadingFirstPage' ? (
-                  <Loading label="Učitavanje stranica" />
-                ) : (
-                  <TargetList
-                    empty="U ovoj oblasti nema druge stranice pod koju bi se ugnjezdila."
-                    items={nestCandidates.results
-                      .filter((candidate) => candidate._id !== page._id)
-                      .map((candidate) => ({
-                        id: candidate._id,
-                        title: candidate.title || 'Bez naslova',
-                        subtitle: pageKindLabel(candidate.kind as PageKind),
-                        kind: candidate.kind as PageKind,
-                        tint: pageKindColor(colors, candidate.kind as PageKind),
-                        onPress: () => nestInto(candidate._id, candidate.title || 'Bez naslova'),
-                      }))}
-                    busyId={busyId}
-                    onEndReached={
-                      nestCandidates.status === 'CanLoadMore'
-                        ? () => nestCandidates.loadMore(50)
-                        : undefined
+              {view === 'moveTarget' && moveArea !== null ? (
+                <>
+                  {/* Staro ponašanje ostaje jedan tap daleko — koren oblasti je
+                      najčešći cilj, pa stoji prvi. */}
+                  <Row
+                    title="U koren oblasti"
+                    subtitle={`Stranica sleće na vrh oblasti „${moveArea.label}"`}
+                    onPress={() => moveTo(moveArea.id, moveArea.label, null, 'moveRoot')}
+                    disabled={busyId !== null}
+                    showChevron={busyId === null}
+                    style={styles.row}
+                    icon={<FolderOutput size={20} color={colors.mutedForeground} />}
+                    value={
+                      busyId === 'moveRoot' ? <ActivityIndicator color={colors.primary} /> : undefined
                     }
                   />
-                )
+                  <Text style={[styles.groupLabel, { color: colors.mutedForeground }]}>
+                    …ili pod stranicu u toj oblasti
+                  </Text>
+                  <PageTargetPicker
+                    startupId={page.startupId}
+                    areaId={moveArea.id}
+                    // Stranica je iz DRUGE oblasti pa se ionako neće pojaviti —
+                    // filter je pojas i tregeri.
+                    excludePageId={page._id}
+                    currentParentPageId={null}
+                    busyId={busyId}
+                    rootEmpty={'Ova oblast još nema nijednu stranicu — koristi „U koren oblasti".'}
+                    onPick={(pageId, title) =>
+                      moveTo(moveArea.id, moveArea.label, { id: pageId, title }, pageId)
+                    }
+                  />
+                </>
+              ) : null}
+
+              {view === 'nest' ? (
+                <PageTargetPicker
+                  startupId={page.startupId}
+                  areaId={page.areaId}
+                  excludePageId={page._id}
+                  currentParentPageId={page.parentPageId}
+                  busyId={busyId}
+                  rootEmpty="U ovoj oblasti nema druge stranice pod koju bi se ugnjezdila."
+                  onPick={nestInto}
+                />
               ) : null}
 
               {view === 'relate' ? (
@@ -610,6 +680,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 8,
     paddingVertical: 12,
+  },
+  // Razdvaja „U koren oblasti" od stabla ispod — bez toga je picker nastavak reda.
+  groupLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 2,
   },
   loading: {
     paddingVertical: 24,

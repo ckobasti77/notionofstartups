@@ -89,7 +89,11 @@ export function ScreenHeader({
               eyebrowAccessibilityLabel ?? (typeof eyebrow === 'string' ? eyebrow : undefined)
             }
             onPress={onEyebrowPress}
-            hitSlop={{ top: 8, bottom: 4, left: 8, right: 8 }}
+            // Red je `minHeight: 20`, pa 20 + 20 + 4 = 44pt dodirne mete bez
+            // ijednog piksela vizuelne promene. Slop ide NAGORE (iznad eyebrow-a
+            // je samo padding ispod statusne trake); nadole bi prekrio red naslova
+            // i mogao da otme tap sa dugmeta „Nazad".
+            hitSlop={{ top: 20, bottom: 4, left: 8, right: 8 }}
             style={({ pressed }) => [styles.eyebrowRow, pressed && styles.pressed]}>
             {eyebrowBody}
           </Pressable>

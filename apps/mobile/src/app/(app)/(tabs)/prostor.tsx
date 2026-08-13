@@ -1,4 +1,4 @@
-import { usePaginatedQuery, useQuery } from 'convex/react';
+import { usePaginatedQuery, useQuery, type PaginationStatus } from 'convex/react';
 import {
   useFocusEffect,
   useLocalSearchParams,
@@ -33,9 +33,12 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { EmptyState } from '@/components/empty-state';
 import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
+import { AreaContributionsSection } from '@/components/prostor/area-contributions-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
+import { KindFilterRow } from '@/components/prostor/kind-filter-row';
 import { RenameAreaSheet } from '@/components/prostor/rename-area-sheet';
 import { TabScreen } from '@/components/tab-screen';
+import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
@@ -247,6 +250,13 @@ export default function ProstorScreen() {
       />
       {/* Brifing stoji iznad liste, kao dock na vrhu web `area-view`. */}
       <AreaBriefingSection key={`brifing:${top.areaId}`} areaId={top.areaId} areaLabel={top.label} />
+      {/* Potpisani doprinosi odmah ispod brifinga — isti redosled kao web
+          `area-view.tsx` (C14). */}
+      <AreaContributionsSection
+        key={`doprinosi:${top.areaId}`}
+        areaId={top.areaId}
+        areaLabel={top.label}
+      />
       <PageLevel
         key={frameKey}
         startupId={activeStartupId}
@@ -272,6 +282,10 @@ export default function ProstorScreen() {
           onClose={() => setCreatingPage(false)}
         />
       ) : null}
+      {/* Obrisan doprinos oblasti se vraća odavde — bez trake „Poništi" na ovom
+          ekranu brisanje ne bi imalo izlaz. `72` = iznad FAB-a (56 + bottom 16);
+          traka sama dodaje `insets.bottom + 16`, pa staje i iznad tab bara. */}
+      <UndoBar bottomOffset={72} />
     </KeyboardAvoidingView>
   );
 }
@@ -499,16 +513,85 @@ function PageLevel({
   onOpenLeaf: (page: PageItem) => void;
 }) {
   const colors = useThemeColors();
+  // Filter po vrsti (C7) živi ovde jer `PageLevel` već ima `key={frameKey}` u
+  // roditelju — promena oblasti sama resetuje filter.
+  const [kindFilter, setKindFilter] = useState<PageKind | null>(null);
   // Koren oblasti (`parentPageId: null`); dublji nivoi se dohvataju tek kad se red
   // razvije — svaki `PageBranch` ima svoj upit i montira ga samo dok je otvoren.
   const { results, status, loadMore } = usePaginatedQuery(
     api.pages.listChildren,
-    startupId ? { startupId, areaId, parentPageId: null } : 'skip',
+    startupId
+      ? {
+          startupId,
+          areaId,
+          parentPageId: null,
+          ...(kindFilter === null ? {} : { kind: kindFilter }),
+        }
+      : 'skip',
     { initialNumItems: 50 },
   );
 
-  // Stanje razvijenosti živi na nivou oblasti i traje dok se ne napusti ekran /
-  // ne promeni oblast (`key` na `PageLevel` u roditelju ga tada resetuje).
+  const loading = startupId === null || status === 'LoadingFirstPage';
+
+  return (
+    <View style={styles.level2}>
+      {/* Chip red stoji IZNAD liste i van `LoadingSwap`-a — filter ne treperi sa
+          skeletonom i ne odskroluje sa listom. */}
+      <KindFilterRow value={kindFilter} onChange={setKindFilter} />
+      {kindFilter === null ? null : (
+        <Text style={[styles.filterNote, { color: colors.mutedForeground }]}>
+          {/* Podstranice se namerno NE filtriraju: `pages.childCounts` broji svu
+              decu, pa bi filtrirana deca dala red koji obeća „2 podstranice" i
+              otvori „Nema podstranica.". Web filtrira isti skup — direktnu decu
+              opsega. */}
+          Filter važi za koren oblasti.
+        </Text>
+      )}
+      {!loading && results.length === 0 ? (
+        <PageLevelEmpty
+          colors={colors}
+          kindFilter={kindFilter}
+          onClearFilter={() => setKindFilter(null)}
+        />
+      ) : (
+        <PageLevelList
+          startupId={startupId}
+          areaId={areaId}
+          now={now}
+          onOpenLeaf={onOpenLeaf}
+          results={results}
+          status={status}
+          loadMore={loadMore}
+          loading={loading}
+        />
+      )}
+    </View>
+  );
+}
+
+/** Sama lista stabla — izdvojena da chip red iznad nje ostane van `LoadingSwap`-a. */
+function PageLevelList({
+  startupId,
+  areaId,
+  now,
+  onOpenLeaf,
+  results,
+  status,
+  loadMore,
+  loading,
+}: {
+  startupId: Id<'startups'> | null;
+  areaId: Id<'startupAreas'>;
+  now: number;
+  onOpenLeaf: (page: PageItem) => void;
+  results: PageItem[];
+  status: PaginationStatus;
+  loadMore: (count: number) => void;
+  loading: boolean;
+}) {
+  const colors = useThemeColors();
+  // Stanje razvijenosti traje dok se ne napusti ekran / ne promeni oblast
+  // (`key` na `PageLevel` u roditelju ga tada resetuje).
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = useCallback((pageId: string) => {
     setExpandedIds((prev) => {
@@ -520,12 +603,6 @@ function PageLevel({
   }, []);
   const childCounts = useChildCounts(startupId, areaId, results);
   const refreshControl = useListRefresh();
-
-  const loading = startupId === null || status === 'LoadingFirstPage';
-
-  if (!loading && results.length === 0) {
-    return <PageLevelEmpty colors={colors} />;
-  }
 
   return (
     <LoadingSwap loading={loading} skeleton={<PageListSkeleton />}>
@@ -816,7 +893,31 @@ function PageRow({
   );
 }
 
-function PageLevelEmpty({ colors }: { colors: ColorTokens }) {
+/**
+ * Prazno stanje MORA da zna za filter — bez toga „Ova oblast je prazna." laže kad
+ * oblast ima sadržaj druge vrste.
+ */
+function PageLevelEmpty({
+  colors,
+  kindFilter,
+  onClearFilter,
+}: {
+  colors: ColorTokens;
+  kindFilter: PageKind | null;
+  onClearFilter: () => void;
+}) {
+  if (kindFilter !== null) {
+    const Icon = pageKindMeta(kindFilter).icon;
+    return (
+      <EmptyState
+        icon={<Icon size={40} color={colors.mutedForeground} />}
+        title={`Nema stranica vrste ${pageKindMeta(kindFilter).label} u ovoj oblasti.`}
+        description="Filter važi za koren oblasti — podstranice se ne filtriraju."
+        actionLabel="Prikaži sve"
+        onAction={onClearFilter}
+      />
+    );
+  }
   return (
     <EmptyState
       icon={<FolderOpen size={40} color={colors.mutedForeground} />}
@@ -896,6 +997,14 @@ function ProstorErrorState({ message, onRetry }: { message: string; onRetry: () 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  level2: {
+    flex: 1,
+  },
+  filterNote: {
+    ...text.meta,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
   },
   /* Nivo 1 */
   level1Content: {

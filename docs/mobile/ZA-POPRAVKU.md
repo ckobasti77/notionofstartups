@@ -386,9 +386,23 @@ oblasti). Segmenti nisu dodirljivi (orijentacija, ne navigacija).
 **Prvobitno stanje.** Web pokazuje pun put oblast → roditelj → stranica. Mobilni
 je imao samo `router.back()` i sekciju „Podstranice".
 
-### 5.7 Potpisani doprinosi na stranici i na oblasti — DELOM REŠENO (ažurirano 11.08.)
+### 5.7 Potpisani doprinosi na stranici i na oblasti — **REŠENO (lanac 6, P5, 13.08.)**
 
-**Stanje (posle Faze 5).** `ContributionThread` na mobilnom prima
+> **REŠENO.** Obe preostale rupe su zatvorene; `ContributionThread` sada ima sve
+> četiri mete i sve četiri su MONTIRANE:
+>
+> - **`area`** — nov član unije (`contribution-thread.tsx:54`), potrošač je
+>   `components/prostor/area-contributions-section.tsx`, montiran u Nivou 2 taba
+>   „Prostor" (`app/(app)/(tabs)/prostor.tsx:255`). Nivo 2 je uz to dobio traku
+>   „Poništi" (`:288`), pa `restoreOwnContribution` sada radi i za oblast.
+> - **`task_checkpoint`** — grana više nije mrtva: potrošač je
+>   `components/zadatak/checkpoint-contributions-sheet.tsx`, ulaz je ikonica u redu
+>   koraka (`task-checkpoint-list.tsx:376`), sheet montiran na `:441`.
+>
+> Metodološka pouka ispod ostaje na snazi — za funkcije sa `target` unijom paritet
+> se meri po VRSTI mete, ne po imenu funkcije.
+
+**Istorijat (stanje posle Faze 5).** `ContributionThread` na mobilnom prima
 `{ kind: 'idea' }`, `{ kind: 'task_checkpoint' }` i `{ kind: 'page' }`; `page`
 je REŠEN u A5 (`page-contributions-section.tsx`, montiran na beleški i zadatku).
 Ostaju dve rupe:
@@ -440,9 +454,15 @@ grešku, dodirne mete), svajp akcije kroz `accessibilityActions`, najave uspeha,
   čitanje sadržaja ispod, ali fokus i dalje ostaje na dugmetu koje je sheet
   otvorilo. Traži `ref` na prvi fokusabilni čvor u svakom sheet-u i sinhronizaciju
   sa `Sheet` animacijom — nije jednolinijska izmena u primitivu.
-- **`ScreenHeader` eyebrow (prebacivanje startupa) je ~32pt visine.** Glavni ulaz u
-  `StartupSwitcher` na svakom tabu. Povećanje mete menja visinu zaglavlja na svim
-  ekranima, pa je to vizuelna odluka redizajna, ne popravka.
+- ~~**`ScreenHeader` eyebrow (prebacivanje startupa) je ~32pt visine.**~~
+  **DELOM REŠENO (lanac 6, P5).** Meta je sada 44pt kroz `hitSlop`
+  (`ui/screen-header.tsx:96`: `top: 20` umesto `8`, uz `minHeight: 20` reda →
+  20 + 20 + 4). Slop ide samo NAGORE — iznad eyebrow-a je samo padding ispod
+  statusne trake, dok bi nadole prekrio red naslova i mogao da otme tap sa dugmeta
+  „Nazad". **Vizuelna visina zaglavlja nije menjana** i taj deo nalaza (zaglavlje
+  je i dalje nisko) ostaje otvoren kao odluka redizajna. Popravka je zatražena zbog
+  C11 — putanja je od P5 dodirljiva na oba ekrana detalja, pa je meta morala da
+  poštuje pravilo od 44pt.
 - **`SegmentedControl` seče labelu pri uvećanom fontu** (`numberOfLines={1}` u
   `flex: 1` segmentu). Isti popravak kao za `Button` ovde ne radi — tri segmenta u
   jednom redu nemaju kuda da narastu; treba prelom u dva reda iznad praga
@@ -1190,3 +1210,43 @@ zamrzavanja na otvaranju: tuđa izmena se vidi dok korisnik gleda, a ne posle.
 **Gde je primenjeno:** `apps/web/components/workspace/chat/channel-members-dialog.tsx`
 i, radi doslednosti, `apps/mobile/src/components/chat/channel-members-sheet.tsx`
 (mobilni lint to ne bi ni prijavio — utoliko pre treba isti obrazac).
+
+---
+
+## Z12. Posle selidbe grane u drugu oblast dokument u ruci je USTAJAO
+
+**Simptom.** Stranica se premesti u drugu oblast POD određenu stranicu; naizgled
+sve prođe, `parentPageId` je tačan — a kartica se pojavi na kanvasu **stare**
+oblasti, ili placement dobije `areaId` oblasti iz koje je stranica upravo otišla.
+Nijedna greška se ne prijavi.
+
+**Uzrok.** `movePageAcrossAreasWithSidecars`
+(`packages/backend/convex/areasV2.ts:3343`) radi `ctx.db.patch("pages", …)` nad
+celom granom — menja `areaId` i `parentPageId`. Dokument koji je pozivalac držao u
+promenljivoj se time NE osvežava. Svaki sledeći korak koji čita `page.areaId`
+onda radi nad starom oblašću. Konkretno, `moveWithinArea` (`:1090`) prosleđuje
+`child.areaId` u `assertCanvasCapacity` i u `getAvailableCanvasPosition`, a
+`upsertPlacement` (`:353`) upisuje `args.page.areaId` doslovno.
+
+**Pravilo.** Posle svakog helpera koji patchuje dokument, **pročitaj ga ponovo**
+pre nego što ga proslediš dalje:
+
+```ts
+await movePageAcrossAreasWithSidecars(ctx, { page, targetAreaId, … });
+const moved = await ctx.db.get("pages", page._id);   // ← bez ovoga: tiha greška
+if (moved === null) throw new Error("Stranica nije pronađena posle premeštanja.");
+return await moveWithinArea(ctx, { child: moved, targetParent, … });
+```
+
+Primenjeno u `areasV2.ts:3732-3771` (kompozicija za C10, lanac 6 P5).
+
+**Zašto tsc i lint ovo ne vide.** Tip je isti `Doc<"pages">` pre i posle patch-a —
+razlikuje se samo SADRŽAJ. Jedina kapija je test koji tvrdi gde je kartica
+zaista sletela: `areasV2.test.ts`, „premeštanje u drugu oblast pod svoju stranicu
+sleti tačno tamo" proverava `areaId` **i** `parentPageId` **i** placement
+(`areaId` + `rootPageId`) — treća tvrdnja je jedina koja hvata baš ovu grešku.
+
+**Šire.** Isto važi za `applySameAreaReparent`, `archivePageWithV2Sidecars` i svaki
+drugi helper iz `areasV2.ts` koji piše u `pages`. Convex mutacija je transakcija,
+pa je bacanje bezbedno — ali čitanje ustajalog dokumenta nije greška koju
+transakcija hvata.

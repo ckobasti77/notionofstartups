@@ -5,7 +5,7 @@ import { Ellipsis, LayoutGrid, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { BreadcrumbsEyebrow } from '@/components/breadcrumbs-eyebrow';
+import { BreadcrumbsEyebrow, PathSheet } from '@/components/breadcrumbs-eyebrow';
 import { EmptyState } from '@/components/empty-state';
 import { FilesPanel } from '@/components/stranica/files-panel';
 import { NoteEditor } from '@/components/stranica/note-editor';
@@ -43,6 +43,8 @@ export default function StranicaScreen() {
   const page = useQuery(api.pages.get, { pageId });
   // `null` = sheet je zatvoren; vrednost je korak na kom se otvara.
   const [actionsView, setActionsView] = useState<SheetView | null>(null);
+  // Putanja kao navigacija (C11) — posle dubokog linka nema drugog puta ka roditelju.
+  const [pathOpen, setPathOpen] = useState(false);
 
   // Ova ruta je JEDINI ulaz po `pageId` — pozivaoci (obaveštenje, thread razgovora,
   // veza u tekstu) ne znaju `kind` unapred. Zadatak zato ne završava u ćorsokaku
@@ -83,6 +85,11 @@ export default function StranicaScreen() {
             areaId={page.areaId}
           />
         }
+        onEyebrowPress={() => {
+          haptics.tap();
+          setPathOpen(true);
+        }}
+        eyebrowAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
         onBack={() => router.back()}
         actions={
           <>
@@ -108,8 +115,16 @@ export default function StranicaScreen() {
         onClose={() => setActionsView(null)}
         onArchived={() => router.back()}
       />
+      <PathSheet
+        open={pathOpen}
+        pageId={page._id}
+        startupId={page.startupId}
+        areaId={page.areaId}
+        onClose={() => setPathOpen(false)}
+      />
 
-      {/* Obrisan doprinos u sekciji „Doprinosi" se vraća odavde (PARITET A6). */}
+      {/* Obrisan doprinos u sekciji „Doprinosi" i premeštena stranica se vraćaju
+          odavde (PARITET A6, C9/C10). */}
       <UndoBar />
     </View>
   );

@@ -635,3 +635,182 @@ nije obavezan; `NATIVE-BUILD.md` se ne dopunjuje.
 
 - Start: 2026-08-13T03:47:18
 - PLAN: napisan
+- IZVRŠI: završeno 2026-08-13
+
+### 1. Nalazi — dokaz fajl:linija
+
+**Backend JESTE menjan** (jedna mutacija + tri testa). Razlog je u tabeli ispod, red C10.
+
+| # | Tvrdnja | Dokaz PRE | Šta je urađeno | Dokaz POSLE |
+|---|---|---|---|---|
+| C10 | „Web to radi u jednom potezu (`workspace-shell.tsx:488-500`)" | **NETAČNO.** `areasV2.ts` je za promenu oblasti + `targetParent !== null` bacao „Premeštanje u drugu oblast je dozvoljeno samo u koren oblasti." — web je pokušavao, server odbijao. Rupa je bila **serverska, na obe platforme** | `movePage` komponuje `movePageAcrossAreasWithSidecars` + `moveWithinArea` u istoj transakciji, uz ponovno čitanje dokumenta između koraka | `packages/backend/convex/areasV2.ts:3732-3771` |
+| C10 | Ustajao dokument posle selidbe grane | — | `ctx.db.get("pages", page._id)` pre drugog koraka; bez toga kartica sleti u STARU oblast | `areasV2.ts:3754-3758`; nova zamka `ZA-POPRAVKU.md` §Z12 |
+| C10 | Mobilni uvek šalje `targetParentPageId: null` | `page-actions-sheet.tsx` `moveTo` | Drugi korak `moveTarget`: red „U koren oblasti" + `PageTargetPicker` nad ciljnom oblašću | `page-actions-sheet.tsx:508-541`; `SheetView` proširen `:37`, `VIEW_TITLE` `:39-45` (nepromenjeno) |
+| C9 | Kandidati za ugnježdavanje su samo korenske stranice | `page-actions-sheet.tsx` `nestCandidates` (`listChildren` sa `parentPageId: null`, `initialNumItems: 50`) | `nestCandidates` obrisan; `PageTargetPicker` sa stablom bilo koje dubine | `components/stranica/page-target-picker.tsx` (nov); mount `page-actions-sheet.tsx:544` |
+| C9/C10 | Premeštanje i ugnježdavanje pišu u bazu bez „Poništi" | `lib/undo.ts` bez člana za mesto stranice | Nov član `pageReparent` (svesno drugo ime od `pageMove`, koji znači koordinate na kanvasu) | `lib/undo.ts:235`; `undo-bar.tsx:321` (`case 'pageReparent'` → `movePage`); pozivalac `page-actions-sheet.tsx:153` (`pushPlaceUndo`) |
+| C11 | Putanja je nedodirljiv `Text`; posle dubokog linka nema puta ka roditelju | `breadcrumbs-eyebrow.tsx` `EyebrowText`, komentar „segmenti NISU dodirljivi" | Nov `PathSheet`: red OBLASTI + red po pretku; linija ostaje ista, ali je cela JEDNA meta | `breadcrumbs-eyebrow.tsx:125` (`PathSheet`), `:150` (oblast → `/prostor`), `:200` (predak → `/zadatak/[id]` ili `/stranica/[id]`); mount `stranica/[id].tsx:118`, `zadatak/[id].tsx:353` |
+| C11 | Meta eyebrow-a je ~32pt | `ui/screen-header.tsx` `hitSlop={{top: 8, …}}` | `top: 20` → 20 + `minHeight: 20` + 4 = **44pt**, bez ijednog piksela vizuelne promene | `ui/screen-header.tsx:96` |
+| C7 | `prostor.tsx` nema nijedan filter | grep `OptionChip` u `prostor.tsx` → 0 | `KindFilterRow` (Sve + 4 vrste) iznad liste; filter ide u korenski `listChildren` | `components/prostor/kind-filter-row.tsx` (nov); mount `prostor.tsx:540`, upit `:528`, napomena `:541-549`, prazno stanje `:900-921` |
+| C13 | `ContributionThread` sa `task_checkpoint` metom nema nijednog pozivaoca | union član postojao od početka, mrtva grana tipa | Nov sheet, ulaz ikonica u redu koraka (prva u nizu, kao web) | `components/zadatak/checkpoint-contributions-sheet.tsx` (nov); dugme `task-checkpoint-list.tsx:376`, mount `:441` |
+| C14 | Oblast ima samo brifing | `prostor.tsx` — samo `AreaBriefingSection` | Kolapsibilna sekcija „Potpisani doprinosi" ispod brifinga + `area` član unije + traka „Poništi" na Nivou 2 | `components/prostor/area-contributions-section.tsx` (nov); mount `prostor.tsx:255`; `contribution-thread.tsx:54` (`area`); `prostor.tsx:288` (`UndoBar bottomOffset={72}`) |
+| C13/C14 | Brisanje doprinosa u sheet-u ostavlja „Poništi" ispod modala | — | Nov opcioni `onDeleted` na `ContributionThread`, zove ga samo DIREKTNO brisanje | `contribution-thread.tsx:62` (prop), `:156` (poziv); potrošač `checkpoint-contributions-sheet.tsx` |
+
+### 2. Lanac uvoza — dokaz da nije mrtvo
+
+**`components/stranica/page-target-picker.tsx` (`PageTargetPicker`)**
+→ `page-actions-sheet.tsx:15` (uvoz), dva mounta: `:527` (korak „Mesto u oblasti")
+i `:544` (korak „Ugnjezdi pod…") → `<PageActionsSheet>` je već montiran na
+`stranica/[id].tsx:111` i `zadatak/[id].tsx:346` → ekran „Stranica"/„Zadatak" → „…"
+→ „Ugnjezdi pod…" ili „Premesti u oblast" → (druga oblast) → stablo.
+
+**`breadcrumbs-eyebrow.tsx` `PathSheet`**
+→ `stranica/[id].tsx:8` (uvoz) → mount `:118`, otvara ga `onEyebrowPress` `:88`;
+→ `zadatak/[id].tsx:25` (uvoz) → mount `:353`, otvara ga `onEyebrowPress` `:181`.
+`onEyebrowPress` je prop koji `ScreenHeader` već podržava (`ui/screen-header.tsx:88-98`)
+i koji je do sada koristio samo `app-header.tsx`. **Ovo je tačka na kojoj faza pada
+ako se preskoči** (pouka K4 / `inviteLinkUrl`) — zato su oba mounta u tabeli iznad.
+
+**`components/prostor/kind-filter-row.tsx` (`KindFilterRow`)**
+→ `prostor.tsx:38` (uvoz) → mount `:540` unutar `PageLevel` → tab „Prostor" → tap na
+oblast → chip red iznad liste. Stanje `kindFilter` je u `PageLevel`, koji već ima
+`key={frameKey}` (`:261`), pa promena oblasti sama resetuje filter.
+
+**`components/prostor/area-contributions-section.tsx` (`AreaContributionsSection`)**
+→ `prostor.tsx:36` (uvoz) → mount `:255` (odmah ispod `AreaBriefingSection`) → tab
+„Prostor" → tap na oblast → red „Potpisani doprinosi" → razvij. Traka „Poništi" za
+brisanje: `prostor.tsx:41` (uvoz `UndoBar`) → mount `:288`.
+
+**`components/zadatak/checkpoint-contributions-sheet.tsx` (`CheckpointContributionsSheet`)**
+→ `task-checkpoint-list.tsx:19` (uvoz) → mount `:441`, otvara ga dugme `:367-377`
+(`MessageSquareText`, `accessibilityLabel={`Doprinosi: ${item.text}`}`) →
+`<TaskCheckpointList>` je već montiran na `zadatak/[id].tsx:301` → ekran „Zadatak"
+→ red koraka → ikonica „Doprinosi".
+
+**`lib/undo.ts` `pageReparent`**
+→ `undo-bar.tsx:321` (`case`, poziva `api.areasV2.movePage`) → `<UndoBar/>` već
+montiran na `stranica/[id].tsx:128` i `zadatak/[id].tsx:363` → traka se pojavi odmah
+posle premeštanja, na istom ekranu (sheet se zatvori, ekran ostaje). Pozivalac koji
+je puni: `page-actions-sheet.tsx:153` (`pushPlaceUndo`), zvan iz `moveTo` (`:187`) i
+`nestInto` (`:212`).
+
+**`areasV2.movePage` (backend)**
+→ `useMutation(api.areasV2.movePage)` u `page-actions-sheet.tsx:91` (postojeće) i
+**novo** u `undo-bar.tsx` → oba već u lancu iznad. Grana `targetParent !== null` uz
+promenu oblasti se prvi put poziva iz `moveTarget` koraka.
+
+Mehanička provera (§6.3 plana) — svaki nov simbol ima ≥ 2 pogotka, drugi je potrošač:
+
+```
+PageTargetPicker            page-target-picker.tsx (1) + page-actions-sheet.tsx (3)
+PathSheet                   breadcrumbs-eyebrow.tsx (2) + stranica (2) + zadatak (2)
+KindFilterRow               kind-filter-row.tsx (1) + prostor.tsx (2)
+AreaContributionsSection    area-contributions-section.tsx (1) + prostor.tsx (2)
+CheckpointContributionsSheet checkpoint-contributions-sheet.tsx (1) + task-checkpoint-list.tsx (2)
+pageReparent                undo.ts (2) + undo-bar.tsx (1) + page-actions-sheet.tsx (1)
+onEyebrowPress              screen-header.tsx (5) + app-header.tsx (1) + stranica (1) + zadatak (1)
+onDeleted                   contribution-thread.tsx (3) + checkpoint-contributions-sheet.tsx (2)
+UndoBar u prostor.tsx       uvoz :41 + mount :288
+```
+
+### 3. Odstupanja od plana (i zašto)
+
+| Plan | Urađeno | Razlog |
+|---|---|---|
+| §4c: posle uspešnog `moveTo`/`nestInto` prikazati `Alert` sa porukom („Stranica je premeštena u „X" i ugnježdena pod „Y".") | **Alert se prikazuje SAMO za `pending` ugnježdavanje u istoj oblasti** (jedini ishod bez „Poništi"). Za sve ostalo poruku nosi traka „Poništi": `Premešteno u „X" pod „Y".`, odnosno `Premešteno u „X"; ugnježdavanje pod „Y" čeka odobrenje autora.` | Alert je native modal — stoji IZNAD trake i pojede joj 8 sekundi, pa „Poništi" istekne dok korisnik čita dijalog. To je ista greška koju plan sam navodi kao razlog za `onDeleted` (traka ispod modala = mrtav kod). Postojeći obrazac u istom fajlu (`renameSubmit`) već radi ovako: `pushUndo` bez Alert-a |
+| §Izmena 3: picker ima jednu praznu poruku („Nema stranica na ovom nivou.") | Dodat prop `rootEmpty` — koren ima punu poruku („U ovoj oblasti nema druge stranice pod koju bi se ugnjezdila." / „Ova oblast još nema nijednu stranicu — koristi „U koren oblasti"."), dublji nivoi kratku | Poruka na korenu je jedina koju korisnik vidi kad stablo NEMA ništa; kratka verzija tamo zvuči kao greška učitavanja, a i regresirala bi tekst koji je `nest` već imao |
+| §Izmena 5: `TrailBoundary fallback` = sheet sa samo redom oblasti | Fallback je red oblasti **plus** jedna `meta` linija: „Preci se ne mogu učitati — neki roditelj je u međuvremenu arhiviran." | Tiho izostavljanje predaka izgleda kao „nemaš roditelja"; pravilo faze traži i stanje GREŠKE, ne samo prazno |
+| §Izmena 8: filter i lista u istoj komponenti | `PageLevel` razdvojen na `PageLevel` (chip red + grananje prazno/lista) i `PageLevelList` (sama lista) | `LoadingSwap` zamenjuje CELO svoje dete skeletonom; da je chip red ostao unutra, treperio bi sa skeletonom i nestajao pri promeni filtera — što je tačno ono što plan zabranjuje („van `LoadingSwap`-a") |
+| Ostalo | Sprovedeno bukvalno po planu | — |
+
+Plan je unapred zapisao dva **svesna izuzetka** i oba su sprovedena kako je opisano:
+kanvas NE dobija drugi ulaz u nit koraka (Izmena 11), a podstranice se NE filtriraju
+po vrsti (Izmena 8, jer `pages.childCounts` broji svu decu pa bi brojač lagao).
+
+### 4. Gejtovi
+
+```
+apps/mobile       npx tsc --noEmit                              → 0 grešaka
+apps/web          npx tsc --noEmit                              → 0 grešaka
+packages/backend  npx tsc -p convex/tsconfig.json --noEmit      → 0 grešaka
+npm run lint                                                    → 0 grešaka, 0 upozorenja
+npm test          Test Files 44 passed (44) | Tests 389 passed (389)   (baseline P4: 44/385 → +4 testa)
+npm run build     → Next.js build uspešan
+git diff --stat -- apps/web                                     → PRAZAN (uslov iz plana §4)
+```
+
+Novi testovi (4):
+- `areasV2.test.ts` — „premeštanje u drugu oblast pod svoju stranicu sleti tačno tamo"
+  (tvrdi `areaId` **i** `parentPageId` **i** placement `areaId`+`rootPageId` — treća
+  tvrdnja je jedina koja hvata ustajao dokument, Z12)
+- `areasV2.test.ts` — „premeštanje pod TUĐU stranicu u drugoj oblasti seli oblast i traži odobrenje"
+- `areasV2.test.ts` — „roditelj iz treće oblasti se odbija"
+- `pages.test.ts` — `describe("pages.listChildren")` → „kind filtrira samo traženu vrstu na nivou"
+  (grana `kind` do sada nije imala nijednog živog potrošača)
+
+> `npm run lint` **ne pokriva `apps/mobile/**`** — „lint čist" za mobilni znači `tsc`,
+> ne ESLint. Ista ograda kao u svakoj prethodnoj fazi (`ZA-POPRAVKU` §5.12).
+
+**`apps/mobile/package.json` NIJE menjan** — nema novih zavisnosti (svi novi fajlovi
+koriste postojeće pakete). Native build nije obavezan; `NATIVE-BUILD.md` se ne dopunjuje.
+
+### 5. Šta NIJE provereno — iskreno
+
+- **Ništa nije pokrenuto na uređaju ni u emulatoru.** Verifikacija je isključivo
+  `tsc` (mobile/web/backend) + `npm test` + `npm run lint` + `npm run build`. Nijedan
+  nov sheet, chip ni red putanje nije viđen kako radi na ekranu.
+- **Ceo T-spisak (§6, dole) čeka proveru prstom.** Nijedan red nije čekiran.
+- **Promena ponašanja WEBA nije proverena u browseru.** Prevlačenje kartice iz oblasti
+  A na stranicu u oblasti B je do sada završavalo crvenim toast-om; posle backend
+  izmene treba da uspe. Kod `apps/web` nije dirnut (`git diff` prazan), ali to i
+  znači da niko nije potvrdio da web put stvarno prolazi kroz novu granu.
+- **`hitSlop` eyebrow-a nije izmeren na uređaju.** Računica je 20 + 20 + 4 = 44pt nad
+  `minHeight: 20`; ako se ispostavi da meta otima tap sa „Nazad", vraća se na
+  `top: 12` (36pt) i to se zapisuje kao neispunjeno pravilo, ne prećutkuje.
+- **Četiri dugmeta u redu koraka su 36pt + `hitSlop={6}` (48pt efektivno), ne 44pt
+  fizički.** Podizanje sva četiri na 44 prelama red na uskom telefonu; odluka je o
+  REDU, ne o funkciji C13, i ostaje zapisana ovde i u `task-checkpoint-list.tsx:44-48`.
+- **Dve razvijene sekcije istovremeno na Nivou 2 taba „Prostor" nisu viđene.**
+  „Brifing oblasti" (do 220pt) i „Potpisani doprinosi" (do 42% ekrana) mogu zajedno
+  da stisnu listu stranica na par redova. Obe su skupljene podrazumevano i obe imaju
+  svoj skrol, pa ništa nije nedostupno — ali raspored u tom stanju nije proveren.
+- **Merni gejt `ZA-POPRAVKU` §2 ostaje otvoren** (agent nema uređaj) — nepromenjen.
+- **Nije tvrđeno da je C10 „vraćen na paritet sa webom"** — web to nije ni imao; ovo
+  je NOVA funkcionalnost na obe platforme.
+
+### 6. Provera prstom (čeka korisnika)
+
+| # | Radnja | Očekivano |
+|---|---|---|
+| T1 | Prostor → oblast → stranica → „…" → „Ugnjezdi pod…" | Stablo; strelica levo razvija podstranice; red stranice koja se seli se **ne vidi** |
+| T2 | T1 → razvij red → tapni **podstranicu** (dubina 2) | Sheet se zatvori, traka „Poništi" piše „Ugnježdeno pod „X"." |
+| T3 | T2 → „Poništi" | Stranica je opet tamo gde je bila (proveri kroz „Podstranice" starog roditelja) |
+| T4 | „…" → „Premesti u oblast" → druga oblast | Otvara se korak „Mesto u oblasti — <Oblast>" sa prvim redom „U koren oblasti" |
+| T5 | T4 → „U koren oblasti" | Kao pre P5 (jedan tap više) + traka „Poništi" |
+| T6 | T4 → tapni **svoju** stranicu u toj oblasti | Traka: „Premešteno u „Oblast" pod „X"."; stranica je u drugoj oblasti POD tom stranicom |
+| T7 | T4 → tapni **tuđu** stranicu | Traka: „Premešteno u „Oblast"; ugnježdavanje pod „X" čeka odobrenje autora." (oblast JESTE promenjena) |
+| T8 | T6 → „Poništi" | Vraća se u staru oblast i pod starog roditelja |
+| T9 | Otvori stranicu preko obaveštenja (deep link) → tapni putanju u zaglavlju | Sheet „Putanja" sa redom oblasti i precima |
+| T10 | T9 → red pretka | Otvara se roditelj (`/stranica` ili `/zadatak` po vrsti) |
+| T11 | T9 → red „Oblast" | Tab Prostor otvoren na toj oblasti |
+| T12 | Prostor → oblast → chip „Zadatak" | Lista prikazuje samo zadatke; ispod chipova stoji „Filter važi za koren oblasti." |
+| T13 | T12 u oblasti bez zadataka | „Nema stranica vrste Zadatak u ovoj oblasti." + dugme „Prikaži sve" |
+| T14 | Prostor → oblast → „Potpisani doprinosi" → razvij → „Dodaj tekst" → Objavi | Tekst se pojavi sa imenom i vremenom |
+| T15 | T14 → obriši svoj tekst | Traka „Poništi" **vidljiva** iznad FAB-a i tab bara → vraća tekst |
+| T16 | Zadatak → red koraka → ikonica „Doprinosi" | Sheet sa niti; kompozer iznad tastature |
+| T17 | T16 → obriši svoj tekst | Sheet se zatvori, traka „Poništi" na ekranu zadatka vraća tekst |
+| T18 | Zaglavlje: tapni tačno na liniju putanje (13px tekst) | Sheet se otvara iz prvog pokušaja (44pt meta) |
+| T19 | Otvori stranicu čiji je roditelj arhiviran → tapni putanju | Sheet ima red oblasti + poruku „Preci se ne mogu učitati…", ekran NE pada |
+| T20 | (web, `localhost:3000`) prevuci karticu iz oblasti A na stranicu u oblasti B | Uspeva umesto crvenog toast-a — promena ponašanja weba bez izmene web koda |
+
+- IZVRSI: prošlo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `tsc backend`: prolazi
+- `lint`: prolazi (0 grešaka, 0 upozorenja)
+- `test`: prolazi (44 fajla, 389 testova)
+- `build`: prolazi
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi

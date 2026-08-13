@@ -2484,4 +2484,107 @@ describe("Areas V2 backend", () => {
       }),
     ).rejects.toThrow("i x i y");
   });
+
+  test("premeštanje u drugu oblast pod svoju stranicu sleti tačno tamo", async () => {
+    const { t, startupA, areaA1, areaA2, asActor } =
+      await seedAreasV2Workspace();
+    const parent = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "note",
+      title: "Ciljni roditelj",
+    });
+    const child = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Selica",
+    });
+
+    const result = await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: child.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: parent.pageId,
+    });
+
+    expect(result).toEqual({ nestingStatus: "none", requestId: null });
+    expect(await t.run((ctx) => ctx.db.get("pages", child.pageId))).toMatchObject(
+      { areaId: areaA2, parentPageId: parent.pageId },
+    );
+    // Kartica mora da sleti na kanvas CILJNE oblasti, pod ciljnim roditeljem —
+    // ovo je tvrdnja koja pada ako se radi nad ustajalim dokumentom (Z12).
+    expect(
+      await t.run((ctx) =>
+        ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex("by_pageId", (q) => q.eq("pageId", child.pageId))
+          .unique(),
+      ),
+    ).toMatchObject({ areaId: areaA2, rootPageId: parent.pageId });
+  });
+
+  test("premeštanje pod TUĐU stranicu u drugoj oblasti seli oblast i traži odobrenje", async () => {
+    const { t, startupA, areaA1, areaA2, asActor, asMember } =
+      await seedAreasV2Workspace();
+    const foreignParent = await asMember.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA2,
+      rootPageId: null,
+      kind: "note",
+      title: "Tuđi roditelj",
+    });
+    const child = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Selica",
+    });
+
+    const result = await asActor.mutation(api.areasV2.movePage, {
+      startupId: startupA,
+      pageId: child.pageId,
+      targetAreaId: areaA2,
+      targetParentPageId: foreignParent.pageId,
+    });
+
+    expect(result.nestingStatus).toBe("pending");
+    expect(result.requestId).not.toBeNull();
+    // Oblast JESTE promenjena iako ugnježdavanje čeka odobrenje — posledica
+    // dvokoraka koju UI mora da saopšti.
+    expect(await t.run((ctx) => ctx.db.get("pages", child.pageId))).toMatchObject(
+      { areaId: areaA2, parentPageId: null },
+    );
+  });
+
+  test("roditelj iz treće oblasti se odbija", async () => {
+    const { startupA, areaA1, areaA2, asActor } =
+      await seedAreasV2Workspace();
+    const otherAreaParent = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Roditelj u pogrešnoj oblasti",
+    });
+    const child = await asActor.mutation(api.areasV2.createPage, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: null,
+      kind: "note",
+      title: "Selica",
+    });
+
+    await expect(
+      asActor.mutation(api.areasV2.movePage, {
+        startupId: startupA,
+        pageId: child.pageId,
+        targetAreaId: areaA2,
+        targetParentPageId: otherAreaParent.pageId,
+      }),
+    ).rejects.toThrow();
+  });
 });

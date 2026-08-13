@@ -6,6 +6,7 @@ import {
   Link2Off,
   ListChecks,
   Lock,
+  MessageSquareText,
   Pencil,
   Plus,
   Trash2,
@@ -15,6 +16,7 @@ import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Input } from '@/components/ui/input';
+import { CheckpointContributionsSheet } from '@/components/zadatak/checkpoint-contributions-sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
@@ -38,6 +40,11 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/
  * ikonica lanca po redu i „Poveži sve / Razveži sve" u zaglavlju sekcije. Autor
  * briše svoj korak direktno, a tuđi kroz glasanje tima (`requestDeletion`) — isti
  * put koji web `task-checkpoint-list` nudi.
+ *
+ * Svaki red nosi i nit doprinosa (C13, `CheckpointContributionsSheet`) — prva
+ * ikonica u redu akcija, isti redosled kao web. Četiri dugmeta u redu su 36pt +
+ * `hitSlop={6}` (48pt efektivno); podizanje sva četiri na 44 bi red na uskom
+ * telefonu prelomilo, pa je to svesna odluka o REDU, ne o pojedinoj funkciji.
  */
 export function TaskCheckpointList({
   taskPageId,
@@ -73,6 +80,8 @@ export function TaskCheckpointList({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<Id<'taskCheckpoints'> | null>(null);
   const [editingText, setEditingText] = useState('');
+  /** `null` = nit doprinosa je zatvorena; vrednost je korak čija se nit gleda (C13). */
+  const [threadFor, setThreadFor] = useState<TaskCheckpoint | null>(null);
 
   const notifyError = (error: unknown) => {
     haptics.error();
@@ -351,6 +360,22 @@ export function TaskCheckpointList({
                   </Text>
                 )}
 
+                {/* Doprinosi stoje PRE lanca/olovke/kante — isti redosled kao web
+                    `task-checkpoint-list.tsx`. Prikazuju se UVEK: svaki član sme
+                    da piše (`addContribution` traži samo članstvo), za razliku od
+                    olovke i kante koje zavise od vlasništva. */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Doprinosi: ${item.text}`}
+                  onPress={() => {
+                    haptics.tap();
+                    setThreadFor(item);
+                  }}
+                  hitSlop={6}
+                  style={styles.rowAction}>
+                  <MessageSquareText size={16} color={colors.mutedForeground} />
+                </Pressable>
+
                 {item.canEdit && item.ordinal > 1 ? (
                   <Pressable
                     accessibilityRole="button"
@@ -412,6 +437,11 @@ export function TaskCheckpointList({
           })}
         </View>
       )}
+
+      <CheckpointContributionsSheet
+        checkpoint={threadFor}
+        onClose={() => setThreadFor(null)}
+      />
     </View>
   );
 }

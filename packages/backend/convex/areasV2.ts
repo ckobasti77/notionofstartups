@@ -3721,24 +3721,49 @@ export const movePage = mutation({
     if (targetParent?._id === page._id) {
       throw new Error("Stranica ne može biti sopstveni roditelj.");
     }
+    const now = Date.now();
     if (page.areaId === args.targetAreaId) {
       return await moveWithinArea(ctx, {
         child: page,
         targetParent,
         actorProfileId: profile._id,
-        now: Date.now(),
+        now,
       });
     }
     if (targetParent !== null) {
-      throw new Error(
-        "Premeštanje u drugu oblast je dozvoljeno samo u koren oblasti.",
-      );
+      // Premeštanje u DRUGU oblast pod određenu stranicu je kompozicija dva
+      // postojeća koraka u jednoj transakciji: prvo se cela grana seli u koren
+      // ciljne oblasti (sidecars: ivice, viewport-i, relacije, pending zahtevi),
+      // pa se u toj oblasti radi obično ugnježdavanje.
+      await movePageAcrossAreasWithSidecars(ctx, {
+        page,
+        targetAreaId: args.targetAreaId,
+        actorProfileId: profile._id,
+        now,
+      });
+      // OBAVEZNO ponovno čitanje: `page` u ruci je posle prvog koraka USTAJAO
+      // (helper je patch-ovao `areaId` i `parentPageId`). `moveWithinArea` čita
+      // `child.areaId` za kapacitet i za slobodnu poziciju na kanvasu — sa starim
+      // dokumentom bi kartica sletela u STARU oblast (ZA-POPRAVKU Z12).
+      const moved = await ctx.db.get("pages", page._id);
+      if (moved === null) {
+        throw new Error("Stranica nije pronađena posle premeštanja.");
+      }
+      // Ako je ciljni roditelj TUĐ, ovo vraća `pending` — stranica je tada već
+      // promenila oblast i stoji u njenom korenu. Klijent to mora saopštiti
+      // doslovno, inače izgleda kao da se ništa nije desilo.
+      return await moveWithinArea(ctx, {
+        child: moved,
+        targetParent,
+        actorProfileId: profile._id,
+        now,
+      });
     }
     return await movePageAcrossAreasWithSidecars(ctx, {
       page,
       targetAreaId: args.targetAreaId,
       actorProfileId: profile._id,
-      now: Date.now(),
+      now,
     });
   },
 });

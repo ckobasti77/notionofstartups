@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BreadcrumbsEyebrow } from '@/components/breadcrumbs-eyebrow';
+import { BreadcrumbsEyebrow, PathSheet } from '@/components/breadcrumbs-eyebrow';
 import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { PriorityDot } from '@/components/danas/priority-dot';
@@ -78,6 +78,8 @@ export default function ZadatakScreen() {
   // (premesti / ugnjezdi / izdvoji / poveži) — web mu nudi iste akcije.
   // `null` = sheet je zatvoren; vrednost je korak na kom se otvara.
   const [actionsView, setActionsView] = useState<SheetView | null>(null);
+  // Putanja kao navigacija (C11) — obaveštenje o zadatku je najčešći duboki link.
+  const [pathOpen, setPathOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
 
   const page = useQuery(api.pages.get, { pageId });
@@ -176,6 +178,11 @@ export default function ZadatakScreen() {
                 areaId={page.areaId}
               />
             }
+            onEyebrowPress={() => {
+              haptics.tap();
+              setPathOpen(true);
+            }}
+            eyebrowAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
             onBack={() => router.back()}
             actions={
               <>
@@ -343,8 +350,16 @@ export default function ZadatakScreen() {
           onClose={() => setActionsView(null)}
           onArchived={() => router.back()}
         />
+        <PathSheet
+          open={pathOpen}
+          pageId={pageId}
+          startupId={page.startupId}
+          areaId={page.areaId}
+          onClose={() => setPathOpen(false)}
+        />
 
-        {/* Obrisan checkpoint / doprinos se vraća odavde (PARITET A6). */}
+        {/* Obrisan checkpoint / doprinos i premešten zadatak se vraćaju odavde
+            (PARITET A6, C9/C10/C13). */}
         <UndoBar />
       </View>
     </View>

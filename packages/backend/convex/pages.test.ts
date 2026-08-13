@@ -196,3 +196,80 @@ describe("pages.recentForStartup", () => {
     expect(recent.map((page) => page.title)).toEqual(["P4", "P3"]);
   });
 });
+
+describe("pages.listChildren", () => {
+  test("kind filtrira samo traženu vrstu na nivou", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await t.run(async (ctx) => {
+      const s = await seedWorkspace(ctx);
+      const beleska = await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Beleška u korenu",
+        updatedAt: 10,
+        kind: "note",
+      });
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Zadatak u korenu",
+        updatedAt: 20,
+        kind: "task",
+      });
+      // Zadatak DUBLJE u stablu — filter važi za nivo, ne za celu oblast.
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Ugnježden zadatak",
+        updatedAt: 30,
+        kind: "task",
+        parentPageId: beleska,
+      });
+      // Arhiviran zadatak u korenu — filter ga ne sme vratiti.
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.dev,
+        profileId: s.profileId,
+        title: "Obrisan zadatak",
+        updatedAt: 40,
+        kind: "task",
+        archivedAt: 41,
+      });
+      // Zadatak u DRUGOJ oblasti — opseg ostaje oblast iz argumenta.
+      await insertPage(ctx, {
+        startupId: s.startupId,
+        areaId: s.marketing,
+        profileId: s.profileId,
+        title: "Tuđa oblast",
+        updatedAt: 50,
+        kind: "task",
+      });
+      return s;
+    });
+
+    const asMember = t.withIdentity({ subject: seed.userId });
+    const filtered = await asMember.query(api.pages.listChildren, {
+      startupId: seed.startupId,
+      areaId: seed.dev,
+      parentPageId: null,
+      kind: "task",
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(filtered.page.map((page) => page.title)).toEqual(["Zadatak u korenu"]);
+
+    // Bez `kind` isti nivo vraća obe vrste — filter je jedina razlika.
+    const all = await asMember.query(api.pages.listChildren, {
+      startupId: seed.startupId,
+      areaId: seed.dev,
+      parentPageId: null,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(all.page.map((page) => page.title).sort()).toEqual([
+      "Beleška u korenu",
+      "Zadatak u korenu",
+    ]);
+  });
+});

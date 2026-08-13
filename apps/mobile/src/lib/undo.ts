@@ -213,6 +213,34 @@ export type UndoAction =
       expectedRevision: number;
     }
   /**
+   * Premeštanje stranice u drugu oblast i/ili pod drugog roditelja iz
+   * `PageActionsSheet` (P5, C9/C10). NIJE vraćanje arhiviranog nego inverzan upis:
+   * polja nose MESTO od PRE radnje, pa je poništavanje isti `movePage` poziv.
+   *
+   * Ime je namerno `pageReparent`, ne `pageMove` — `pageMove` (gore) već znači
+   * koordinate kartice na kanvasu. Dva slična imena za dve različite stvari su
+   * tačno ona greška koju lanac 4 opisuje kod `edgeKind`.
+   *
+   * Iskrena granica: inverz vraća MESTO (oblast + roditelj), ne i sve što je
+   * selidba usput arhivirala — `movePage` preko granice oblasti arhivira canvas
+   * ivice grane (`areasV2.ts`, `movePageAcrossAreasWithSidecars`) i daje kartici
+   * novu slobodnu poziciju. Poništavanje vraća stranicu tamo gde je bila, ivice ne.
+   * Isto važi i za desktop; nema mutacije koja to vraća.
+   *
+   * Druga granica: ako je roditelj OD PRE tuđ (stranica je nekad bila ugnježdena
+   * uz odobrenje), inverz ide istim putem kao i svaki drugi zahtev — vraća se
+   * oblast, a ugnježdavanje ponovo čeka odobrenje autora.
+   */
+  | {
+      kind: 'pageReparent';
+      startupId: Id<'startups'>;
+      pageId: Id<'pages'>;
+      /** Oblast PRE radnje. */
+      targetAreaId: Id<'startupAreas'>;
+      /** Roditelj PRE radnje (`null` = koren oblasti). */
+      targetParentPageId: Id<'pages'> | null;
+    }
+  /**
    * Napravljena ideja (P4: duplikat i „nova grana"). NIJE vraćanje arhiviranog nego
    * inverzan upis — inverz je `ideas.archive`, koji usput arhivira i ivice te ideje
    * (`ideas.ts:1099-1112`), pa grana ne traži poseban član.

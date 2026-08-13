@@ -29,8 +29,9 @@ const MODERATION_LABEL = {
 
 /**
  * Nit doprinosa članova — pandan web `idea-discussion-dialog.tsx`
- * (`ContributionInlineThread`). Za sad je meta ideja; `collaboration` isti API nudi
- * i za checkpoint, pa je komponenta pisana oko `target`-a, ne oko ideje.
+ * (`ContributionInlineThread`). Komponenta je pisana oko `target`-a, ne oko ideje:
+ * `collaboration` isti API nudi za ideju, stranicu, korak zadatka i oblast, i sve
+ * četiri mete su montirane (P5 je dodao korak zadatka i oblast).
  *
  * Razlike u odnosu na web:
  * - Web sam doučitava sve strane u `useEffect`-u; ovde stoji dugme „Učitaj još" —
@@ -44,13 +45,21 @@ const MODERATION_LABEL = {
 export function ContributionThread({
   target,
   canAdd,
+  onDeleted,
 }: {
   target:
     | { kind: 'idea'; id: Id<'ideaNodes'> }
     | { kind: 'task_checkpoint'; id: Id<'taskCheckpoints'> }
-    | { kind: 'page'; id: Id<'pages'> };
+    | { kind: 'page'; id: Id<'pages'> }
+    | { kind: 'area'; id: Id<'startupAreas'> };
   /** Kad je `false`, nit se samo čita (nema kompozera). */
   canAdd: boolean;
+  /**
+   * Poziva se posle uspešnog DIREKTNOG brisanja svog teksta. Nit koja živi u
+   * sheet-u ga koristi da se zatvori — traka „Poništi" je ispod modala nevidljiva
+   * (pravilo iz K3), pa bi bez zatvaranja postojala a bila nedostupna.
+   */
+  onDeleted?: () => void;
 }) {
   const colors = useThemeColors();
   const { results, status, loadMore } = usePaginatedQuery(
@@ -142,6 +151,9 @@ export function ContributionThread({
                     action: { kind: 'contribution', contributionId: result.contributionId },
                     undoUntil: result.undoUntil,
                   });
+                  // Sheet mora da se skloni PRE nego što traka istekne — inače
+                  // „Poništi" postoji, a stoji ispod modala.
+                  onDeleted?.();
                 })
               : requestDeletion({ target: { kind: 'contribution', id: contributionId } });
             void action

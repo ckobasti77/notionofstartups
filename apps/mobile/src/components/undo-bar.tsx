@@ -69,6 +69,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const connectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.connect);
   const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
   const updatePage = useMutation(api.areasV2.updatePage);
+  const movePage = useMutation(api.areasV2.movePage);
   const setChannelMembers = useMutation(api.chat.setChannelMembers);
   const archiveIdea = useMutation(api.ideas.archive);
   const archiveThoughtNodes = useMutation(api.thoughts.archiveNodes);
@@ -315,6 +316,18 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           pageId: action.pageId,
           expectedRevision: action.expectedRevision,
           title: action.title,
+        });
+        return;
+      case 'pageReparent':
+        // Inverz premeštanja/ugnježdavanja je ISTI poziv sa mestom od PRE radnje.
+        // Ako je ciljni roditelj u međuvremenu arhiviran ili je stranica dobila
+        // tuđeg roditelja, poziv baci serversku poruku — traka tada namerno
+        // OSTAJE (ista konvencija kao gore). Vraća se mesto, ne arhivirane ivice.
+        await movePage({
+          startupId: action.startupId,
+          pageId: action.pageId,
+          targetAreaId: action.targetAreaId,
+          targetParentPageId: action.targetParentPageId,
         });
         return;
       case 'ideaCreate':
