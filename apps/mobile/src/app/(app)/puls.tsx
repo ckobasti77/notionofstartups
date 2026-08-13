@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/empty-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSwap } from '@/components/ui/loading-swap';
+import { PulseBar, type PulseSegment } from '@/components/ui/pulse-bar';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -116,6 +117,23 @@ export default function PulsScreen() {
   const loading = activeStartupId === null || data === undefined;
   const refreshControl = useListRefresh();
 
+  // „Sastav nedelje" — doslovno isti segmenti kao web (`puls-view.tsx:99-117`):
+  // kasni / zapelo / završeno. Traka stoji IZNAD kartica, kao periferni signal
+  // pre teksta; brojevi u karticama ispod su isti podatak razložen.
+  const pulseSegments: PulseSegment[] =
+    data === undefined
+      ? []
+      : [
+          { key: 'kasni', label: 'Kasni', count: data.summary.overdueOpen.current, tone: 'danger' },
+          { key: 'zapelo', label: 'Zapelo', count: data.summary.stuck.current, tone: 'warn' },
+          {
+            key: 'zavrseno',
+            label: 'Završeno',
+            count: data.summary.completed.current,
+            tone: 'success',
+          },
+        ];
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader
@@ -137,6 +155,19 @@ export default function PulsScreen() {
           onNext={() => goToWeek(addWeeks(weekStart, 1))}
           onToday={() => goToWeek(localWeekStart())}
         />
+
+        {/* Traka je deo zaglavlja nedelje, van `LoadingSwap`-a — dok podaci ne
+            stignu na njenom mestu stoji skeleton iste visine (kao web
+            `puls-view.tsx:173`), pa raspored ne poskoči kad se napuni. */}
+        {loading ? (
+          <Skeleton height={10} borderRadius={3} />
+        ) : (
+          <PulseBar
+            segments={pulseSegments}
+            label="Sastav nedelje"
+            emptyLabel="Nedelja bez zabeleženog posla"
+          />
+        )}
 
         {/* `fill={false}`: zamena stoji USRED skrola (ispod navigacije nedelje), pa
             mora da bude visoka koliko sam sadržaj, ne koliko ekran. */}

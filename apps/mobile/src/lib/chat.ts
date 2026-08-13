@@ -13,6 +13,31 @@ export type ChatReaction = ChatMessage['reactions'][number];
 /** Član startupa (za @-pominjanja i imena autora) iz `startups.listMembers`. */
 export type ChatMember = FunctionReturnType<typeof api.startups.listMembers>[number];
 
+/**
+ * Oblast kanala vrste `area`, razrešena iz `channel.areaId` kroz `startups.get`.
+ * `null` = kanal nije kanal oblasti, ili oblast još nije učitana.
+ *
+ * Backend šalje samo `areaId` (`chat.ts:71`), pa `key` (ikonica + boja) i `label`
+ * mora da razreši klijent — isto što web radi u `channel-list.tsx:118` i
+ * `conversation-pane.tsx:118`.
+ */
+export type ChannelArea = { key: string; label: string } | null;
+
+/**
+ * `areaId` → oblast, iz `startups.get`. Jedno mesto za oba potrošača (zaglavlje
+ * razgovora i red liste), da se dva mesta ne raziđu u tome šta je „nepoznata
+ * oblast".
+ */
+export function findChannelArea(
+  channel: ChatChannel,
+  areas: readonly { _id: string; key: string; label: string }[] | undefined,
+): ChannelArea {
+  if (channel.kind !== 'area' || channel.areaId === null || areas === undefined) return null;
+  const areaId: string = channel.areaId;
+  const area = areas.find((candidate) => candidate._id === areaId);
+  return area === undefined ? null : { key: area.key, label: area.label };
+}
+
 /** Segmenti liste razgovora u traženom redosledu (docs/mobile/02-EKRANI.md §6). */
 export const CHAT_SEGMENTS = [
   { id: 'channels', label: 'Kanali' },

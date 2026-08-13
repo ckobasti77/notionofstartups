@@ -321,19 +321,22 @@ export default function OdobrenjaScreen() {
                       description="Nema zahteva koji čekaju tvoju odluku."
                     />
                   ) : (
-                    <StaggerGroup>
-                      {items.map((item, index) => (
-                        <StaggerItem key={item.key} index={index}>
-                          <ApprovalCard
-                            item={item}
-                            busy={busyKey === item.key}
-                            onPrimary={() => act(item.key, item.primary)}
-                            onSecondary={() => act(item.key, item.secondary)}
-                            colors={colors}
-                          />
-                        </StaggerItem>
-                      ))}
-                    </StaggerGroup>
+                    <>
+                      <StaggerGroup>
+                        {items.map((item, index) => (
+                          <StaggerItem key={item.key} index={index}>
+                            <ApprovalCard
+                              item={item}
+                              busy={busyKey === item.key}
+                              onPrimary={() => act(item.key, item.primary)}
+                              onSecondary={() => act(item.key, item.secondary)}
+                              colors={colors}
+                            />
+                          </StaggerItem>
+                        ))}
+                      </StaggerGroup>
+                      <TruncationNote truncated={nestingInbox?.truncated ?? false} colors={colors} />
+                    </>
                   )
                 ) : null}
 
@@ -411,6 +414,7 @@ export default function OdobrenjaScreen() {
                           showChevron={false}
                         />
                       ))}
+                      <TruncationNote truncated={nestingInbox?.truncated ?? false} colors={colors} />
                       <Text style={[styles.note, { color: colors.mutedForeground }]}>
                         Zahtev nema rok i možeš ga povući sve dok je otvoren.
                       </Text>
@@ -545,6 +549,28 @@ export default function OdobrenjaScreen() {
         </LoadingSwap>
       )}
     </View>
+  );
+}
+
+/**
+ * „Prikazano je najnovijih 100 zahteva." — doslovno web `approvals-view.tsx:400`.
+ *
+ * Stoji u OBA segmenta jer je serverski `truncated` jedna zastavica za incoming
+ * I outgoing (`areasV2.ts:3336-3338`, `MAX_NESTING_INBOX_ITEMS = 100`), a mobilni
+ * ih deli na „Čeka" i „Moji" — poruka samo u jednom bi u drugom lagala.
+ */
+function TruncationNote({
+  truncated,
+  colors,
+}: {
+  truncated: boolean;
+  colors: ColorTokens;
+}) {
+  if (!truncated) return null;
+  return (
+    <Text style={[styles.note, { color: colors.mutedForeground }]}>
+      Prikazano je najnovijih 100 zahteva.
+    </Text>
   );
 }
 

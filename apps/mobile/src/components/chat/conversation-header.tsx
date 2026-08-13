@@ -25,12 +25,14 @@ import {
 } from 'lucide-react-native';
 
 import { ChannelMembersSheet } from '@/components/chat/channel-members-sheet';
+import { AreaIcon } from '@/components/ui/area-icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
-import { channelDisplayName, type ChatChannel } from '@/lib/chat';
+import { channelDisplayName, type ChannelArea, type ChatChannel } from '@/lib/chat';
 import { haptics } from '@/lib/haptics';
+import { areaColor } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -49,12 +51,14 @@ const LEVELS: { level: NotificationLevel; label: string; Icon: typeof Bell }[] =
   { level: 'none', label: 'Bez obaveštenja', Icon: BellOff },
 ];
 
-function subtitle(channel: ChatChannel): string {
+function subtitle(channel: ChatChannel, area: ChannelArea): string {
   switch (channel.kind) {
     case 'startup':
       return 'Ceo tim · svi članovi';
     case 'area':
-      return 'Kanal oblasti';
+      // Doslovno web `conversation-pane.tsx:367-368`: naziv oblasti kad je poznata,
+      // inače goli „Kanal oblasti".
+      return area === null ? 'Kanal oblasti' : `Kanal oblasti · ${area.label}`;
     case 'custom':
       return channel.isPrivate ? 'Privatan kanal' : 'Kanal';
     case 'thread':
@@ -79,6 +83,7 @@ function subtitle(channel: ChatChannel): string {
  */
 export function ConversationHeader({
   channel,
+  area,
   canArchive,
   canManageMembers,
   onBack,
@@ -87,6 +92,12 @@ export function ConversationHeader({
   onMeasure,
 }: {
   channel: ChatChannel;
+  /**
+   * Oblast kanala (`channel.areaId` → `{key, label}`). OBAVEZAN iz istog razloga
+   * kao `canArchive`: pozivalac drži `startups.get`, pa mora da odluči — difolt
+   * `null` bi tiho vratio generički `Hash` i „Kanal oblasti" bez naziva.
+   */
+  area: ChannelArea;
   /**
    * Klijentski ogleda serverski gejt (`chat.archiveChannel`: admin, ne „Opšte").
    * OBAVEZAN — pozivalac mora da odluči, ne sme da se osloni na difolt.
@@ -178,14 +189,14 @@ export function ConversationHeader({
         <ChevronLeft size={24} color={colors.foreground} />
       </Pressable>
 
-      <ConversationIcon channel={channel} colors={colors} />
+      <ConversationIcon channel={channel} area={area} colors={colors} />
 
       <View style={styles.titleWrap}>
         <Text numberOfLines={1} style={[styles.title, { color: colors.foreground }]}>
           {channelDisplayName(channel)}
         </Text>
         <Text numberOfLines={1} style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          {subtitle(channel)}
+          {subtitle(channel, area)}
         </Text>
       </View>
 
@@ -279,9 +290,11 @@ export function ConversationHeader({
 
 function ConversationIcon({
   channel,
+  area,
   colors,
 }: {
   channel: ChatChannel;
+  area: ChannelArea;
   colors: ColorTokens;
 }) {
   if (channel.kind === 'dm') {
@@ -291,6 +304,17 @@ function ConversationIcon({
         uri={channel.otherParticipant?.avatarUrl ?? null}
         size={36}
       />
+    );
+  }
+  // Kanal oblasti nosi ikonicu I boju svoje oblasti — pandan web `AREA_ICONS` +
+  // `getAreaTint` (`conversation-pane.tsx:338`, `:343`). Do P7 je ovde uvek bio
+  // generički `Hash`, pa su svi kanali izgledali isto.
+  if (channel.kind === 'area' && area !== null) {
+    const tint = areaColor(colors, area.key);
+    return (
+      <View style={[styles.iconBox, { backgroundColor: `${tint}22` }]}>
+        <AreaIcon areaKey={area.key} size={18} color={tint} />
+      </View>
     );
   }
   const Icon = channel.kind === 'thread' ? MessagesSquare : Hash;

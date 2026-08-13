@@ -22,6 +22,33 @@ Stanje na početku: **web 160, mobilni 110, razlika 63.**
 Cilj nije 0 — neke funkcije opravdano ne idu na telefon. Cilj je da svaka od 63
 bude ili **urađena** ili **zapisana kao IZUZETAK sa razlogom** u sekciji Z.
 
+> **Posle lanca 6 (13.08.2026): brojač je NEPROMENJEN — razlika je i dalje 7**
+> (izmereno: web 164, mobilni 174, `comm -23` daje 7, uparenih sa Z-tabelom).
+> A lanac 6 je zatvorio ~40 stvarnih rupa. **To nije protivrečnost nego granica
+> ovog brojača** — on ne vidi:
+> - funkciju pozvanu samo za NEKE `target.kind` vrednosti (§5.7 u `ZA-POPRAVKU.md`);
+> - funkciju pozvanu sa pogrešne POVRŠINE (slučaj K5: mutacije kanvasa zvane sa
+>   liste, pa je kanvas ispao „pokriven" bez režima uređivanja);
+> - polje koje server VRAĆA a klijent nikad ne pročita (slučaj D20:
+>   `listNestingInbox.truncated`);
+> - radnju koja postoji ali je nedostupna prstom (slučaj K4).
+>
+> Zato živa lista rupa **koje brojač NE vidi** nije ovde nego u
+> `docs/mobile/PARITET-REVIZIJA-12-08.md`, a ishod svake od njih (44 stavke, sve
+> zatvorene) u **sekciji G** tog dokumenta. Kratko po fazi:
+> `docs/mobile/lanac6/BRIEF.md`.
+>
+> **Lanac 6 nije uveo nijedan nov Convex poziv sa mobilnog** — sve što su faze
+> P1–P7 dodale koristi funkcije koje su već bile zvane (`startups.get`,
+> `pageFiles.*`, `areasV2.createPage`, `areasV2.listNestingInbox`), plus tri nove
+> backend funkcije koje su odmah dobile POZIVAOCA:
+> `chat.channelMembers` i `chat.setChannelMembers` na **oba** klijenta
+> (`apps/web/components/workspace/chat/channel-members-dialog.tsx:58`,
+> `apps/mobile/src/components/chat/channel-members-sheet.tsx:53`), a
+> `startups.isCurrentMember` **samo na mobilnom**
+> (`apps/mobile/src/context/active-startup.tsx:54`) — web ne pamti izbor startupa
+> preko restarta, pa nema šta da potvrđuje.
+
 ## Šta paritet OVDE znači
 
 Paritet je **funkcionalni, ne vizuelni**. Ne prekopavaj web layout na telefon.

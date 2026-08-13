@@ -42,18 +42,20 @@ function membersWord(count: number): string {
 }
 
 /**
- * Članovi tima (M4.4, admin; PARITET A2 dodaje dodavanje/uklanjanje). Ulaz je
- * skriven u tabu „Više" ako korisnik nije admin. `listMembers` je dozvoljen
- * svakom članu (admin gejt je na ulazu) — uklanjanje (`removeMember`) je
- * mutacija iza `requireAdmin` pa ne-admin koji nekako stigne ovde dobija
- * običan `Alert` iz `.catch()`, ekran ostaje čitljiv.
+ * Članovi tima (M4.4; PARITET A2 dodaje dodavanje/uklanjanje).
  *
- * Dodavanje je drugačije: `AddMemberSheet` čita `profiles.listAll`, koja je
- * TAKOĐE iza `requireAdmin`, ali kao QUERY — Convex baca tokom rendera, pa bi
- * ne-admin koji otvori sheet oborio ceo ekran (uključujući listu koju sme da
- * vidi) na `ErrorBoundary`. Zato dugme „Dodaj člana" ovde IMA eksplicitnu
- * `profile.role === 'admin'` proveru — jedini klijentski gejt u ovom fajlu,
- * dodat namerno da spreči taj rušilački put, ne kao opšte pravilo.
+ * **Od P7 (D19) ekran je dostupan SVAKOM članu**, ne samo adminu — web „Tim"
+ * prikazuje svakome (`home-view.tsx:134-143`), a `startups.listMembers` je iza
+ * `requireStartupMember` (`startups.ts:411`). Ulaz u tabu „Više" zato nema
+ * `adminOnly`. Ranije je gejt bio na ULAZU, pa admin-radnje unutra nisu morale
+ * da se proveravaju; sad moraju i proveravaju se eksplicitno:
+ *
+ * - **Uklanjanje** (`startups.removeMember`, `requireAdmin`) — dugme se renderuje
+ *   samo kad `isAdmin`. Ne-admin ga ne vidi, pa ne dobija dugme koje uvek pukne.
+ * - **Dodavanje** — `AddMemberSheet` čita `profiles.listAll`, koja je TAKOĐE iza
+ *   `requireAdmin`, ali kao QUERY: Convex baca tokom rendera, pa bi ne-admin koji
+ *   otvori sheet oborio ceo ekran (uključujući listu koju sme da vidi) na
+ *   `ErrorBoundary`. Zato je i ULAZ (`IconButton`) i MOUNT sheet-a iza `isAdmin`.
  */
 export default function ClanoviScreen() {
   const colors = useThemeColors();
@@ -72,7 +74,11 @@ export default function ClanoviScreen() {
   const [addOpen, setAddOpen] = useState(false);
   const [removingId, setRemovingId] = useState<Id<'profiles'> | null>(null);
 
-  const loading = activeStartupId !== null && members === undefined;
+  // `profile` je u gejtu, ne samo `members`: od P7 ekran je otvoren svima, pa
+  // `isAdmin` odlučuje da li se admin kontrole crtaju. Bez ovoga bi admin prvo
+  // video listu BEZ „Dodaj člana" i bez ikonica za brisanje, pa bi one iskočile
+  // sa zakašnjenjem (`profiles.getCurrent` je deljena pretplata, obično već topla).
+  const loading = activeStartupId !== null && (members === undefined || profile === undefined);
   const capped = members !== undefined && members.length === MEMBERS_LIMIT;
   const count = members?.length ?? 0;
   const refreshControl = useListRefresh();
@@ -186,6 +192,9 @@ export default function ClanoviScreen() {
                         value={
                           member.profile.role === 'admin' ? (
                             <Pill label="Admin" tone="accent" />
+                          ) : !isAdmin ? (
+                            // Ne-admin vidi listu, ali nijednu admin radnju.
+                            undefined
                           ) : (
                             <Pressable
                               accessibilityRole="button"
@@ -221,7 +230,9 @@ export default function ClanoviScreen() {
         </LoadingSwap>
       )}
 
-      {activeStartupId ? (
+      {/* Mount je iza `isAdmin`, ne samo `open`: `profiles.listAll` je query iza
+          `requireAdmin`, pa bi montiran sheet ne-adminu oborio ceo ekran. */}
+      {activeStartupId && isAdmin ? (
         <AddMemberSheet
           open={addOpen}
           startupId={activeStartupId}

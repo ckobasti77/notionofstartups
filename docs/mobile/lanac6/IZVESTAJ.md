@@ -847,3 +847,329 @@ koriste postojeće pakete). Native build nije obavezan; `NATIVE-BUILD.md` se ne 
 
 - Start: 2026-08-13T06:06:41
 - PLAN: napisan
+- IZVRŠI: završeno 2026-08-13
+- `tsc mobilni`: prolazi (exit 0)
+- `tsc web`: prolazi (exit 0)
+- `tsc backend`: prolazi (exit 0)
+- `lint`: prolazi (exit 0, nijedna linija ispisa)
+- `test`: prolazi (50 fajlova / 434 testa)
+- `build`: prolazi
+- `rn-review`: pušten, 7 nalaza — 4 popravljena, 3 zapisana sa razlogom (§7)
+
+### 0. Baseline (izmereno PRE ijedne izmene)
+
+```
+apps/mobile   npx tsc --noEmit   → exit 0, nijedna linija ispisa
+npm test                         → Test Files 46 passed (46) | Tests 402 passed (402)
+```
+
+### 1. Nalazi — dokaz fajl:linija
+
+Osam kodnih stavki. **Ovde su samo P7 stavke;** pun spisak svih 44 (B, C, D) sa
+ishodom je u `docs/mobile/PARITET-REVIZIJA-12-08.md`, nova sekcija **G**.
+
+| # | Tvrdnja | Dokaz PRE | Šta je urađeno | Dokaz POSLE |
+|---|---|---|---|---|
+| D11 | Prilozi stranice idu jedan po jedan | `files-panel.tsx:116` i `:153` uzimaju `assets[0]`; nema `allowsMultipleSelection` ni `multiple: true` | Galerija i birač dokumenata primaju seriju; red čekanja jedan-za-drugim; predprovera imenuje odbijene | `components/stranica/files-panel.tsx:167-168` (galerija), `:215` (`multiple: true`), `:125` (`enqueue`), `:144` (`startPicks`); nov `lib/page-file-picks.ts` |
+| D12 | Kanal oblasti izgleda kao svaki drugi | `conversation-header.tsx:296` uvek `Hash`; `:52-67` `subtitle()` vraća golo „Kanal oblasti"; `conversation-row.tsx:65` isto | Ikonica + boja oblasti i naziv u podnaslovu — i u zaglavlju i u listi | `conversation-header.tsx:312` (ikonica), `:61` (podnaslov), `conversation-row.tsx:78` (lista); nov `components/ui/area-icon.tsx`, `lib/area-meta.ts`, `lib/chat.ts` (`findChannelArea`) |
+| D13 | Rok pri kreiranju ima samo 4 preseta | `page-create-sheet.tsx:53-58`; komentar na `:52` je TVRDIO da „proizvoljan datum nosi `DatePickerSheet`", a sheet u tom fajlu **nije bio ni uvezen ni montiran** | Peti čip „Neki drugi dan…" otvara postojeći `DatePickerSheet` kao BRATA; stanje prešlo sa `dueDays` na `dueAt` (ms) | `page-create-sheet.tsx:396-400` (čip), `:466` (mount kao brat), `:129` (`dueAt`), `:74` (`presetFor`) |
+| D14 | Sadržaj beleške se ne može upisati pri kreiranju | `page-create-sheet.tsx:141-159` nikad ne šalje `content` | Polje „Sadržaj (opciono)" + prevod u Tiptap HTML | `page-create-sheet.tsx:307` (polje), `:189` (`content: noteTextToHtml(...)`); nov `noteTextToHtml` u `lib/note-content.ts` |
+| D15 | Oblast se pri kreiranju ne vidi ni ne bira | nigde u `page-create-sheet.tsx` | **Piker NIJE dodat** (odluka, plan §5.1) — dodata linija koja kaže u kojoj oblasti se stavka pravi | `page-create-sheet.tsx:251` |
+| D16 | Video/audio prilog izlazi iz aplikacije; nema „Preuzmi" | `file-preview.tsx:21` `kind: 'image' \| 'pdf'`; `files-panel.tsx:171` šalje ostalo u sistemski browser; nula stanja greške | Plejer u aplikaciji + dugme „Preuzmi" + oba stanja greške koja web ima | `file-preview.tsx:28` (tip), `:42` (`mediaDocument`), `:106` (memoizovan `source`, Z1), `:148` („Preuzmi"), `:160` i `:166` (stanja); grana dostupna preko `files-panel.tsx:234` |
+| D17 | Nema kanban „Tabla" | `zadaci.tsx` je vertikalna lista | **NIJE URAĐENO — odluka sa tri dokaza** (`ZA-POPRAVKU.md` §14) | vidi sekciju G revizije, red D17 |
+| D18 | Puls nema „Sastav nedelje" | `grep PulseBar apps/mobile/src` → 0 pogodaka | Nov primitiv + mount unutar zaglavlja nedelje, sa skeletonom iste visine | nov `components/ui/pulse-bar.tsx`; `app/(app)/puls.tsx:165` (mount), `:123` (segmenti) |
+| D19 | Ne-admin ne može da vidi spisak tima | `vise.tsx:69` red je bio `adminOnly: true`, filtriran na `:105` | Ulaz otvoren svima; admin RADNJE gejtovane unutra | `vise.tsx:72` (red bez `adminOnly`); `clanovi.tsx:116` (ulaz „Dodaj člana"), `:191` (dugme za uklanjanje), `:231` (mount `AddMemberSheet` iza `isAdmin`) |
+| D20 | Odsecanje na 100 zahteva se ne kaže | `odobrenja.tsx:124` čita `listNestingInbox`, `grep truncated` → 0 | Poruka u OBA segmenta (serverski `truncated` pokriva incoming i outgoing) | `odobrenja.tsx:562` (`TruncationNote`), pozvano na `:338` i `:417`; `grep -c truncated` → **6** (bilo 0) |
+
+**Backend NIJE menjan.** `git diff --stat -- packages/backend` je prazan; nijedna
+od osam stavki nije tražila novu funkciju (razlozi po stavci: plan §1.3). Isto i
+`git diff --stat -- apps/web` → prazan.
+
+**`apps/mobile/package.json` NIJE menjan** → `NATIVE-BUILD.md` se ne dopunjuje i
+nov development build **nije** postao obavezan zbog P7.
+
+### 2. Lanac uvoza — dokaz da nije mrtvo
+
+Pet novih modula u P7. Lanci nisu prepisani iz plana nego **izmereni skriptom
+dostupnosti** (obrnut graf uvoza nad `apps/mobile/src`, cilj je bilo koji fajl u
+`src/app/`):
+
+```
+lib/html.ts            → components/stranica/file-preview.tsx
+                       → components/stranica/files-panel.tsx
+                       → app/(app)/stranica/[id].tsx
+lib/page-file-picks.ts → components/stranica/files-panel.tsx → app/(app)/stranica/[id].tsx
+lib/area-meta.ts       → components/ui/area-icon.tsx
+                       → components/chat/conversation-header.tsx
+                       → app/(app)/razgovor/[id].tsx
+components/ui/area-icon.tsx  → components/chat/conversation-header.tsx → app/(app)/razgovor/[id].tsx
+components/ui/pulse-bar.tsx  → app/(app)/puls.tsx
+```
+
+Drugi potrošači (isti moduli, druga površina), takođe izmereni:
+`lib/html.ts` → `lib/note-content.ts` (`noteTextToHtml`) → `components/canvas/page-create-sheet.tsx`;
+`components/ui/area-icon.tsx` → `components/chat/conversation-row.tsx` → `app/(app)/(tabs)/chat.tsx`.
+
+**Nov potrošač postojećeg modula:** `components/ui/date-picker-sheet.tsx` →
+`components/canvas/page-create-sheet.tsx` → `app/(app)/(tabs)/prostor.tsx`. Do P7
+je taj sheet imao pozivaoce samo iz zadatka; sada i iz kreiranja.
+
+**Prvi klijentski čitalac serverskog polja:** `areasV2.listNestingInbox.truncated`
+→ `app/(app)/odobrenja.tsx:338` i `:417`.
+
+Do korisnika prstom (jedan primer po stavci, ostali u T-listi):
+tab „Prostor" → oblast → fajl-oblačić → tap na video prilog → plejer i „Preuzmi";
+tab „Chat" → kanal oblasti → ikonica i „Kanal oblasti · Dev";
+tab „Više" → „Puls" → traka ispod navigacije nedelje;
+tab „Više" → „Članovi tima" (i kao ne-admin);
+tab „Prostor" → oblast → FAB → „Zadatak" → „Više opcija" → Rok → „Neki drugi dan…".
+
+### 2b. Lov na mrtav kod za CEO lanac 6 (zahtev 3 zadatka)
+
+Dve nezavisne mehaničke provere nad `apps/mobile/src`, obe puštene u P7:
+
+**(a) Mrtvi uvozi** (skript iz `planovi/p1.md` §6.5, spread-aware), 206 fajlova:
+
+```
+NEMA mrtvih uvoza.
+```
+
+Ovo je provera koja bi uhvatila slučaj `inviteLinkUrl` (uvezen, nikad pozvan).
+
+**(b) Dostupnost do ekrana** — za svaki fajl koji je lanac 6 DODAO
+(`git diff --name-status 4ff8484 HEAD | grep '^A'`, mobilni izvorni fajlovi) traži
+se najkraći lanac uvoza do `src/app/`. Ishod: **SVI LANCI POSTOJE**, nula mrtvih.
+
+| Dodat fajl (lanac 6) | Lanac do ekrana |
+|---|---|
+| `app/(app)/istorija.tsx` | sam je ekran (ulaz: `vise.tsx`, red „Istorija radnji") |
+| `components/canvas/idea-node-sheet-actions.tsx` | → `app/(app)/canvas/[kind]/[id].tsx` |
+| `components/canvas/thought-node-sheet-actions.tsx` | → `app/(app)/canvas/[kind]/[id].tsx` |
+| `components/chat/channel-members-sheet.tsx` | → `conversation-header.tsx` → `app/(app)/razgovor/[id].tsx` |
+| `components/chat/member-search-input.tsx` | → `new-conversation-sheet.tsx` → `app/(app)/(tabs)/chat.tsx` |
+| `components/prostor/area-contributions-section.tsx` | → `app/(app)/(tabs)/prostor.tsx` |
+| `components/prostor/kind-filter-row.tsx` | → `app/(app)/(tabs)/prostor.tsx` |
+| `components/stranica/note-insert-sheet.tsx` | → `note-editor.tsx` → `app/(app)/stranica/[id].tsx` |
+| `components/stranica/page-target-picker.tsx` | → `page-actions-sheet.tsx` → `app/(app)/stranica/[id].tsx` |
+| `components/ui/color-row.tsx` | → `app/(app)/ideja/[id].tsx` |
+| `components/ui/search-field.tsx` | → `app/(app)/ideje.tsx` |
+| `components/zadatak/checkpoint-contributions-sheet.tsx` | → `task-checkpoint-list.tsx` → `app/(app)/zadatak/[id].tsx` |
+| `hooks/use-chat-presence.ts` | → `app/(app)/razgovor/[id].tsx` |
+| `hooks/use-undo-runner.ts` | → `app/(app)/istorija.tsx` |
+| `lib/canvas-position.ts` | → `app/(app)/ideja/[id].tsx` |
+| `lib/device-prefs.ts` | → `context/active-startup.tsx` → `app/(app)/(tabs)/chat.tsx` |
+| `lib/invite-codes.ts` | → `app/(app)/pozivnice.tsx` |
+| `lib/note-editor-bridges.ts` | → `note-editor.tsx` → `app/(app)/stranica/[id].tsx` |
+| `lib/note-editor-html.ts` | → `note-editor.tsx` → `app/(app)/stranica/[id].tsx` |
+| `lib/note-table.ts` | → `note-insert-sheet.tsx` → `note-editor.tsx` → `app/(app)/stranica/[id].tsx` |
+| `lib/html.ts` *(P7)* | → `file-preview.tsx` → `files-panel.tsx` → `app/(app)/stranica/[id].tsx` |
+| `lib/page-file-picks.ts` *(P7)* | → `files-panel.tsx` → `app/(app)/stranica/[id].tsx` |
+| `lib/area-meta.ts` *(P7)* | → `area-icon.tsx` → `conversation-header.tsx` → `app/(app)/razgovor/[id].tsx` |
+| `components/ui/area-icon.tsx` *(P7)* | → `conversation-header.tsx` → `app/(app)/razgovor/[id].tsx` |
+| `components/ui/pulse-bar.tsx` *(P7)* | → `app/(app)/puls.tsx` |
+
+Van grafa i namerno: `apps/mobile/editor-web/**` (web bundle editora, gradi se
+`npm run editor:build` i ulazi kao `lib/note-editor-html.ts`), `*.test.ts`,
+`vitest.config.ts`, i `apps/web` / `packages/backend` dodaci (drugi graf).
+
+**Skript (b) — ponovljiv.** Upisan ovde, a ne ostavljen u temp folderu, jer je to
+**jedina kapija koja bi uhvatila pad tipa K4** (kod se kompajlira, lint je čist, a
+funkcionalnost nedostupna). Sačuvaj kao `.mjs` bilo gde i pusti iz KORENA repoa sa
+putanjama kao argumentima:
+
+```js
+// node <ovaj-fajl>.mjs apps/mobile/src/lib/nesto.ts [još putanja...]
+import fs from 'node:fs';
+import path from 'node:path';
+const SRC = 'apps/mobile/src';
+const files = [];
+const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+  const p = path.join(d, e.name).split(path.sep).join('/');
+  if (e.isDirectory()) walk(p); else if (/\.(ts|tsx)$/.test(e.name)) files.push(p); } };
+walk(SRC);
+function resolve(spec, fromFile) {
+  let base;
+  if (spec.startsWith('@/convex')) return null;            // backend, van grafa
+  if (spec.startsWith('@/')) base = `${SRC}/${spec.slice(2)}`;
+  else if (spec.startsWith('.')) base = path.posix.normalize(`${path.posix.dirname(fromFile)}/${spec}`);
+  else return null;                                        // node_modules
+  for (const c of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`])
+    if (files.includes(c)) return c;
+  return null;
+}
+const importers = new Map();                               // uvezeni → [ko ga uvozi]
+for (const f of files) for (const m of fs.readFileSync(f, 'utf8').matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+  const t = resolve(m[1], f); if (t === null) continue;
+  if (!importers.has(t)) importers.set(t, []); importers.get(t).push(f);
+}
+const isScreen = (f) => f.startsWith(`${SRC}/app/`);
+function chainToScreen(target) {                           // BFS: najkraći lanac do ekrana
+  const seen = new Set([target]); let frontier = [[target]];
+  while (frontier.length > 0) { const next = [];
+    for (const chain of frontier) for (const imp of importers.get(chain[chain.length - 1]) ?? []) {
+      if (seen.has(imp)) continue; seen.add(imp); const nc = [...chain, imp];
+      if (isScreen(imp)) return nc; next.push(nc);
+    } frontier = next; }
+  return null;
+}
+const short = (f) => f.replace(`${SRC}/`, '');
+let bad = 0;
+for (const t of process.argv.slice(2)) {
+  const target = t.split(path.sep).join('/');
+  if (!files.includes(target)) { console.log('NEMA FAJLA  ', target); bad += 1; continue; }
+  if (isScreen(target)) { console.log('EKRAN       ', short(target)); continue; }
+  const c = chainToScreen(target);
+  if (c === null) { console.log('MRTAV!      ', short(target)); bad += 1; }
+  else console.log('OK          ', c.map(short).join(' -> '));
+}
+console.log(bad === 0 ? '\nSVI LANCI POSTOJE.' : `\nBEZ LANCA: ${bad}`);
+```
+
+Spisak fajlova za proveru daje:
+`git diff --name-status <baza> HEAD -- apps/mobile/src | grep '^A'`.
+
+**Šta ove dve provere NE vide** — pošteno: montiranu komponentu čiji prop nikad
+nije prosleđen, pa se red ne renderuje (tačan oblik pada faze K4). Za P7 je to
+pokriveno drugačije: sva tri nova propa su **obavezna** (`area` na
+`ConversationHeader` i `ConversationRow`), pa je `tsc` kapija koju K4 nije imao —
+a `truncated`/`openFile`/peti čip su provereni grep-om na broj pogodaka.
+
+### 3. Odstupanja od plana (i zašto)
+
+Šest odstupanja, sva zapisana i u samom planu (`planovi/p7.md` §9). Najvažnije:
+
+1. **`areaIconFor` je razdvojen** na čist `areaIconNameFor` (`lib/area-meta.ts`) +
+   `<AreaIcon>` (`components/ui/area-icon.tsx`). Plan je tražio test koji je
+   **nemoguć**: `lucide-react-native` vuče `react-native` (Flow), pa test pada sa
+   `SyntaxError: Unexpected token 'typeof'`. Izmereno, ne pretpostavljeno.
+2. **`PulseBar` nema animaciju ni `pulseTone`.** Jedini potrošač (Puls) na webu
+   šalje `pulseTone={null}`, pa bi otkucaj bio kod koji nijedan pozivalac ne može
+   da uključi — mrtav kod, tj. tačno ono što lanac lovi.
+3. **`PreviewFile.url` je `string | null`.** Bez toga stanje „Fajl više nije
+   dostupan u skladištu." (koje plan traži) nije dostižno, jer je `openFile` za
+   prazan URL prikazivao `Alert` i uopšte ne otvarao pregled.
+4. **Rizik R5 (čitanje bloba radi veličine) ne postoji ovde** —
+   `pageFiles.generateUploadUrl` ne prima `size` (za razliku od chata), server ga
+   meri iz metapodataka bloba. Fajl bez poznate veličine se PRIHVATA (test T5).
+5. **`ChannelArea`/`findChannelArea` su u `lib/chat.ts`**, ne po ekranu — dva mesta
+   bi mogla da se raziđu u tome šta znači „oblast nije poznata".
+6. **Round-trip test je normalizovan po redovima** — `noteHtmlToText` svaki tag
+   menja RAZMAKOM, pa svaki red vraća vodeći razmak. To je zatečeno ponašanje koje
+   jednako važi za pravo Tiptap telo sa weba, pa **nije menjano** (modul ima 16
+   postojećih testova); test to izričito dokumentuje.
+
+### 4. Gejtovi
+
+```
+apps/mobile        npx tsc --noEmit                      → exit 0, nijedna linija
+apps/web           npx tsc --noEmit                      → exit 0
+packages/backend   npx tsc -p convex/tsconfig.json       → exit 0
+npm run lint                                             → exit 0, nijedna linija (0 grešaka, 0 upozorenja)
+npm test                                                 → Test Files 50 passed (50) | Tests 434 passed (434)
+npm run build                                            → uspešno (Compiled in 5.7s, TypeScript 16.3s, 6/6 stranica)
+git diff --stat -- apps/web                              → PRAZNO
+git diff --stat -- packages/backend                      → PRAZNO
+skript za mrtve uvoze (p1 §6.5, 206 fajlova)             → „NEMA mrtvih uvoza."
+skript dostupnosti do ekrana (25 modula lanca 6)         → „SVI LANCI POSTOJE."
+```
+
+Testovi: **46 fajlova / 402 testa → 50 / 434** (+4 fajla, +32 testa). Sva četiri
+nova fajla su P7:
+
+| Fajl | Tvrdnji |
+|---|---|
+| `apps/mobile/src/lib/html.test.ts` | 7 |
+| `apps/mobile/src/lib/area-meta.test.ts` | 5 |
+| `apps/mobile/src/lib/page-file-picks.test.ts` | 10 |
+| `apps/mobile/src/lib/note-content.text.test.ts` | 10 |
+
+> **Ograda koja MORA da stoji:** `npm run lint` **ne pokriva `apps/mobile/**`**
+> (`eslint.config.mjs:25`). „Lint čist" za mobilni znači `tsc` i ništa više. Ista
+> ograda stoji u svakoj fazi ovog lanca (`ZA-POPRAVKU.md` §5.12).
+
+**Jedna napomena o merenju testova.** Prvi prolaz `npm test` (pušten paralelno sa
+`apps/web tsc`) dao je 8 padova, svi „Test timed out in 5000ms" u
+`packages/backend`. Ponovni prolaz sam, bez paralelnog posla: 50/50 i 434/434.
+Backend u ovoj fazi nije diran (`git diff --stat` prazan), pa je uzrok bio
+zauzetost mašine, ne kod. Zapisano jer bi „8 failed" u logu inače izgledalo kao
+prećutana greška.
+
+### 5. Šta NIJE provereno — iskreno
+
+- **Ništa nije pokrenuto na uređaju ni u emulatoru.** Verifikacija je `tsc` +
+  `lint` + `npm test` + `build` + dve skripte za mrtav kod. Nov `PulseBar`, plejer
+  videa u `WebView`-u, kalendar u sheet-u kreiranja, serija priloga — nijedno nije
+  viđeno kako radi.
+- **Video u `WebView`-u je najveći nemereni rizik ove faze.** `<video controls>`
+  u `source={{html}}` je izbor koji izbegava da Android WebView pokrene
+  preuzimanje umesto plejera, ali da li kontrole rade i da li se HEVC snimak sa
+  iPhone-a dekodira **nije provereno**. Ako ne radi: `onError` grana pokazuje
+  poruku i „Preuzmi", pa korisnik nije u ćorsokaku — a odluka se menja zasebnim
+  zadatkom sa native buildom (`ZA-POPRAVKU.md` §15). `expo-video` nije dodat
+  namerno (plan §5.3).
+- **Merni gejt `ZA-POPRAVKU.md` §2 (editor beleške na jeftinom Androidu) ostaje
+  otvoren.** Agent nema uređaj. P7 ga nije pomerio ni u jednom smeru.
+- **Ponašanje tastature u sheet-u kreiranja sa novim `multiline` poljem** nije
+  provereno na uređaju. `Sheet` ima `avoidKeyboard`, a polje je u `ScrollView`-u
+  sa `keyboardShouldPersistTaps="handled"` — isti obrazac kao „Instrukcije" koji
+  već radi, ali „isti obrazac" nije merenje.
+- **Dva `Modal`-a (kalendar iznad sheeta kreiranja)** — obrazac „brat, ne dete" je
+  isti koji `AssigneePickerSheet` već koristi u istom fajlu, ali sistemsko „nazad"
+  na Androidu nije isprobano.
+
+### 6. Provera prstom (čeka korisnika) — NIJE ČEKIRANO
+
+| # | Radnja | Očekivano |
+|---|---|---|
+| T1 | Prostor → oblast → fajl-oblačić → tap na video prilog | Plejer sa kontrolama U APLIKACIJI (ne sistemski browser) |
+| T2 | T1 → „Preuzmi" | Sistemski browser preuzima fajl; povratak vraća na pregled |
+| T3 | Fajl-oblačić → FAB → „Iz galerije" → izaberi 3 fajla | Tri priloga, redom kojim su izabrani; indikator na FAB-u ne trepće između njih |
+| T4 | T3 sa dokumentom > 50 MB | Alert imenuje BAŠ taj fajl kao odbijen; ostali prođu |
+| T5 | Fajl-oblačić → FAB → „Iz dokumenata" → izaberi 2 | Oba priloga prođu (`multiple: true`) |
+| T6 | Chat → kanal oblasti „Dev" | Ikonica `Code2` u boji oblasti; podnaslov „Kanal oblasti · Dev" |
+| T7 | Chat lista | Isti kanal ima istu ikonicu i u redu liste |
+| T8 | Više → Puls | Traka ispod navigacije nedelje; udeli odgovaraju karticama ispod |
+| T9 | Puls, nedelja bez posla | Siva traka; čitač ekrana kaže „Nedelja bez zabeleženog posla" |
+| T10 | Prijava kao NE-admin → tab „Više" | Red „Članovi tima" POSTOJI; „Pozivnice"/„Lozinke"/„Administracija" NE |
+| T11 | T10 → „Članovi tima" | Lista se vidi; **nema** ikonica za brisanje ni „Dodaj člana" |
+| T12 | Prostor → oblast → FAB → „Zadatak" → „Više opcija" → Rok → „Neki drugi dan…" | Kalendar; izabran datum stoji na čipu I u sažetku; posle kreiranja rok je tačan |
+| T13 | Isti FAB → „Beleška" → upiši sadržaj → Dodaj | Beleška se otvara sa TIM tekstom; web pokazuje isti tekst kao pasuse |
+| T14 | Sheet kreiranja, bilo koja vrsta | Ispod naslova piše „U oblasti „X"." i to je oblast iz koje si ušao |
+| T15 | > 100 zahteva za ugnježdavanje | „Prikazano je najnovijih 100 zahteva." u OBA segmenta („Čeka" i „Moji") |
+| T16 | Kalendar otvoren iznad sheeta → sistemsko „nazad" | Zatvara SAMO kalendar, sheet kreiranja ostaje sa unetim podacima |
+| T17 | Sheet kreiranja → upiši naslov → „Otkaži" → otvori ponovo | Obrazac je PRAZAN (ne nosi prethodni nacrt) |
+
+### 7. `rn-review` — nalazi i ishod
+
+Agent `rn-review` pušten nad svih 13 izmenjenih/novih fajlova. Sedam nalaza, svi
+sa ishodom:
+
+| Nalaz | Ocena | Ishod |
+|---|---|---|
+| `page-create-sheet.tsx` — `closeAll` ne poziva `reset()`, pa otkazan nacrt (naslov, novo polje „Sadržaj", nov datum) iskače pri sledećem otvaranju, i to pod DRUGIM zaglavljem i drugom oblašću | vredi popraviti | **POPRAVLJENO** (`page-create-sheet.tsx:175`, uz komentar zašto). Dodatna provera koju agent nije imao: **web RESETUJE** — `workspace-shell.tsx:1100` daje dijalogu `key` koji sadrži `open` i ceo `target`, pa se stanje briše na svako zatvaranje. Dakle nije stvar ukusa nego razlike od weba. Cena (dodir po backdrop-u gubi nacrt) zapisana u komentaru |
+| `file-preview.tsx` — PDF grana `WebView`-a nema `onError`/`onHttpError`, za razliku od video/audio grane; PDF koji se ne učita daje belu površinu bez poruke | vredi popraviti | **POPRAVLJENO** (`file-preview.tsx:191-192`). Nedoslednost je bila moja — `failed` stanje je uvedeno u P7, pa je grana koja ga ne postavlja bila pola posla |
+| `PreviewNotice` nema „Pokušaj ponovo", za razliku od svakog drugog greška-stanja u repou | sitno | **POPRAVLJENO** (`file-preview.tsx:171` prosleđen `onRetry`, `:244-252` dugme). Dugme ide SAMO uz grešku koja može da prođe na drugi pokušaj; za „blob više nije u skladištu" ponovni pokušaj ne menja ništa, pa se ne prikazuje |
+| `clanovi.tsx` — `isAdmin` dolazi iz `profiles.getCurrent`, koji nije bio u `loading` gejtu; admin bi prvo video listu BEZ admin kontrola | sitno | **POPRAVLJENO** (`clanovi.tsx:81`). `profiles.getCurrent` je deljena pretplata (ceo tab „Više" je već drži), pa gejt praktično ne dodaje čekanje |
+| Ikonica oblasti „trepne": `startups.get` nije u `loading` gejtu chata, pa kanal prvo dobije generički `Hash` pa obojenu ikonicu | sitno | **NIJE POPRAVLJENO, svesno.** Gejtovanje CELE liste razgovora (ili celog zaglavlja) na treći upit zarad ikonice znači da poruke čekaju metapodatak — pogrešna trampa. `startups.get` je ista pretplata koju `prostor`/`danas`/`zadaci` već drže, pa je u praksi topla; a `findChannelArea` vraća `null` dok ne stigne, što je isto što web radi (`channel-list.tsx:118` `?.key` → `undefined`) |
+| Linija „U oblasti X" iskoči sa zakašnjenjem i pomeri sadržaj sheeta | sitno | **NIJE POPRAVLJENO, svesno.** Rezervisanje visine za jedan red teksta koji se u 99% slučajeva pojavi odmah (upit je topao) dodaje prazan prostor u svakom drugom slučaju. Sadržaj ispod je u `ScrollView`-u, pa pomeranje ne otima tap |
+| Slika u pregledu nema indikator učitavanja (video/PDF/audio imaju `startInLoadingState`) | sitno | **NIJE POPRAVLJENO, zatečeno.** `expo-image` ima `transition={150}` i P7 tu granu nije dirao osim `onError`-a. Kandidat za fazu koja dira `expo-image` širom aplikacije |
+
+**Nalaz koji je `rn-review` PROPUSTIO, a ja sam ga sam uveo** — zapisan jer je
+istog roda kao njegov PDF nalaz, samo teži: `onError`/`onHttpError` na `WebView`-u
+**ne hvataju neuspeh samog medija.** Dokument video/audio grane je inline HTML, pa
+za njega nema ni navigacije ni HTTP odgovora koji bi pukao — 404 na potpisanom URL-u
+bi dao plejer sa kontrolama koje ništa ne puštaju i nula objašnjenja. Zatvoreno
+mostom: `<video onerror="…postMessage('media-error')">` u `mediaDocument`
+(`file-preview.tsx:65` + `:68-70`) i `onMessage` na `WebView`-u (`:222`). Pouka: „dodao sam
+`onError`" nije dokaz da se greška vidi — treba pitati **koja** greška kojim putem
+stiže.
+
+Agent izričito nije našao nalaze u: `files-panel.tsx` (dodirne mete, tastatura,
+safe area, tri stanja novog reda čekanja), `odobrenja.tsx`, `puls.tsx`,
+`pulse-bar.tsx`, `area-icon.tsx`, `vise.tsx`. Web API-ja (`window`, `document`,
+`localStorage`, `navigator`) nema ni u jednom fajlu.
+- IZVRSI: proslo
+- `tsc mobilni`: prolazi
+- `tsc web`: prolazi
+- `lint`: prolazi
+- `test`: prolazi

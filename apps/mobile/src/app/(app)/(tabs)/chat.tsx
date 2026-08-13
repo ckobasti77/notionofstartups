@@ -20,9 +20,11 @@ import { useListRefresh } from '@/hooks/use-list-refresh';
 import {
   channelsForSegment,
   CHAT_SEGMENTS,
+  findChannelArea,
   type ChatChannel,
   type ChatSegmentId,
 } from '@/lib/chat';
+import type { StartupArea } from '@/lib/tasks';
 import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 
@@ -43,6 +45,11 @@ export default function ChatScreen() {
   const directMessages = useQuery(api.chat.listDirectMessages, startupArg);
   const followedThreads = useQuery(api.chat.listFollowedThreads, startupArg);
   const profile = useQuery(api.profiles.getCurrent, {});
+  // Oblasti su potrebne SAMO da red kanala oblasti dobije svoju ikonicu i boju
+  // (P7/D12, pandan web `channel-list.tsx:118`). Convex deli ovu pretplatu sa
+  // ostalim ekranima koji je već imaju (`prostor.tsx`, `danas.tsx`, `zadaci.tsx`),
+  // pa nije nov mrežni saobraćaj po tabu.
+  const startup = useQuery(api.startups.get, startupArg);
 
   const data: ChatChannel[] | undefined =
     segment === 'channels'
@@ -77,6 +84,7 @@ export default function ChatScreen() {
       below={<SegmentedControl options={CHAT_SEGMENTS} value={segment} onChange={setSegment} />}>
       <ConversationList
         channels={data}
+        areas={startup?.areas}
         segment={segment}
         onOpen={openConversation}
       />
@@ -95,10 +103,13 @@ export default function ChatScreen() {
 
 function ConversationList({
   channels,
+  areas,
   segment,
   onOpen,
 }: {
   channels: ChatChannel[] | undefined;
+  /** `undefined` dok `startups.get` ne stigne — red tada crta generički `Hash`. */
+  areas: StartupArea[] | undefined;
   segment: ChatSegmentId;
   onOpen: (channelId: Id<'chatChannels'>) => void;
 }) {
@@ -135,7 +146,11 @@ function ConversationList({
           // usred skrola.
           renderItem={({ item, index }) => (
             <StaggerItem index={index}>
-              <ConversationRow channel={item} onPress={() => onOpen(item._id)} />
+              <ConversationRow
+                channel={item}
+                area={findChannelArea(item, areas)}
+                onPress={() => onOpen(item._id)}
+              />
             </StaggerItem>
           )}
           contentContainerStyle={styles.listContent}

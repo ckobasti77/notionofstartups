@@ -28,7 +28,7 @@ import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useChatPresence } from '@/hooks/use-chat-presence';
 import type { Id } from '@/convex/_generated/dataModel';
-import type { ChatMessage } from '@/lib/chat';
+import { findChannelArea, type ChatMessage } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
 
@@ -68,6 +68,12 @@ export default function ConversationScreen() {
   const members = useQuery(
     api.startups.listMembers,
     activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
+  );
+  // Oblasti — samo za ikonicu i naziv oblasti u zaglavlju kanala (P7/D12, pandan
+  // web `conversation-pane.tsx:118`). Isti upit koji ostali ekrani već drže.
+  const startup = useQuery(
+    api.startups.get,
+    activeStartupId ? { startupId: activeStartupId } : 'skip',
   );
   const profile = useQuery(api.profiles.getCurrent, {});
   const markChannelRead = useMutation(api.chat.markChannelRead);
@@ -151,6 +157,7 @@ export default function ConversationScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ConversationHeader
           channel={channel}
+          area={findChannelArea(channel, startup?.areas)}
           // Klijentski ogleda serverski gejt (`chat.archiveChannel`): samo admin,
           // a „Opšte" (kind `startup`) se ne arhivira nikad. Oba podatka ekran
           // već drži — nema novog upita.

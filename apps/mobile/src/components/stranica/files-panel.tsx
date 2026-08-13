@@ -18,7 +18,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -32,9 +32,11 @@ import { Sheet } from '@/components/ui/sheet';
 import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { MAX_PAGE_FILES } from '@/convex/lib/page_files';
 import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import { planPageFilePicks, rejectedPicksMessage } from '@/lib/page-file-picks';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
 
@@ -49,12 +51,21 @@ const CATEGORY_META: Record<FileCategory, { icon: LucideIcon; label: string }> =
   document: { icon: FileIcon, label: 'Dokument' },
 };
 
-type PickInput = { uri: string; name: string; mimeType: string };
+type PickInput = {
+  uri: string;
+  name: string;
+  mimeType: string;
+  /** `null` kad izvor ne javi veličinu — server je onda meri iz bloba. */
+  size: number | null;
+};
 
 /**
  * Prilozi „fajl" oblačića (spec §9.4). Upload iz galerije, kamere i sistemskog
- * birača dokumenata; slika/PDF se pregleda u aplikaciji, ostalo kroz sistemski
- * otvarač. Slanje i brisanje su samo za autora oblačića (`canManage`).
+ * birača dokumenata — galerija i birač dokumenata primaju VIŠE fajlova odjednom
+ * (P7/D11, pandan web `page-files-panel.tsx` `multiple` + `uploadMany`), kamera
+ * ostaje jedan snimak. Slika, PDF, video i audio se pregledaju u aplikaciji
+ * (P7/D16), tabela i dokument idu u sistemski otvarač — isto što web renderuje,
+ * odnosno ne renderuje. Slanje i brisanje su samo za autora oblačića (`canManage`).
  *
  * Napomena: reorder (`pageFiles.reorder`) je namerno izostavljen — drag-reorder
  * priloga je desktop-ergonomija; na mobilnom je redosled po vremenu dovoljan.
@@ -72,7 +83,14 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   const remove = useMutation(api.pageFiles.remove);
   const rename = useMutation(api.pageFiles.rename);
 
-  const [uploading, setUploading] = useState(false);
+  /**
+   * Broj priloga koji su još u redu za slanje. `number`, ne `boolean` — brojač se
+   * podiže za CELU seriju odjednom, inače bi indikator na FAB-u pao na nulu
+   * između dva fajla i treptao (isti obrazac kao `chat/message-composer.tsx`).
+   */
+  const [uploads, setUploads] = useState(0);
+  /** Serija ide REDOM, jedan upload za drugim — kao web `uploadMany`. */
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
   const [menuOpen, setMenuOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewFile | null>(null);
   const [renaming, setRenaming] = useState<{ fileId: Id<'pageFiles'>; name: string } | null>(null);
@@ -81,7 +99,6 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   const [renameError, setRenameError] = useState<string | null>(null);
 
   async function upload(input: PickInput) {
-    setUploading(true);
     try {
       const { uploadUrl, token } = await generateUploadUrl({ pageId });
       const blob = await (await fetch(input.uri)).blob();
@@ -96,9 +113,44 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
       if (!result.ok) Alert.alert('Prilog odbijen', result.message);
     } catch (error) {
       Alert.alert('Greška', accessErrorMessage(error, 'Prilog nije poslat.'));
-    } finally {
-      setUploading(false);
     }
+  }
+
+  /**
+   * Red čekanja za seriju priloga: jedan upload za drugim, redom kojim su fajlovi
+   * izabrani. Paralelno slanje bi se otimalo o `MAX_PAGE_FILES` (svaki
+   * `generateUploadUrl` proverava kapacitet nezavisno), a redosled bi zavisio od
+   * brzine mreže po fajlu.
+   */
+  function enqueue(inputs: PickInput[]) {
+    if (inputs.length === 0) return;
+    setUploads((count) => count + inputs.length);
+    queueRef.current = queueRef.current.then(async () => {
+      for (const input of inputs) {
+        try {
+          await upload(input);
+        } finally {
+          setUploads((count) => Math.max(0, count - 1));
+        }
+      }
+    });
+  }
+
+  /**
+   * Predprovera pre reda čekanja: odbijeni se KAŽU naglas, jednim `Alert`-om.
+   * Tiho odsecanje bi izgledalo kao da je fajl poslat pa nestao (isti nalaz koji
+   * je P3 zatvorio u chatu).
+   */
+  function startPicks(picks: PickInput[]) {
+    const plan = planPageFilePicks({ existingCount: files?.length ?? 0, picked: picks });
+    if (plan.rejected.length > 0) {
+      haptics.warning();
+      Alert.alert(
+        plan.accepted.length > 0 ? 'Neki prilozi nisu poslati' : 'Prilog odbijen',
+        rejectedPicksMessage(plan.rejected),
+      );
+    }
+    enqueue(plan.accepted);
   }
 
   async function pickFromLibrary() {
@@ -110,16 +162,23 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
+      // Granicu ovde daje SERVER (`MAX_PAGE_FILES`), za razliku od chata gde je
+      // 10 po izboru svesna klijentska odluka — prilog stranice ima tvrd plafon.
+      allowsMultipleSelection: true,
+      selectionLimit: MAX_PAGE_FILES,
       quality: 0.8,
     });
     if (result.canceled) return;
-    const asset = result.assets[0];
-    if (!asset) return;
-    await upload({
-      uri: asset.uri,
-      name: asset.fileName ?? (asset.type === 'video' ? 'video.mp4' : 'slika.jpg'),
-      mimeType: asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-    });
+    startPicks(
+      result.assets.map((asset, index) => ({
+        uri: asset.uri,
+        name:
+          asset.fileName ??
+          (asset.type === 'video' ? `video-${index + 1}.mp4` : `slika-${index + 1}.jpg`),
+        mimeType: asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+        size: asset.fileSize ?? null,
+      })),
+    );
   }
 
   async function pickFromCamera() {
@@ -139,37 +198,51 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
     if (result.canceled) return;
     const asset = result.assets[0];
     if (!asset) return;
-    await upload({
-      uri: asset.uri,
-      name: asset.fileName ?? 'fotografija.jpg',
-      mimeType: asset.mimeType ?? 'image/jpeg',
-    });
+    startPicks([
+      {
+        uri: asset.uri,
+        name: asset.fileName ?? 'fotografija.jpg',
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        size: asset.fileSize ?? null,
+      },
+    ]);
   }
 
   async function pickDocument() {
     setMenuOpen(false);
-    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    if (!asset) return;
-    await upload({
-      uri: asset.uri,
-      name: asset.name,
-      mimeType: asset.mimeType ?? 'application/octet-stream',
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: true,
     });
+    if (result.canceled) return;
+    startPicks(
+      result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name,
+        mimeType: asset.mimeType ?? 'application/octet-stream',
+        size: asset.size ?? null,
+      })),
+    );
   }
 
   function openFile(file: NonNullable<typeof files>[number]) {
+    // Sve što web renderuje u svom pregledaču (`file-viewer-dialog.tsx`) ide u
+    // pregled — i kad je `url` prazan, jer tada pregled kaže ZAŠTO je prazan.
+    if (
+      file.category === 'image' ||
+      file.category === 'pdf' ||
+      file.category === 'video' ||
+      file.category === 'audio'
+    ) {
+      setPreview({ name: file.name, url: file.url, kind: file.category });
+      return;
+    }
     if (!file.url) {
       Alert.alert('Nedostupno', 'Ovaj prilog trenutno nije dostupan.');
       return;
     }
-    if (file.category === 'image' || file.category === 'pdf') {
-      setPreview({ name: file.name, url: file.url, kind: file.category });
-    } else {
-      // Sistemski otvarač za video/audio/tabelu/dokument (spec §9.4).
-      void WebBrowser.openBrowserAsync(file.url).catch(() => Linking.openURL(file.url!));
-    }
+    // Sistemski otvarač za tabelu i dokument — ni web ih ne prikazuje u pregledu.
+    void WebBrowser.openBrowserAsync(file.url).catch(() => Linking.openURL(file.url!));
   }
 
   /**
@@ -298,8 +371,10 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
       {showAdd ? (
         <FAB
           icon={Plus}
-          accessibilityLabel="Dodaj prilog"
-          busy={uploading}
+          accessibilityLabel={
+            uploads > 0 ? `Šalje se ${uploads} priloga` : 'Dodaj prilog'
+          }
+          busy={uploads > 0}
           onPress={() => {
             haptics.tap();
             setMenuOpen(true);

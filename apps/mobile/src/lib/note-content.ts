@@ -4,6 +4,7 @@
  * Mobilni ga NE konvertuje ni u markdown ni u JSON — svaka konverzija bi gubila
  * blokove koje ne razume (vidi `noteBlockSignature`).
  */
+import { escapeHtml } from '@/lib/html';
 
 /**
  * Granica servera — `cleanPageContent` u
@@ -103,6 +104,30 @@ export function noteHtmlToText(html: string): string {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * Čist tekst iz `TextInput`-a → Tiptap-kompatibilan HTML.
+ *
+ * Postoji zbog P7/D14: sheet „Nova stranica" sada može da pošalje i SADRŽAJ
+ * beleške (web ga ima kroz `RichTextEditor` u `create-page-dialog.tsx:149-160`).
+ * U sheet-u NIJE tentap editor — dva WebView editora u istom stablu su drugi
+ * bundle i drugi merni rizik (`ZA-POPRAVKU.md` §2 je i dalje otvoren), pa je
+ * ulaz obično `multiline` polje, a puno formatiranje se dobija otvaranjem
+ * beleške posle kreiranja.
+ *
+ * Pravila: prazan ulaz → `EMPTY_NOTE_HTML` (server prazno telo ionako čuva kao
+ * `""`), svaki red je jedan `<p>`, prazan red je `<p></p>` (Tiptap tako
+ * serijalizuje prazan pasus), a tekst ide kroz `escapeHtml` — bez toga bi
+ * korisnikov `<` postao tag u telu koje se posle otvara u editoru.
+ */
+export function noteTextToHtml(text: string): string {
+  if (text.trim() === '') return EMPTY_NOTE_HTML;
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => (line.trim() === '' ? '<p></p>' : `<p>${escapeHtml(line)}</p>`))
+    .join('');
 }
 
 /** Prazno telo: nema teksta i nema atomskog bloka (prilog, tabela, slika). */

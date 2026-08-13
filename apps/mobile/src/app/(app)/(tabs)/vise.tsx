@@ -66,7 +66,10 @@ const MENU: MenuItem[][] = [
   ],
   [
     { icon: UserRound, label: 'Moj profil', route: '/profil' },
-    { icon: Users, label: 'Članovi tima', route: '/clanovi', adminOnly: true },
+    // NIJE `adminOnly`: web „Tim" prikazuje svakom članu (`home-view.tsx:134-143`),
+    // a `startups.listMembers` je iza `requireStartupMember`, ne `requireAdmin`
+    // (`startups.ts:411`). Admin-RADNJE su gejtovane unutar ekrana (P7/D19).
+    { icon: Users, label: 'Članovi tima', route: '/clanovi' },
     { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
     { icon: ShieldCheck, label: 'Administracija startupa', route: '/admin-startup', adminOnly: true },
     { icon: KeyRound, label: 'Lozinke', route: '/lozinke', adminOnly: true },
@@ -98,7 +101,8 @@ export default function ViseScreen() {
   const nestingInbox = useQuery(api.areasV2.listNestingInbox, arg);
   const approvalsCount = (overview?.pendingCount ?? 0) + (nestingInbox?.incoming.length ?? 0);
 
-  // Admin stavke (Članovi, Pozivnice) se skrivaju ako korisnik nije admin.
+  // Admin stavke (Pozivnice, Administracija, Lozinke) se skrivaju ako korisnik
+  // nije admin. „Članovi tima" od P7 NIJE među njima — vidi komentar u `MENU`.
   const profile = useQuery(api.profiles.getCurrent, {});
   const isAdmin = profile?.role === 'admin';
   const visibleMenu = MENU.map((group) =>

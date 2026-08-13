@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
+import { DatePickerSheet, formatDueDate } from '@/components/ui/date-picker-sheet';
 import { OptionChip } from '@/components/ui/option-chip';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
@@ -27,6 +28,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import { noteTextToHtml } from '@/lib/note-content';
 import {
   dueDateInDays,
   priorityColor,
@@ -43,13 +45,24 @@ import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
 const MAX_TITLE = 200;
 const MAX_INSTRUCTIONS = 20_000;
+/**
+ * Granica za SADRŽAJ beleške upisan u sheet-u. Serverska granica je 80.000 znakova
+ * HTML-a (`NOTE_CONTENT_LIMIT`), a `noteTextToHtml` na svaki red doda `<p></p>` i
+ * escapuje znakove — 20.000 znakova čistog teksta staje u nju sa velikom
+ * rezervom. Duži tekst nije posao sheeta nego editora beleške.
+ */
+const MAX_NOTE_TEXT = 20_000;
 
 /** Sva četiri tipa iz `pages.create` — isti skup koji web `create-page-dialog` nudi. */
 type PageKind = 'note' | 'task' | 'file' | 'table';
 
 type DuePreset = { label: string; days: number | null };
 
-/** Isti preseti kao u meniju akcija zadatka; proizvoljan datum nosi `DatePickerSheet`. */
+/**
+ * Isti preseti kao u meniju akcija zadatka. Proizvoljan datum nosi peti čip
+ * („Neki drugi dan…") koji otvara `DatePickerSheet` — do P7 je taj čip postojao
+ * samo u komentaru, a sheet nije bio ni uvezen ni montiran (D13).
+ */
 const DUE_PRESETS: readonly DuePreset[] = [
   { label: 'Bez roka', days: null },
   { label: 'Danas', days: 0 },
@@ -57,19 +70,33 @@ const DUE_PRESETS: readonly DuePreset[] = [
   { label: 'Za 7 dana', days: 7 },
 ];
 
+/** Presetu koji odgovara datom trenutku — `null` kad je datum „neki drugi dan". */
+function presetFor(dueAt: number | null): DuePreset | undefined {
+  return DUE_PRESETS.find((preset) =>
+    preset.days === null ? dueAt === null : dueAt === dueDateInDays(preset.days),
+  );
+}
+
 /**
  * Kreiranje stranice/pod-stranice iz canvas rail-a i sekcije „Podstranice" (M4.4).
- * Native unos naslova + vrste (beleška/zadatak) → `areasV2.createPage` (PARITET A5:
+ * Native unos naslova + vrste (sve četiri) → `areasV2.createPage` (PARITET A5:
  * ujednačeno sa `pages.create`, koji tvrdo baca na tuđem roditelju umesto da pošalje
  * zahtev za odobrenje); WebView (koji sluša `getAreaCanvasByArea` / `getPageCanvasByPage`)
  * sam pokupi novi čvor realtime.
- * Fajl/tabela se prave na desktopu (traže prilog/kolone) — namerno izostavljene (§5.2).
  *
  * PARITET SA WEBOM (`create-page-dialog.tsx`): zadatak nosi i status, prioritet,
- * izvršioce, rok, instrukcije i podzadatke. Da sheet ne postane formular preko celog
- * ekrana, sve to stoji iza reda „Više opcija" koji se razvija — naslov i vrsta ostaju
- * odmah vidljivi, pa je brz unos i dalje jedan potez. Beleška nema šta da otvori, pa
- * za nju reda nema (sadržaj beleške se piše u editoru, posle kreiranja).
+ * izvršioce, rok (uz pun kalendar, D13), instrukcije i podzadatke. Da sheet ne
+ * postane formular preko celog ekrana, sve to stoji iza reda „Više opcija" koji se
+ * razvija — naslov i vrsta ostaju odmah vidljivi, pa je brz unos i dalje jedan
+ * potez. Beleška od P7 ima i polje „Sadržaj (opciono)" (D14).
+ *
+ * Šta je svesno DRUGAČIJE od weba:
+ * - **Nema pikera oblasti.** Web ga ima, ali `disabled` kad postoji `target.areaId`
+ *   (`create-page-dialog.tsx:142`), a sva tri mounta ovog sheeta prosleđuju
+ *   konkretnu oblast. Umesto pikera sheet KAŽE u kojoj oblasti pravi stavku.
+ *   Globalni „novi zadatak" mobilni ima sa izborom oblasti (`quick-add-sheet.tsx`).
+ * - **Sadržaj beleške je obično polje, ne rich-text editor.** Razlog u
+ *   `lib/note-content.ts` (`noteTextToHtml`).
  *
  * `parentPageId` bira nivo: `null` = koren oblasti (canvas oblasti), id stranice =
  * pod-stranica (canvas stranice).
@@ -98,10 +125,15 @@ export function PageCreateSheet({
   const [status, setStatus] = useState<TaskStatus>('backlog');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [assigneeIds, setAssigneeIds] = useState<Id<'profiles'>[]>([]);
-  const [dueDays, setDueDays] = useState<number | null>(null);
+  /** Rok kao TRENUTAK (ms u lokalno podne), ne broj dana — peti čip daje datum. */
+  const [dueAt, setDueAt] = useState<number | null>(null);
   const [instructions, setInstructions] = useState('');
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
   const [assigneesOpen, setAssigneesOpen] = useState(false);
+  const [dueOpen, setDueOpen] = useState(false);
+
+  // Sadržaj beleške (D14) — čist tekst, u HTML se prevodi pri slanju.
+  const [noteText, setNoteText] = useState('');
 
   // Članovi se učitavaju tek kad zaista trebaju (otvoren sheet + razvijene opcije
   // zadatka) — brzo kreiranje beleške ne plaća `listMembers`.
@@ -109,6 +141,12 @@ export function PageCreateSheet({
     api.startups.listMembers,
     open && kind === 'task' && expanded ? { startupId, limit: 50 } : 'skip',
   );
+  // Samo da sheet može da KAŽE u kojoj oblasti pravi stavku (D14/8c) — web to
+  // piše u opisu dijaloga („Dodaješ sadržaj u X.", `create-page-dialog.tsx:114`).
+  // Piker oblasti se NE dodaje: web ga zaključava kad postoji `target.areaId`, a
+  // sva tri mounta ovog sheeta prosleđuju konkretnu oblast (plan P7 §5.1).
+  const startup = useQuery(api.startups.get, open ? { startupId } : 'skip');
+  const areaLabel = startup?.areas.find((area) => area._id === areaId)?.label ?? null;
 
   const reset = () => {
     setTitle('');
@@ -117,13 +155,27 @@ export function PageCreateSheet({
     setStatus('backlog');
     setPriority('medium');
     setAssigneeIds([]);
-    setDueDays(null);
+    setDueAt(null);
     setInstructions('');
     setCheckpoints([]);
+    setNoteText('');
   };
 
+  /**
+   * Zatvaranje PRAZNI obrazac. Sheet je montiran trajno na sva četiri mesta, pa bi
+   * bez ovoga otkazani nacrt iskočio pri sledećem otvaranju — i to pod drugim
+   * naslovom i drugom oblašću (`areaId`/`parentPageId` dolaze iz propova, nacrt iz
+   * state-a). Web to rešava remount-om: `workspace-shell.tsx:1100` daje dijalogu
+   * `key` koji sadrži i `open` i ceo `target`, pa se stanje briše na svako
+   * zatvaranje. Ovo je isto ponašanje, bez remount-a.
+   *
+   * Cena: dodir po backdrop-u gubi nacrt. Prihvaćeno svesno — nacrt koji preživi
+   * pod pogrešnim zaglavljem laže, a prazan obrazac ne.
+   */
   const closeAll = () => {
     setAssigneesOpen(false);
+    setDueOpen(false);
+    reset();
     onClose();
   };
 
@@ -144,6 +196,9 @@ export function PageCreateSheet({
         rootPageId: parentPageId,
         kind,
         title: cleanTitle,
+        // Sadržaj beleške (D14) — samo kad ga korisnik zaista upiše, da prazna
+        // beleška ne dobije `<p></p>` umesto `""` (server prazno čuva kao `""`).
+        ...(kind === 'note' && noteText.trim() ? { content: noteTextToHtml(noteText) } : {}),
         // Opciona polja se šalju samo za zadatak i samo kad su postavljena —
         // `areasV2.createPage` ih validira kroz `validateWorkspacePageTarget`.
         ...(kind === 'task'
@@ -151,7 +206,7 @@ export function PageCreateSheet({
               taskStatus: status,
               taskPriority: priority,
               ...(assigneeIds.length > 0 ? { assigneeProfileIds: assigneeIds } : {}),
-              ...(dueDays === null ? {} : { dueDate: dueDateInDays(dueDays) }),
+              ...(dueAt === null ? {} : { dueDate: dueAt }),
               ...(cleanInstructions ? { instructions: cleanInstructions } : {}),
               ...(checkpoints.length > 0 ? { checkpoints } : {}),
             }
@@ -176,11 +231,14 @@ export function PageCreateSheet({
 
   // Sažetak u podnaslovu reda „Više opcija" — pokazuje šta je već izabrano, pa se
   // sekcija ne mora otvarati da bi se to videlo.
+  const duePreset = presetFor(dueAt);
   const optionsSummary = [
     TASK_STATUS_META[status].label,
     TASK_PRIORITY_META[priority].label,
     assigneeIds.length > 0 ? `${assigneeIds.length} izvršilaca` : null,
-    dueDays === null ? null : DUE_PRESETS.find((p) => p.days === dueDays)?.label,
+    // Presetu ide njegova labela („Sutra"), proizvoljnom datumu pun datum —
+    // inače bi „neki drugi dan" u sažetku izgledao kao da rok nije postavljen.
+    dueAt === null ? null : (duePreset?.label ?? formatDueDate(dueAt)),
     checkpoints.length > 0 ? `${checkpoints.length} podzadataka` : null,
   ]
     .filter(Boolean)
@@ -198,6 +256,13 @@ export function PageCreateSheet({
             <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
               {parentPageId === null ? 'Nova stranica' : 'Nova podstranica'}
             </Text>
+            {/* U kojoj oblasti se stavka pravi (D14/8c). Web isto piše u opisu
+                dijaloga; do P7 mobilni to nije pisao nigde. */}
+            {areaLabel === null ? null : (
+              <Text style={[styles.areaLine, { color: colors.mutedForeground }]}>
+                U oblasti „{areaLabel}".
+              </Text>
+            )}
             <TextInput
               value={title}
               onChangeText={setTitle}
@@ -245,6 +310,31 @@ export function PageCreateSheet({
                 colors={colors}
               />
             </View>
+
+            {/* Sadržaj beleške (D14). NAMERNO obično polje, ne tentap editor: dva
+                WebView editora u istom stablu su drugi bundle i drugi merni rizik
+                (`ZA-POPRAVKU.md` §2). Puno formatiranje se dobija otvaranjem
+                beleške posle kreiranja — tok koji mobilni već ima. */}
+            {kind === 'note' ? (
+              <Section label="Sadržaj (opciono)" colors={colors}>
+                <TextInput
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  editable={!busy}
+                  multiline
+                  maxLength={MAX_NOTE_TEXT}
+                  placeholder="Zapiši detalje beleške ovde…"
+                  placeholderTextColor={colors.mutedForeground}
+                  selectionColor={colors.primary}
+                  accessibilityLabel="Sadržaj beleške"
+                  style={[
+                    styles.input,
+                    styles.textarea,
+                    { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.input },
+                  ]}
+                />
+              </Section>
+            ) : null}
 
             {kind === 'task' ? (
               <>
@@ -304,11 +394,28 @@ export function PageCreateSheet({
                           <OptionChip
                             key={preset.label}
                             label={preset.label}
-                            active={dueDays === preset.days}
+                            active={duePreset?.label === preset.label}
                             disabled={busy}
-                            onPress={() => setDueDays(preset.days)}
+                            onPress={() =>
+                              setDueAt(preset.days === null ? null : dueDateInDays(preset.days))
+                            }
                           />
                         ))}
+                        {/* Peti čip = pun kalendar (D13). Aktivan je kad izabran
+                            datum nije nijedan preset, pa nosi i sam datum. */}
+                        <OptionChip
+                          label={
+                            dueAt !== null && duePreset === undefined
+                              ? formatDueDate(dueAt)
+                              : 'Neki drugi dan…'
+                          }
+                          active={dueAt !== null && duePreset === undefined}
+                          disabled={busy}
+                          onPress={() => {
+                            haptics.tap();
+                            setDueOpen(true);
+                          }}
+                        />
                       </View>
                     </Section>
 
@@ -364,6 +471,18 @@ export function PageCreateSheet({
         selectedIds={assigneeIds}
         onChange={setAssigneeIds}
         onClose={() => setAssigneesOpen(false)}
+      />
+
+      {/* I kalendar je BRAT, iz istog razloga kao izbor izvršilaca (isti obrazac
+          kao `task-actions-sheet.tsx:216-226`). */}
+      <DatePickerSheet
+        visible={dueOpen}
+        value={dueAt}
+        onSelect={(next) => {
+          setDueAt(next);
+          setDueOpen(false);
+        }}
+        onClose={() => setDueOpen(false)}
       />
     </>
   );
@@ -435,6 +554,10 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: fontWeight.semibold,
+  },
+  areaLine: {
+    fontSize: fontSize.base,
+    marginTop: -4,
   },
   input: {
     minHeight: 48,

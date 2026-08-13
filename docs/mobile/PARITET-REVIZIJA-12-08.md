@@ -102,49 +102,82 @@ najviše koristiš — puštanje aplikacije drugarima.
 
 ## D. Sitno
 
+> **Brojevi D1–D20 dopisani u fazi P7** (13.08.2026). Sekcija je bila pisana u
+> prozi, pa se na stavke nije moglo pokazati — a tabela ishoda na kraju dokumenta
+> mora da ima red po stavci. Redosled brojeva je redosled kojim su stavke već
+> bile navedene; ništa nije preuređeno.
+
 **Zatvoreno u lancu 6, P3 (chat):**
 
-- ~~Kopiranje teksta poruke~~ — red „Kopiraj tekst" u akcionom sheet-u
+- **D1** ~~Kopiranje teksta poruke~~ — red „Kopiraj tekst" u akcionom sheet-u
   (`message-actions-sheet.tsx`), implementacija u `message-list.tsx` (`handleCopy`).
   **`selectable` na mehuriću je svesno ODBIJENO**: na Androidu dugi pritisak nad
   `selectable` tekstom pokreće native selekciju i pojede `onLongPress` — jedini ulaz
   u taj isti sheet (odgovori, reakcije, izmeni, obriši).
-- ~~Više fajlova odjednom u chatu~~ — `allowsMultipleSelection` + `multiple: true`
+- **D2** ~~Više fajlova odjednom u chatu~~ — `allowsMultipleSelection` + `multiple: true`
   i red čekanja (`message-composer.tsx`, `enqueue`): jedan upload → jedna poruka,
   redom kojim su izabrani, kao web `use-attachment-sender.ts`. Granica je **10 po
-  izboru** (svesna, nije serverska). **Prilozi STRANICE i dalje idu jedan po jedan.**
-- ~~Video iz galerije u chat~~ — `mediaTypes: ['images','videos']`. Kamera namerno
+  izboru** (svesna, nije serverska). ~~**Prilozi STRANICE i dalje idu jedan po
+  jedan.**~~ → **više ne, vidi D11 (P7).**
+- **D3** ~~Video iz galerije u chat~~ — `mediaTypes: ['images','videos']`. Kamera namerno
   ostaje jedna slika (isti izuzetak koji `files-panel.tsx` već nosi).
   **Video se i dalje ne renderuje u mehuriću — ni na webu** (`message-row.tsx:307`
   grana samo `image/`), pa to nije rupa pariteta nego nova funkcija za obe platforme.
-- ~~Pretraga članova pri otvaranju DM-a~~ — `components/chat/member-search-input.tsx`,
+- **D4** ~~Pretraga članova pri otvaranju DM-a~~ — `components/chat/member-search-input.tsx`,
   montiran u oba koraka „Nove poruke" i u sheet-u „Članovi kanala".
-- ~~Pomen (@) u sredini teksta~~ — `findMentionQuery` portovan u
+- **D5** ~~Pomen (@) u sredini teksta~~ — `findMentionQuery` portovan u
   `apps/mobile/src/lib/chat.ts` (traži unazad OD KURSORA); umetanje čuva tekst iza
   kursora. Kapija: `apps/mobile/src/lib/chat.mention.test.ts` (8 tvrdnji).
-- ~~Izmena poruke koja nosi prilog~~ — `canEdit` više ne traži `kind === 'text'`
+- **D6** ~~Izmena poruke koja nosi prilog~~ — `canEdit` više ne traži `kind === 'text'`
   (`message-actions-sheet.tsx`), a kompozer dozvoljava prazno telo pri izmeni
   priloga (`submit`, `allowEmptyBody`).
-- ~~Objašnjenje zašto izmena više nije moguća~~ — red „Izmeni" se više ne sakriva;
+- **D7** ~~Objašnjenje zašto izmena više nije moguća~~ — red „Izmeni" se više ne sakriva;
   dodir van prozora daje `Alert` sa doslovno web tekstom („…samo u prvih 15
   minuta."). Konstanta je sada jedna: obe platforme uvoze `CHAT_EDIT_WINDOW_MS`.
 
 **Zatvoreno u lancu 6, P4 (ideje i misli):**
 
-- ~~Datum kreiranja ideje u listi~~ — `ideje.tsx` (`IdeaItem.createdAt`),
+- **D8** ~~Datum kreiranja ideje u listi~~ — `ideje.tsx` (`IdeaItem.createdAt`),
   `formatDayHeading(startOfLocalDay(...))` u podnožju kartice, isti obrazac kao web.
-- ~~„Nova grana ideje" u jednom potezu~~ — `IdeaCreateSheet` dobija opcioni `parent`
+- **D9** ~~„Nova grana ideje" u jednom potezu~~ — `IdeaCreateSheet` dobija opcioni `parent`
   (`ideas.create.parentIdeaId` + apsolutna pozicija preko `lib/canvas-position.ts`);
   ulaz je nov red u `idea-actions-sheet.tsx` („Nova grana ideje…").
-- ~~„Nova povezana misao"~~ — `ThoughtCreateSheet` dobija opcioni `connectFrom`;
+- **D10** ~~„Nova povezana misao"~~ — `ThoughtCreateSheet` dobija opcioni `connectFrom`;
   `createNode` pa `createEdge` sa rollback-om (`archiveNodes`) ako ivica pukne, isto
   kao web `thoughts-canvas-view.tsx`. Ulaz je nov red u `thought-actions-sheet.tsx`.
 
-**Ostaje otvoreno:** više fajlova odjednom u **prilozima stranice** · ikonica i naziv
-oblasti u zaglavlju kanala · rok kao pun kalendar pri kreiranju · sadržaj
-beleške u dijalogu kreiranja · izbor oblasti pri kreiranju · pregled videa i
-„Preuzmi" u pregledaču priloga · kanban „Tabla" za zadatke · „Sastav nedelje" na
-Pulsu · spisak tima za ne-admina · poruka da je lista zahteva odsečena na 100.
+**Zatvoreno u lancu 6, P7:**
+
+- **D11** ~~više fajlova odjednom u **prilozima stranice**~~ — `files-panel.tsx`
+  (`allowsMultipleSelection` + `selectionLimit: MAX_PAGE_FILES`, `multiple: true`,
+  `enqueue` red čekanja, predprovera `planPageFilePicks`).
+- **D12** ~~ikonica i naziv oblasti u zaglavlju kanala~~ — i u zaglavlju
+  (`conversation-header.tsx`) i u listi (`conversation-row.tsx`), kroz nov
+  `components/ui/area-icon.tsx` + `lib/area-meta.ts`.
+- **D13** ~~rok kao pun kalendar pri kreiranju~~ — peti čip „Neki drugi dan…" u
+  `page-create-sheet.tsx` otvara postojeći `DatePickerSheet` (do P7 nije bio ni
+  uvezen; komentar u fajlu je tvrdio suprotno).
+- **D14** ~~sadržaj beleške u dijalogu kreiranja~~ — polje „Sadržaj (opciono)" +
+  `noteTextToHtml` (`lib/note-content.ts`).
+- **D15** izbor oblasti pri kreiranju — **NIJE URAĐENO, svesna odluka.** Web piker
+  je `disabled` kad postoji `target.areaId` (`create-page-dialog.tsx:142`), a sva
+  tri mounta mobilnog sheeta prosleđuju konkretnu oblast; globalni ulaz („Novi
+  zadatak") mobilni ima sa izborom oblasti (`quick-add-sheet.tsx:67-95`). Sheet
+  sada bar KAŽE u kojoj oblasti pravi stavku.
+- **D16** ~~pregled videa i „Preuzmi" u pregledaču priloga~~ — `file-preview.tsx`
+  (video/audio kroz `WebView` sa `<video controls>`, dugme „Preuzmi", oba stanja
+  greške koja web ima).
+- **D17** kanban „Tabla" za zadatke — **NIJE URAĐENO, svesna odluka** (`ZA-POPRAVKU`
+  §14).
+- **D18** ~~„Sastav nedelje" na Pulsu~~ — nov `components/ui/pulse-bar.tsx`,
+  montiran u `puls.tsx`.
+- **D19** ~~spisak tima za ne-admina~~ — `vise.tsx` red bez `adminOnly`, admin
+  radnje u `clanovi.tsx` gejtovane eksplicitno.
+- **D20** ~~poruka da je lista zahteva odsečena na 100~~ — `odobrenja.tsx`, u oba
+  segmenta.
+
+**Ostaje otvoreno:** ništa iz sekcije D. Dve stavke (D15, D17) su zatvorene kao
+odluke sa razlogom, ne kao posao. Dokazi po stavci: tabela ishoda na kraju.
 
 ---
 
@@ -167,3 +200,112 @@ brisanje naloga, izbor jezika — ne postoje nigde, ni u UI ni u backendu.
 Vraćanje arhivirane stranice ne postoji kao mutacija uopšte.
 `createChannel({fromMessageId})` („diskusija iz poruke") nije pozvan ni na jednoj
 platformi.
+
+---
+
+# G. TABELA ISHODA — svih 44 stavke (dopisano u fazi P7, 13.08.2026)
+
+> Zahtev faze P7: **nijedna stavka iz B, C i D ne sme da ostane neizgovorena.**
+> Zato tabela ima tačno onoliko redova koliko dokument ima stavki: **B1–B7 (7) +
+> C1–C17 (17) + D1–D20 (20) = 44.** Ishod je jedna od tri reči: **URAĐENO** /
+> **DELIMIČNO** / **NIJE URAĐENO**, i svaka od njih nosi dokaz (fajl:linija) ili
+> razlog.
+>
+> Linije su tačne u trenutku pisanja (commit faze P7). Kad se pomere, sudi po
+> imenu simbola, ne po broju — to je pravilo koje je P5 već naučio.
+
+## G.1 Sekcija B — velike rupe
+
+| # | Radnja | Ishod | Dokaz / razlog |
+|---|---|---|---|
+| B1 | Urediti belešku sa tabelom / prilogom / blokom koda | **URAĐENO** (P2) | `apps/mobile/src/lib/note-editor-bridges.ts` (šema), `apps/mobile/editor-web/` (izvor bundle-a), `components/stranica/note-editor.tsx` (`customSource`, `bodyEditable = canEditBody`); čuvar gubitka: `lib/note-content.ts` (`noteSignatureLoss`) |
+| B2 | Preimenovati zadatak | **URAĐENO** (P1) | `components/stranica/page-actions-sheet.tsx:399` (red „Preimenuj"), `:226` (`renameSubmit`), `:464`/`:477` (pod-prikaz sa unosom) |
+| B3 | Preimenovati stranicu tipa Tabela / Prilozi | **URAĐENO** (P1) | isti red kao B2, uz uslov `page.kind !== 'note'`; `page-actions-sheet.tsx:44` (`rename` u meniju), `:399` |
+| B4 | Diskusija (chat) nad idejom | **URAĐENO** (P3) | `components/chat/discussion-link.tsx:25-27`, `:64-67`; mount `app/(app)/ideja/[id].tsx:283-286` |
+| B5 | Kopirati pozivnicu kao LINK | **URAĐENO** (P1) | `app/(app)/pozivnice.tsx` (`inviteLinkUrl` sada POZVAN), `lib/embed-url.ts`; pada na stari tok kad `EXPO_PUBLIC_WEB_URL` nije podešen |
+| B6 | Dodati članove privatnom kanalu | **URAĐENO** (P3, i backend i oba klijenta) | `packages/backend/convex/chat.ts:1104` (`channelMembers`), `:1616` (`setChannelMembers`); mobilni `components/chat/channel-members-sheet.tsx`; web `components/workspace/chat/channel-members-dialog.tsx` |
+| B7 | Ubaciti sliku / prilog / tabelu / CSV u telo beleške | **URAĐENO** (P2) | `components/stranica/note-insert-sheet.tsx`, ulaz „Dodaj…" u `note-toolbar.tsx`, upload u `note-editor.tsx` (`uploadAndInsert`) |
+
+## G.2 Sekcija C — srednje
+
+| # | Radnja | Ishod | Dokaz / razlog |
+|---|---|---|---|
+| C1 | Tema ostaje posle restarta | **URAĐENO** (P6) | `lib/device-prefs.ts` (`readThemePreference`/`writeThemePreference`), `theme/theme-provider.tsx:40` (čitanje u `useState` inicijalizatoru), `:42` |
+| C2 | Aktivan startup ostaje posle restarta | **URAĐENO** (P6) | `packages/backend/convex/startups.ts:101` (`isCurrentMember`) + `startups.test.ts`; `context/active-startup.tsx:52-56` (`restoring`), `components/app-header.tsx:54-59` |
+| C3 | Boja kartice ideje | **URAĐENO** (P4) | `components/ui/color-row.tsx`; `components/canvas/idea-create-sheet.tsx` (kreiranje), `app/(app)/ideja/[id].tsx:94` (`draftColor`), `:132` (šalje se u `update`), `:390` (`ColorRow`) |
+| C4 | Duplirati ideju | **URAĐENO** (P4) | `components/ideja/idea-actions-sheet.tsx` (`duplicate()`), `lib/canvas-position.ts`, `lib/undo.ts` (`ideaCreate`) |
+| C5 | Oznaka veze se VIDI na kanvasu | **URAĐENO** (P4) | `components/ideja/idea-edge-sheet.tsx:70` (`updateEdgeLabel` upis); `apps/web/app/embed/canvas/[kind]/[id]/canvas-embed.tsx` (`edge.label` u mapiranju ivica + CSS `.react-flow__edge-text` u `EmbedStyles`) |
+| C6 | Boja čvora se vidi na kanvasu | **URAĐENO** (P4) | `canvas-embed.tsx` (`embedNodeColor`, `data.color` za ideje i misli) |
+| C7 | Filter po tipu u oblasti | **URAĐENO** (P5) | `components/prostor/kind-filter-row.tsx`, mount `app/(app)/(tabs)/prostor.tsx:540`, filter u `pages.listChildren` (`:528`); kapija `pages.test.ts` |
+| C8 | Filter/pretraga unutar ideja i misli | **URAĐENO** (P4) | `components/ui/search-field.tsx`; `app/(app)/ideje.tsx`, `app/(app)/misli.tsx` |
+| C9 | Ugnjezditi pod stranicu koja nije u korenu | **URAĐENO** (P5) | `components/stranica/page-target-picker.tsx`, zamena liste u `page-actions-sheet.tsx:544`; undo `lib/undo.ts:235` (`pageReparent`), `components/undo-bar.tsx:321` |
+| C10 | Premestiti u oblast POD određenu stranicu | **URAĐENO** (P5) — **bila SERVERSKA rupa, ne mobilna** | `packages/backend/convex/areasV2.ts:3738` (`movePageAcrossAreasWithSidecars`), `:3750` („Stranica nije pronađena posle premeštanja." — ponovno čitanje dokumenta, zamka Z12), `:3755` (`moveWithinArea` u istoj transakciji); mobilni ulaz `page-actions-sheet.tsx:544` (`PageTargetPicker` u koraku `moveTarget`); tri nova testa u `areasV2.test.ts` |
+| C11 | Breadcrumbs kao dugmad | **URAĐENO** (P5) | `components/breadcrumbs-eyebrow.tsx:125` (`PathSheet`), `:150`, `:200`; mount `app/(app)/stranica/[id].tsx:118`, `app/(app)/zadatak/[id].tsx:353` |
+| C12 | Redo, i undo dublji od jednog koraka | **DELIMIČNO** (P6) | Undo stek URAĐEN: `lib/undo.ts` (`entries[]`, `MAX_UNDO_ENTRIES`), `hooks/use-undo-runner.ts`, `app/(app)/istorija.tsx`, kapija `lib/undo.test.ts`. **Redo NIJE — svesna odluka sa tri razloga:** `ZA-POPRAVKU.md` §12. Stek ne preživljava restart, takođe svesno: §13 |
+| C13 | Nit doprinosa na checkpointu | **URAĐENO** (P5) | `components/zadatak/checkpoint-contributions-sheet.tsx`; ulaz `components/zadatak/task-checkpoint-list.tsx:376`, mount `:441` |
+| C14 | Potpisani doprinosi na nivou oblasti | **URAĐENO** (P5) | `components/prostor/area-contributions-section.tsx`, mount `app/(app)/(tabs)/prostor.tsx:255`; `contribution-thread.tsx:54` (`area` član unije); traka „Poništi" `prostor.tsx:288` |
+| C15 | Isključiti push na ovom uređaju | **URAĐENO** (P6) | `lib/notifications/register.ts:240` (`useDisablePushDevice`), `:223-226` (preskakanje registracije), `:107`; UI `app/(app)/podesavanja-obavestenja.tsx`. Namerno bez trake „Poništi" — izlaz je trajno dugme |
+| C16 | Status odobrenja ideje se prikazuje | **URAĐENO** (P4) | `app/(app)/ideje.tsx` (lista), `app/(app)/ideja/[id].tsx:227-228` (`statusRow` + `Badge` u detalju); `components/ideja/idea-actions-sheet.tsx` („Pretvori u stranicu" onemogućen sa razlogom umesto sakriven) |
+| C17 | Ponovo kopirati kod postojeće pozivnice | **URAĐENO** (P1) | `lib/invite-codes.ts` (sesijsko pamćenje, NE na disk), dugme u redu `app/(app)/pozivnice.tsx` |
+
+## G.3 Sekcija D — sitno
+
+| # | Radnja | Ishod | Dokaz / razlog |
+|---|---|---|---|
+| D1 | Kopiranje teksta poruke | **URAĐENO** (P3) | `components/chat/message-actions-sheet.tsx` (red „Kopiraj tekst"), `message-list.tsx` (`handleCopy`). `selectable` na mehuriću svesno odbijeno (jede `onLongPress` na Androidu) |
+| D2 | Više fajlova odjednom u chatu | **URAĐENO** (P3) | `components/chat/message-composer.tsx` (`enqueue`, `allowsMultipleSelection`, `multiple: true`), granica 10 po izboru |
+| D3 | Video iz galerije u chat | **URAĐENO** (P3) | `message-composer.tsx` (`mediaTypes: ['images','videos']`). Render videa u mehuriću ne postoji **ni na webu** (`message-row.tsx:307`) → nije rupa pariteta |
+| D4 | Pretraga članova pri otvaranju DM-a | **URAĐENO** (P3) | `components/chat/member-search-input.tsx`, montiran u oba koraka „Nove poruke" i u „Članovi kanala" |
+| D5 | Pomen (@) u sredini teksta | **URAĐENO** (P3) | `lib/chat.ts` (`findMentionQuery`), kapija `lib/chat.mention.test.ts` (8 tvrdnji) |
+| D6 | Izmena poruke koja nosi prilog | **URAĐENO** (P3) | `message-actions-sheet.tsx` (`canEdit` bez `kind === 'text'`), `message-composer.tsx` (`allowEmptyBody`) |
+| D7 | Objašnjenje zašto izmena više nije moguća | **URAĐENO** (P3) | `message-actions-sheet.tsx` (`Alert`, doslovno web tekst); konstanta `CHAT_EDIT_WINDOW_MS` uvezena na obe platforme |
+| D8 | Datum kreiranja ideje u listi | **URAĐENO** (P4) | `app/(app)/ideje.tsx` (`IdeaItem.createdAt` + `formatDayHeading`) |
+| D9 | „Nova grana ideje" u jednom potezu | **URAĐENO** (P4) | `components/canvas/idea-create-sheet.tsx` (prop `parent`), ulaz u `components/ideja/idea-actions-sheet.tsx` |
+| D10 | „Nova povezana misao" | **URAĐENO** (P4) | `components/canvas/thought-create-sheet.tsx` (prop `connectFrom`, rollback preko `archiveNodes`), ulaz u `components/misli/thought-actions-sheet.tsx` |
+| D11 | Više priloga odjednom na STRANICI | **URAĐENO** (P7) | `components/stranica/files-panel.tsx:167-168` (galerija: `allowsMultipleSelection` + `selectionLimit: MAX_PAGE_FILES`), `:215` (`multiple: true`), `:125` (`enqueue`), `:144-145` (`startPicks` → `planPageFilePicks`); nov `lib/page-file-picks.ts` + `lib/page-file-picks.test.ts` (10 tvrdnji). Kamera ostaje jedan snimak (zatečen svestan izuzetak) |
+| D12 | Ikonica i naziv oblasti u zaglavlju kanala | **URAĐENO** (P7) | Zaglavlje: `components/chat/conversation-header.tsx:312` (ikonica + boja oblasti), `:61` (podnaslov „Kanal oblasti · X"); lista: `components/chat/conversation-row.tsx:78`. Nov `components/ui/area-icon.tsx` + `lib/area-meta.ts` + test (5 tvrdnji); razrešavanje `lib/chat.ts` (`findChannelArea`), pozvano na `app/(app)/razgovor/[id].tsx:160` i `app/(app)/(tabs)/chat.tsx:151` |
+| D13 | Rok kao pun kalendar pri kreiranju | **URAĐENO** (P7) | `components/canvas/page-create-sheet.tsx:396-400` (peti čip „Neki drugi dan…", nosi izabran datum kad nije preset), `:466-468` (`DatePickerSheet` kao BRAT sheeta), `:129` (`dueAt` u ms umesto `dueDays`). Lažan komentar iz `:52` obrisan |
+| D14 | Sadržaj beleške u dijalogu kreiranja | **URAĐENO** (P7) | `page-create-sheet.tsx:307` (`Section label="Sadržaj (opciono)"`), `:189` (`content: noteTextToHtml(noteText)`); nov `noteTextToHtml` u `lib/note-content.ts` + `lib/note-content.text.test.ts` (10 tvrdnji). Namerno NIJE tentap editor u sheet-u — razlog u docstring-u funkcije |
+| D15 | Izbor oblasti pri kreiranju | **NIJE URAĐENO — svesna odluka** | Web piker je `disabled` kad postoji `target.areaId` (`apps/web/components/workspace/create-page-dialog.tsx:142`), a sva tri mounta mobilnog sheeta prosleđuju konkretnu oblast (`prostor.tsx:277`, `canvas/[kind]/[id].tsx:1093`/`:1103`, `subpages-section.tsx:172`). Web-ov jedini put sa OMOGUĆENIM pikerom je globalni „Novi zadatak", a mobilni pandan to VEĆ ima (`components/danas/quick-add-sheet.tsx:67` (labela „Oblast") i `:73-95` (čipovi oblasti)). Dodati piker gde ga web zaključava = udaljiti se od weba. **Urađeno je ono što je falilo:** sheet sada kaže u kojoj oblasti pravi stavku (`page-create-sheet.tsx:251`) |
+| D16 | Pregled videa i „Preuzmi" u pregledaču priloga | **URAĐENO** (P7) | `components/stranica/file-preview.tsx:28` (`kind` prima `video`/`audio`), `:42` (`mediaDocument` — `<video controls playsinline>` kroz memoizovan `source={{html}}`, Z1), `:148` (dugme „Preuzmi", `Linking.openURL` sa fallback-om), `:160` i `:166` (oba stanja greške koja web ima); grana je dostupna preko `files-panel.tsx:234` (`openFile`) |
+| D17 | Kanban „Tabla" za zadatke | **NIJE URAĐENO — svesna odluka** | Tri dokaza: (1) `docs/mobile/00-PLAN.md` Faza 2 doslovno kaže „Svajp gestovi umesto drag-and-drop kanbana"; (2) funkcija POSTOJI, samo je vertikalna — `app/(app)/zadaci.tsx:173-176` (`grouped`, grupisanje po `TASK_STATUS_ORDER`), `:383` (petlja po statusima) i `:388` (`SectionHeader` sa `count`), `:248` (`applyStatus` menja status iz sheet-a), a web tabla nudi tačno te dve radnje; (3) paritet je funkcionalni — pet kolona sa horizontalnim skrolom na 360dp je prepis izgleda. Zapisano i u `ZA-POPRAVKU.md` §14 |
+| D18 | „Sastav nedelje" na Pulsu | **URAĐENO** (P7) | Nov `components/ui/pulse-bar.tsx`; mount `app/(app)/puls.tsx:165-167`, segmenti `:123` (doslovno web `puls-view.tsx:99-117`), skeleton iste visine dok podaci ne stignu. Bez animacije, namerno — jedini potrošač je Puls, gde web šalje `pulseTone={null}` |
+| D19 | Spisak tima za ne-admina | **URAĐENO** (P7) | `app/(app)/(tabs)/vise.tsx:72` (red bez `adminOnly`); admin radnje gejtovane unutra: `app/(app)/clanovi.tsx:116` (ulaz „Dodaj člana"), `:191` (dugme za uklanjanje se ne renderuje ne-adminu), `:231` (mount `AddMemberSheet` iza `isAdmin` — `profiles.listAll` je query iza `requireAdmin` i oborio bi ekran) |
+| D20 | Poruka da je lista zahteva odsečena na 100 | **URAĐENO** (P7) | `app/(app)/odobrenja.tsx:562` (`TruncationNote`), pozvano na `:338` (segment „Čeka") i `:417` (segment „Moji") — u OBA, jer je serverski `truncated` jedna zastavica za incoming i outgoing (`areasV2.ts:3336-3338`) |
+
+## G.4 Zbir
+
+| Ishod | Broj | Koje |
+|---|---|---|
+| **URAĐENO** | 41 | B1–B7, C1–C11, C13–C17, D1–D14, D16, D18–D20 |
+| **DELIMIČNO** | 1 | C12 (undo stek da, redo namerno ne) |
+| **NIJE URAĐENO — odluka sa razlogom** | 2 | D15, D17 |
+| **NIJE URAĐENO — propust** | 0 | — |
+
+---
+
+# H. Nalazi faze P7 koji NISU iz ove revizije
+
+Nađeni tokom P7, van opsega zadatka. Zapisani da se ne izgube, **nijedan nije
+urađen** (osim trećeg, koji je bio laž u komentaru).
+
+1. **„Sastav dana" na tabu „Danas" ne postoji.** Web ima istu traku i u komandnom
+   centru (`apps/web/components/workspace/command-center-view.tsx:329-332`,
+   `label="Sastav dana"`), mobilni `app/(app)/(tabs)/danas.tsx` je nema. **Nije u
+   sekciji D** i nije u zadatku faze; uz to `components/danas/day-summary.tsx:57-79`
+   već prikazuje ista tri broja (otvoreno/kasni/hitno), pa je razlika vizuelna.
+   Posle P7 primitiv postoji (`components/ui/pulse-bar.tsx`), pa je posao ~8 linija
+   — **ostavljeno korisniku za odluku.** Napomena: web tamo OTKUCAVA
+   (`pulseTone="danger"`), pa bi se sa tim pozivaocem dodao i otkucaj u primitiv.
+2. **Navigacija između priloga u pregledaču („1 od 5", strelice) ne postoji na
+   mobilnom.** Web ima (`apps/web/components/workspace/files/file-viewer-dialog.tsx:150-172`).
+   Nije u sekciji D. Posao traži da `FilePreview` primi CELU listu priloga umesto
+   jednog, plus gest za sledeći/prethodni — nije jednolinijska izmena.
+3. **Lažan komentar u `page-create-sheet.tsx:52`** — tvrdio je da „proizvoljan datum
+   nosi `DatePickerSheet`", a sheet u tom fajlu nije bio ni uvezen ni montiran.
+   **Ispravljen u P7** (sada je tačan, jer sheet postoji). Pouka: komentar nije
+   dokaz — dokaz je lanac uvoza.
+4. **`docs/mobile/PARITET.md` brojač poziva ne vidi ništa od P7.** Sve četiri
+   izmene koje pišu ili čitaju sa servera koriste funkcije koje mobilni VEĆ zove
+   (`startups.get`, `pageFiles.*`, `areasV2.listNestingInbox`, `areasV2.createPage`).
+   Isti nalaz kao K5 i §5.7 — brojač po imenima funkcija ne meri paritet.

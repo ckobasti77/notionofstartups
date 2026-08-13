@@ -905,6 +905,81 @@ traku ni kroz „Istoriju radnji". Isti razlog zbog kog ni web undo stek
 
 ---
 
+## 14. Kanban „Tabla" na telefonu: odluka, ne propust
+
+**Kontekst.** `PARITET-REVIZIJA-12-08.md`, sekcija D, stavka **D17**: web ima
+kanban tablu zadataka (`tasks-view.tsx`), mobilni `zadaci.tsx` je vertikalna lista
+sa sekcijama. Faza P7 je tu stavku **odbila.** Tri razloga, po težini:
+
+1. **Odluka je već doneta i zapisana u master planu.** `docs/mobile/00-PLAN.md`,
+   Faza 2, doslovno: „**Svajp gestovi umesto drag-and-drop kanbana.**" P7 je ne
+   preinačuje.
+
+2. **Funkcija POSTOJI, samo je vertikalna.** Web tabla nudi tačno dve radnje:
+   grupisanje po statusu sa brojačem i promenu statusa. Mobilni ima obe:
+
+   | Radnja | Mobilni |
+   |---|---|
+   | grupisanje po statusu | `app/(app)/zadaci.tsx:173-176` (`grouped`, po `TASK_STATUS_ORDER`) |
+   | sekcija po statusu SA BROJAČEM | `:383` (petlja) + `:388` (`SectionHeader` sa `count`) |
+   | promena statusa | `:248` (`applyStatus`, iz sheet-a akcija) |
+
+   Docstring tog ekrana (`:62`) doslovno kaže odakle je obrazac pozajmljen:
+   „grupisanje-sa-brojačem iz kanban-a u `tasks-view.tsx`".
+
+3. **Paritet je FUNKCIONALNI, ne vizuelni.** Pet kolona sa horizontalnim skrolom
+   na 360 dp je prepis IZGLEDA. Drag-and-drop između kolona na 6 inča je uz to
+   ista ergonomska greška zbog koje je kanvas na telefonu „pregled i navigacija",
+   a ne „preuređivanje layouta" (`00-PLAN.md` §5.2, poslednji pasus).
+
+**USLOV za reviziju odluke.** Ako se u upotrebi pokaže da ljudi zadatke premeštaju
+kroz statuse češće nego što ih otvaraju, jeftiniji korak od kanbana je **svajp na
+kartici u sledeći/prethodni status** (obrazac koji `danas.tsx` već ima za druge
+radnje) — ne horizontalne kolone. Tabla se pravi samo ako se pokaže da je potrebno
+videti DVE kolone istovremeno, a to na 360 dp ne staje čitljivo.
+
+**Nalaz:** lanac 6, faza P7 (13.08.2026).
+
+---
+
+## 15. Video u pregledu priloga ide kroz `WebView`, ne `expo-video`
+
+**Kontekst.** Stavka **D16**: web pregledač priloga renderuje video i audio
+(`apps/web/components/workspace/files/file-viewer-dialog.tsx:71-85`), mobilni ih je
+slao u sistemski browser. P7 je to zatvorio, ali **bez dodavanja native modula.**
+
+**Šta je urađeno.** `apps/mobile/src/components/stranica/file-preview.tsx` renderuje
+`WebView` sa `source={{ html }}` koji sadrži jedan `<video controls playsinline>`
+odnosno `<audio controls>`. URL i naziv idu kroz `escapeHtml` (`lib/html.ts`).
+
+**Dve odluke unutra, obe važne:**
+
+- **`source={{ html }}`, a NE `source={{ uri }}`.** Android WebView na golu `.mp4`
+  adresu vrlo često pokrene **preuzimanje** fajla umesto plejera (nema handler za
+  tip / `Content-Disposition`), pa korisnik ne dobije kontrole. Sa ugrađenim
+  `<video controls>` odluku donosi stranica, ne WebView.
+- **`source` MORA biti memoizovan** — inače reload petlja (Z1). Isti komentar stoji
+  iznad njega u kodu.
+
+**Zašto NE `expo-video`.** Dodavanje native modula u `apps/mobile/package.json`
+čini **nov development build obaveznim za ceo ostatak faze**: dev klijent bez tog
+modula pukne na `import`, pa korisnik ne bi mogao da isproba **ni jednu drugu**
+izmenu dok ne prebildruje. Za fazu čiji je posao zatvaranje spiska sitnica to je
+pogrešna trampa. `WebView` sa `<video controls>` radi u postojećem buildu, uz
+Metro reload.
+
+**USLOV pod kojim se odluka menja.** Provera prstom na uređaju (`lanac6/BRIEF.md`
+§4.2, tačka 1) pokaže da kontrole ne rade, da je plejer crn, ili da se HEVC snimak
+sa iPhone-a ne dekodira. **Tada se otvara ZASEBAN zadatak sa svojim native
+buildom**, ne popravka u tuđoj fazi. Do tada korisnik nije u ćorsokaku: `onError`
+i `onHttpError` grane prikazuju poruku „Pregled nije podržan u ovom uređaju.
+Preuzmi fajl da bi ga otvorio." i „Pokušaj ponovo", a dugme **„Preuzmi"** u
+zaglavlju je uvek tu.
+
+**Nalaz:** lanac 6, faza P7 (13.08.2026).
+
+---
+
 ## Z1. Inline objekti kao propovi `WebView`-a izazivaju reload petlju
 
 **Simptom.** WebView beskonačno učitava — u logu se `onLoadStart` ponavlja bez
