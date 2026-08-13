@@ -443,3 +443,17 @@ i `expo-document-picker` su već bili zavisnosti. Native build zato nije obaveza
 - `tsc web`: prolazi
 - `lint`: prolazi
 - `test`: prolazi
+- Trajanje: 66 min
+
+## P4 - Ideje i misli: doslednost i kanvas prikaz
+
+**Cilj:** Ideje imaju sve sto imaju misli, a kanvas prikazuje boju i oznaku veze koje korisnik unosi.
+
+| Korak | Model | Effort |
+|---|---|---|
+| PLAN | `opus` | `max` |
+| IZVRSI | `sonnet` | `xhigh` |
+| REVIZIJA | `opus` | `max` |
+
+- Start: 2026-08-13T02:47:18
+- PLAN: napisan
