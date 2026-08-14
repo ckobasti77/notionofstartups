@@ -276,6 +276,27 @@ export const pageSummaryValidator = v.object({
   updatedAt: v.number(),
 });
 
+/**
+ * CEO `pages` dokument — za funkcije koje vraćaju `{ ...page }` umesto sažetka
+ * (`pages.get`). Mora da nosi SVAKO polje iz `schema.ts`, jer Convex returns
+ * validator odbija višak i obara ceo ekran, i to tek kad se novo polje prvi put
+ * upiše u bazu (npr. `tableColumnCount` posle prve tabele). Poklapanje sa šemom
+ * čuva `pages.validator.test.ts`.
+ *
+ * `pageSummaryValidator` je namerno uži i ostaje takav: njega prati
+ * `summarizePage`, koji polja bira nabrajanjem, pa mu višak iz šeme ne može doći.
+ */
+export const pageDocumentValidator = pageSummaryValidator.extend({
+  treeRevision: v.optional(v.number()),
+  canvasPreview: v.optional(v.string()),
+  fileCount: v.optional(v.number()),
+  filePreviewStorageId: v.optional(v.id("_storage")),
+  filePrimaryCategory: v.optional(pageFileCategoryValidator),
+  tableRowCount: v.optional(v.number()),
+  tableColumnCount: v.optional(v.number()),
+  sourceMessageId: v.optional(v.id("chatMessages")),
+});
+
 export const startupDocumentValidator = v.object({
   _id: v.id("startups"),
   _creationTime: v.number(),

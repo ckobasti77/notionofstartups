@@ -6,6 +6,7 @@
     "@10play/tentap-editor": "^1.0.1",
     "@convex-dev/auth": "^0.0.94",
     "@devotion/backend": "*",
+    "@devotion/shared": "*",
     "@expo/ui": "~57.0.10",
     "@tiptap/core": "3.29.2",
     "@tiptap/extension-code-block": "3.29.2",

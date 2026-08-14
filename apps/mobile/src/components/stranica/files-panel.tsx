@@ -37,6 +37,7 @@ import { formatFileSize } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { planPageFilePicks, rejectedPicksMessage } from '@/lib/page-file-picks';
+import { postUploadBlob, readUploadBlob } from '@/lib/upload';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
 
@@ -101,14 +102,8 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
   async function upload(input: PickInput) {
     try {
       const { uploadUrl, token } = await generateUploadUrl({ pageId });
-      const blob = await (await fetch(input.uri)).blob();
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': input.mimeType },
-        body: blob,
-      });
-      if (!res.ok) throw new Error('Otpremanje nije uspelo.');
-      const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
+      const blob = await readUploadBlob(input.uri, input.mimeType);
+      const storageId = await postUploadBlob(uploadUrl, blob);
       const result = await attach({ pageId, storageId, token, name: input.name });
       if (!result.ok) Alert.alert('Prilog odbijen', result.message);
     } catch (error) {

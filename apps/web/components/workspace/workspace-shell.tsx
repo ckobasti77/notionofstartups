@@ -46,6 +46,10 @@ import {
   StartupLogo,
 } from "@/components/workspace/workspace-ui";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
+import {
+  WorkspaceErrorBoundary,
+  useQueryTolerant,
+} from "@/components/workspace/workspace-error-boundary";
 import type {
   ThoughtDestination,
   ThoughtDestinationRequest,
@@ -206,7 +210,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     startup ? { startupId: startup._id } : "skip",
   );
   const chatUnread = useQuery(api.chat.unreadSummary, {});
-  const detailPage = useQuery(
+  // Tolerantno: pad `pages.get` obara body dijaloga kroz granicu, a footer se
+  // degradira na „Autor nije dostupan" umesto da sruši ceo shell.
+  const detailPage = useQueryTolerant(
     api.pages.get,
     detailPageId ? { pageId: detailPageId } : "skip",
   );
@@ -893,6 +899,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               onCreateArea={() => setCreateAreaOpen(true)}
             />
           ) : (
+            <WorkspaceErrorBoundary
+              key={route.pageId}
+              title="Stranica se ne može učitati"
+              className="min-h-[24rem]"
+            >
             <PageWorkspaceView
               startup={startup}
               pageId={route.pageId}
@@ -923,6 +934,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 }
               }}
             />
+            </WorkspaceErrorBoundary>
           )}
         </WorkspaceStage>
       </div>
@@ -999,6 +1011,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           </div>
           <div className="scrollbar-thin min-h-0 overflow-y-auto overscroll-contain bg-background">
             {detailPageId ? (
+              <WorkspaceErrorBoundary
+                key={detailPageId}
+                title="Stranica se ne može učitati"
+                className="m-4 min-h-[20rem]"
+              >
               <PageEditorView
                 key={detailPageId}
                 startup={startup}
@@ -1029,6 +1046,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                   setDetailSaveState("saved");
                 }}
               />
+              </WorkspaceErrorBoundary>
             ) : null}
           </div>
           <footer className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-4 py-3 shadow-[0_-14px_30px_-24px_rgba(0,0,0,0.6)] backdrop-blur sm:px-6">

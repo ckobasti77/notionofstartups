@@ -3,6 +3,7 @@
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 
+import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -20,6 +21,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     <ThemeProvider defaultTheme="system">
       <ConvexAuthProvider client={convex}>
         <TooltipProvider delayDuration={350}>{children}</TooltipProvider>
+        <ConnectionBanner />
       </ConvexAuthProvider>
       <Toaster />
     </ThemeProvider>

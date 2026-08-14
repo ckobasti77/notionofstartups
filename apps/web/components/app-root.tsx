@@ -11,6 +11,7 @@ import { api } from "@/convex/_generated/api";
 import { AppMark } from "@/components/app-mark";
 import { AuthScreen } from "@/components/auth/auth-screen";
 import { Button } from "@/components/ui/button";
+import { accessErrorMessage } from "@/lib/errors";
 
 function FullScreenLoader() {
   return (
@@ -48,28 +49,6 @@ function AccessProblem({ message, onSignOut }: { message: string; onSignOut: () 
       </div>
     </main>
   );
-}
-
-type AccessErrorData = {
-  code?: string;
-  message?: string;
-};
-
-function accessErrorMessage(error: unknown, fallback: string) {
-  if (!(error instanceof Error)) return fallback;
-  const data = (error as Error & { data?: unknown }).data;
-  if (
-    data !== null &&
-    typeof data === "object" &&
-    "message" in data &&
-    typeof (data as AccessErrorData).message === "string"
-  ) {
-    return (data as AccessErrorData).message!;
-  }
-  const uncaught = error.message.match(/Uncaught (?:ConvexError: )?(.+?)(?:\n|$)/);
-  return (uncaught?.[1] ?? error.message)
-    .replace(/^\[CONVEX[^\]]*\]\s*/, "")
-    .trim() || fallback;
 }
 
 function InviteProblem({

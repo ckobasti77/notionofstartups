@@ -7,6 +7,7 @@ import { ArrowRight, CheckCircle2, LockKeyhole, Network, Sparkles } from "lucide
 
 import { api } from "@/convex/_generated/api";
 import { AppMark } from "@/components/app-mark";
+import { accessErrorMessage } from "@/lib/errors";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +18,7 @@ type AuthScreenProps = {
 };
 
 function cleanAuthError(error: unknown) {
-  const fallback = "Prijava nije uspela. Proveri podatke i pokušaj ponovo.";
-  if (!(error instanceof Error)) return fallback;
-  const match = error.message.match(/Uncaught (?:ConvexError: )?(.+?)(?:\n|$)/);
-  return (match?.[1] ?? error.message).replace(/^\[CONVEX[^\]]*\]\s*/, "") || fallback;
+  return accessErrorMessage(error, "Prijava nije uspela. Proveri podatke i pokušaj ponovo.");
 }
 
 export function AuthScreen({ inviteCode }: AuthScreenProps) {

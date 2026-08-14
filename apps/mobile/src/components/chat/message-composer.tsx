@@ -33,6 +33,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { maxPageFileBytesFor, pageFileCategoryFor } from '@/convex/lib/page_files';
 import { haptics } from '@/lib/haptics';
+import { postUploadBlob, readUploadBlob } from '@/lib/upload';
 import {
   findMentionQuery,
   OPTIMISTIC_ID_PREFIX,
@@ -318,8 +319,7 @@ export function MessageComposer({
     }
     const replyId = replyTo?._id;
     try {
-      const fileResponse = await fetch(input.uri);
-      const blob = await fileResponse.blob();
+      const blob = await readUploadBlob(input.uri, input.mimeType);
       // Veličina mora da se zna PRE izdavanja URL-a: server odbija prevelik fajl
       // pre nego što blob uopšte nastane (`chat.generateUploadUrl`). Galerija ume
       // da ne vrati `fileSize`, pa je `blob.size` merodavan.
@@ -330,13 +330,7 @@ export function MessageComposer({
         contentType: input.mimeType,
         size,
       });
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': input.mimeType },
-        body: blob,
-      });
-      if (!uploadResponse.ok) throw new Error('Otpremanje nije uspelo.');
-      const { storageId } = (await uploadResponse.json()) as { storageId: Id<'_storage'> };
+      const storageId = await postUploadBlob(uploadUrl, blob);
       const result = await send({
         channelId: channel._id,
         body: '',

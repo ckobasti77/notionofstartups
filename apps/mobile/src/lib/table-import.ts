@@ -1,12 +1,17 @@
 /**
  * Čitanje i normalizacija tabele iz Excel/CSV fajla za mobilni uvoz (spec §9.4).
  *
+ * Od lanca 7 je čisto jezgro (CSV parser, normalizacija matrice, sečenje ćelija,
+ * serije) u `@devotion/shared` (`packages/shared/src/table-matrix.ts`) — ISTO
+ * jezgro troši i web (`apps/web/lib/csv.ts`), pa oba klijenta identično tumače
+ * isti fajl (BOM, `;` razdvajač, navodnici). Ovde ostaje samo platformsko:
+ * čitanje fajla i binarni XLSX/XLS.
+ *
  * ODLUKA O BIBLIOTECI: web koristi `read-excel-file/browser`, koji traži DOM `File`
  * (a Node build traži stream/`Buffer`). React Native nema ni DOM `File` ni `Buffer`,
  * pa `read-excel-file` nije upotrebljiv bez teškog polyfill-a. Zato mobilni koristi
  * `xlsx` (SheetJS), koji parsira iz base64/stringa — SheetJS-ov zvanično preporučen
- * Expo tok. Ako se ovde nešto menja, uporedni web izvor je `apps/web/lib/table-file.ts`
- * i `apps/web/lib/csv.ts`.
+ * Expo tok. Uporedni web izvor za XLSX je `apps/web/lib/table-file.ts`.
  *
  * NE VRAĆAJ `xlsx` na npm! `package.json` namerno gađa SheetJS-ov CDN tarball
  * (`https://cdn.sheetjs.com/...`), a ne npm registry. Poslednja verzija na npm-u je
@@ -18,7 +23,25 @@
 import { File } from 'expo-file-system';
 import * as XLSX from 'xlsx';
 
+import {
+  clampCellLengths,
+  normalizeTableMatrix,
+  parseCsv,
+  sourceWidth,
+} from '@devotion/shared';
+
 import { MAX_TABLE_CELL_LENGTH } from '@/lib/table-limits';
+
+// Stabilna adresa za postojeće importere (`note-insert-sheet`, `table-import-sheet`).
+export { chunkRows, normalizeTableMatrix } from '@devotion/shared';
+
+/** MIME tipovi tabela za `DocumentPicker`; iOS ih mapira u UTI. Jedna lista za sva tri sheeta. */
+export const SPREADSHEET_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel', // .xls
+  'text/csv',
+  'text/comma-separated-values',
+];
 
 export type PickedSpreadsheet = { uri: string; name: string; mimeType?: string };
 
@@ -34,85 +57,14 @@ export type ParsedSpreadsheet = {
   truncatedCells: number;
 };
 
-/** Najveća popunjena širina (broj kolona) u sirovoj matrici, bez sečenja. */
-function sourceWidth(rows: string[][]): number {
-  return rows.reduce((widest, row) => {
-    let lastFilled = 0;
-    for (let index = 0; index < row.length; index += 1) {
-      if (row[index].trim() !== '') lastFilled = index + 1;
-    }
-    return Math.max(widest, lastFilled);
-  }, 0);
-}
-
 function isCsv({ name, mimeType }: PickedSpreadsheet): boolean {
   if (/\.csv$/i.test(name)) return true;
   return mimeType === 'text/csv' || mimeType === 'text/comma-separated-values';
 }
 
-/**
- * Seče ćelije duže od `maxCellLength` na klijentu i broji koliko ih je skraćeno.
- * Server (`importRows` → `page_tables.ts#cleanCellValue`) inače BACI grešku i odbije
- * CELU seriju čim ijedna ćelija pređe limit — bolje seći ovde i javiti korisniku
- * nego da ceo uvoz padne na jednoj predugačkoj ćeliji. (Labele zaglavlja server
- * ionako tiho seče na `MAX_TABLE_LABEL_LENGTH`, pa im ovo dodatno ne škodi.)
- */
-function clampCellLengths(
-  rows: string[][],
-  maxCellLength: number,
-): { matrix: string[][]; truncated: number } {
-  let truncated = 0;
-  const matrix = rows.map((row) =>
-    row.map((cell) => {
-      if (cell.length > maxCellLength) {
-        truncated += 1;
-        return cell.slice(0, maxCellLength);
-      }
-      return cell;
-    }),
-  );
-  return { matrix, truncated };
-}
-
-/**
- * Poravnava sve redove na istu širinu i seče prazne repove — uvoz mora da dobije
- * pravougaonu matricu bez obzira kako je izvor izgledao. Verni port
- * `apps/web/lib/csv.ts#normalizeTableMatrix`.
- */
-export function normalizeTableMatrix(
-  rows: string[][],
-  maxColumns: number,
-): string[][] {
-  const width = Math.min(
-    maxColumns,
-    rows.reduce((widest, row) => {
-      let lastFilled = 0;
-      for (let index = 0; index < row.length; index += 1) {
-        if (row[index].trim() !== '') lastFilled = index + 1;
-      }
-      return Math.max(widest, lastFilled);
-    }, 0),
-  );
-  if (width === 0) return [];
-  return rows.map((row) =>
-    Array.from({ length: width }, (_, index) => (row[index] ?? '').trim()),
-  );
-}
-
-/**
- * Čita izabrani fajl (prvi list, kao na webu) u pravougaonu matricu stringova.
- * `.xlsx`/`.xls` se čitaju kao base64, `.csv` kao UTF-8 string; SheetJS oba
- * parsira bez `Buffer`-a. Baca kad fajl nije čitljiv ili nema listova.
- */
-export async function parseSpreadsheet(
-  picked: PickedSpreadsheet,
-  maxColumns: number,
-): Promise<ParsedSpreadsheet> {
-  const file = new File(picked.uri);
-  const workbook = isCsv(picked)
-    ? XLSX.read(await file.text(), { type: 'string' })
-    : XLSX.read(await file.base64(), { type: 'base64' });
-
+/** Prvi list radne sveske (kao na webu) u sirovu matricu stringova. */
+function readWorkbookMatrix(base64: string): string[][] {
+  const workbook = XLSX.read(base64, { type: 'base64' });
   const firstSheetName = workbook.SheetNames[0];
   if (firstSheetName === undefined) {
     throw new Error('Fajl nema nijedan list sa podacima.');
@@ -126,31 +78,38 @@ export async function parseSpreadsheet(
     raw: false,
     defval: '',
   });
-  const asStrings = raw.map((row) =>
+  return raw.map((row) =>
     (Array.isArray(row) ? row : []).map((cell) =>
       cell === null || cell === undefined ? '' : String(cell),
     ),
   );
-  // Ćelije se seku PRE upisa da server ne odbije celu seriju (vidi `clampCellLengths`);
-  // broj skraćenih se vraća komponenti da ga javi korisniku.
+}
+
+/**
+ * Čita izabrani fajl u pravougaonu matricu stringova. `.csv` ide kroz ZAJEDNIČKI
+ * parser (identično webu); `.xlsx`/`.xls` kroz SheetJS iz base64. Baca kad fajl
+ * nije čitljiv ili nema listova.
+ */
+export async function parseSpreadsheet(
+  picked: PickedSpreadsheet,
+  maxColumns: number,
+): Promise<ParsedSpreadsheet> {
+  const file = new File(picked.uri);
+  const asStrings = isCsv(picked)
+    ? parseCsv(await file.text()).rows
+    : readWorkbookMatrix(await file.base64());
+
+  // Ćelije se seku PRE upisa da server ne odbije celu seriju (vidi
+  // `clampCellLengths` u shared paketu); broj skraćenih se javlja korisniku.
   const { matrix, truncated } = clampCellLengths(
     normalizeTableMatrix(asStrings, maxColumns),
     MAX_TABLE_CELL_LENGTH,
   );
-  // `columnCount` je STVARNA širina (pre sečenja) — komponenta njome odbija fajl sa
-  // previše kolona umesto da se višak tiho izgubi kroz `normalizeTableMatrix`.
+  // `columnCount` je STVARNA širina (pre sečenja) — komponenta njome odbija fajl
+  // sa previše kolona umesto da se višak tiho izgubi kroz `normalizeTableMatrix`.
   return {
     matrix,
     columnCount: sourceWidth(asStrings),
     truncatedCells: truncated,
   };
-}
-
-/** Deli redove na serije ≤ `size` — `importRows` mutacija ima transakcione limite. */
-export function chunkRows(rows: string[][], size: number): string[][][] {
-  const batches: string[][][] = [];
-  for (let start = 0; start < rows.length; start += size) {
-    batches.push(rows.slice(start, start + size));
-  }
-  return batches;
 }

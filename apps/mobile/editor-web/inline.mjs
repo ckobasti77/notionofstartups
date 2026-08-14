@@ -41,12 +41,52 @@ if (closingTags !== null) {
   console.log(`Zamenjeno ${closingTags.length} „</script" pojavljivanja u kodu.`);
 }
 
+/**
+ * Zamena ide kroz FUNKCIJU, ne kroz string. `String.replace` u string-zameni
+ * tumači `$&`, `` $` ``, `$'` i `$$` kao naredbe: `` $` `` ubacuje ceo tekst PRE
+ * pogotka, `$&` sam pogodak, `$$` se skuplja na jedan `$`. Minifikovani bundle
+ * piše stringove kao template literale, pa `` $` `` u njemu ima na desetine —
+ * sa string-zamenom se šablon ubaci toliko puta, `<script>` ostane nezatvoren i
+ * WebView padne na „Uncaught SyntaxError" pre nego što React uopšte montira.
+ * Funkcija-zamena ne tumači ništa (MDN: „specialna zamena se ne primenjuje").
+ */
 const html = template.replace(
   '<div id="root"></div>',
-  `<div id="root"></div>\n    <script>${safeScript}</script>`,
+  () => `<div id="root"></div>\n    <script>${safeScript}</script>`,
 );
-if (!html.includes('<script>')) {
-  console.error('Šablon nema mesto za skriptu (`<div id="root"></div>`).');
+
+/**
+ * Kapija koja bi gornji kvar uhvatila i pre uređaja. Provera „ima li `<script>`"
+ * je propuštala, jer iskvaren izlaz IMA script tag — samo ih ima 33 i nijedan
+ * zatvoren. Meri se ono što HTML parser stvarno gleda: tačno jedan dokument i
+ * tačno jedan par script tagova.
+ */
+const counts = {
+  doctype: (html.match(/<!DOCTYPE/gi) ?? []).length,
+  html: (html.match(/<html\b/gi) ?? []).length,
+  root: (html.match(/<div id="root">/g) ?? []).length,
+  close: (html.match(/<\/script\s*>/gi) ?? []).length,
+};
+if (counts.doctype !== 1 || counts.html !== 1 || counts.root !== 1 || counts.close !== 1) {
+  console.error(
+    `Iskvaren izlaz — očekivano po 1, dobijeno: <!DOCTYPE ${counts.doctype}, ` +
+      `<html ${counts.html}, #root ${counts.root}, </script> ${counts.close}.`,
+  );
+  process.exit(1);
+}
+if (!html.includes(safeScript)) {
+  console.error('Skripta nije ušla u HTML doslovno — zamena je nešto pojela.');
+  process.exit(1);
+}
+
+/**
+ * Otvoreno `<script` u kodu (React ga ima: `o.innerHTML = "<script><\/script>"`)
+ * je bezopasno SAMO dok u skripti nema `<!--`. Zajedno ta dva HTML parser guraju
+ * u „script data double escaped" stanje, u kom `</script>` više ne zatvara
+ * element — isti ishod kao kvar iznad, samo teže vidljiv.
+ */
+if (safeScript.includes('<!--')) {
+  console.error('Skripta sadrži `<!--` — u kombinaciji sa `<script` razbija HTML parser.');
   process.exit(1);
 }
 

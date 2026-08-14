@@ -16,19 +16,11 @@ import {
   MAX_TABLE_IMPORT_BATCH,
   MAX_TABLE_ROWS,
 } from '@/lib/table-limits';
-import { chunkRows, parseSpreadsheet } from '@/lib/table-import';
+import { chunkRows, parseSpreadsheet, SPREADSHEET_TYPES } from '@/lib/table-import';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
 const PREVIEW_ROWS = 6;
-
-/** MIME tipovi tabela; DocumentPicker ih mapira u UTI na iOS-u. */
-const SPREADSHEET_TYPES = [
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-  'application/vnd.ms-excel', // .xls
-  'text/csv',
-  'text/comma-separated-values',
-];
 
 /**
  * Uvoz tabele iz Excel/CSV fajla (spec §9.4). Tok je namerno „pročitaj → PREGLED →

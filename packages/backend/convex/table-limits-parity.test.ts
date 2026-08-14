@@ -17,6 +17,7 @@ describe("limiti tabela: mobilni klijent = serverski autoritet", () => {
     ["MAX_TABLE_ROWS"],
     ["MAX_TABLE_CELL_LENGTH"],
     ["MAX_TABLE_LABEL_LENGTH"],
+    ["MAX_TABLE_IMPORT_BATCH"],
   ] as const)("%s je jednak na oba mesta", (name) => {
     expect(mobile[name]).toBe(backend[name]);
   });

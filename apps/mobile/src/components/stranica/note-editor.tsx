@@ -39,6 +39,7 @@ import {
 } from '@/lib/note-content';
 import { NOTE_BRIDGES, type NoteEditorBridge } from '@/lib/note-editor-bridges';
 import { NOTE_EDITOR_HTML } from '@/lib/note-editor-html';
+import { postUploadBlob, readUploadBlob } from '@/lib/upload';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
@@ -602,14 +603,8 @@ export function NoteEditor({
       setUploading(true);
       try {
         const { uploadUrl, token } = await generateUploadUrl({ pageId });
-        const blob = await (await fetch(pick.uri)).blob();
-        const response = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': pick.mimeType },
-          body: blob,
-        });
-        if (!response.ok) throw new Error('Otpremanje nije uspelo.');
-        const { storageId } = (await response.json()) as { storageId: Id<'_storage'> };
+        const blob = await readUploadBlob(pick.uri, pick.mimeType);
+        const storageId = await postUploadBlob(uploadUrl, blob);
         const result = await attach({ pageId, storageId, token, name: pick.name });
         if (!result.ok) {
           haptics.error();

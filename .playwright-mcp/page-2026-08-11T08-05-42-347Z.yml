@@ -1,7 +1,0 @@
-- generic [active] [ref=e1]:
-  - main [ref=e2]:
-    - generic [ref=e3]:
-      - paragraph [ref=e13]: Pripremam radni prostor
-      - paragraph [ref=e14]: Povezujem tvoje startupove i zadatke…
-  - region "Obaveštenja alt+T"
-  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]

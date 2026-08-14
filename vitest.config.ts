@@ -6,6 +6,7 @@ export default defineConfig({
       "apps/web/vitest.config.ts",
       "apps/mobile/vitest.config.ts",
       "packages/backend/vitest.config.ts",
+      "packages/shared/vitest.config.ts",
     ],
   },
 });

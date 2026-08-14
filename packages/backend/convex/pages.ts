@@ -35,6 +35,7 @@ import {
   boundedLimit,
   checkpointItemValidator,
   cleanRequiredText,
+  pageDocumentValidator,
   pageKindValidator,
   pageSummaryValidator,
   roleValidator,
@@ -55,10 +56,6 @@ const profileDocumentValidator = v.object({
   archivedAt: v.union(v.number(), v.null()),
   createdAt: v.number(),
   updatedAt: v.number(),
-});
-const pageDocumentValidator = pageSummaryValidator.extend({
-  treeRevision: v.optional(v.number()),
-  canvasPreview: v.optional(v.string()),
 });
 const pageDetailsValidator = pageDocumentValidator.extend({
   content: v.string(),

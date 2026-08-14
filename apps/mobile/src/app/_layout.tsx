@@ -11,6 +11,7 @@ import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { ConnectionBanner } from '@/components/connection-banner';
 import { FullScreenLoader } from '@/components/full-screen-loader';
 import { PendingInviteProvider } from '@/context/pending-invite';
 import { PendingTargetProvider } from '@/context/pending-target';
@@ -70,6 +71,8 @@ function ThemedApp() {
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <AnimatedSplashOverlay />
       <RootNavigator />
+      {/* Iznad svega, i iznad loader-a: jedini signal da je WebSocket pao. */}
+      <ConnectionBanner />
     </NavigationThemeProvider>
   );
 }

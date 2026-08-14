@@ -21,20 +21,12 @@ import {
   NOTE_TABLE_MAX_COLS,
   NOTE_TABLE_MAX_ROWS,
 } from '@/lib/note-table';
-import { normalizeTableMatrix, parseSpreadsheet } from '@/lib/table-import';
+import { normalizeTableMatrix, parseSpreadsheet, SPREADSHEET_TYPES } from '@/lib/table-import';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, space, text } from '@/theme/tokens';
 
 /** Šta je izabrano za upload — isti oblik kao `PickInput` u `files-panel.tsx`. */
 export type NoteInsertPick = { uri: string; name: string; mimeType: string };
-
-/** MIME tipovi tabela; DocumentPicker ih mapira u UTI na iOS-u. */
-const SPREADSHEET_TYPES = [
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-  'application/vnd.ms-excel', // .xls
-  'text/csv',
-  'text/comma-separated-values',
-];
 
 /**
  * „Dodaj u belešku" — mobilni pandan alatkama iz web trake
@@ -53,6 +45,7 @@ export function NoteInsertSheet({
   onInsertTable,
   onInsertTableContent,
   onInsertCodeBlock,
+  canUpload = true,
 }: {
   open: boolean;
   /** Trenutna dužina HTML tela — za procenu da li uvezena tabela staje. */
@@ -62,6 +55,11 @@ export function NoteInsertSheet({
   onInsertTable: () => void;
   onInsertTableContent: (matrix: string[][], firstRowIsHeader: boolean) => void;
   onInsertCodeBlock: () => void;
+  /**
+   * Prilozi traže `pageId` (upload → `pageFiles.attach`), pa ih nacrt beleške u
+   * sheet-u za kreiranje (lanac 7) NE nudi — redovi se sakriju uz objašnjenje.
+   */
+  canUpload?: boolean;
 }) {
   const colors = useThemeColors();
   const [reading, setReading] = useState(false);
@@ -216,27 +214,36 @@ export function NoteInsertSheet({
           </Text>
         </View>
       ) : null}
-      <Row
-        icon={<ImagePlus size={22} color={colors.foreground} />}
-        title="Iz galerije"
-        disabled={reading}
-        onPress={run(pickFromLibrary)}
-        showChevron={false}
-      />
-      <Row
-        icon={<Camera size={22} color={colors.foreground} />}
-        title="Slikaj kamerom"
-        disabled={reading}
-        onPress={run(pickFromCamera)}
-        showChevron={false}
-      />
-      <Row
-        icon={<FileIcon size={22} color={colors.foreground} />}
-        title="Priloži fajl"
-        disabled={reading}
-        onPress={run(pickDocument)}
-        showChevron={false}
-      />
+      {canUpload ? (
+        <>
+          <Row
+            icon={<ImagePlus size={22} color={colors.foreground} />}
+            title="Iz galerije"
+            disabled={reading}
+            onPress={run(pickFromLibrary)}
+            showChevron={false}
+          />
+          <Row
+            icon={<Camera size={22} color={colors.foreground} />}
+            title="Slikaj kamerom"
+            disabled={reading}
+            onPress={run(pickFromCamera)}
+            showChevron={false}
+          />
+          <Row
+            icon={<FileIcon size={22} color={colors.foreground} />}
+            title="Priloži fajl"
+            disabled={reading}
+            onPress={run(pickDocument)}
+            showChevron={false}
+          />
+        </>
+      ) : (
+        <Text style={[styles.uploadHint, { color: colors.mutedForeground }]}>
+          Prilozi (slika, kamera, fajl) se dodaju posle kreiranja beleške — u
+          njenom editoru.
+        </Text>
+      )}
       <Row
         icon={<Table2 size={22} color={colors.foreground} />}
         title="Ubaci tabelu 3×3"
@@ -283,5 +290,10 @@ const styles = StyleSheet.create({
   },
   busyText: {
     ...text.body,
+  },
+  uploadHint: {
+    ...text.body,
+    paddingHorizontal: space[4],
+    paddingVertical: space[2],
   },
 });

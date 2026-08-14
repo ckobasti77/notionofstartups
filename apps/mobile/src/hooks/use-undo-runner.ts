@@ -9,7 +9,7 @@ import type { UndoAction } from '@/lib/undo';
  * (PARITET-REVIZIJA C12) da ekran „Istorija radnji" (`app/(app)/istorija.tsx`) može
  * da poništava stariju stavku istim kodom kao traka — dva mesta koja rade isto bi se
  * vremenom razišla. Preseljenje je MEHANIČKO: nijedna grana ni redosled poziva nisu
- * menjani (23 `case` grane, isto kao unija `UndoAction`).
+ * menjani (24 `case` grane, isto kao unija `UndoAction`).
  */
 export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const restoreNodes = useMutation(api.thoughts.restoreNodes);
@@ -39,6 +39,7 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const setChannelMembers = useMutation(api.chat.setChannelMembers);
   const archiveIdea = useMutation(api.ideas.archive);
   const archiveThoughtNodes = useMutation(api.thoughts.archiveNodes);
+  const archivePageV2 = useMutation(api.areasV2.archivePage);
 
   return useCallback(
     async (action: UndoAction): Promise<void> => {
@@ -279,6 +280,11 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
           // usput arhivira i ivicu ka izvoru.
           await archiveThoughtNodes({ nodeIds: [action.nodeId] });
           return;
+        case 'pageCreate':
+          // Inverz NOVE stranice (sheet za kreiranje, lanac 7) je arhiviranje —
+          // isti poziv koji koristi i web „Poništi" toast posle kreiranja.
+          await archivePageV2({ startupId: action.startupId, pageId: action.pageId });
+          return;
       }
     },
     [
@@ -309,6 +315,7 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
       setChannelMembers,
       archiveIdea,
       archiveThoughtNodes,
+      archivePageV2,
     ],
   );
 }

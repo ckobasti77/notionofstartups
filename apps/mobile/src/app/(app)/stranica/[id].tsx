@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonParagraph, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pageKindLabel, pageKindMeta } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -230,14 +231,16 @@ function UnexpectedKind({
 }
 
 /**
- * Greška: `pages.get` prolazi kroz `requireStartupMember`/`requireVisiblePage` i
- * baca kad korisnik nema pristup — expo-router to hvata ovde umesto pada ekrana.
+ * Greška: `pages.get` baca samo kad SERVER prijavi grešku (nema pristupa,
+ * pokvarena funkcija…) — pukla veza ne baca ništa (o njoj brine
+ * `ConnectionBanner`). Zato okvir jasno kaže da je greška serverska, sa
+ * stvarnom porukom umesto sirovog omotača.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <PageErrorState message={error.message} onRetry={retry} />;
+  return <PageErrorState error={error} onRetry={retry} />;
 }
 
-function PageErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+function PageErrorState({ error, onRetry }: { error: Error; onRetry: () => void }) {
   const colors = useThemeColors();
   const router = useRouter();
   return (
@@ -245,8 +248,11 @@ function PageErrorState({ message, onRetry }: { message: string; onRetry: () => 
       <ScreenHeader title="Stranica" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Stranica se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju stranice.'}
+        title="Greška na serveru"
+        description={accessErrorMessage(
+          error,
+          'Server je prijavio grešku pri učitavanju stranice.',
+        )}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

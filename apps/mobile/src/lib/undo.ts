@@ -250,7 +250,13 @@ export type UndoAction =
    * Napravljena misao (P4: „nova povezana misao"). Inverz je `archiveNodes` — koji
    * arhivira i ivicu ka izvoru (`thoughts.ts:943-955`), pa `edgeId` nije potreban.
    */
-  | { kind: 'thoughtCreate'; nodeId: Id<'thoughtNodes'> };
+  | { kind: 'thoughtCreate'; nodeId: Id<'thoughtNodes'> }
+  /**
+   * Napravljena stranica iz sheet-a za kreiranje (lanac 7). Inverz je
+   * `areasV2.archivePage` (kreator sme direktno): arhiva čisti placement/ivice
+   * kanvasa, a eventualna deca se podižu nivo gore (`archivePageWithV2Sidecars`).
+   */
+  | { kind: 'pageCreate'; startupId: Id<'startups'>; pageId: Id<'pages'> };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */

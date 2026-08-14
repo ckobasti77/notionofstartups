@@ -197,6 +197,53 @@ describe("pages.recentForStartup", () => {
   });
 });
 
+describe("pages.get posle kreiranja", () => {
+  // Kvar K-B (lanac 7): `pages.get` vraća `{ ...page }`, a Convex returns
+  // validator ODBIJA svako polje koje ne nabroji. Tabela i prilog-oblačić
+  // dobijaju denormalizovana polja odmah pri kreiranju (tableRowCount/
+  // tableColumnCount, fileCount), pa je „sveža stranica bez sadržaja" tačan
+  // repro pada „Server Error". convex-test sprovodi returns validatore.
+  async function createAndGet(kind: "note" | "task" | "file" | "table") {
+    const t = convexTest(schema, modules);
+    const seed = await t.run((ctx) => seedWorkspace(ctx));
+    const asMember = t.withIdentity({ subject: seed.userId });
+    const pageId = await asMember.mutation(api.pages.create, {
+      startupId: seed.startupId,
+      areaId: seed.dev,
+      parentPageId: null,
+      kind,
+      title: `Sveže (${kind})`,
+    });
+    return await asMember.query(api.pages.get, { pageId });
+  }
+
+  test("sveža tabela (samo naslov) se čita bez greške", async () => {
+    const page = await createAndGet("table");
+    expect(page).toMatchObject({
+      kind: "table",
+      title: "Sveže (table)",
+      tableRowCount: 1,
+      tableColumnCount: 1,
+      content: "",
+      assignees: [],
+    });
+  });
+
+  test("svež prilog-oblačić (samo naslov) se čita bez greške", async () => {
+    const page = await createAndGet("file");
+    expect(page).toMatchObject({ kind: "file", fileCount: 0, content: "" });
+  });
+
+  test("sveža beleška i zadatak se čitaju bez greške", async () => {
+    expect(await createAndGet("note")).toMatchObject({ kind: "note" });
+    expect(await createAndGet("task")).toMatchObject({
+      kind: "task",
+      taskStatus: "backlog",
+      taskPriority: "medium",
+    });
+  });
+});
+
 describe("pages.listChildren", () => {
   test("kind filtrira samo traženu vrstu na nivou", async () => {
     const t = convexTest(schema, modules);
