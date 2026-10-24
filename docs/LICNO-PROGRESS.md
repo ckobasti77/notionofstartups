@@ -8,3 +8,6 @@ Noćni run LICNO. Plan: `docs/LICNO-PLAN.md`. Pravila: `.nocni-run/licno/rules.m
 **Zatečeno u radnom stablu:** `packages/backend/convex/_generated/api.d.ts` se razlikuje samo po krajevima redova (CRLF posle lokalnog codegen-a) — runner ga čuva u commitu „zatečene lokalne izmene".
 **Telefon — tipovi ruta:** `typedRoutes` je uključen; provera `tsc-mobile` prvo pokreće `node .nocni-run/licno/alati/expo-rute.cjs` (osveži `apps/mobile/.expo/types/router.d.ts` bez Expo servera), pa tek onda `tsc`.
 **Napomena za mobilni stil:** stvarni kod koristi `StyleSheet.create` + tokene (137/151 fajlova), ne NativeWind — vidi `rules.md`.
+
+## K01 - Arhitektura ličnog nivoa (plan)   (2026-10-24 22:38)
+**Plan korak.** Plan je upisan u `docs/licno/planovi/K01.md`. Kod nije menjan.
