@@ -1176,6 +1176,10 @@ export default defineSchema({
       "startupId",
       "createdAt",
     ])
+    // Globalni Inbox (`inbox.ts`): feed i brojači iz svih startupa bez
+    // nabrajanja startupa jedan po jedan.
+    .index("by_recipient_and_createdAt", ["recipientProfileId", "createdAt"])
+    .index("by_recipient_and_readAt", ["recipientProfileId", "readAt"])
     .index("by_dedupeKey", ["dedupeKey"]),
 
   pushSubscriptions: defineTable({

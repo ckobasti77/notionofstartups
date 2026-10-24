@@ -215,6 +215,22 @@ export const TASKS_EVERYWHERE_STATUS_CAP = 60;
 /** Koliko završenih `listEverywhere({ scope: "all" })` dodaje uz otvorene. */
 export const TASKS_EVERYWHERE_DONE_IN_ALL = 50;
 
+// --- Globalni Inbox (`inbox.ts`, plan K01 §2.0 / §2.4) --------------------
+/** Najviše nepročitanih koje `inbox.unreadCounts` skenira; preko toga `capped`. */
+export const INBOX_UNREAD_SCAN_CAP = 300;
+/** Obaveštenja po transakciji u `inbox.markAllRead` / `markAllReadBatch`. */
+export const INBOX_MARK_ALL_BATCH = 200;
+/** Stavki po izvoru u `inbox.pending` („Čeka tebe"). */
+export const INBOX_PENDING_CAP = 30;
+/**
+ * Koliko glasačkih listića `inbox.pending` pregleda dok skupi `INBOX_PENDING_CAP`
+ * važećih: listić ostaje `pending` i kad se zahtev odbije ili povuče, pa bi
+ * zastareli listići inače mogli da potisnu otvoreno glasanje.
+ */
+export const INBOX_PENDING_BALLOT_SCAN_CAP = 100;
+export const INBOX_FEED_PAGE_DEFAULT = 20;
+export const INBOX_FEED_PAGE_MAX = 50;
+
 export const personalTaskStatusValidator = v.union(
   v.literal("open"),
   v.literal("done"),

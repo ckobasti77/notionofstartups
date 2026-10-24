@@ -24,6 +24,7 @@ import type * as expoPush from "../expoPush.js";
 import type * as expoPushTokens from "../expoPushTokens.js";
 import type * as http from "../http.js";
 import type * as ideas from "../ideas.js";
+import type * as inbox from "../inbox.js";
 import type * as invites from "../invites.js";
 import type * as lib_access_errors from "../lib/access_errors.js";
 import type * as lib_activity from "../lib/activity.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   expoPushTokens: typeof expoPushTokens;
   http: typeof http;
   ideas: typeof ideas;
+  inbox: typeof inbox;
   invites: typeof invites;
   "lib/access_errors": typeof lib_access_errors;
   "lib/activity": typeof lib_activity;

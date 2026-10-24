@@ -35,7 +35,7 @@ const REMINDER_LOOKAHEAD_MS = 48 * 60 * 60 * 1000;
 const REMINDER_STARTUP_CAP = 100;
 const REMINDER_TASK_CAP = 200;
 
-const notificationItemValidator = v.object({
+export const notificationItemValidator = v.object({
   _id: v.id("notifications"),
   _creationTime: v.number(),
   recipientProfileId: v.id("profiles"),
@@ -59,7 +59,7 @@ const notificationItemValidator = v.object({
   ),
 });
 
-async function withActors(
+export async function withActors(
   ctx: QueryCtx,
   rows: Array<Doc<"notifications">>,
 ) {
