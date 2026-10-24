@@ -11,6 +11,11 @@ type ThemeContextValue = {
   mounted: boolean;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+  /**
+   * Zaključava temu samo u memoriji (izlog, `?tema=`), bez upisa u localStorage.
+   * `null` vraća korisnikov izbor.
+   */
+  setForcedTheme: (theme: ResolvedTheme | null) => void;
 };
 
 type ThemeProviderProps = {
@@ -72,7 +77,8 @@ function ThemeProvider({ children, defaultTheme = "system", storageKey = "notion
     getHydratedSnapshot,
     getServerHydratedSnapshot,
   );
-  const resolvedTheme = theme === "system" ? systemTheme : theme;
+  const [forcedTheme, setForcedTheme] = React.useState<ResolvedTheme | null>(null);
+  const resolvedTheme = forcedTheme ?? (theme === "system" ? systemTheme : theme);
 
   React.useEffect(() => {
     applyTheme(resolvedTheme);
@@ -95,7 +101,7 @@ function ThemeProvider({ children, defaultTheme = "system", storageKey = "notion
   }, [resolvedTheme, setTheme]);
 
   const contextValue = React.useMemo(
-    () => ({ theme, resolvedTheme, mounted, setTheme, toggleTheme }),
+    () => ({ theme, resolvedTheme, mounted, setTheme, toggleTheme, setForcedTheme }),
     [theme, resolvedTheme, mounted, setTheme, toggleTheme],
   );
 

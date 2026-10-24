@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { toast } from "sonner";
-import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
@@ -19,6 +18,7 @@ import {
   UserRound,
 } from "lucide-react";
 
+import { MotionStage } from "@/components/motion/motion-stage";
 import { ActivityView } from "@/components/workspace/activity-view";
 import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
@@ -847,7 +847,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       <WorkspaceSidebar {...sidebarProps} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "chat" ? "Chat" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><Button variant="ghost" size="icon" className="relative" aria-label={`Obaveštenja${(unreadNotifications?.count ?? 0) > 0 ? `, ${unreadNotifications?.count} nepročitano` : ""}`} onClick={() => setNotificationsOpen(true)}><Bell />{(unreadNotifications?.count ?? 0) > 0 ? <span aria-hidden="true" className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[0.625rem] font-bold leading-4 tabular-nums text-primary-foreground">{unreadNotifications?.capped ? "99+" : unreadNotifications?.count}</span> : null}</Button><ThemeToggle /></header>
-        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
+        <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
           {route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
@@ -936,7 +936,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             />
             </WorkspaceErrorBoundary>
           )}
-        </WorkspaceStage>
+        </MotionStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
       <NotificationsSheet
@@ -1129,22 +1129,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${adminMode}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={adminMode === "create" ? undefined : startup} onStartupCreated={selectStartup} onCreateStartup={openCreateStartup} /> : null}
     </div>
   );
-}
-
-function WorkspaceStage({ children, viewKey, contained = false }: { children: React.ReactNode; viewKey: string; contained?: boolean }) {
-  const ref = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const context = gsap.context(() => {
-      const items = ref.current
-        ? Array.from(ref.current.querySelectorAll<HTMLElement>("[data-workspace-enter]"))
-        : [];
-      if (items.length === 0) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { gsap.set(items, { clearProps: "all" }); return; }
-      gsap.timeline({ defaults: { ease: "power3.out" } }).fromTo(items, { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.42, stagger: 0.055, clearProps: "all" });
-    }, ref);
-    return () => context.revert();
-  }, [viewKey]);
-  return <main ref={ref} className={contained ? "min-h-0 flex-1 overflow-hidden" : "scrollbar-thin min-h-0 flex-1 overflow-y-auto"}>{children}</main>;
 }
 
 function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary" /> Otvaram radni prostor…</div></main></div>; }
