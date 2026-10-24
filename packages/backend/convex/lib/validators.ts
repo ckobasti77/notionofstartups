@@ -183,6 +183,95 @@ export const CHAT_SEARCH_CAP = 50;
 /** Koliko primalaca dobija unread/notifikaciju po poruci pre batch obrasca. */
 export const CHAT_RECIPIENTS_CAP = 200;
 
+// --- Lični nivo „Ja" (docs/LICNO-PLAN.md §4.1–4.3, plan K01 §2.0) ---------
+export const MAX_PERSONAL_TASK_TITLE_LENGTH = 200;
+export const MAX_PERSONAL_TASK_NOTES_LENGTH = 5_000;
+export const MAX_OPEN_PERSONAL_TASKS = 500;
+/** Gornja granica `personalTasks.list`; podrazumevano 100. */
+export const PERSONAL_TASKS_LIST_MAX = 300;
+/** Koliko završenih ličnih zadataka `list({ status: "all" })` dodaje uz otvorene. */
+export const PERSONAL_TASKS_LIST_DONE_IN_ALL = 50;
+/** Stavki plana po danu. */
+export const MAX_MY_DAY_ENTRIES = 50;
+/** Prozor „Preneto od ranije": prethodnih N dana pre `dayKey`. */
+export const MY_DAY_CARRY_OVER_DAYS = 7;
+export const MY_DAY_HISTORY_CAP = 50;
+/** Granice čitanja po statusu u `myDay.overview` — zaštita, ne očekivanje. */
+export const MY_DAY_STATUS_CAPS = {
+  in_progress: 25,
+  blocked: 25,
+  next: 30,
+  backlog: 40,
+} as const;
+export const MY_DAY_DONE_CAP = 20;
+export const MY_DAY_PERSONAL_OPEN_CAP = 80;
+/** Razmak pozicija u planu dana; nova stavka ide na kraj (+1024). */
+export const MY_DAY_POSITION_STEP = 1_024;
+/** Aktivni startupi koje lični nivo čita. */
+export const MY_SCOPE_STARTUP_CAP = 20;
+/** Gornja granica `tasks.listEverywhere`; podrazumevano 100. */
+export const TASKS_EVERYWHERE_MAX = 200;
+export const TASKS_EVERYWHERE_STATUS_CAP = 60;
+/** Koliko završenih `listEverywhere({ scope: "all" })` dodaje uz otvorene. */
+export const TASKS_EVERYWHERE_DONE_IN_ALL = 50;
+
+export const personalTaskStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("done"),
+);
+
+/** Mini podaci startupa za liste ličnog nivoa (čip startupa). */
+export const startupMiniValidator = v.object({
+  _id: v.id("startups"),
+  name: v.string(),
+  logoUrl: v.union(v.string(), v.null()),
+});
+
+export const areaMiniValidator = v.object({
+  _id: v.id("startupAreas"),
+  key: v.string(),
+  label: v.string(),
+});
+
+/**
+ * Lični zadatak kako ga vide klijenti. Pravi se NABRAJANJEM polja
+ * (`toPersonalTaskItem`), nikad spread-om dokumenta — `returns` validator
+ * odbija višak (`archivedAt`, `movedToPageId`, `profileId`).
+ */
+export const personalTaskItemValidator = v.object({
+  _id: v.id("personalTasks"),
+  title: v.string(),
+  notes: v.union(v.string(), v.null()),
+  status: personalTaskStatusValidator,
+  priority: v.union(taskPriorityValidator, v.null()),
+  dueDate: v.union(v.number(), v.null()),
+  sortAt: v.number(),
+  completedAt: v.union(v.number(), v.null()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+/** Startup zadatak u listama ličnog nivoa (Moj dan, Moji zadaci svuda). */
+export const taskItemValidator = v.object({
+  _id: v.id("pages"),
+  title: v.string(),
+  taskStatus: v.union(taskStatusValidator, v.null()),
+  taskPriority: v.union(taskPriorityValidator, v.null()),
+  dueDate: v.union(v.number(), v.null()),
+  taskSortAt: v.number(),
+  /** `taskCompletedAt(page)` — null dok zadatak nije završen. */
+  completedAt: v.union(v.number(), v.null()),
+  checkpointTotal: v.number(),
+  checkpointCompleted: v.number(),
+  createdByProfileId: v.id("profiles"),
+  isCreator: v.boolean(),
+  isAssignee: v.boolean(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  startup: startupMiniValidator,
+  area: v.union(areaMiniValidator, v.null()),
+});
+
 export type TaskCheckpointInput = {
   id: string;
   text: string;

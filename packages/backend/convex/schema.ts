@@ -520,7 +520,68 @@ export default defineSchema({
       "taskStatus",
       "archivedAt",
       "taskSortAt",
+    ])
+    // „Završeno od" za lični nivo (Moj dan, Moji zadaci svuda). `updatedAt` se
+    // osvežava pri svakoj promeni statusa kroz `syncTaskAssigneeMirrors`.
+    .index("by_profile_status_active_updated", [
+      "profileId",
+      "taskStatus",
+      "archivedAt",
+      "updatedAt",
     ]),
+
+  // --- Lični nivo „Ja" (docs/LICNO-PLAN.md §4.1–4.2) -----------------------
+  //
+  // Privatne obaveze van startupa: vidi ih i menja ISKLJUČIVO vlasnik. Brisanje
+  // je arhiva (`archivedAt`), da bi „Poništi" mogao da vrati zadatak.
+  personalTasks: defineTable({
+    profileId: v.id("profiles"),
+    title: v.string(),
+    // Odsutno = bez beleške (prazna beleška se ne čuva).
+    notes: v.optional(v.string()),
+    status: v.union(v.literal("open"), v.literal("done")),
+    priority: v.union(taskPriorityValidator, v.null()),
+    // Lokalno podne (ms), kao rok startup zadatka.
+    dueDate: v.union(v.number(), v.null()),
+    // Rok, ili za zadatak bez roka `8e15 − createdAt` (najnoviji prvi posle
+    // zadataka sa rokom). `createdAt`, ne `updatedAt`, da redosled bude stabilan.
+    sortAt: v.number(),
+    completedAt: v.union(v.number(), v.null()),
+    archivedAt: v.union(v.number(), v.null()),
+    // Trag posle `moveToStartup`: zadatak je postao ova stranica.
+    movedToPageId: v.optional(v.id("pages")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_profile_status_archived_sort", [
+      "profileId",
+      "status",
+      "archivedAt",
+      "sortAt",
+    ])
+    .index("by_profile_status_archived_completed", [
+      "profileId",
+      "status",
+      "archivedAt",
+      "completedAt",
+    ]),
+
+  // Plan dana: stavka je referenca na startup zadatak ILI lični zadatak, za
+  // lokalni dan uređaja (`dayKey` = "YYYY-MM-DD"). Isti `refKey` najviše jednom
+  // po danu; cilj koji više nije dostupan se tiho preskače pri čitanju.
+  myDayEntries: defineTable({
+    profileId: v.id("profiles"),
+    dayKey: v.string(),
+    refKind: v.union(v.literal("task"), v.literal("personal")),
+    taskPageId: v.union(v.id("pages"), v.null()),
+    personalTaskId: v.union(v.id("personalTasks"), v.null()),
+    // "task:<id>" | "personal:<id>"
+    refKey: v.string(),
+    position: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_profile_day_position", ["profileId", "dayKey", "position"])
+    .index("by_profile_ref", ["profileId", "refKey", "dayKey"]),
 
   taskCheckpointCanvasPlacements: defineTable({
     startupId: v.id("startups"),

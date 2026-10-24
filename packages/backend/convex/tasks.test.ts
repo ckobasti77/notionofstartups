@@ -5,12 +5,15 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { pageTaskSortAt } from "./lib/pages";
 import {
   MAX_TASK_CHECKPOINT_ID_LENGTH,
   MAX_TASK_CHECKPOINTS,
   MAX_TASK_DUE_DATE,
   MAX_TASK_INSTRUCTIONS_LENGTH,
   MAX_TASK_PAGE_SIZE,
+  TASKS_EVERYWHERE_MAX,
 } from "./lib/validators";
 import schema from "./schema";
 
@@ -758,5 +761,370 @@ describe("dozvole za brze akcije", () => {
 
     expect(assignee).toBe(member.profileId);
     expect(detail).toBe("Preuzeo/la: Member");
+  });
+});
+
+/** Zadatak dodeljen jednom profilu, upisan direktno sa ogledalima izvršioca. */
+async function insertAssignedTask(
+  ctx: MutationCtx,
+  options: {
+    startupId: Id<"startups">;
+    areaId: Id<"startupAreas">;
+    title: string;
+    createdBy: Id<"profiles">;
+    assignee: Id<"profiles">;
+    status?: "backlog" | "next" | "in_progress" | "blocked" | "done";
+    dueDate?: number | null;
+    completedAt?: number;
+    archivedAt?: number | null;
+  },
+) {
+  const now = Date.now();
+  const status = options.status ?? "next";
+  const dueDate = options.dueDate ?? null;
+  const taskSortAt = pageTaskSortAt(dueDate, now);
+  const completedAt = status === "done" ? (options.completedAt ?? now) : null;
+  const pageId = await ctx.db.insert("pages", {
+    startupId: options.startupId,
+    areaId: options.areaId,
+    parentPageId: null,
+    kind: "task",
+    title: options.title,
+    searchText: options.title,
+    revision: 0,
+    position: 0,
+    taskStatus: status,
+    taskPriority: "medium",
+    assigneeProfileId: options.assignee,
+    dueDate,
+    taskSortAt,
+    completedAt,
+    createdByProfileId: options.createdBy,
+    updatedByProfileId: options.createdBy,
+    archivedAt: options.archivedAt ?? null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await ctx.db.insert("taskAssignees", {
+    startupId: options.startupId,
+    taskPageId: pageId,
+    profileId: options.assignee,
+    taskStatus: status,
+    taskSortAt,
+    addedByProfileId: options.createdBy,
+    archivedAt: null,
+    createdAt: now,
+    updatedAt: completedAt ?? now,
+  });
+  return pageId;
+}
+
+describe("zadaci svuda (listEverywhere)", () => {
+  async function seedEverywhere() {
+    const seeded = await seedTaskWorkspace();
+    const extra = await seeded.t.run(async (ctx) => {
+      const now = Date.now();
+      const startupWith = async (
+        name: string,
+        options: { membershipArchived?: boolean; startupArchived?: boolean } = {},
+      ) => {
+        const startupId = await ctx.db.insert("startups", {
+          name,
+          description: "",
+          createdByProfileId: seeded.member.profileId,
+          archivedAt: options.startupArchived === true ? now : null,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ctx.db.insert("startupMembers", {
+          startupId,
+          profileId: seeded.member.profileId,
+          addedByProfileId: seeded.member.profileId,
+          archivedAt: options.membershipArchived === true ? now : null,
+          createdAt: now,
+        });
+        const areaId = await ctx.db.insert("startupAreas", {
+          startupId,
+          key: "sales",
+          label: `${name} prodaja`,
+          position: 0,
+          createdAt: now,
+        });
+        return { startupId, areaId };
+      };
+      return {
+        second: await startupWith("Drugi startup"),
+        left: await startupWith("Napušten", { membershipArchived: true }),
+        archived: await startupWith("Arhiviran", { startupArchived: true }),
+      };
+    });
+    return { ...seeded, ...extra };
+  }
+
+  test("open/done/all kroz dva startupa sa mini startupom i oblašću", async () => {
+    const { t, startup, area, owner, member, second, asMember } = await seedEverywhere();
+    const soon = Date.UTC(2030, 0, 2, 12);
+    const later = Date.UTC(2030, 0, 9, 12);
+    const ids = await t.run(async (ctx) => ({
+      later: await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Kasnije",
+        createdBy: owner.profileId,
+        assignee: member.profileId,
+        status: "in_progress",
+        dueDate: later,
+      }),
+      soon: await insertAssignedTask(ctx, {
+        ...second,
+        title: "Uskoro",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+        status: "blocked",
+        dueDate: soon,
+      }),
+      noDue: await insertAssignedTask(ctx, {
+        ...second,
+        title: "Bez roka",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+        status: "backlog",
+      }),
+      doneOld: await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Završen ranije",
+        createdBy: owner.profileId,
+        assignee: member.profileId,
+        status: "done",
+        completedAt: Date.UTC(2026, 9, 1),
+      }),
+      doneNew: await insertAssignedTask(ctx, {
+        ...second,
+        title: "Završen skoro",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+        status: "done",
+        completedAt: Date.UTC(2026, 9, 20),
+      }),
+      ownerOnly: await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Tuđi",
+        createdBy: owner.profileId,
+        assignee: owner.profileId,
+      }),
+    }));
+
+    const open = await asMember.query(api.tasks.listEverywhere, { scope: "open" });
+    expect(open.capped).toBe(false);
+    expect(open.items.map((item) => item._id)).toEqual([ids.soon, ids.later, ids.noDue]);
+    expect(open.items[0]).toMatchObject({
+      title: "Uskoro",
+      taskStatus: "blocked",
+      isAssignee: true,
+      isCreator: true,
+      completedAt: null,
+      startup: { _id: second.startupId, name: "Drugi startup", logoUrl: null },
+      area: { _id: second.areaId, key: "sales", label: "Drugi startup prodaja" },
+    });
+    expect(open.items[1]).toMatchObject({
+      isCreator: false,
+      startup: { _id: startup, name: "Task startup", logoUrl: null },
+      area: { _id: area, key: "task-area", label: "Task area" },
+    });
+
+    const done = await asMember.query(api.tasks.listEverywhere, { scope: "done" });
+    expect(done.items.map((item) => item._id)).toEqual([ids.doneNew, ids.doneOld]);
+    expect(done.items[0].completedAt).toBe(Date.UTC(2026, 9, 20));
+
+    const all = await asMember.query(api.tasks.listEverywhere, { scope: "all" });
+    expect(all.items.map((item) => item._id)).toEqual([
+      ids.soon,
+      ids.later,
+      ids.noDue,
+      ids.doneNew,
+      ids.doneOld,
+    ]);
+    expect(JSON.stringify(all)).not.toContain(ids.ownerOnly);
+  });
+
+  test("filter startupId vraća samo taj startup; bez članstva se odbija", async () => {
+    const { t, startup, area, owner, member, second, foreignStartup, left, asMember } =
+      await seedEverywhere();
+    const ids = await t.run(async (ctx) => ({
+      inFirst: await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Prvi",
+        createdBy: owner.profileId,
+        assignee: member.profileId,
+      }),
+      inSecond: await insertAssignedTask(ctx, {
+        ...second,
+        title: "Drugi",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+      }),
+      doneInSecond: await insertAssignedTask(ctx, {
+        ...second,
+        title: "Drugi završen",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+        status: "done",
+      }),
+      doneInFirst: await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Prvi završen",
+        createdBy: owner.profileId,
+        assignee: member.profileId,
+        status: "done",
+      }),
+    }));
+
+    const filtered = await asMember.query(api.tasks.listEverywhere, {
+      scope: "all",
+      startupId: second.startupId,
+    });
+    expect(filtered.items.map((item) => item._id)).toEqual([
+      ids.inSecond,
+      ids.doneInSecond,
+    ]);
+    const serialized = JSON.stringify(filtered);
+    expect(serialized).not.toContain(ids.inFirst);
+    expect(serialized).not.toContain(ids.doneInFirst);
+
+    await expect(
+      asMember.query(api.tasks.listEverywhere, {
+        scope: "open",
+        startupId: foreignStartup,
+      }),
+    ).rejects.toThrow("Nemate pristup ovom startupu.");
+    await expect(
+      asMember.query(api.tasks.listEverywhere, {
+        scope: "open",
+        startupId: left.startupId,
+      }),
+    ).rejects.toThrow("Nemate pristup ovom startupu.");
+    await expect(
+      t.query(api.tasks.listEverywhere, { scope: "open" }),
+    ).rejects.toThrow("Niste prijavljeni.");
+  });
+
+  test("napušten i arhiviran startup, arhivirana stranica i skinuto učešće su isključeni", async () => {
+    const { t, startup, area, owner, member, left, archived, asMember } =
+      await seedEverywhere();
+    const hidden = await t.run(async (ctx) => {
+      const inLeft = await insertAssignedTask(ctx, {
+        ...left,
+        title: "U napuštenom",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+      });
+      const doneInLeft = await insertAssignedTask(ctx, {
+        ...left,
+        title: "Završen u napuštenom",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+        status: "done",
+      });
+      const inArchived = await insertAssignedTask(ctx, {
+        ...archived,
+        title: "U arhiviranom",
+        createdBy: member.profileId,
+        assignee: member.profileId,
+      });
+      const archivedPage = await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Arhivirana stranica",
+        createdBy: owner.profileId,
+        assignee: member.profileId,
+        archivedAt: Date.now(),
+      });
+      const unassigned = await insertAssignedTask(ctx, {
+        startupId: startup,
+        areaId: area,
+        title: "Skinut sa zadatka",
+        createdBy: owner.profileId,
+        assignee: member.profileId,
+      });
+      const row = await ctx.db
+        .query("taskAssignees")
+        .withIndex("by_task_and_profile", (q) =>
+          q.eq("taskPageId", unassigned).eq("profileId", member.profileId),
+        )
+        .unique();
+      await ctx.db.patch("taskAssignees", row!._id, { archivedAt: Date.now() });
+      return [inLeft, doneInLeft, inArchived, archivedPage, unassigned];
+    });
+
+    const all = await asMember.query(api.tasks.listEverywhere, { scope: "all" });
+    expect(all.items).toEqual([]);
+    for (const id of hidden) expect(JSON.stringify(all)).not.toContain(id);
+  });
+
+  test("limit: najviše 200; odsečena lista je capped", async () => {
+    const { t, startup, area, owner, member, asMember } = await seedEverywhere();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 5; index += 1) {
+        await insertAssignedTask(ctx, {
+          startupId: startup,
+          areaId: area,
+          title: `Zadatak ${index}`,
+          createdBy: owner.profileId,
+          assignee: member.profileId,
+          dueDate: Date.UTC(2030, 0, 1 + index, 12),
+        });
+      }
+    });
+    const limited = await asMember.query(api.tasks.listEverywhere, {
+      scope: "open",
+      limit: 3,
+    });
+    expect(limited.items.map((item) => item.title)).toEqual([
+      "Zadatak 0",
+      "Zadatak 1",
+      "Zadatak 2",
+    ]);
+    expect(limited.capped).toBe(true);
+
+    await expect(
+      asMember.query(api.tasks.listEverywhere, {
+        scope: "open",
+        limit: TASKS_EVERYWHERE_MAX + 1,
+      }),
+    ).rejects.toThrow("Limit mora biti ceo broj između 1 i 200.");
+    await expect(
+      asMember.query(api.tasks.listEverywhere, { scope: "open", limit: 0 }),
+    ).rejects.toThrow("Limit mora biti ceo broj između 1 i 200.");
+  });
+
+  test("zadatak napravljen i završen kroz postojeće mutacije prelazi iz open u done", async () => {
+    const { startup, area, member, asOwner, asMember } = await seedEverywhere();
+    const pageId = await asOwner.mutation(api.pages.create, {
+      startupId: startup,
+      areaId: area,
+      parentPageId: null,
+      kind: "task",
+      title: "Kroz pravi put",
+      assigneeProfileIds: [member.profileId],
+    });
+    const open = await asMember.query(api.tasks.listEverywhere, { scope: "open" });
+    expect(open.items.map((item) => item._id)).toEqual([pageId]);
+
+    await asMember.mutation(api.tasks.updateMetadata, { pageId, status: "done" });
+    expect(
+      (await asMember.query(api.tasks.listEverywhere, { scope: "open" })).items,
+    ).toEqual([]);
+    const done = await asMember.query(api.tasks.listEverywhere, { scope: "done" });
+    expect(done.items).toEqual([
+      expect.objectContaining({ _id: pageId, taskStatus: "done", isAssignee: true }),
+    ]);
+    // Postojeći `listMine` i dalje radi kao pre.
+    expect(await asMember.query(api.tasks.listMine, { status: "done" })).toEqual([
+      expect.objectContaining({ _id: pageId }),
+    ]);
   });
 });
