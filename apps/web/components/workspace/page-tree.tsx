@@ -2,13 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import { usePaginatedQuery } from "convex/react";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronRight,
   LoaderCircle,
   Plus,
 } from "lucide-react";
 
+import { Collapse } from "@/components/motion/collapse";
 import { Button } from "@/components/ui/button";
 import { DeadlineBadge } from "@/components/workspace/deadline-badge";
 import { api } from "@/convex/_generated/api";
@@ -293,15 +293,9 @@ function PageTreeNode({
         </Button>
       </div>
 
-      <AnimatePresence initial={false}>
-        {expanded ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="ml-2 overflow-hidden border-l border-thread/35 pl-1"
-          >
+      {/* Podstranice se otvaraju/zatvaraju kroz `Collapse` (K19), isto kao oblast u
+          bočnoj traci; zatvorene se ne montiraju (bez upita), kao i ranije. */}
+      <Collapse open={expanded} unmountWhenClosed className="ml-2 border-l border-thread/35 pl-1">
             {childrenStatus === "LoadingFirstPage" ? (
               <div className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
                 <LoaderCircle className="size-3 animate-spin" />
@@ -351,9 +345,7 @@ function PageTreeNode({
                 <Plus className="size-3.5" /> Dodaj unutra
               </button>
             )}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      </Collapse>
     </div>
   );
 }

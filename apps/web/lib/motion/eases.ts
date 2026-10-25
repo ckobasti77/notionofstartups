@@ -9,6 +9,7 @@
 import {
   DURATION,
   REDUCED_FADE_MS,
+  sampleSpring,
   SPRING,
   SPRING_NAMES,
   springDurationMs,
@@ -72,4 +73,30 @@ export function reducedFade(): { ease: string; duration: number } {
  */
 export function listStagger(index: number): number {
   return staggerDelayMs(index) / 1000;
+}
+
+// --- CSS (samo gde pokret vodi tuđa biblioteka, npr. sonner toastovi) ------
+
+function cssNumber(value: number) {
+  const rounded = Math.round(value * 10_000) / 10_000;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/**
+ * Isti spring kao CSS `linear()` kriva (trajanje = `springDurationMs`). Za
+ * elemente koje animira tuđ CSS (sonner): broj i oblik krive ostaju iz rečnika,
+ * a element i dalje animira samo jedna biblioteka. Pregledač bez `linear()`
+ * odbaci vrednost i ostane na podrazumevanoj krivi.
+ */
+export function springLinearEasing(name: SpringName, samples = 40): string {
+  const points = sampleSpring(SPRING[name], samples);
+  const stops = points.map(([t, x], index) =>
+    index === 0 || index === points.length - 1 ? cssNumber(x) : `${cssNumber(x)} ${cssNumber(t * 100)}%`,
+  );
+  return `linear(${stops.join(", ")})`;
+}
+
+/** Tween put (`STANDARD_EASE_BEZIER`) kao CSS `cubic-bezier(...)`. */
+export function standardCubicBezier(): string {
+  return `cubic-bezier(${STANDARD_EASE_BEZIER.join(", ")})`;
 }

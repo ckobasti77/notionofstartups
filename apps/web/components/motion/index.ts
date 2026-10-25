@@ -1,6 +1,7 @@
 export { AnimatedCheck } from "./animated-check";
 export { Collapse } from "./collapse";
 export { Drawer } from "./drawer";
+export { FLIP_MAX_ITEMS, FlipGroup } from "./flip-group";
 export { MotionDialog, type MotionDialogProps } from "./motion-dialog";
 export { MotionStage, STAGE_ENTER_SELECTOR } from "./motion-stage";
 export { NumberRoll } from "./number-roll";

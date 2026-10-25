@@ -79,6 +79,8 @@ export function ChatView({
             members={members}
             onOpenList={onOpenList}
             onOpenPage={onOpenPage}
+            // Ulaz nove poruke i u chatu startupa (K19), isto kao u globalnim Porukama.
+            animateArrivals
           />
         ) : (
           <div className="flex h-full items-center justify-center p-6">

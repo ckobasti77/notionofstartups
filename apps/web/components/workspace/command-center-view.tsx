@@ -12,10 +12,18 @@ import {
   Plus,
   UserSearch,
 } from "lucide-react";
-import { canJoinTask, findStartupRow, locateStartupRow, type StartupMini, type TaskRowModel } from "@devotion/shared";
+import {
+  canJoinTask,
+  DURATION,
+  findStartupRow,
+  locateStartupRow,
+  type StartupMini,
+  type TaskRowModel,
+} from "@devotion/shared";
 
 import { TaskRow, type TaskRowActions } from "@/components/me/task-row";
 import type { TaskPanelProps } from "@/components/me/task-panel/task-panel";
+import { Collapse } from "@/components/motion/collapse";
 import { NumberRoll } from "@/components/motion/number-roll";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -471,9 +479,13 @@ function TriageZoneSection({
     <section
       id={`zona-${zone.id}`}
       aria-labelledby={`zona-${zone.id}-naslov`}
+      // Zona je i sama deo Flip-a (K19): kad red pređe u drugu zonu, okviri
+      // zona menjaju visinu zajedno sa redovima umesto da skoče.
+      data-flip-id={`zona:${zone.id}`}
       className={cn("scroll-mt-4 overflow-hidden rounded-2xl border border-border/70 bg-card/60", meta.frameClass)}
     >
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 sm:px-4">
+      {/* Zaglavlje zone ulazi u istom stagger-u kao redovi (`useEnter`). */}
+      <header data-motion-enter className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 sm:px-4">
         <Icon className={cn("size-4 shrink-0", meta.accentClass)} aria-hidden="true" />
         <h2 id={`zona-${zone.id}-naslov`} className="text-sm font-bold uppercase tracking-[0.08em]">
           {meta.label}
@@ -497,13 +509,18 @@ function TriageZoneSection({
             onClick={onToggleCollapsed}
           >
             {collapsed ? "Prikaži" : "Sakrij"}
-            <ChevronDown className={cn("transition-transform", !collapsed && "rotate-180")} aria-hidden="true" />
+            <ChevronDown
+              className={cn("transition-transform", !collapsed && "rotate-180")}
+              style={{ transitionDuration: `${DURATION.quick}ms` }}
+              aria-hidden="true"
+            />
           </Button>
         )}
       </header>
 
-      <div id={listId} hidden={collapsed} inert={collapsed}>
-        {collapsed ? null : count === 0 ? (
+      {/* Skupljena zona se otvara/zatvara kroz `Collapse` i ne montira redove dok je zatvorena. */}
+      <Collapse open={!collapsed} id={listId} unmountWhenClosed>
+        {count === 0 ? (
           <p className="px-3 pb-3 text-sm text-muted-foreground sm:px-4">{meta.emptyLabel}</p>
         ) : (
           <ul data-section={zone.id} className="space-y-0.5 border-t border-border/50 px-1.5 py-1.5 sm:px-2">
@@ -529,7 +546,7 @@ function TriageZoneSection({
             ) : null}
           </ul>
         )}
-      </div>
+      </Collapse>
     </section>
   );
 }

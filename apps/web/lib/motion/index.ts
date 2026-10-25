@@ -9,8 +9,10 @@ export {
   reducedFade,
   SPRING_DURATION_S,
   SPRING_EASE,
+  springLinearEasing,
   springTween,
   STANDARD_EASE,
+  standardCubicBezier,
   standardTween,
   type EaseDefinition,
 } from "./eases";
@@ -29,7 +31,11 @@ export {
 } from "./use-gsap";
 export { ENTER_SELECTOR, useEnter } from "./use-enter";
 export { FLIP_SELECTOR, useFlip } from "./use-flip";
+export { shouldFlip, type FlipKeys } from "./flip-snapshot";
 export { usePress } from "./use-press";
+export { assignRef, usePopEnter } from "./use-pop-enter";
+export { currentScaleProperty, tweenScaleProperty } from "./scale-property";
+export { useLayerMotion, type LayerMotion } from "./use-layer-motion";
 export { planRoll, type RollSlot } from "./number-roll";
 export { useNumberRoll } from "./use-number-roll";
 export { frameWithin, framesDiffer, type Frame, type Rect } from "./rail-indicator";

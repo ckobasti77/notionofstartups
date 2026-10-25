@@ -47,3 +47,20 @@ export const DEMO_CHECKPOINTS: ReadonlyArray<{ id: string; title: string; done: 
   { id: "k2", title: "Scenario od 20 sekundi", done: false },
   { id: "k3", title: "Snimanje u petak pre otvaranja", done: false },
 ];
+
+/** K19 — glasanje o idejama (lista koju menja server: redosled po glasovima). */
+export const DEMO_IDEAS: ReadonlyArray<{ id: string; title: string; votes: number }> = [
+  { id: "i1", title: "Program vernosti za stalne goste", votes: 6 },
+  { id: "i2", title: "QR meni na tri jezika", votes: 4 },
+  { id: "i3", title: "Radionica šminkanja za mladence", votes: 3 },
+  { id: "i4", title: "Paket „hitna popravka“ vikendom", votes: 1 },
+];
+
+/** K19 — nova ideja koja „stiže od drugog člana". */
+export const DEMO_IDEA_ARRIVAL = { id: "i5", title: "Video kurs za vlasnike kafića", votes: 0 } as const;
+
+/** K19 — stablo oblasti u bočnoj traci (oblast → stranice). */
+export const DEMO_AREAS: ReadonlyArray<{ id: string; label: string; pages: ReadonlyArray<string> }> = [
+  { id: "o1", label: "Marketing", pages: ["Plan objava za novembar", "Reel za novi meni", "Saradnja sa influenserima"] },
+  { id: "o2", label: "Sales", pages: ["Ponuda pekari Kifla", "Lista kafića za obilazak"] },
+];

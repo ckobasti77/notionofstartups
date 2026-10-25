@@ -35,11 +35,12 @@ export const duration = {
   swap: 200,
 } as const;
 
-/** Spring za sheet — bez odskoka koji se vidi kao „gumeno". */
+/**
+ * Spring za sheet = `smooth` iz rečnika (K19; ranije 280/26/0,9): isti spring
+ * kao web `Drawer`/`ui/sheet`, kritično prigušen — bez odskoka.
+ */
 export const SHEET_SPRING = {
-  damping: 26,
-  stiffness: 280,
-  mass: 0.9,
+  ...reanimatedSpring(SPRING.smooth),
   overshootClamping: false,
 } as const;
 
@@ -63,8 +64,10 @@ export const BACKDROP_OPACITY = 0.5;
  *
  * Isti brojevi kao web GSAP (`apps/web/lib/motion/`), samo prevedeni u
  * Reanimated: spring zadat kao response/dampingRatio postaje
- * stiffness/damping/mass (`reanimatedSpring`). Postojeći exporti iznad ostaju
- * netaknuti dok ih K19 ne uskladi — novi kod koristi ovo ispod.
+ * stiffness/damping/mass (`reanimatedSpring`). K19 je uskladio `SHEET_SPRING`
+ * (= `smooth`); ostali exporti iznad (`duration`, `STAGGER_*`) i dalje hrane
+ * `StaggerItem`/`LoadingSwap` na ekranima van obima K19 — novi kod koristi ovo
+ * ispod (vidi ODLUKE K19 u `docs/LICNO-PROGRESS.md`).
  */
 
 function toSpring(name: SpringName): WithSpringConfig {

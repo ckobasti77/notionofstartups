@@ -578,3 +578,107 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Sloj koji odlazi (ui/dialog, ui/sheet — `useLayerMotion`, K19) ne hvata klikove
+   dok nestaje; atribut postavlja GSAP kod, pa ga React ne prepisuje. */
+[data-layer-exiting] {
+  pointer-events: none !important;
+}
+
+/* Toastovi (sonner, K19) — van slojeva, jer sonner ubacuje svoj CSS bez sloja.
+   Brojeve pokreta i boje zadaje `components/ui/sonner.tsx` kao promenljive na
+   traci (`--toast-*`, `--normal-*`, `--success-*`…). Toast animira samo sonner
+   (CSS prelazi), GSAP se na njega ne kači. */
+[data-sonner-toaster][data-sonner-theme] {
+  font-family: inherit;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:not([data-swiping="true"]) {
+  transition-property: transform, opacity, height, box-shadow;
+  transition-duration: var(--toast-move-duration), var(--toast-fade-duration), var(--toast-move-duration),
+    var(--toast-fade-duration);
+  transition-timing-function: var(--toast-move-ease), var(--toast-fade-ease), var(--toast-move-ease),
+    var(--toast-fade-ease);
+}
+
+/* Zadnji toast koji odlazi iz skupljenog niza (sonner ima posebno pravilo). */
+[data-sonner-toaster]
+  [data-sonner-toast][data-removed="true"][data-front="false"][data-swipe-out="false"][data-expanded="false"] {
+  transition-duration: var(--toast-move-duration), var(--toast-fade-duration);
+  transition-timing-function: var(--toast-move-ease), var(--toast-fade-ease);
+}
+
+[data-sonner-toaster] [data-sonner-toast] > * {
+  transition: opacity var(--toast-fade-duration) var(--toast-fade-ease);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  gap: 0.625rem;
+  font-size: 0.875rem;
+  box-shadow: var(--shadow-desk);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:focus-visible {
+  box-shadow: var(--shadow-desk), 0 0 0 2px var(--ring);
+}
+
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"] [data-description] {
+  color: var(--muted-foreground);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--success);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--info);
+}
+
+/* Čista `--warning` na svetloj tinti je ispod 3:1 (WCAG 1.4.11), pa se ikonica tamni ka tekstu. */
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: color-mix(in oklab, var(--warning) 60%, var(--foreground));
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--destructive);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  height: 1.75rem;
+  padding-inline: 0.625rem;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button]:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"] button[data-cancel] {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+/* Dugme za zatvaranje nasleđuje podlogu i ivicu svog toasta (i u tonovima). */
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  background: inherit;
+  border-color: inherit;
+  color: var(--muted-foreground);
+}
+
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover {
+  background: var(--accent);
+  border-color: var(--border);
+  color: var(--accent-foreground);
+}
+
+/* Smanjen pokret: bez pomeranja — toast se samo pretopi (120 ms). */
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster] [data-sonner-toast],
+  [data-sonner-toaster] [data-sonner-toast] > * {
+    transition: opacity var(--toast-reduced-duration) var(--toast-fade-ease) !important;
+  }
+}

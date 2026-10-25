@@ -35,11 +35,13 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
+import { DURATION } from "@devotion/shared";
 
 import { AppMark } from "@/components/app-mark";
 import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
 import { StartupChip } from "@/components/me/startup-chip";
 import { ScopeChips, type ScopeChipsProps } from "@/components/me/shell/scope-chips";
+import { Collapse } from "@/components/motion/collapse";
 import { PageTree } from "@/components/workspace/page-tree";
 import type {
   CreatePageTarget,
@@ -702,6 +704,7 @@ function SidebarContent(
                         data-compact="true"
                         className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
                         aria-expanded={expanded}
+                        aria-controls={`${sidebarInstanceId}-oblast-${area._id}`}
                         aria-label={
                           expanded
                             ? `Sakrij ${area.label}`
@@ -716,6 +719,7 @@ function SidebarContent(
                             "size-3.5 transition-transform",
                             !expanded && "-rotate-90",
                           )}
+                          style={{ transitionDuration: `${DURATION.quick}ms` }}
                         />
                       </button>
                       {editingAreaId === area._id ? (
@@ -800,7 +804,9 @@ function SidebarContent(
                         </div>
                       ) : null}
                     </div>
-                    {expanded ? (
+                    {/* Otvaranje/zatvaranje oblasti kroz `Collapse` (K19); stablo se
+                        montira tek kad je oblast otvorena, kao i ranije. */}
+                    <Collapse open={expanded} id={`${sidebarInstanceId}-oblast-${area._id}`} unmountWhenClosed>
                       <PageTree
                         startupId={startup._id}
                         areaId={area._id}
@@ -828,7 +834,7 @@ function SidebarContent(
                         onDragPageOver={props.onDragPageOver}
                         onDropPage={props.onDropPage}
                       />
-                    ) : null}
+                    </Collapse>
                   </div>
                 );
               })}

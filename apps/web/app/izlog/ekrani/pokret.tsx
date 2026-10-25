@@ -51,6 +51,7 @@ import {
   DEMO_TASKS,
   type DemoTask,
 } from "../fixtures/pokret";
+import { PrimitiviPokreta } from "./pokret-primitivi";
 
 /** Red prelazi u „Završeno" kad se kvačica smiri (bouncy). */
 const MOVE_AFTER_MS = springDurationMs(SPRING.bouncy);
@@ -827,6 +828,7 @@ export default function PokretEkran() {
           <DrawerDemo />
         </Primerak>
       </div>
+      <PrimitiviPokreta Primerak={Primerak} />
     </div>
   );
 }

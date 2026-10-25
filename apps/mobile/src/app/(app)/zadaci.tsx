@@ -21,7 +21,7 @@ import { QuickAddSheet } from '@/components/me/quick-add-sheet';
 import { MeSectionHeader } from '@/components/me/section-header';
 import { TaskRow } from '@/components/me/task-row';
 import { useQuickAdd } from '@/components/me/use-quick-add';
-import { exitFade, listLayout } from '@/components/motion';
+import { exitFade, listLayout, useListEntering } from '@/components/motion';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FAB } from '@/components/ui/fab';
@@ -29,7 +29,6 @@ import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
-import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { UndoBar } from '@/components/undo-bar';
 import {
   TasksFilterSheet,
@@ -74,6 +73,11 @@ const MAX_ASSIGNEE_LOOKUP = 300;
  * ekran pisao kroz `areasV2.updatePage` (samo kreator) — to je bila razlika od
  * weba, sada ukinuta.
  */
+/** Stavka spljoštene liste „Svi zadaci": zaglavlje sekcije ili red. */
+type ListItem =
+  | { kind: 'header'; key: string; section: StatusSection }
+  | { kind: 'row'; key: string; row: TaskRowModel };
+
 export default function ZadaciScreen() {
   const colors = useThemeColors();
   const router = useRouter();
@@ -256,18 +260,51 @@ export default function ZadaciScreen() {
   });
 
   const refreshControl = useListRefresh();
-  const layoutPreset = useMemo(() => listLayout(reduced), [reduced]);
   const rowCount = sections ? sectionRowCount(sections) : 0;
-  const layout = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? layoutPreset : undefined;
-
-  const renderRow = (row: TaskRowModel, index: number) => (
-    <StaggerItem key={row.key} index={index}>
-      <Animated.View layout={layout} exiting={exitFade(reduced)}>
-        {/* Startup je isti za ceo ekran (zaglavlje ga nosi), pa bez čipa. */}
-        <TaskRow row={row} now={commands.now} showStartup={false} {...commands.rowActions} />
-      </Animated.View>
-    </StaggerItem>
+  // Granica E12: iznad nje nema layout ni izlazne animacije (stotine redova).
+  const layout = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? listLayout(reduced) : undefined;
+  const exiting = layout === undefined ? undefined : exitFade(reduced);
+  // Ulaz iz rečnika (K19, `components/motion`): prvo punjenje i promena filtera.
+  const listReady =
+    pageStatus !== 'LoadingFirstPage' && startup !== undefined && sections !== undefined && !waitingForAssignees;
+  const entering = useListEntering(
+    reduced,
+    `${statusFilter}:${priorityFilter}:${assigneeFilter}:${dueFilter}:${listReady ? 'spremno' : 'ucitavanje'}`,
   );
+  // Zaglavlja i redovi su braća u JEDNOM roditelju (ključ = red), pa red koji
+  // pređe u drugu sekciju ostaje isti element i doputuje layout springom umesto
+  // da nestane u jednoj i iskoči u drugoj. Indeks je redni broj za stagger.
+  const listItems = useMemo<ListItem[]>(() => {
+    if (!sections) return [];
+    if (statusFilter !== 'all') {
+      return sections.flatMap((section) => section.rows).map((row) => ({ kind: 'row', key: row.key, row }));
+    }
+    return sections.flatMap((section): ListItem[] =>
+      section.rows.length === 0
+        ? []
+        : [
+            { kind: 'header', key: `sekcija:${section.id}`, section },
+            ...section.rows.map((row): ListItem => ({ kind: 'row', key: row.key, row })),
+          ],
+    );
+  }, [sections, statusFilter]);
+
+  const renderItem = (item: ListItem, index: number) =>
+    item.kind === 'header' ? (
+      <Animated.View
+        key={item.key}
+        entering={entering(index)}
+        layout={layout}
+        exiting={exiting}
+        style={index === 0 ? styles.sectionHeaderFirst : styles.sectionHeader}>
+        <MeSectionHeader title={TASK_STATUS_META[item.section.id].label} count={item.section.rows.length} />
+      </Animated.View>
+    ) : (
+      <Animated.View key={item.key} entering={entering(index)} layout={layout} exiting={exiting}>
+        {/* Startup je isti za ceo ekran (zaglavlje ga nosi), pa bez čipa. */}
+        <TaskRow row={item.row} now={commands.now} showStartup={false} {...commands.rowActions} />
+      </Animated.View>
+    );
 
   if (activeStartupId === null) {
     return (
@@ -343,26 +380,16 @@ export default function ZadaciScreen() {
             contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 160 }]}
             showsVerticalScrollIndicator={false}
             refreshControl={refreshControl}>
-            <StaggerGroup
-              resetKey={`${statusFilter}:${priorityFilter}:${assigneeFilter}:${dueFilter}`}>
-              {statusFilter === 'all' ? (
-                sections.map((section) =>
-                  section.rows.length === 0 ? null : (
-                    <View key={section.id} style={styles.section}>
-                      <MeSectionHeader title={TASK_STATUS_META[section.id].label} count={section.rows.length} />
-                      <View>{section.rows.map(renderRow)}</View>
-                    </View>
-                  ),
-                )
-              ) : (
-                <View style={styles.section}>
-                  <Text style={[styles.summary, { color: colors.mutedForeground }]}>
-                    {rowCount} {tasksWord(rowCount)}
-                  </Text>
-                  <View>{sections.flatMap((section) => section.rows).map(renderRow)}</View>
-                </View>
-              )}
-            </StaggerGroup>
+            {statusFilter === 'all' ? (
+              <View>{listItems.map(renderItem)}</View>
+            ) : (
+              <View style={styles.section}>
+                <Text style={[styles.summary, { color: colors.mutedForeground }]}>
+                  {rowCount} {tasksWord(rowCount)}
+                </Text>
+                <View>{listItems.map(renderItem)}</View>
+              </View>
+            )}
 
             {pageStatus === 'CanLoadMore' ? (
               <Button
@@ -477,6 +504,14 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: 4,
+  },
+  // Isti ritam kao ranije (20 između sekcija, 4 do redova), sada kao braća u jednoj listi.
+  sectionHeaderFirst: {
+    marginBottom: 4,
+  },
+  sectionHeader: {
+    marginTop: 20,
+    marginBottom: 4,
   },
   summary: {
     ...text.meta,

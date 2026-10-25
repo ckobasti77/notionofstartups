@@ -6,7 +6,6 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +22,7 @@ import {
 } from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { UndoBar } from '@/components/undo-bar';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -378,8 +378,9 @@ function IdeaRow({
   // Tap na karticu otvara ekran ideje (detalj + diskusija tima). Glasanje je
   // SEKUNDARNO: kompaktan par dugmadi u podnožju, desno od autora — ne traka
   // preko pola kartice.
+  // Kartica se utisne na dodir (`PressableScale`, K19); podloga pritiska ostaje.
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`Otvori ideju: ${title}`}
       accessibilityHint="Dugi pritisak otvara akcije ideje."
@@ -429,7 +430,7 @@ function IdeaRow({
           onVote={(next) => void cast(next)}
         />
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 

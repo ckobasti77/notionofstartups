@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FLIP_MAX_ITEMS, FlipGroup } from "@/components/motion/flip-group";
 import { EntityDiscussionPanel } from "@/components/workspace/chat/entity-discussion-panel";
 import { IdeasCanvasView } from "@/components/workspace/ideas-canvas-view";
 import { IdeaInlineThread } from "@/components/workspace/idea-discussion-dialog";
@@ -53,6 +54,7 @@ import {
 import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useEnter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 type IdeasViewProps = {
@@ -185,6 +187,11 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
       return next;
     });
   };
+
+  // Tabela ideja (K19): redovi ulaze sa stagger-om kad se tabela otvori, a
+  // promene (nova ideja, razvijen red, pretraga se ne računa) idu kroz Flip.
+  const tableBodyRef = useRef<HTMLTableSectionElement>(null);
+  useEnter(tableBodyRef, { key: `${viewMode}:${ideasData ? "spremno" : "ucitavanje"}` });
 
   if (!ideasData) {
     return (
@@ -484,8 +491,10 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
           /* Table View */
           <div className="h-full overflow-y-auto p-6">
             <div className="overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-sm">
-              <table className="min-w-[64rem] w-full text-left text-sm">
-                <thead className="bg-muted/40 border-b border-border/60 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              {/* `border-separate` + ivice na ćelijama (K19): kod `border-collapse` ivice crta
+                  tabela, pa bi razdelnici ostajali u mestu dok red putuje Flip-om. Izgled je isti. */}
+              <table className="min-w-[64rem] w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider [&_th]:border-b [&_th]:border-border/60">
                   <tr>
                     <th className="px-6 py-3.5">Ideja</th>
                     <th className="px-6 py-3.5">Autor</th>
@@ -495,7 +504,15 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                     <th className="px-6 py-3.5 text-right">Akcija</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/40">
+                <tbody ref={tableBodyRef} className="[&>tr:not(:last-child)>td]:border-b [&>tr>td]:border-border/40">
+                  <FlipGroup
+                    scope={tableBodyRef}
+                    layoutKey={filteredNodes
+                      .map((node) => (expandedIdeaIds.has(node._id) ? `${node._id}+` : node._id))
+                      .join("|")}
+                    resetKey={searchQuery}
+                    disabled={filteredNodes.length > FLIP_MAX_ITEMS}
+                  >
                   {filteredNodes.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
@@ -507,10 +524,14 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                       const expanded = expandedIdeaIds.has(node._id);
                       return (
                         <Fragment key={node._id}>
-                          <tr className={cn(
-                            "transition-colors hover:bg-muted/20",
-                            expanded && "bg-muted/15",
-                          )}>
+                          <tr
+                            data-flip-id={node._id}
+                            data-motion-enter
+                            className={cn(
+                              "transition-colors hover:bg-muted/20",
+                              expanded && "bg-muted/15",
+                            )}
+                          >
                             <td className="max-w-xs px-6 py-4">
                               <button
                                 type="button"
@@ -613,7 +634,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                             </td>
                           </tr>
                           {expanded ? (
-                            <tr>
+                            <tr data-flip-id={`${node._id}:detalj`}>
                               <td colSpan={6} className="bg-muted/10 px-6 pb-5 pt-0">
                                 <div className="rounded-2xl border border-border/70 bg-background/75 p-5 shadow-sm">
                                   <div className="flex flex-wrap items-start justify-between gap-4">
@@ -683,6 +704,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                       );
                     })
                   )}
+                  </FlipGroup>
                 </tbody>
               </table>
             </div>

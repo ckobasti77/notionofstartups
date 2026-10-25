@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useThemeColors } from '@/theme/theme-provider';
-import { BACKDROP_OPACITY, duration, SHEET_SPRING } from '@/theme/motion';
+import { BACKDROP_OPACITY, REDUCED_FADE, SHEET_SPRING, standardTiming } from '@/theme/motion';
 import { radius } from '@/theme/tokens';
 
 /** Preko ovoliko px prevlačenja nadole sheet se pušta. */
@@ -56,14 +56,15 @@ export type SheetProps = {
 /**
  * Donji sheet — jedan primitiv za sve modale u aplikaciji.
  *
- * Pokret (zahtev „suzdržano, nikad dekorativno"):
- *  - ulaz: spring odozdo, backdrop tamni zajedno sa njim (nije korak, nego rampa)
- *  - izlaz: kraći `timing` — zatvaranje ne sme da se čeka
+ * Pokret (zahtev „suzdržano, nikad dekorativno"; brojevi iz rečnika, K19):
+ *  - ulaz: spring `smooth` odozdo (`SHEET_SPRING`), backdrop tamni zajedno sa
+ *    njim (nije korak, nego rampa)
+ *  - izlaz: kraći tween (`quick`, standardna kriva) — zatvaranje ne sme da se čeka
  *  - gest: prevlačenje nadole prati prst; backdrop se pri tome razvedrava, pa je
  *    vidljivo koliko je „blizu puštanja"
  *
- * Kad je uključeno „smanji pokret", sheet se pojavljuje i nestaje bez animacije;
- * gest ostaje (to je direktna manipulacija, ne animacija).
+ * Kad je uključeno „smanji pokret", sheet se ne pomera: pojavi se i nestane
+ * samo pretapanjem (120 ms); gest ostaje (direktna manipulacija, ne animacija).
  *
  * `Modal` ostaje montiran do kraja izlazne animacije (`mounted` stanje), inače bi
  * RN otkinuo prikaz na prvom frejmu i animacija se ne bi videla.
@@ -88,6 +89,8 @@ export function Sheet({
   const [mounted, setMounted] = useState(visible);
   // 0 = sklonjen ispod ekrana, 1 = na mestu.
   const progress = useSharedValue(0);
+  // Neprozirnost panela i backdrop-a; ispod 1 samo pri smanjenom pokretu.
+  const fade = useSharedValue(1);
   // Trenutni pomeraj prsta (uvek ≥ 0 — sheet se ne vuče naviše).
   const drag = useSharedValue(0);
   // Realna visina panela; do prvog `onLayout` pretpostavljamo pun ekran, pa je
@@ -98,9 +101,19 @@ export function Sheet({
   const measured = useRef(false);
 
   const enter = () => {
-    progress.value = reduced ? 1 : withSpring(1, SHEET_SPRING);
+    if (reduced) {
+      // Novo otvaranje kreće od providnog; ponovno otvaranje usred izlaza od trenutnog.
+      if (progress.value === 0) fade.value = 0;
+      progress.value = 1;
+      fade.value = withTiming(1, REDUCED_FADE);
+      return;
+    }
+    fade.value = 1;
+    progress.value = withSpring(1, SHEET_SPRING);
   };
   const unmount = () => {
+    // Ponovo otvoren dok je poziv iz UI niti bio na putu: sheet ostaje.
+    if (visibleRef.current) return;
     measured.current = false;
     setMounted(false);
   };
@@ -115,17 +128,21 @@ export function Sheet({
       return;
     }
     if (reduced) {
-      progress.value = 0;
-      unmount();
+      fade.value = withTiming(0, REDUCED_FADE, (finished) => {
+        'worklet';
+        if (!finished) return;
+        progress.value = 0;
+        runOnJS(unmount)();
+      });
       return;
     }
-    progress.value = withTiming(0, { duration: duration.exit }, (finished) => {
+    progress.value = withTiming(0, standardTiming('quick'), (finished) => {
       'worklet';
       if (finished) runOnJS(unmount)();
     });
     // `enter`/`unmount` su stabilni po sadržaju (čitaju samo ref i shared value).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, reduced, progress, drag]);
+  }, [visible, reduced, progress, drag, fade]);
 
   const onLayout = (event: LayoutChangeEvent) => {
     height.value = event.nativeEvent.layout.height;
@@ -166,10 +183,11 @@ export function Sheet({
 
   const backdropStyle = useAnimatedStyle(() => {
     const pulled = height.value > 0 ? Math.min(1, drag.value / height.value) : 0;
-    return { opacity: progress.value * (1 - pulled) * BACKDROP_OPACITY };
+    return { opacity: progress.value * fade.value * (1 - pulled) * BACKDROP_OPACITY };
   });
 
   const panelStyle = useAnimatedStyle(() => ({
+    opacity: fade.value,
     transform: [{ translateY: (1 - progress.value) * height.value + drag.value }],
   }));
 

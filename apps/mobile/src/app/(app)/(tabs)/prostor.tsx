@@ -19,7 +19,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   ActivityIndicator,
   BackHandler,
-  FlatList,
   KeyboardAvoidingView,
   Pressable,
   ScrollView,
@@ -36,8 +35,9 @@ import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { EmptyState } from '@/components/empty-state';
 import { CommandCenter } from '@/components/komandni-centar/command-center';
+import { LAYOUT_ANIMATION_MAX_ROWS } from '@/components/me/my-day/my-day-model';
 import { NoStartupState, useHasNoStartups } from '@/components/no-startup-state';
-import { enterFadeUp, exitFade } from '@/components/motion';
+import { enterFadeUp, exitFade, listLayout, useListEntering } from '@/components/motion';
 import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
 import { AreaContributionsSection } from '@/components/prostor/area-contributions-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
@@ -51,7 +51,6 @@ import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
-import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Doc, Id } from '@/convex/_generated/dataModel';
@@ -397,6 +396,11 @@ function Level1({
 
   const loading = startupId === null || startup === undefined;
   const refreshControl = useListRefresh();
+  // Liste Prostora (K19): ulaz sa stagger-om kad sadržaj stigne (i pri promeni
+  // startupa), promene (nova oblast, „Nedavno" menja redosled) kroz layout spring.
+  const reduced = useReducedMotion();
+  const entering = useListEntering(reduced, `${startupId ?? ''}:${loading ? 'ucitavanje' : 'spremno'}`);
+  const layout = listLayout(reduced);
 
   return (
     <SegmentBody>
@@ -415,27 +419,31 @@ function Level1({
               contentContainerStyle={styles.level1Content}
               showsVerticalScrollIndicator={false}
               refreshControl={refreshControl}>
-              <StaggerGroup>
-                {/* Chat startupa (O5): od K16 je tab „Poruke" hub svih razgovora, a
-                    kanali, DM-ovi i diskusije OVOG startupa su ovde. */}
-                {startupId ? (
-                  <StaggerItem index={0}>
-                    <StartupChannelsRow startupId={startupId} />
-                  </StaggerItem>
-                ) : null}
-                <View style={styles.areaList}>
-                  {startup.areas.map((area, index) => (
-                    <StaggerItem key={area._id} index={index}>
-                      <AreaRow
-                        area={area}
-                        count={countByArea.get(area._id)}
-                        countsLoaded={counts !== undefined}
-                        colors={colors}
-                        onPress={() => onOpenArea(area)}
-                      />
-                    </StaggerItem>
-                  ))}
-                  {/* Nova oblast stoji uz listu oblasti — isti ulaz kao web „Nova oblast". */}
+              {/* Chat startupa (O5): od K16 je tab „Poruke" hub svih razgovora, a
+                  kanali, DM-ovi i diskusije OVOG startupa su ovde. */}
+              {startupId ? (
+                <Animated.View entering={entering(0)} layout={layout}>
+                  <StartupChannelsRow startupId={startupId} />
+                </Animated.View>
+              ) : null}
+              <Animated.View layout={layout} style={styles.areaList}>
+                {startup.areas.map((area, index) => (
+                  <Animated.View
+                    key={area._id}
+                    entering={entering(index + 1)}
+                    exiting={exitFade(reduced)}
+                    layout={layout}>
+                    <AreaRow
+                      area={area}
+                      count={countByArea.get(area._id)}
+                      countsLoaded={counts !== undefined}
+                      colors={colors}
+                      onPress={() => onOpenArea(area)}
+                    />
+                  </Animated.View>
+                ))}
+                {/* Nova oblast stoji uz listu oblasti — isti ulaz kao web „Nova oblast". */}
+                <Animated.View layout={layout}>
                   <Row
                     title="Nova oblast"
                     onPress={() => {
@@ -446,28 +454,31 @@ function Level1({
                     style={[styles.addAreaRow, { borderColor: colors.border }]}
                     icon={<Plus size={20} color={colors.mutedForeground} />}
                   />
-                </View>
+                </Animated.View>
+              </Animated.View>
 
-                {recent && recent.length > 0 ? (
-                  <View style={styles.recentSection}>
-                    <Text
-                      accessibilityRole="header"
-                      style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-                      Nedavno
-                    </Text>
-                    {recent.map((page, index) => (
-                      <StaggerItem key={page._id} index={startup.areas.length + index}>
-                        <RecentRow
-                          page={page}
-                          now={now}
-                          colors={colors}
-                          onPress={() => onOpenLeaf(page)}
-                        />
-                      </StaggerItem>
-                    ))}
-                  </View>
-                ) : null}
-              </StaggerGroup>
+              {recent && recent.length > 0 ? (
+                <Animated.View
+                  entering={entering(startup.areas.length + 1)}
+                  layout={layout}
+                  style={styles.recentSection}>
+                  <Text
+                    accessibilityRole="header"
+                    style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+                    Nedavno
+                  </Text>
+                  {recent.map((page) => (
+                    <Animated.View key={page._id} exiting={exitFade(reduced)} layout={layout}>
+                      <RecentRow
+                        page={page}
+                        now={now}
+                        colors={colors}
+                        onPress={() => onOpenLeaf(page)}
+                      />
+                    </Animated.View>
+                  ))}
+                </Animated.View>
+              ) : null}
             </ScrollView>
           )}
         </LoadingSwap>
@@ -705,15 +716,24 @@ function PageLevelList({
   }, []);
   const childCounts = useChildCounts(startupId, areaId, results);
   const refreshControl = useListRefresh();
+  // Stablo stranica (K19): ulaz sa stagger-om kad lista stigne, a razvijanje
+  // grane pomera redove ispod layout springom (do granice, plan K07 E12).
+  const reduced = useReducedMotion();
+  const entering = useListEntering(reduced, `${areaId}:${loading ? 'ucitavanje' : 'spremno'}`);
+  // Granica (E12) važi po nivou: koreni ovde, podstranice u `ChildPages`.
+  const layout = results.length <= LAYOUT_ANIMATION_MAX_ROWS ? listLayout(reduced) : undefined;
 
   return (
     <LoadingSwap loading={loading} skeleton={<PageListSkeleton />}>
       {startupId === null || loading ? null : (
-        <FlatList
+        <Animated.FlatList
           data={results}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item, index }) => (
-            <StaggerItem index={index}>
+          keyExtractor={(item: PageItem) => item._id}
+          itemLayoutAnimation={layout}
+          renderItem={({ item, index }: { item: PageItem; index: number }) => (
+            <Animated.View
+              entering={entering(index)}
+              exiting={layout === undefined ? undefined : exitFade(reduced)}>
               <PageBranch
                 page={item}
                 depth={0}
@@ -724,8 +744,9 @@ function PageLevelList({
                 expandedIds={expandedIds}
                 onToggle={toggle}
                 onOpen={onOpenLeaf}
+                layout={layout}
               />
-            </StaggerItem>
+            </Animated.View>
           )}
           ItemSeparatorComponent={() => (
             <View style={[styles.sep, { backgroundColor: colors.border }]} />
@@ -752,6 +773,8 @@ function PageLevelList({
   );
 }
 
+type BranchLayout = ReturnType<typeof listLayout>;
+
 /** Jedan red stabla + (kad je razvijen) njegova deca. */
 function PageBranch({
   page,
@@ -763,6 +786,7 @@ function PageBranch({
   expandedIds,
   onToggle,
   onOpen,
+  layout,
 }: {
   page: PageItem;
   depth: number;
@@ -773,10 +797,17 @@ function PageBranch({
   expandedIds: ReadonlySet<string>;
   onToggle: (pageId: string) => void;
   onOpen: (page: PageItem) => void;
+  /** Layout spring za ovaj nivo (`undefined` iznad granice E12 ili u smanjenom pokretu). */
+  layout: BranchLayout;
 }) {
   const expanded = expandedIds.has(page._id);
+  const reduced = useReducedMotion();
   return (
-    <View>
+    // Razvijanje/sklapanje (K19): susedne grane se pomere layout springom, a
+    // podstranice uđu podizanjem. Koren pomera ćelija liste (`itemLayoutAnimation`),
+    // pa sam red animira samo ispod korena. Sklopljeno podstablo nestaje odmah
+    // (bez izlaza), da ne bi bledelo preko redova koji se penju na njegovo mesto.
+    <Animated.View layout={depth > 0 ? layout : undefined}>
       <PageRow
         page={page}
         depth={depth}
@@ -790,18 +821,21 @@ function PageBranch({
         onOpen={onOpen}
       />
       {expanded ? (
-        <ChildPages
-          startupId={startupId}
-          areaId={areaId}
-          parentPageId={page._id}
-          depth={depth + 1}
-          now={now}
-          expandedIds={expandedIds}
-          onToggle={onToggle}
-          onOpen={onOpen}
-        />
+        <Animated.View entering={enterFadeUp(0, reduced)}>
+          <ChildPages
+            startupId={startupId}
+            areaId={areaId}
+            parentPageId={page._id}
+            depth={depth + 1}
+            now={now}
+            expandedIds={expandedIds}
+            onToggle={onToggle}
+            onOpen={onOpen}
+            layout={layout}
+          />
+        </Animated.View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -818,6 +852,7 @@ function ChildPages({
   expandedIds,
   onToggle,
   onOpen,
+  layout,
 }: {
   startupId: Id<'startups'>;
   areaId: Id<'startupAreas'>;
@@ -827,6 +862,7 @@ function ChildPages({
   expandedIds: ReadonlySet<string>;
   onToggle: (pageId: string) => void;
   onOpen: (page: PageItem) => void;
+  layout: BranchLayout;
 }) {
   const colors = useThemeColors();
   const { results, status, loadMore } = usePaginatedQuery(
@@ -836,6 +872,8 @@ function ChildPages({
   );
   const childCounts = useChildCounts(startupId, areaId, results);
   const indent = { paddingLeft: depth * INDENT_STEP };
+  // Granica E12 po nivou: veliki nivo se ne animira (ni redovi ispod njega).
+  const levelLayout = results.length <= LAYOUT_ANIMATION_MAX_ROWS ? layout : undefined;
 
   if (status === 'LoadingFirstPage') {
     return (
@@ -871,6 +909,7 @@ function ChildPages({
           expandedIds={expandedIds}
           onToggle={onToggle}
           onOpen={onOpen}
+          layout={levelLayout}
         />
       ))}
       {status === 'LoadingMore' ? (

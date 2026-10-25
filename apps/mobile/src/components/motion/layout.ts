@@ -20,13 +20,22 @@ import { DURATIONS, ENTER, REDUCED_FADE_MS, SPRINGS, staggerDelayMs, STANDARD_EA
  */
 
 /**
+ * Jedna instanca po vrednosti `reduced` (K19): Reanimated poredi `layout` i
+ * `exiting` po identitetu na svakom renderu i za nov objekat ponovo šalje
+ * konfiguraciju na UI nit — u listi od stotinu redova to je posao na svaki
+ * reaktivni update.
+ */
+const { stiffness: LIST_STIFFNESS, damping: LIST_DAMPING, mass: LIST_MASS } = reanimatedSpring(SPRING.snappy);
+const LIST_LAYOUT = LinearTransition.springify().stiffness(LIST_STIFFNESS).damping(LIST_DAMPING).mass(LIST_MASS);
+const EXIT_FADE = FadeOut.duration(DURATIONS.quick).reduceMotion(ReduceMotion.Never);
+const EXIT_FADE_REDUCED = FadeOut.duration(REDUCED_FADE_MS).reduceMotion(ReduceMotion.Never);
+
+/**
  * Promena redosleda / brisanje u listi: redovi „zatvaraju prazninu" springom
  * `snappy`. Smanjen pokret → `undefined` (Reanimated tada samo preskoči).
  */
 export function listLayout(reduced: boolean) {
-  if (reduced) return undefined;
-  const { stiffness, damping, mass } = reanimatedSpring(SPRING.snappy);
-  return LinearTransition.springify().stiffness(stiffness).damping(damping).mass(mass);
+  return reduced ? undefined : LIST_LAYOUT;
 }
 
 /**
@@ -84,9 +93,7 @@ export function enterRise(reduced: boolean): EntryExitAnimationFunction | FadeIn
 
 /** Izlaz stavke: samo neprozirnost (`quick`; smanjen pokret 120 ms). */
 export function exitFade(reduced: boolean) {
-  return FadeOut.duration(reduced ? REDUCED_FADE_MS : DURATIONS.quick).reduceMotion(
-    ReduceMotion.Never,
-  );
+  return reduced ? EXIT_FADE_REDUCED : EXIT_FADE;
 }
 
 /**

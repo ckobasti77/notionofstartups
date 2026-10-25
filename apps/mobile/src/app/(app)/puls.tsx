@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { EmptyState } from '@/components/empty-state';
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSwap } from '@/components/ui/loading-swap';
@@ -481,8 +482,9 @@ function StuckCard({
 }) {
   const router = useRouter();
   const status = (task.taskStatus ?? 'in_progress') as TaskStatus;
+  // Kartica se utisne na dodir (`PressableScale`, K19); podloga pritiska ostaje.
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       // Ključne info (status + koliko stoji) idu u labelu kartice: ugnježdeni
       // `accessible` čvorovi (DeadlineBadge/AssigneeStack) unutar touchable-a se
@@ -515,7 +517,7 @@ function StuckCard({
         <DeadlineBadge dueDate={task.dueDate} taskStatus={status} now={now} />
         <AssigneeStack assignees={task.assignees} max={3} />
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 

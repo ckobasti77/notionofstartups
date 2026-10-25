@@ -4,6 +4,7 @@ import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 
+import { usePopEnter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const Select = SelectPrimitive.Root;
@@ -25,13 +26,19 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
   );
 }
 
-function SelectContent({ className, children, position = "popper", ...props }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+/**
+ * Lista izbora. Ulaz animira GSAP (`usePopEnter`: neprozirnost + scale 0,98 → 1,
+ * `quick`, iz tačke okidača), ne `tw-animate-css`; izlaz je odmah.
+ */
+function SelectContent({ className, children, position = "popper", ref, ...props }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  const enterRef = usePopEnter<HTMLDivElement>(ref);
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
+        ref={enterRef}
         data-slot="select-content"
         position={position}
-        className={cn("relative z-50 max-h-96 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2", position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1", className)}
+        className={cn("relative z-50 max-h-96 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md", position === "popper" && "origin-(--radix-select-content-transform-origin) data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1", className)}
         {...props}
       >
         <SelectPrimitive.Viewport className={cn("p-1", position === "popper" && "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]")}>{children}</SelectPrimitive.Viewport>

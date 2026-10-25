@@ -96,6 +96,7 @@ import {
   TextBlockField,
   TitleField,
 } from '@/components/me/task-panel-parts';
+import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
   AnimatedCheck,
@@ -1037,6 +1038,9 @@ export default function DizajnKatalogScreen() {
             unreadTotal={k16Mode === 'ready' ? { unreadCount: 14 } : null}
           />
         </View>
+
+        {/* Pokret kroz celu aplikaciju (K19): pritisak, sheet, liste, stablo, mehurić. */}
+        <PokretK19Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 

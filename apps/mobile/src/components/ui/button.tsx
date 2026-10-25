@@ -1,6 +1,5 @@
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -9,6 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
@@ -69,8 +69,10 @@ export function Button({
   const dims = SIZES[size];
   const isDisabled = Boolean(disabled) || loading;
 
+  // Pritisak (K19): dugme se utisne (`PressableScale`), a postojeći „pritisnut"
+  // izgled (neprozirnost, podloga ghost dugmeta) ostaje i u smanjenom pokretu.
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
@@ -103,7 +105,7 @@ export function Button({
           )}
         </View>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 

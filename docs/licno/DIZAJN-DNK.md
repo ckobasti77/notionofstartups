@@ -196,7 +196,7 @@ od trenutne vrednosti na ekranu; ništa ne blokira unos; izlaz je brži od ulaza
 
 1. Završi zadatak — `AnimatedCheck` + precrt (base, sleva) + posle smirivanja kvačice (≈ 741 ms) Flip u „Završeno" (demo u izlogu; ekrani K10/K11/K17).
 2. Promena opsega — `useRailIndicator` + `MotionStage direction` (K08).
-3. Panel zadatka — `Drawer` (K11); Flip naslova u zaglavlje je K19.
+3. Panel zadatka — `Drawer` + „leteća kopija“ naslova u zaglavlje (`use-title-flight.ts`, K11).
 4. Brzi unos — dijalog iz 0,96 snappy + Flip nove stavke (K10).
 5. Brojevi — `NumberRoll`, `ProgressRing` (K08/K10/K14).
 6–7. Swipe i tab bar — telefon (K09/K12).
@@ -216,6 +216,63 @@ od trenutne vrednosti na ekranu; ništa ne blokira unos; izlaz je brži od ulaza
 - Nikad `gsap.matchMedia()` po komponenti: svaki `add()` ostavlja `MediaQueryList` slušaoca koji se ne skida. Smanjen pokret čitaj kroz `useReducedMotion()` / `prefersReducedMotion()` (jedan globalni matchMedia u `gsap-setup.ts`).
 - Kad se red pomera iz liste u listu (demontira/montira), vrati fokus na isti kontrol na novom mestu i najavi promenu kroz `aria-live`.
 - Smanjen pokret: nema pomeranja, skaliranja, Flip-a ni stagger-a — samo neprozirnost ≤ 120 ms.
+- Element koji već nosi Tailwind `translate-*` (centriran dijalog, pomeraj Select-a) skalira se kroz
+  CSS svojstvo `scale` (`tweenScaleProperty`), ne kroz GSAP `scale`: GSAP bi `translate` spojio u
+  `transform` u pikselima i dijalog bi se pomerio kad mu se tokom ulaza promeni visina (K19).
+- Odlazeći sloj deljenih primitiva dobija atribut `data-layer-exiting` (CSS `pointer-events: none`),
+  ne inline stil — Radix pri zatvaranju prepisuje inline `pointer-events` sadržaja — i `inert`
+  (ni tastatura ne stiže do panela koji odlazi) (K19).
+- `Collapse unmountWhenClosed` pri zatvaranju „zamrzne" sadržaj dok traje izlaz (roditelj tada
+  često gasi upit), a dok otvaranje traje cilj prati stvarnu visinu (`ResizeObserver`) — sadržaj
+  koji stigne kasnije ne biva odsečen ni ne „iskoči" na kraju.
+- Tabela koja se Flip-uje (`<tr>`) koristi `border-separate` i ivice na ćelijama: kod
+  `border-collapse` ivice crta tabela, pa bi ostajale u mestu dok red putuje.
+- Telefon: zaglavlja sekcija i redovi su braća u jednom roditelju (ključ = red), da red koji pređe
+  u drugu sekciju doputuje layout springom, a ne da nestane i iskoči. Preseti `listLayout` i
+  `exitFade` su jedna instanca po `reduced` (Reanimated ih poredi po identitetu na svakom renderu).
+- Lista koju menja server (glas, odluka, stavka drugog člana) koristi `FlipGroup`
+  (`getSnapshotBeforeUpdate`), ne `capture()` u rukovaocu: promena stiže posle odgovora servera.
+  Promena taba ili pretrage je `resetKey` — nov skup, bez Flip-a.
+- Tuđa biblioteka koja sama animira (sonner) ne dobija GSAP; dobija samo brojeve iz rečnika kroz
+  CSS promenljive (`springLinearEasing` = isti spring kao CSS `linear()`).
+
+### 5.6 Konačni katalog (K19)
+
+Svaka površina, njen primitiv, preset i trajanje. „Smanjen" = grana za `prefers-reduced-motion` /
+`useReducedMotion` (svuda samo neprozirnost ≤ 120 ms, bez pomeranja).
+
+**Web (GSAP, `apps/web/lib/motion` + `components/motion`)**
+
+| Površina | Primitiv | Ulaz | Izlaz / promena | Smanjen |
+|---|---|---|---|---|
+| Prelaz prikaza | `MotionStage` | `gentle` 735 + neprozirnost `base` 240 | — | 120 |
+| Promena opsega (traka) | `useRailIndicator`, `ScopeSwap` | indikator `snappy` 449; meni `quick` 160 + `snappy` | — | skok / 120 |
+| Liste (Moj dan, Moji zadaci, Inbox, Komandni centar, ideje, odobrenja) | `useEnter` | neprozirnost `quick` + y 8 → 0, scale 0,98 → 1 `snappy`, stagger 24 (≤ 6) | — | 120 |
+| Promena rasporeda (sopstvena radnja) | `useFlip` (`capture()`) | — | Flip `snappy` 449; nova stavka `base` | odmah |
+| Promena rasporeda (server) | `FlipGroup` | — | Flip `snappy` 449 od trenutnog položaja (i usred ulaza); nova stavka `quick` | nove stavke 120 |
+| Zone Komandnog centra | `data-flip-id` na zoni + `useFlip` | zaglavlja zona u stagger-u liste | okvir zone menja visinu Flip-om `snappy` | odmah |
+| Sklopiva sekcija, stablo oblasti i podstranica, zona „Kasnije“ | `Collapse` (`unmountWhenClosed`) | visina `smooth` 617 (cilj prati sadržaj koji stiže) | visina `base` 240 sa zamrznutim sadržajem, pa demontaža | visina odmah + 120 |
+| Dijalog (`ui/dialog`, `MotionDialog`) | `useLayerMotion` / `MotionDialog` | scale 0,96 → 1 `snappy` 449 + neprozirnost `quick` 160 | neprozirnost `quick` 160 | 120 |
+| Sheet (`ui/sheet`) | `useLayerMotion` | sa ivice `smooth` 617, zatamnjenje `base` | istim putem `base` 240 | 120 |
+| Panel zadatka | `Drawer` + leteća kopija naslova | s desna `smooth` 617 | `base` 240 | 120 |
+| Meni, Select, tooltip, popover | `usePopEnter` / `PopoverContent` | neprozirnost + scale 0,98 → 1 `quick` 160 (popover: scale `snappy`) iz tačke okidača | odmah | 120 |
+| Toastovi | sonner + CSS promenljive | put `snappy` 449 (CSS `linear()`), neprozirnost `quick` 160 | isto | 120 |
+| Nova poruka (globalne Poruke i chat startupa) | `MessageList animateArrivals` | y 8 → 0 `snappy` + `quick` | — | 120 |
+| Pritisak | `usePress` | 0,97 za `press` 90 | povratak `snappy` | bez skaliranja |
+| Kvačica, brojevi, prsten | `AnimatedCheck`, `NumberRoll`, `ProgressRing` | `bouncy` 741 / `snappy` / `smooth` | — | 120 |
+
+**Telefon (Reanimated, `apps/mobile/src/theme/motion.ts` + `components/motion`)**
+
+| Površina | Primitiv | Ulaz | Izlaz / promena | Smanjen |
+|---|---|---|---|---|
+| Sheet (svi modali) | `ui/sheet` (`SHEET_SPRING` = `smooth`) | spring `smooth` (223,8 / 29,92 / 1) | `quick` 160, standardna kriva | pretapanje 120 |
+| Liste (Moj dan, Moji zadaci, Inbox, Prostor, „Svi zadaci“, hub) | `useListEntering` → `enterFadeUp` | neprozirnost `quick` + y 8 + scale 0,98 `snappy`, stagger 24 (≤ 6), samo prvo punjenje (450 ms) | `listLayout` (`snappy`), `exitFade` `quick` | 120 |
+| Stablo stranica (Prostor) | `Animated.FlatList itemLayoutAnimation` + `enterFadeUp` | podstranice uđu podizanjem | susedi `snappy`, granica 60 redova po nivou (E12); sklopljeno podstablo nestaje odmah | 120 |
+| „Svi zadaci“ (startup) | jedna lista zaglavlja i redova | stagger kao liste | red prelazi u drugu sekciju layout springom; izlaz `quick` do granice 60 | 120 |
+| Mehurić poruke | `enterRise` | y 8 → 0 `snappy` + `quick` | — | 120 |
+| Pritisak (Button, IconButton, FAB, kartice) | `PressableScale` | 0,97 za `press` 90 | povratak `snappy` | bez skaliranja; „pritisnut“ stil ostaje |
+| Swipe red | `SwipeRow` | prati prst 1:1 | spring `snappy` sa brzinom prsta | povratak odmah, 120 |
+| Kvačica, brojevi, prsten, tab | `AnimatedCheck`, `NumberRoll`, `ProgressRing`, `TabIcon` | `bouncy` / `snappy` / `smooth` / `bouncy` | — | 120 |
 
 ---
 

@@ -1,12 +1,12 @@
 import type { LucideIcon } from 'lucide-react-native';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, SHADOW_COLOR } from '@/theme/tokens';
 
@@ -31,8 +31,9 @@ export type FABProps = {
  */
 export function FAB({ icon: Icon, onPress, accessibilityLabel, busy = false, style }: FABProps) {
   const colors = useThemeColors();
+  // Pritisak (K19): FAB se utisne (`PressableScale`); neprozirnost pritiska ostaje.
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled: busy, busy }}
@@ -52,7 +53,7 @@ export function FAB({ icon: Icon, onPress, accessibilityLabel, busy = false, sty
       ) : (
         <Icon size={26} color={colors.primaryForeground} />
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
