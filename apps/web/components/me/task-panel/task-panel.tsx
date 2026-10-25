@@ -39,6 +39,11 @@ export type TaskPanelProps = {
   /** Startupi sa oblastima (ljuska, `startups.listForCurrent`): mini podaci i „Prebaci u startup". */
   startups: ReadonlyArray<MoveTargetStartup & { _id: Id<"startups">; areas: ReadonlyArray<{ _id: Id<"startupAreas">; label: string }> }>;
   onOpenInStartup: (startupId: Id<"startups">, pageId: Id<"pages">) => void;
+  /**
+   * Liste u startupu (K17): umesto „Otvori u startupu" (već si u njemu)
+   * panel nudi „Puni prikaz" — punu stranicu zadatka.
+   */
+  onOpenFull?: (pageId: Id<"pages">) => void;
 };
 
 /** „Poništi" traje 8 s (plan K07 E6). */
@@ -55,7 +60,7 @@ export function panelRequestKey(request: TaskPanelRequest | null) {
  * Moj dan i Moji zadaci otvaraju ISTI panel. Tokom izlaza prikazuje poslednji
  * cilj (Drawer izlazi istim putem).
  */
-export function TaskPanel({ request, onClose, today, profileId, startups, onOpenInStartup }: TaskPanelProps) {
+export function TaskPanel({ request, onClose, today, profileId, startups, onOpenInStartup, onOpenFull }: TaskPanelProps) {
   const [shown, setShown] = useState(request);
   // „Pokušaj ponovo" ponovo montira sadržaj (nova pretplata).
   const [attempt, setAttempt] = useState(0);
@@ -72,8 +77,10 @@ export function TaskPanel({ request, onClose, today, profileId, startups, onOpen
   const open = request !== null;
   // „Otvori" iz toasta može stići kasnije: uvek najnoviji rukovalac.
   const openInStartupRef = useRef(onOpenInStartup);
+  const openFullRef = useRef(onOpenFull);
   useLayoutEffect(() => {
     openInStartupRef.current = onOpenInStartup;
+    openFullRef.current = onOpenFull;
   });
 
   if (!shown) return null;
@@ -88,6 +95,7 @@ export function TaskPanel({ request, onClose, today, profileId, startups, onOpen
     flightKey: open ? `${panelRequestKey(shown)}:${startedAt ?? 0}` : null,
     startedAt,
     openInStartup: (startupId: Id<"startups">, pageId: Id<"pages">) => openInStartupRef.current(startupId, pageId),
+    openFull: onOpenFull ? (pageId: Id<"pages">) => openFullRef.current?.(pageId) : null,
     retry: () => setAttempt((value) => value + 1),
     onExited,
   };
@@ -109,6 +117,8 @@ type PanelCommon = {
   flightKey: string | null;
   startedAt: number | null;
   openInStartup: (startupId: Id<"startups">, pageId: Id<"pages">) => void;
+  /** „Puni prikaz" (liste u startupu) ili `null` („Otvori u startupu"). */
+  openFull: ((pageId: Id<"pages">) => void) | null;
   retry: () => void;
   onExited: () => void;
 };
@@ -167,6 +177,7 @@ function StartupTaskPanel({
   flightKey,
   startedAt,
   openInStartup,
+  openFull,
   retry,
   onExited,
 }: PanelCommon & { pageId: Id<"pages"> }) {
@@ -299,9 +310,11 @@ function StartupTaskPanel({
         onJoin={() => void join({ taskPageId: pageId }).catch(fail("Priključivanje nije uspelo."))}
         onLeave={() => void leave({ taskPageId: pageId }).catch(fail("Napuštanje zadatka nije uspelo."))}
         onTogglePlan={togglePlan}
+        openLabel={openFull ? "full" : "startup"}
         onOpenInStartup={() => {
           onClose();
-          openInStartup(data.startupId, pageId);
+          if (openFull) openFull(pageId);
+          else openInStartup(data.startupId, pageId);
         }}
         onDenied={(reason) => toast.error(reason)}
         checkpoints={<TaskCheckpointList taskPageId={pageId} canCreate={permissions.checkpoints.allowed} compact />}

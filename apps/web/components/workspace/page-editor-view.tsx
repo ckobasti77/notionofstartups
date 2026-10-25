@@ -23,7 +23,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -32,7 +31,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AssigneePicker } from "@/components/workspace/assignee-picker";
 import {
   NoteAttachmentsProvider,
   useNoteFileUpload,
@@ -44,6 +42,12 @@ import { PageTablePanel } from "@/components/workspace/tables/page-table-panel";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
 import { PageRelationsPanel } from "@/components/workspace/page-relations";
 import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
+import {
+  TaskContentLocks,
+  TaskMetaChips,
+  type TaskMetaChange,
+  type TaskMetaField,
+} from "@/components/workspace/startup-tasks/task-meta-chips";
 import {
   activatePageRevision,
   createTaskInstructionsDraft,
@@ -65,7 +69,9 @@ import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, toDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
+import { taskPermissions } from "@devotion/shared";
+import { accessErrorMessage } from "@/lib/errors";
+import { type TaskPriority, type TaskStatus } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
 export type PageEditorSaveState =
@@ -128,7 +134,6 @@ export function PageEditorView({
   onTaskViewModeChange?: (mode: "canvas" | "list") => void;
   onSaveStateChange?: (state: PageEditorSaveState) => void;
 }) {
-  const taskDueDateId = useId();
   const [taskSheetSection, setTaskSheetSection] = useState<
     "checkpoints" | "instructions" | "details" | null
   >(null);
@@ -140,6 +145,14 @@ export function PageEditorView({
     [page?.assignees],
   );
   const updatePage = useMutation(api.areasV2.updatePage);
+  // Metapodaci zadatka (K17): ne-kreator menja status kroz `tasks.updateMetadata`
+  // (server to izvršiocu dozvoljava), a sebe dodaje/skida kroz `taskAssignees`.
+  const currentProfile = useQuery(api.profiles.getCurrent, {});
+  // Sat za oznaku roka u čipu (prikaz ne čita sat u renderu).
+  const [metaNow] = useState(() => Date.now());
+  const updateTaskAsMember = useMutation(api.tasks.updateMetadata);
+  const joinTask = useMutation(api.taskAssignees.join);
+  const leaveTask = useMutation(api.taskAssignees.leave);
   const archivePage = useMutation(api.areasV2.archivePage);
   const detachPage = useMutation(api.areasV2.detachPage);
   // Prilozi u telu beleške: spisak hrani i node view-ove (URL-ovi) i čišćenje.
@@ -481,6 +494,29 @@ export function PageEditorView({
     catch (error) { toast.error(error instanceof Error ? error.message : "Podaci zadatka nisu sačuvani."); }
   }
 
+  /**
+   * Promena kroz čip: kreator ide postojećim putem (`areasV2.updatePage` sa
+   * revizijom); izvršilac koji nije kreator menja samo status, kroz
+   * `tasks.updateMetadata` (ista pravila servera kao panel zadatka).
+   */
+  function changeTaskMeta(change: TaskMetaChange) {
+    if (!page) return;
+    if (page.permissions.canEdit) {
+      const { assigneeProfileIds, ...rest } = change;
+      void setTaskMetadata({
+        ...rest,
+        ...(assigneeProfileIds === undefined
+          ? {}
+          : { assigneeProfileIds: assigneeProfileIds as Array<Id<"profiles">> }),
+      });
+      return;
+    }
+    if (change.status === undefined) return;
+    void updateTaskAsMember({ pageId: page._id, status: change.status })
+      .then(() => toast.success("Zadatak je ažuriran."))
+      .catch((error: unknown) => toast.error(accessErrorMessage(error, "Status nije sačuvan.")));
+  }
+
   async function archive() {
     if (!page) return;
     if (
@@ -624,6 +660,41 @@ export function PageEditorView({
     (page.parentPageId !== null || Boolean(onOpenArea));
   const status = (page.taskStatus ?? "backlog") as TaskStatus;
   const priority = (page.taskPriority ?? "medium") as TaskPriority;
+  const isTaskAssignee = currentProfile ? assigneeProfileIds.includes(currentProfile._id) : false;
+  const renderTaskMeta = (fields?: ReadonlyArray<TaskMetaField>, className?: string) => (
+    <TaskMetaChips
+      className={className}
+      fields={fields}
+      now={metaNow}
+      status={status}
+      priority={priority}
+      dueDate={page.dueDate}
+      assignees={(page.assignees ?? []).map((person) => ({
+        _id: person._id,
+        displayName: person.displayName,
+        avatarUrl: person.avatarUrl ?? null,
+      }))}
+      members={members?.map(({ profile }) => ({
+        _id: profile._id,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+      }))}
+      permissions={taskPermissions({ kind: "task", isCreator: page.permissions.canEdit, isAssignee: isTaskAssignee })}
+      isSelfAssigned={isTaskAssignee}
+      onChange={changeTaskMeta}
+      onJoin={() =>
+        void joinTask({ taskPageId: page._id })
+          .then(() => toast.success("Priključio/la si se zadatku."))
+          .catch((error: unknown) => toast.error(accessErrorMessage(error, "Priključivanje nije uspelo.")))
+      }
+      onLeave={() =>
+        void leaveTask({ taskPageId: page._id })
+          .then(() => toast.success("Napustio/la si zadatak."))
+          .catch((error: unknown) => toast.error(accessErrorMessage(error, "Napuštanje zadatka nije uspelo.")))
+      }
+      onDenied={(reason) => toast.error(reason)}
+    />
+  );
   const checkpointTotal = page.checkpointTotal ?? 0;
   const checkpointCompleted = page.checkpointCompleted ?? 0;
 
@@ -726,42 +797,7 @@ export function PageEditorView({
           </div>
 
           <div className="scrollbar-thin mt-2.5 flex items-center gap-2 overflow-x-auto border-t border-border/60 pb-1 pt-2.5">
-            <Select
-              value={status}
-              disabled={!page.permissions.canEdit}
-              onValueChange={(value) =>
-                setTaskMetadata({ status: value as TaskStatus })
-              }
-            >
-              <SelectTrigger className="h-9 w-[9.25rem] bg-background" aria-label="Status zadatka">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(TASK_STATUS_META).map(([value, meta]) => (
-                  <SelectItem key={value} value={value}>
-                    {meta.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={priority}
-              disabled={!page.permissions.canEdit}
-              onValueChange={(value) =>
-                setTaskMetadata({ priority: value as TaskPriority })
-              }
-            >
-              <SelectTrigger className="h-9 w-[9.25rem] bg-background" aria-label="Prioritet zadatka">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(TASK_PRIORITY_META).map(([value, meta]) => (
-                  <SelectItem key={value} value={value}>
-                    {meta.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {renderTaskMeta(["status", "priority"], "shrink-0 flex-nowrap")}
 
             <div
               className="flex h-9 min-w-[8.5rem] items-center gap-2 rounded-lg border border-border/65 bg-muted/25 px-3"
@@ -886,43 +922,8 @@ export function PageEditorView({
               </SheetDescription>
             </SheetHeader>
             <div className="scrollbar-thin flex-1 overflow-y-auto px-5 py-5 sm:px-7">
-              <section className="mb-5 grid gap-3 rounded-2xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-2">
-                <div>
-                  <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
-                    Izvršioci
-                  </span>
-                  <AssigneePicker
-                    members={members}
-                    value={assigneeProfileIds}
-                    disabled={!page.permissions.canEdit}
-                    triggerClassName="h-10 bg-card"
-                    onChange={(next) =>
-                      void setTaskMetadata({ assigneeProfileIds: next })
-                    }
-                  />
-                </div>
-                <div>
-                  <label
-                    className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground"
-                    htmlFor={taskDueDateId}
-                  >
-                    Rok
-                  </label>
-                  <Input
-                    id={taskDueDateId}
-                    type="date"
-                    disabled={!page.permissions.canEdit}
-                    className="h-10 bg-card"
-                    value={toDateInputValue(page.dueDate)}
-                    onChange={(event) =>
-                      setTaskMetadata({
-                        dueDate: event.target.value
-                          ? (fromDateInputValue(event.target.value) ?? null)
-                          : null,
-                      })
-                    }
-                  />
-                </div>
+              <section className="mb-5 rounded-2xl border border-border/70 bg-muted/20 p-4">
+                {renderTaskMeta(["assignees", "due"])}
               </section>
 
               <TaskDetailWidgets
@@ -1096,96 +1097,7 @@ export function PageEditorView({
         >
           <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input disabled={!page.permissions.canEdit} aria-invalid={saveState === "invalid"} aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{page.permissions.canEdit ? (saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" || saveState === "invalid" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />) : <UserRound className="size-3.5" />}{page.permissions.canEdit ? (saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : saveState === "invalid" ? "Naslov je obavezan" : "Izmene čekaju") : "Osnovni sadržaj menja samo kreator"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label={page.permissions.canDeleteDirectly ? "Arhiviraj stranicu" : "Zatraži brisanje stranice"} onClick={archive}><Archive /></Button></div>
           {page.kind === "task" ? (
-            <div className="mt-5 grid gap-3 rounded-xl border border-border/65 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
-                  Status
-                </span>
-                <Select
-                  value={status}
-                  disabled={!page.permissions.canEdit}
-                  onValueChange={(value) =>
-                    setTaskMetadata({ status: value as TaskStatus })
-                  }
-                >
-                  <SelectTrigger
-                    className="h-9 bg-card"
-                    aria-label="Status zadatka"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(TASK_STATUS_META).map(([value, meta]) => (
-                      <SelectItem key={value} value={value}>
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
-                  Prioritet
-                </span>
-                <Select
-                  value={priority}
-                  disabled={!page.permissions.canEdit}
-                  onValueChange={(value) =>
-                    setTaskMetadata({ priority: value as TaskPriority })
-                  }
-                >
-                  <SelectTrigger
-                    className="h-9 bg-card"
-                    aria-label="Prioritet zadatka"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(TASK_PRIORITY_META).map(([value, meta]) => (
-                      <SelectItem key={value} value={value}>
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <span className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground">
-                  Izvršioci
-                </span>
-                <AssigneePicker
-                  members={members}
-                  value={assigneeProfileIds}
-                  disabled={!page.permissions.canEdit}
-                  triggerClassName="h-9 bg-card"
-                  onChange={(next) =>
-                    void setTaskMetadata({ assigneeProfileIds: next })
-                  }
-                />
-              </div>
-              <div>
-                <label
-                  className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground"
-                  htmlFor={taskDueDateId}
-                >
-                  Rok
-                </label>
-                <Input
-                  id={taskDueDateId}
-                  type="date"
-                  disabled={!page.permissions.canEdit}
-                  className="h-9 bg-card"
-                  value={toDateInputValue(page.dueDate)}
-                  onChange={(event) =>
-                    setTaskMetadata({
-                      dueDate: event.target.value
-                        ? (fromDateInputValue(event.target.value) ?? null)
-                        : null,
-                    })
-                  }
-                />
-              </div>
-            </div>
+            <div className="mt-5 rounded-xl border border-border/65 bg-muted/25 p-3">{renderTaskMeta()}</div>
           ) : null}
         </header>
         <div className="px-5 sm:px-8">
@@ -1458,15 +1370,10 @@ function TaskDetailWidgets({
       )}
     >
       {!canEdit ? (
-        <p
-          className={cn(
-            "text-xs text-muted-foreground",
-            !stacked && "md:col-span-2",
-          )}
-        >
-          Autor uređuje checkpoint, dodeljena osoba može da menja završeno
-          stanje, a svaki član može da doda doprinos.
-        </p>
+        <TaskContentLocks
+          className={cn(!stacked && "md:col-span-2")}
+          onDenied={(reason) => toast.error(reason)}
+        />
       ) : null}
       {/* Instructions are the task's main content, so they lead the reading order. */}
       <div className="space-y-3">

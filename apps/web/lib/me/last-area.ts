@@ -43,3 +43,8 @@ export function rememberDestination(destination: QuickAddDestination) {
     write(lastAreaKey(destination.startupId), destination.areaId);
   }
 }
+
+/** Zapamti oblast startupa posle novog zadatka iz „Nova stranica" (K17) — isti ključ kao brzi unos. */
+export function rememberLastArea(startupId: string, areaId: string | null | undefined) {
+  if (areaId) write(lastAreaKey(startupId), areaId);
+}

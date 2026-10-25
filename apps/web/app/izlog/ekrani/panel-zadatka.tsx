@@ -78,10 +78,13 @@ export function IzlogPanel({
   title,
   origin = null,
   openedAt = null,
+  openLabel = "startup",
 }: {
   kind: IzlogPanelKind;
   open: boolean;
   onClose: () => void;
+  /** Panel iz liste u startupu (K17): „Puni prikaz" umesto „Otvori u startupu". */
+  openLabel?: "startup" | "full";
   /** Naslov reda (kad se otvara iz liste). */
   title?: string;
   origin?: HTMLElement | null;
@@ -170,6 +173,7 @@ export function IzlogPanel({
           onLeave={() => setAssignees((current) => current.filter((person) => person._id !== IZLOG_PEOPLE[0]._id))}
           onTogglePlan={() => setPlanned((value) => !value)}
           onOpenInStartup={onClose}
+          openLabel={openLabel}
           onDenied={(reason) => toast.error(reason)}
           checkpoints={<IzlogCheckpoints editable={permissions.checkpoints.allowed} />}
         />

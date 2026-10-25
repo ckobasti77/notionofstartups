@@ -331,3 +331,36 @@ export {
   type MentionMember,
   type MentionScope,
 } from "./chat-hub";
+
+export {
+  applyStartupHolds,
+  boardColumns,
+  canJoinTask,
+  findStartupRow,
+  locateStartupRow,
+  patchStartupTasks,
+  rowFromStartupTask,
+  STARTUP_TASK_STATUSES,
+  startupHoldSection,
+  type StartupRowContext,
+  type StartupTaskHold,
+  type StartupTaskLike,
+  type StartupTaskPatch,
+  type StartupTaskSection,
+  type StartupTaskStatus,
+} from "./startup-tasks";
+
+export {
+  assigneesChipValue,
+  defaultTaskDraft,
+  TASK_CREATE_DEFAULT_PRIORITY,
+  TASK_CREATE_DEFAULT_STATUS,
+  TASK_CREATE_INSTRUCTIONS_MAX,
+  TASK_CREATE_MAX_ASSIGNEES,
+  taskCreateExtrasCount,
+  taskCreateFields,
+  toggleTaskAssignee,
+  type TaskCreateCheckpoint,
+  type TaskCreateDraft,
+  type TaskCreateFields,
+} from "./task-create";

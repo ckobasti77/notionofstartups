@@ -232,8 +232,8 @@ export type DatePickerProps = {
 /**
  * Birač datuma (P9): popover sa čipovima i kalendarom; izbor zatvara popover.
  * Pri otvaranju fokus dobija izabrani dan (ili danas), pa strelice odmah rade.
- * Zamenjuje `<input type="date">` (mm/dd/yyyy) u ekranima ličnog nivoa;
- * startup ekrani prelaze u K17.
+ * Zamenjuje izvorni datumski input (mm/dd/yyyy) za rok zadatka svuda: lični
+ * nivo od K11, zadaci u startupu od K17.
  */
 export function DatePicker({
   value,

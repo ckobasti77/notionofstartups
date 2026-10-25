@@ -1258,9 +1258,29 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               }
             />
           ) : route.kind === "today" ? (
-            <CommandCenterView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar se ne može učitati" className="m-4 min-h-[20rem]">
+              <CommandCenterView
+                startup={startup}
+                profile={profile}
+                today={today}
+                startups={startups}
+                onOpenPage={openPageDetails}
+                onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
+                onCreateTask={() => openCreate({ initialKind: "task" })}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "my-tasks" ? (
-            <TasksView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <WorkspaceErrorBoundary key={`my-tasks-${startup._id}`} title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <TasksView
+                startup={startup}
+                profile={profile}
+                today={today}
+                startups={startups}
+                onOpenPage={openPageDetails}
+                onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
+                onCreateTask={() => openCreate({ initialKind: "task" })}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "puls" ? (
             <PulsView
               startup={startup}
@@ -1512,7 +1532,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         </DialogContent>
       </Dialog>
 
-      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={openPageDetails} />
+      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} profileId={profile._id} now={today.now} target={createTarget} onCreated={openPageDetails} />
       <QuickAddContainer
         open={quickAdd.open}
         onOpenChange={(open) => setQuickAdd((current) => ({ ...current, open }))}

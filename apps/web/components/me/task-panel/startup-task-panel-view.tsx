@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode, type Ref } from "react";
-import { CircleDot, ExternalLink, LogIn, LogOut, Users } from "lucide-react";
+import { CircleDot, ExternalLink, LogIn, LogOut, Maximize2, Users } from "lucide-react";
 import {
   STATUS_LABELS,
   type StartupMini,
@@ -72,6 +72,8 @@ export type StartupTaskPanelViewProps = {
   onLeave: () => void;
   onTogglePlan: () => void;
   onOpenInStartup: () => void;
+  /** `full`: „Puni prikaz" (panel otvoren iz liste u startupu, K17); podrazumevano „Otvori u startupu". */
+  openLabel?: "startup" | "full";
   /** Klik na zaključan čip (na dodiru nema tooltipa): kontejner pokaže razlog. */
   onDenied: (reason: string) => void;
   /** Koraci: postojeća lista checkpointa (`TaskCheckpointList`) ili kratak pregled. */
@@ -121,32 +123,19 @@ export function StartupTaskPanelView({
   onLeave,
   onTogglePlan,
   onOpenInStartup,
+  openLabel = "startup",
   onDenied,
   checkpoints,
 }: StartupTaskPanelViewProps) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
-        <MetaChip label="Status" value={STATUS_LABELS[task.status]} icon={CircleDot} perm={permissions.status} onDenied={onDenied}>
-          {(trigger) => (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                <DropdownMenuLabel>Status</DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                  value={task.status}
-                  onValueChange={(status) => onChange({ status: status as StartupTaskStatus })}
-                >
-                  {STARTUP_STATUSES.map((status) => (
-                    <DropdownMenuRadioItem key={status} value={status} className="pointer-coarse:min-h-11">
-                      {STATUS_LABELS[status]}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </MetaChip>
+        <StatusChip
+          value={task.status}
+          perm={permissions.status}
+          onDenied={onDenied}
+          onChange={(status) => onChange({ status })}
+        />
         <PriorityChip
           value={task.priority}
           perm={permissions.priority}
@@ -178,8 +167,8 @@ export function StartupTaskPanelView({
       <div className="flex flex-wrap gap-2">
         <PlanToggle planned={planned} onToggle={onTogglePlan} />
         <Button type="button" variant="outline" className="rounded-full pointer-coarse:h-11" onClick={onOpenInStartup}>
-          <ExternalLink aria-hidden="true" />
-          Otvori u startupu
+          {openLabel === "full" ? <Maximize2 aria-hidden="true" /> : <ExternalLink aria-hidden="true" />}
+          {openLabel === "full" ? "Puni prikaz" : "Otvori u startupu"}
         </Button>
         {permissions.assignees.selfOnly ? (
           isSelfAssigned ? (
@@ -215,7 +204,41 @@ export function StartupTaskPanelView({
   );
 }
 
-function AssigneesChip({
+/** Čip statusa sa menijem (panel, detalj stranice, brzo pravljenje). */
+export function StatusChip({
+  value,
+  perm,
+  onChange,
+  onDenied,
+}: {
+  value: StartupTaskStatus;
+  perm: TaskPermissions["status"];
+  onChange: (status: StartupTaskStatus) => void;
+  onDenied?: (reason: string) => void;
+}) {
+  return (
+    <MetaChip label="Status" value={STATUS_LABELS[value]} icon={CircleDot} perm={perm} onDenied={onDenied}>
+      {(trigger) => (
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuLabel>Status</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={value} onValueChange={(status) => onChange(status as StartupTaskStatus)}>
+              {STARTUP_STATUSES.map((status) => (
+                <DropdownMenuRadioItem key={status} value={status} className="pointer-coarse:min-h-11">
+                  {STATUS_LABELS[status]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </MetaChip>
+  );
+}
+
+/** Čip izvršilaca: kreator bira članove, ostali vide spisak i „Priključi se" / „Napusti zadatak". */
+export function AssigneesChip({
   assignees,
   members,
   selfOnly,

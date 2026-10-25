@@ -10,6 +10,7 @@ import MojiZadaciEkran from "./ekrani/moji-zadaci";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
 import PorukeEkran from "./ekrani/poruke";
+import ZadaciStartupEkran from "./ekrani/zadaci-startup";
 
 export type IzlogEkranProps = {
   /** Izabrana varijanta (prva iz `varijante` kad nije zadata; "" bez varijanti). */
@@ -60,5 +61,11 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K15",
     varijante: ["hub", "lista", "startup-kanal", "prazan", "nova-poruka", "nova-grupa", "podesavanja-grupe", "ucitavanje", "greska", "nova-poruka-ucitavanje"],
     Komponenta: PorukeEkran,
+  },
+  "zadaci-startup": {
+    naslov: "Zadaci u startupu",
+    korak: "K17",
+    varijante: ["komandni-centar", "tabla", "brzo-pravljenje", "detalj", "prazan", "ucitavanje"],
+    Komponenta: ZadaciStartupEkran,
   },
 };

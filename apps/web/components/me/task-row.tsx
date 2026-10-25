@@ -5,11 +5,13 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarClock,
+  CircleDot,
   CalendarDays,
   CalendarX2,
   Check,
   ExternalLink,
   Flag,
+  LogIn,
   Lock,
   MoreHorizontal,
   RotateCcw,
@@ -24,7 +26,9 @@ import {
   matchDueShortcut,
   PRIORITY_LABELS,
   STATUS_LABELS,
+  STARTUP_TASK_STATUSES,
   type Perm,
+  type StartupTaskStatus,
   type TaskPriorityKey,
   type TaskRowModel,
 } from "@devotion/shared";
@@ -36,6 +40,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -60,6 +66,10 @@ export type TaskRowActions = {
   onOpen: (row: TaskRowModel) => void;
   /** Redosled u „Planirano" (`myDay.reorder`). */
   onMove?: (row: TaskRowModel, direction: -1 | 1) => void;
+  /** Liste u startupu (K17): ceo izbor statusa u meniju „…". */
+  onSetStatus?: (row: TaskRowModel, status: StartupTaskStatus) => void;
+  /** Liste u startupu (K17): „Priključi se" (svaki član sme sebe da doda). */
+  onJoin?: (row: TaskRowModel) => void;
 };
 
 export type TaskRowProps = {
@@ -84,6 +94,15 @@ export type TaskRowProps = {
    */
   columns?: boolean;
   showStatus?: boolean;
+  /** Dodatni podatak u redu (npr. izvršioci u Komandnom centru). */
+  extraMeta?: ReactNode;
+  /**
+   * `card`: kartica table (K17) — naslov u dva reda, podaci ispod, radnje
+   * samo kroz „…" (uska kolona nema mesta za dugmad na hover).
+   */
+  variant?: "row" | "card";
+  /** Nudi „Priključi se" u meniju (ne-kreator koji nije izvršilac). */
+  canJoin?: boolean;
   className?: string;
 };
 
@@ -121,8 +140,12 @@ export function TaskRow({
   request = null,
   columns = false,
   showStatus = true,
+  extraMeta,
+  variant = "row",
+  canJoin = false,
   className,
 }: TaskRowProps) {
+  const card = variant === "card";
   const statusPerm = row.permissions.status;
   const rootRef = useRef<HTMLDivElement>(null);
   const [dueOpen, setDueOpen] = useState(false);
@@ -160,6 +183,7 @@ export function TaskRow({
           </>
         )}
       </span>
+      {extraMeta ? <span className="flex min-w-0 shrink-0 items-center lg:w-28 lg:pr-3">{extraMeta}</span> : null}
       {showStatus ? (
         <span className="shrink-0 whitespace-nowrap lg:w-24 lg:pr-3">
           {showStartup || row.areaLabel ? (
@@ -191,17 +215,24 @@ export function TaskRow({
       </span>
     </span>
   ) : (
-    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground md:max-w-[52%] md:shrink-0">
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground",
+        // Kartica: oblast ne seče se u ništa — rok prelazi u novi red kad nema mesta.
+        card ? "flex-wrap gap-y-1" : "md:max-w-[52%] md:shrink-0",
+      )}
+    >
       {showStartup ? (
         <StartupChip startup={row.startup} size="xs" showName className="max-w-[11rem]" nameClassName="text-xs" />
       ) : null}
       {row.areaLabel ? (
-        <span className="min-w-0 truncate">
+        <span className={cn("truncate", card ? "max-w-full shrink-0" : "min-w-0")}>
           {showStartup ? <span aria-hidden="true">· </span> : null}
           {row.areaLabel}
         </span>
       ) : null}
-      <span className="ml-auto flex shrink-0 items-center gap-1.5 md:ml-1">
+      {extraMeta ? <span className="flex min-w-0 shrink-0 items-center">{extraMeta}</span> : null}
+      <span className={cn("flex shrink-0 items-center gap-1.5", card ? null : "ml-auto md:ml-1")}>
         <DueChip dueDate={row.dueDate} now={now} done={row.done} />
         <PriorityDot priority={row.priority} />
       </span>
@@ -216,7 +247,9 @@ export function TaskRow({
       data-selected={selected ? "true" : undefined}
       onKeyDown={onKeyDown}
       className={cn(
-        "group/row relative isolate flex min-h-14 w-full items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60 focus-within:bg-muted/60 data-[selected=true]:bg-muted/60 md:min-h-11 md:items-center md:py-1",
+        "group/row relative isolate flex min-h-14 w-full items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60 focus-within:bg-muted/60 data-[selected=true]:bg-muted/60",
+        !card && "md:min-h-11 md:items-center md:py-1",
+        card && "border border-border/75 bg-card px-2.5 py-2.5",
         active && "bg-accent hover:bg-accent focus-within:bg-accent data-[selected=true]:bg-accent",
         className,
       )}
@@ -241,7 +274,7 @@ export function TaskRow({
         )}
       </span>
 
-      <TitleArea row={row} columns={columns} canOpen={canOpen && Boolean(actions)} onOpen={() => actions?.onOpen(row)}>
+      <TitleArea row={row} columns={columns} card={card} canOpen={canOpen && Boolean(actions)} onOpen={() => actions?.onOpen(row)}>
         {meta}
       </TitleArea>
 
@@ -255,7 +288,8 @@ export function TaskRow({
             onClick={() => actions.onTogglePlan(row)}
             className={cn(
               iconButton,
-              "hidden md:pointer-fine:grid",
+              "hidden",
+              !card && "md:pointer-fine:grid",
               hoverReveal,
               row.planned && "text-primary md:pointer-fine:opacity-100",
             )}
@@ -265,6 +299,7 @@ export function TaskRow({
           <DueButton
             row={row}
             now={now}
+            hidden={card}
             open={dueOpen}
             onOpenChange={setDueOpen}
             rootRef={rootRef}
@@ -276,6 +311,7 @@ export function TaskRow({
             actions={actions}
             canOpen={canOpen}
             movable={movable}
+            canJoin={canJoin}
             onPickDate={() => setDueOpen(true)}
           />
           {priorityOpen && row.permissions.priority.allowed ? (
@@ -311,6 +347,7 @@ const rowAnchorClass = "pointer-events-none absolute bottom-1 right-2 size-px";
 function TitleArea({
   row,
   columns = false,
+  card = false,
   canOpen,
   onOpen,
   children,
@@ -318,6 +355,8 @@ function TitleArea({
   row: TaskRowModel;
   /** Kolone: naslov i podaci u istom redu tek od `lg` (na `md` podaci idu ispod). */
   columns?: boolean;
+  /** Kartica table: naslov do dva reda, podaci uvek ispod. */
+  card?: boolean;
   canOpen: boolean;
   onOpen: () => void;
   children: ReactNode;
@@ -348,12 +387,16 @@ function TitleArea({
 
   const body = (
     <>
-      <span className={cn("relative min-w-0 max-w-full", columns ? "lg:flex-1" : "md:flex-1")}>
+      <span className={cn("relative min-w-0 max-w-full", card ? null : columns ? "lg:flex-1" : "md:flex-1")}>
         <span
           title={row.title}
           data-row-title
           className={cn(
-            "block truncate text-sm transition-colors",
+            "block text-sm transition-colors",
+            // Kartica ima naslov u dva reda: precrt je `line-through` (crta preko sredine
+            // bloka bi izgledala kao podvlaka); kvačica i pokret ostaju isti.
+            card ? "line-clamp-2 font-medium leading-5" : "truncate",
+            card && row.done && "line-through decoration-muted-foreground",
             row.done ? "text-muted-foreground" : "text-foreground",
           )}
         >
@@ -363,7 +406,10 @@ function TitleArea({
         <span
           ref={strikeRef}
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-1/2 h-px w-full max-w-full origin-left bg-muted-foreground"
+          className={cn(
+            "pointer-events-none absolute left-0 top-1/2 h-px w-full max-w-full origin-left bg-muted-foreground",
+            card && "hidden",
+          )}
           style={{ transform: `scaleX(${initiallyDone ? 1 : 0})`, opacity: initiallyDone ? 1 : 0 }}
         />
       </span>
@@ -371,9 +417,11 @@ function TitleArea({
     </>
   );
 
-  const layout = columns
-    ? "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left lg:flex-row lg:items-center lg:gap-3"
-    : "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left md:flex-row md:items-center md:gap-3";
+  const layout = card
+    ? "flex min-w-0 flex-1 flex-col gap-1.5 py-0.5 text-left"
+    : columns
+      ? "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left lg:flex-row lg:items-center lg:gap-3"
+      : "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left md:flex-row md:items-center md:gap-3";
   if (!canOpen) return <span className={layout}>{body}</span>;
   return (
     <OpenButton className={layout} onOpen={onOpen}>
@@ -447,6 +495,7 @@ function LockedCheck({
 function DueButton({
   row,
   now,
+  hidden = false,
   open,
   onOpenChange,
   rootRef,
@@ -454,6 +503,8 @@ function DueButton({
 }: {
   row: TaskRowModel;
   now: number;
+  /** Kartica table: okidač se ne vidi; birač otvaraju „Datum…" i prečica `d`. */
+  hidden?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   rootRef: RefObject<HTMLDivElement | null>;
@@ -462,7 +513,7 @@ function DueButton({
   const perm = row.permissions.due;
   const label = `Rok za ${row.title}`;
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const classes = cn(iconButton, "hidden md:pointer-fine:grid", hoverReveal);
+  const classes = cn(iconButton, "hidden", !hidden && "md:pointer-fine:grid", hoverReveal);
   if (!perm.allowed) return <DisabledAction label={label} reason={perm.reason} className={classes} icon={CalendarClock} />;
   return (
     <DatePicker
@@ -614,6 +665,7 @@ function MoreMenu({
   actions,
   canOpen,
   movable,
+  canJoin,
   onPickDate,
 }: {
   row: TaskRowModel;
@@ -621,6 +673,7 @@ function MoreMenu({
   actions: TaskRowActions;
   canOpen: boolean;
   movable?: { up: boolean; down: boolean };
+  canJoin: boolean;
   onPickDate: () => void;
 }) {
   const { status, due, priority } = row.permissions;
@@ -660,7 +713,37 @@ function MoreMenu({
           {row.planned ? <SunDim aria-hidden="true" /> : <Sun aria-hidden="true" />}
           {row.planned ? "Ukloni iz Moj dan" : "Dodaj u Moj dan"}
         </MenuItem>
+        {canJoin && actions.onJoin ? (
+          <MenuItem onSelect={() => actions.onJoin?.(row)}>
+            <LogIn aria-hidden="true" />
+            Priključi se
+          </MenuItem>
+        ) : null}
         <DropdownMenuSeparator />
+        {actions.onSetStatus && row.kind === "task" ? (
+          status.allowed ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className={touchItem}>
+                <CircleDot aria-hidden="true" />
+                Status
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-48">
+                <DropdownMenuRadioGroup
+                  value={row.status}
+                  onValueChange={(value) => actions.onSetStatus?.(row, value as StartupTaskStatus)}
+                >
+                  {STARTUP_TASK_STATUSES.map((value) => (
+                    <DropdownMenuRadioItem key={value} value={value} className={touchItem}>
+                      {STATUS_LABELS[value]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ) : (
+            <DeniedItem icon={CircleDot} label="Status" perm={status} />
+          )
+        ) : null}
         {due.allowed ? (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className={touchItem}>

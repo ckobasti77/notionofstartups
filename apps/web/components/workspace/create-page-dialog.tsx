@@ -7,7 +7,6 @@ import {
   LoaderCircle,
   Paperclip,
   Plus,
-  ListChecks,
   Upload,
   X,
 } from "lucide-react";
@@ -20,7 +19,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AssigneePicker } from "@/components/workspace/assignee-picker";
 import {
   PAGE_KIND_KEYS,
   PAGE_KIND_META,
@@ -29,10 +27,7 @@ import {
 } from "@/lib/page-kinds";
 import { workspaceItemDialogContentClass } from "@/components/workspace/workspace-item-dialog";
 import { useQueryTolerant } from "@/components/workspace/workspace-error-boundary";
-import {
-  TaskCheckpointDraftList,
-  type TaskCheckpointDraft,
-} from "@/components/workspace/task-checkpoint-list";
+import { TaskQuickCreate } from "@/components/workspace/startup-tasks/task-quick-create";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -42,7 +37,7 @@ import {
   MAX_TABLE_IMPORT_BATCH,
   MAX_TABLE_ROWS,
 } from "@/convex/lib/validators";
-import { clampCellLengths, sourceWidth } from "@devotion/shared";
+import { clampCellLengths, defaultTaskDraft, sourceWidth, taskCreateFields, type TaskCreateDraft } from "@devotion/shared";
 import { normalizeTableMatrix } from "@/lib/csv";
 import { accessErrorMessage } from "@/lib/errors";
 import {
@@ -51,8 +46,8 @@ import {
   maxBytesForFile,
   uploadPageFile,
 } from "@/lib/page-files";
+import { readLastArea, rememberLastArea } from "@/lib/me/last-area";
 import { readTableFile } from "@/lib/table-file";
-import { TASK_PRIORITY_META, TASK_STATUS_META, fromDateInputValue, type TaskPriority, type TaskStatus } from "@/lib/workspace";
 
 const TITLE_PLACEHOLDER: Record<PageKind, string> = {
   note: "Naslov beleške…",
@@ -69,7 +64,7 @@ type TableDraft =
   | { source: "import"; fileName: string; matrix: string[][] }
   | null;
 
-export function CreatePageDialog({ open, onOpenChange, startup, target, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; startup: StartupWithAreas; target?: CreatePageTarget; onCreated: (pageId: Id<"pages">) => void }) {
+export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, target, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; startup: StartupWithAreas; profileId: Id<"profiles">; now: number; target?: CreatePageTarget; onCreated: (pageId: Id<"pages">) => void }) {
   const createPage = useMutation(api.areasV2.createPage);
   const archivePage = useMutation(api.areasV2.archivePage);
   const importRows = useMutation(api.pageTables.importRows);
@@ -84,16 +79,26 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
       : "skip",
   );
   const fallbackAreaId = startup.areas[0]?._id;
+  // Brzo pravljenje zadatka (K17): podrazumevani čipovi iz shared
+  // `defaultTaskDraft` — oblast: zadata → poslednja u startupu → prva.
+  const [taskDraft, setTaskDraft] = useState<TaskCreateDraft>(() =>
+    defaultTaskDraft({
+      profileId,
+      areas: startup.areas,
+      presetAreaId: target?.areaId ?? null,
+      rememberedAreaId: readLastArea(startup._id),
+    }),
+  );
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Oblast koju je korisnik sam izabrao se ne pregazi pri promeni vrste.
+  const [areaTouched, setAreaTouched] = useState(false);
   const [title, setTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [kind, setKind] = useState<PageKind>(target?.initialKind ?? "note");
-  const [areaId, setAreaId] = useState<Id<"startupAreas"> | undefined>(target?.areaId ?? fallbackAreaId);
-  const [status, setStatus] = useState<TaskStatus>("backlog");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [assigneeIds, setAssigneeIds] = useState<Array<Id<"profiles">>>([]);
-  const [dueDate, setDueDate] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [checkpoints, setCheckpoints] = useState<TaskCheckpointDraft[]>([]);
+  const [areaId, setAreaId] = useState<Id<"startupAreas"> | undefined>(
+    target?.areaId ??
+      (target?.initialKind === "task" ? ((taskDraft.areaId as Id<"startupAreas"> | null) ?? fallbackAreaId) : fallbackAreaId),
+  );
   const [submitting, setSubmitting] = useState(false);
   // Faza POSLE kreiranja (upis tabele / otpremanje fajlova) — dok traje, dijalog
   // se ne zatvara da polukreirana stranica ne ostane bez nadzora.
@@ -206,12 +211,17 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
     if (rejected.length > 0) toast.error(rejected.join(" · "));
   }
 
-  /** Toast uspeha sa „Poništi" — kreiranje je izmena u bazi, pa ima put nazad. */
+  /**
+   * Toast uspeha sa „Poništi" — kreiranje je izmena u bazi, pa ima put nazad.
+   * Zadatak (K17) se ne otvara sam u teškom detalju: toast nudi „Otvori".
+   */
   function showCreatedToast(pageId: Id<"pages">, pending: boolean) {
     toast.success(
       pending
         ? `${PAGE_KIND_META[kind].label} je kreiran/a u oblasti i čeka odobrenje autora ciljne stranice.`
-        : `${PAGE_KIND_META[kind].label} je kreiran/a.`,
+        : kind === "task"
+          ? "Zadatak je napravljen."
+          : `${PAGE_KIND_META[kind].label} je kreiran/a.`,
       {
         duration: 8_000,
         action: {
@@ -224,6 +234,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
               );
           },
         },
+        ...(kind === "task" ? { cancel: { label: "Otvori", onClick: () => onCreated(pageId) } } : {}),
       },
     );
   }
@@ -247,14 +258,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
         kind,
         title: title.trim(),
         content: kind === "note" ? noteContent : "",
-        ...(kind === "task" ? {
-          taskStatus: status,
-          taskPriority: priority,
-          ...(assigneeIds.length === 0 ? {} : { assigneeProfileIds: assigneeIds }),
-          ...(dueDate ? { dueDate: fromDateInputValue(dueDate) } : {}),
-          ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
-          ...(checkpoints.length > 0 ? { checkpoints } : {}),
-        } : {}),
+        ...(kind === "task" ? taskFieldsForCreate(taskDraft) : {}),
       });
       const pageId = result.pageId;
       let followUpWarning: string | null = null;
@@ -326,7 +330,12 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
       showCreatedToast(pageId, result.nestingStatus === "pending");
       if (followUpWarning) toast.warning(followUpWarning, { duration: 10_000 });
       onOpenChange(false);
-      onCreated(pageId);
+      if (kind === "task") {
+        // Sledeći zadatak u ovom startupu kreće od iste oblasti (kao brzi unos).
+        rememberLastArea(startup._id, areaId);
+      } else {
+        onCreated(pageId);
+      }
     } catch (error) {
       toast.error(accessErrorMessage(error, "Stranica nije kreirana."));
     } finally {
@@ -383,7 +392,14 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                       name="page-kind"
                       value={value}
                       checked={kind === value}
-                      onChange={() => setKind(value)}
+                      onChange={() => {
+                        setKind(value);
+                        // „Zadatak" izabran u dijalogu: oblast po pravilu brzog pravljenja
+                        // (zadata → poslednja u startupu → prva), ako je korisnik nije menjao.
+                        if (value === "task" && !target?.areaId && !areaTouched && taskDraft.areaId) {
+                          setAreaId(taskDraft.areaId as Id<"startupAreas">);
+                        }
+                      }}
                       className="sr-only"
                     />
                     <Icon className="size-4" />
@@ -392,10 +408,36 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                 );
               })}
             </fieldset>
-            <div className="space-y-2"><Label htmlFor="new-page-title">Naslov</Label><Input id="new-page-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={TITLE_PLACEHOLDER[kind]} maxLength={200} autoFocus /></div>
-            <div className="space-y-2"><Label htmlFor="new-page-area">Oblast</Label><Select value={areaId} onValueChange={(value) => setAreaId(value as Id<"startupAreas">)} disabled={Boolean(target?.areaId)}><SelectTrigger id="new-page-area"><SelectValue /></SelectTrigger><SelectContent>{startup.areas.map((area) => <SelectItem key={area._id} value={area._id}>{area.label}</SelectItem>)}</SelectContent></Select></div>
+            {kind === "task" ? (
+              <TaskQuickCreate
+                now={now}
+                profileId={profileId}
+                title={title}
+                onTitleChange={setTitle}
+                draft={{ ...taskDraft, areaId: areaId ?? null }}
+                onDraftChange={(patch) => {
+                  if (patch.areaId !== undefined && patch.areaId !== null) {
+                    setAreaTouched(true);
+                    setAreaId(patch.areaId as Id<"startupAreas">);
+                  }
+                  setTaskDraft((current) => ({ ...current, ...patch }));
+                }}
+                areas={startup.areas}
+                areaLocked={Boolean(target?.areaId)}
+                members={members?.map(({ profile }) => ({ _id: profile._id, displayName: profile.displayName, avatarUrl: profile.avatarUrl }))}
+                moreOpen={moreOpen}
+                onMoreOpenChange={setMoreOpen}
+                onDenied={(reason) => toast.info(reason)}
+                disabled={submitting}
+              />
+            ) : (
+              <>
+                <div className="space-y-2"><Label htmlFor="new-page-title">Naslov</Label><Input id="new-page-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={TITLE_PLACEHOLDER[kind]} maxLength={200} autoFocus /></div>
+                <div className="space-y-2"><Label htmlFor="new-page-area">Oblast</Label><Select value={areaId} onValueChange={(value) => { setAreaTouched(true); setAreaId(value as Id<"startupAreas">); }} disabled={Boolean(target?.areaId)}><SelectTrigger id="new-page-area"><SelectValue /></SelectTrigger><SelectContent>{startup.areas.map((area) => <SelectItem key={area._id} value={area._id}>{area.label}</SelectItem>)}</SelectContent></Select></div>
+              </>
+            )}
 
-            {kind === "file" ? (
+            {kind === "task" ? null : kind === "file" ? (
               <div className="space-y-3">
                 <Label>Fajlovi (odmah pri kreiranju)</Label>
                 <input
@@ -701,37 +743,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
                   />
                 </div>
               </div>
-            ) : (
-              <>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label htmlFor="new-task-status">Status</Label><Select value={status} onValueChange={(value) => setStatus(value as TaskStatus)}><SelectTrigger id="new-task-status"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><Label htmlFor="new-task-priority">Prioritet</Label><Select value={priority} onValueChange={(value) => setPriority(value as TaskPriority)}><SelectTrigger id="new-task-priority"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(TASK_PRIORITY_META).map(([value, meta]) => <SelectItem key={value} value={value}>{meta.label}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><Label htmlFor="new-task-assignee">Izvršioci</Label><AssigneePicker id="new-task-assignee" members={members} value={assigneeIds} onChange={setAssigneeIds} /></div>
-                  <div className="space-y-2"><Label htmlFor="new-task-due">Rok</Label><Input id="new-task-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="new-task-instructions">Instrukcije (opciono)</Label>
-                  <textarea
-                    id="new-task-instructions"
-                    value={instructions}
-                    onChange={(e) => setInstructions(e.target.value)}
-                    placeholder="Napiši šta treba uraditi i koji rezultat se očekuje…"
-                    className="flex min-h-20 w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    rows={3}
-                    maxLength={20_000}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5"><ListChecks className="size-4 text-primary" /> Podzadaci / Checkpointi</Label>
-                  <TaskCheckpointDraftList
-                    items={checkpoints}
-                    onChange={setCheckpoints}
-                  />
-                </div>
-              </>
-            )}
+            ) : null}
           </div>
           <DialogFooter className="relative z-20 shrink-0 border-t border-border/70 bg-background/95 px-5 py-4 shadow-[0_-12px_28px_-22px_rgba(0,0,0,0.55)] backdrop-blur sm:px-6">
             {phase ? (
@@ -750,4 +762,13 @@ export function CreatePageDialog({ open, onOpenChange, startup, target, onCreate
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Polja zadatka za `areasV2.createPage` (shared `taskCreateFields`; id-jevi su iz `startups.listMembers`). */
+function taskFieldsForCreate(draft: TaskCreateDraft) {
+  const { assigneeProfileIds, ...fields } = taskCreateFields(draft);
+  return {
+    ...fields,
+    ...(assigneeProfileIds ? { assigneeProfileIds: assigneeProfileIds as Array<Id<"profiles">> } : {}),
+  };
 }
