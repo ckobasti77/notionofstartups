@@ -170,6 +170,10 @@ export function Sheet({
       // sa `transparent` ne sklanja sadržaj ispod iz a11y stabla. Android isto
       // rešava `importantForAccessibility` na backdrop-u (ispod).
       accessibilityViewIsModal
+      // VoiceOver „escape" (dva prsta u Z): RN `Modal` ga ne pretvara u
+      // `onRequestClose`, pa bez ovoga sheet bez dugmeta „Zatvori" ne može da se
+      // napusti čitačem ekrana (K12).
+      onAccessibilityEscape={onClose}
       style={[
         styles.panel,
         {

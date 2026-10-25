@@ -9,7 +9,9 @@ import type { UndoAction } from '@/lib/undo';
  * (PARITET-REVIZIJA C12) da ekran „Istorija radnji" (`app/(app)/istorija.tsx`) može
  * da poništava stariju stavku istim kodom kao traka — dva mesta koja rade isto bi se
  * vremenom razišla. Preseljenje je MEHANIČKO: nijedna grana ni redosled poziva nisu
- * menjani (24 `case` grane, isto kao unija `UndoAction`).
+ * menjani (24 `case` grane, isto kao unija `UndoAction`). K12 je dodao pet grana za
+ * Moj dan i brzi unos (`taskStatus`, `personalTaskStatus`, `myDayUnplan`,
+ * `personalTaskArchive`, `personalTaskCreate`).
  */
 export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const restoreNodes = useMutation(api.thoughts.restoreNodes);
@@ -40,6 +42,11 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const archiveIdea = useMutation(api.ideas.archive);
   const archiveThoughtNodes = useMutation(api.thoughts.archiveNodes);
   const archivePageV2 = useMutation(api.areasV2.archivePage);
+  const updateTaskMetadata = useMutation(api.tasks.updateMetadata);
+  const setPersonalTaskStatus = useMutation(api.personalTasks.setStatus);
+  const archivePersonalTask = useMutation(api.personalTasks.archive);
+  const restorePersonalTask = useMutation(api.personalTasks.restore);
+  const planMyDay = useMutation(api.myDay.plan);
 
   return useCallback(
     async (action: UndoAction): Promise<void> => {
@@ -285,6 +292,27 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
           // isti poziv koji koristi i web „Poništi" toast posle kreiranja.
           await archivePageV2({ startupId: action.startupId, pageId: action.pageId });
           return;
+        case 'taskStatus':
+          // Inverz završavanja (Moj dan, K12) je status OD PRE — kao web „Poništi".
+          await updateTaskMetadata({ pageId: action.pageId, status: action.status });
+          return;
+        case 'personalTaskStatus':
+          await setPersonalTaskStatus({
+            personalTaskId: action.personalTaskId,
+            status: action.status,
+          });
+          return;
+        case 'myDayUnplan':
+          // Isto mesto u planu: `myDay.unplan` je vratio dan, referencu i poziciju.
+          await planMyDay({ dayKey: action.dayKey, ref: action.ref, position: action.position });
+          return;
+        case 'personalTaskArchive':
+          await restorePersonalTask({ personalTaskId: action.personalTaskId });
+          return;
+        case 'personalTaskCreate':
+          // Inverz NOVOG ličnog zadatka (brzi unos) je arhiviranje — web E16 isto.
+          await archivePersonalTask({ personalTaskId: action.personalTaskId });
+          return;
       }
     },
     [
@@ -316,6 +344,11 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
       archiveIdea,
       archiveThoughtNodes,
       archivePageV2,
+      updateTaskMetadata,
+      setPersonalTaskStatus,
+      archivePersonalTask,
+      restorePersonalTask,
+      planMyDay,
     ],
   );
 }

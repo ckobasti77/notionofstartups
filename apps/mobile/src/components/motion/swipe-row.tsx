@@ -37,6 +37,8 @@ export type SwipeAction = {
   onCommit: () => void;
   /** `false` = radnja se vidi, ali potvrda samo upozori (`warning`) i red se vrati. */
   allowed?: boolean;
+  /** Potvrda zabranjene radnje (posle `warning`) — npr. poruka sa razlogom (K12). */
+  onDenied?: () => void;
   /** Haptika na potvrdi (podrazumevano `success` za `success` ton, inače `select`). */
   commitHaptic?: 'success' | 'select' | 'tap';
 };
@@ -120,6 +122,7 @@ export function SwipeRow({
     if (!action) return;
     if (action.allowed === false) {
       haptics.warning();
+      action.onDenied?.();
       return;
     }
     const kind = action.commitHaptic ?? (action.tone === 'success' ? 'success' : 'select');

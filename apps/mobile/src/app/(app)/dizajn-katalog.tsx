@@ -32,10 +32,24 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DueChip } from '@/components/me/due-chip';
 import { ElsewhereHint } from '@/components/me/elsewhere-hint';
 import { MeHeader } from '@/components/me/me-header';
-import { STATUS_DENIED_REASON } from '@/components/me/my-day/my-day-model';
+import { buildMyDay, STATUS_DENIED_REASON } from '@/components/me/my-day/my-day-model';
+import { SummaryCard } from '@/components/me/my-day/my-day-view';
+import { MyDaySummaryChips } from '@/components/me/my-day/summary-chips';
+import { PlanDaySheet } from '@/components/me/plan-day-sheet';
+import { QuickAddSheet } from '@/components/me/quick-add-sheet';
+import { RokPlanSheet } from '@/components/me/rok-plan-sheet';
+import { RowActionsSheet, type RowActionsTarget } from '@/components/me/row-actions-sheet';
+import { MeSectionHeader } from '@/components/me/section-header';
 import { StartupChip } from '@/components/me/startup-chip';
 import { TaskRow } from '@/components/me/task-row';
-import { KATALOG_STARTUPS, katalogDueDates, katalogRows } from '@/components/me/__fixtures__';
+import {
+  KATALOG_QUICK_ADD_STARTUPS,
+  KATALOG_STARTUPS,
+  katalogDueDates,
+  katalogOverview,
+  katalogRows,
+} from '@/components/me/__fixtures__';
+import { buildPlanDay, type TaskRowModel } from '@devotion/shared';
 import {
   AnimatedCheck,
   NumberRoll,
@@ -105,6 +119,17 @@ export default function DizajnKatalogScreen() {
   const [tabFocus, setTabFocus] = useState(0);
   const [swipeLog, setSwipeLog] = useState<string | null>(null);
   const [rowsDone, setRowsDone] = useState<ReadonlySet<string>>(() => new Set(['task:katalog-5']));
+  // Moj dan (K12)
+  const [actionsTarget, setActionsTarget] = useState<RowActionsTarget | null>(null);
+  const [rokRow, setRokRow] = useState<TaskRowModel | null>(null);
+  const [k12Log, setK12Log] = useState<string | null>(null);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [sectionCount, setSectionCount] = useState(3);
+  const [sectionCollapsed, setSectionCollapsed] = useState(true);
+  const [k12Overview] = useState(() => katalogOverview(Date.now()));
+  const k12Model = buildMyDay(k12Overview, demoNow);
+  const k12Plan = buildPlanDay(k12Overview, demoNow);
 
   if (!__DEV__) {
     return (
@@ -563,8 +588,145 @@ export default function DizajnKatalogScreen() {
         <View style={[styles.headerBox, { borderColor: colors.border }]}>
           <ElsewhereHint text="Još 4 nepročitane poruke u drugim startupima i ličnim razgovorima." />
         </View>
+
+        {/* ── Moj dan (K12) ── */}
+        <SectionHeader title="Moj dan — zaglavlje i prsten" />
+        <Caption text="Pozdrav, sažetak i prsten (2 od 5); sažeti čipovi se vide samo kad su > 0" colors={colors} />
+        <SummaryCard model={k12Model} firstName="Jovan" />
+        <MyDaySummaryChips
+          inbox={12}
+          chat={4}
+          pending={2}
+          onOpenInbox={() => setK12Log('Inbox')}
+          onOpenChat={() => setK12Log('Poruke')}
+          onOpenPending={() => setK12Log('Čeka tebe')}
+        />
+
+        <SectionHeader title="Red zadatka sa radnjama" />
+        <Caption
+          text={'Swipe desno završava, levo otvara „Rok i plan", dugi pritisak radnje; četvrti red je tuđ (zaključano)'}
+          colors={colors}
+        />
+        {/* Bez kartice: swipe red ima pozadinu ekrana, kao u pravoj listi Moj dan. */}
+        <View>
+          {katalogRows(demoNow).map((row) => (
+            <TaskRow
+              key={row.key}
+              row={withDone(row, rowsDone.has(row.key))}
+              now={demoNow}
+              onToggleDone={(target, done) => {
+                setK12Log(done ? `Završeno: ${target.title}` : `Vraćeno: ${target.title}`);
+                setRowsDone((current) => {
+                  const next = new Set(current);
+                  if (done) next.add(target.key);
+                  else next.delete(target.key);
+                  return next;
+                });
+              }}
+              onOpen={row.kind === 'task' ? (target) => setK12Log(`Otvori: ${target.title}`) : undefined}
+              onLongPress={(target) => setActionsTarget({ row: target, movable: target.planned ? { up: false, down: true } : null })}
+              onSchedule={(target) => setRokRow(target)}
+              onDenied={(_, reason) => setK12Log(`Zaključano: ${reason}`)}
+            />
+          ))}
+        </View>
+        <Caption text={k12Log ? `Poslednja radnja: ${k12Log}` : 'Još nema radnje'} colors={colors} />
+
+        <SectionHeader title="Sekcija sa brojem" />
+        <Caption text="Broj se kotrlja; sklopiva sekcija okreće strelicu" colors={colors} />
+        <Card style={styles.typeCard}>
+          <MeSectionHeader title="Prekoračeno" count={sectionCount} tone="danger" />
+          <MeSectionHeader title="Cluck Rush" count={sectionCount + 2} startup={KATALOG_STARTUPS[0]} />
+          <MeSectionHeader title="Lično" count={1} startup={null} />
+          <MeSectionHeader
+            title="Završeno danas"
+            count={sectionCount * 2}
+            collapsible
+            collapsed={sectionCollapsed}
+            onToggle={() => setSectionCollapsed((value) => !value)}
+          />
+          <Button
+            label="Promeni broj"
+            size="sm"
+            variant="secondary"
+            onPress={() => setSectionCount((value) => (value >= 12 ? 1 : value + 3))}
+          />
+        </Card>
+
+        <SectionHeader title="Brzi unos" />
+        <Caption text="Sheet iznad tastature: Gde (Nauči AI nema oblasti), rok, Dodaj i u Moj dan" colors={colors} />
+        <Button label="Otvori brzi unos" variant="secondary" onPress={() => setQuickAddOpen(true)} />
+
+        <SectionHeader title="Isplaniraj dan" />
+        <Caption text="Preneto od ranije (Vrati / Skloni) i predlozi po razlogu" colors={colors} />
+        <Button label="Otvori Isplaniraj dan" variant="secondary" onPress={() => setPlanOpen(true)} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Sheet-ovi Moj dan (K12) — fixture podaci, radnje se samo beleže. */}
+      <RowActionsSheet
+        target={actionsTarget}
+        now={demoNow}
+        onClose={() => setActionsTarget(null)}
+        onOpen={(row) => {
+          setActionsTarget(null);
+          setK12Log(`Otvori: ${row.title}`);
+        }}
+        onToggleDone={(row, done) => {
+          setActionsTarget(null);
+          setK12Log(done ? `Završeno: ${row.title}` : `Vraćeno: ${row.title}`);
+        }}
+        onTogglePlan={(row) => {
+          setActionsTarget(null);
+          setK12Log(row.planned ? 'Uklonjeno iz Moj dan' : 'Dodato u Moj dan');
+        }}
+        onSetDue={() => {
+          setActionsTarget(null);
+          setK12Log('Rok je promenjen');
+        }}
+        onSetPriority={() => {
+          setActionsTarget(null);
+          setK12Log('Prioritet je promenjen');
+        }}
+        onMove={(_, direction) => {
+          setActionsTarget(null);
+          setK12Log(direction < 0 ? 'Pomeri gore' : 'Pomeri dole');
+        }}
+      />
+      <RokPlanSheet
+        row={rokRow}
+        now={demoNow}
+        onClose={() => setRokRow(null)}
+        onSetDue={() => {
+          setRokRow(null);
+          setK12Log('Rok je promenjen');
+        }}
+        onTogglePlan={(row) => {
+          setRokRow(null);
+          setK12Log(row.planned ? 'Uklonjeno iz Moj dan' : 'Dodato u Moj dan');
+        }}
+      />
+      <QuickAddSheet
+        visible={quickAddOpen}
+        onClose={() => setQuickAddOpen(false)}
+        now={demoNow}
+        startups={KATALOG_QUICK_ADD_STARTUPS}
+        onSubmit={async (draft) => {
+          if (draft.title.trim().toLowerCase() === 'greska') {
+            throw new Error('Zadatak nije dodat. Pokušaj ponovo.');
+          }
+          setK12Log(`Dodato: ${draft.title.trim()}`);
+        }}
+      />
+      <PlanDaySheet
+        visible={planOpen}
+        onClose={() => setPlanOpen(false)}
+        now={demoNow}
+        state={{ status: 'ready', model: k12Plan }}
+        onAdd={(row) => setK12Log(`Dodato u Moj dan: ${row.title}`)}
+        onCarryOver={(keys) => setK12Log(`Vraćeno u danas: ${keys.length}`)}
+        onDismiss={(keys) => setK12Log(`Sklonjeno: ${keys.length}`)}
+      />
     </View>
   );
 }
@@ -595,6 +757,12 @@ function KatalogSwipe({
       </View>
     </SwipeRow>
   );
+}
+
+/** Red kataloga sa lokalnim stanjem kvačice (status prati „završeno“). */
+function withDone(row: TaskRowModel, done: boolean): TaskRowModel {
+  if (done) return { ...row, done: true, status: 'done' };
+  return { ...row, done: false, status: row.status === 'done' ? 'next' : row.status };
 }
 
 /** Sitna oznaka iznad grupe primera. */

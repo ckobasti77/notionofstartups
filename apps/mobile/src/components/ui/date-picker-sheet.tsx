@@ -76,6 +76,46 @@ export function DatePickerSheet({
   title?: string;
 }) {
   const colors = useThemeColors();
+
+  return (
+    <Sheet visible={visible} onClose={onClose} dragAnywhere style={styles.sheet}>
+      <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
+        {title}
+      </Text>
+
+      <MonthCalendar value={value} onSelect={onSelect} />
+
+      <View style={styles.actions}>
+        <Button
+          label="Bez roka"
+          variant="ghost"
+          onPress={() => {
+            haptics.tap();
+            onSelect(null);
+          }}
+          style={styles.flexBtn}
+        />
+        <Button label="Zatvori" variant="secondary" onPress={onClose} style={styles.flexBtn} />
+      </View>
+    </Sheet>
+  );
+}
+
+/**
+ * Mreža meseca (navigacija + dani) bez sopstvenog sheet-a — K12 je izdvojio
+ * telo `DatePickerSheet`-a da sheet koji je već otvoren (brzi unos, „Rok i
+ * plan", radnje reda) prikaže kalendar U SEBI, umesto drugog `Modal`-a preko
+ * sebe (iOS ne prikazuje drugi `Modal` dok je prvi otvoren). Izbor je lokalno
+ * podne izabranog dana; mesec počinje od izabranog datuma (inače danas).
+ */
+export function MonthCalendar({
+  value,
+  onSelect,
+}: {
+  value: number | null;
+  onSelect: (dueDate: number) => void;
+}) {
+  const colors = useThemeColors();
   const initial = value === null ? new Date() : new Date(value);
   const [year, setYear] = useState(initial.getFullYear());
   const [month, setMonth] = useState(initial.getMonth());
@@ -92,11 +132,7 @@ export function DatePickerSheet({
   }
 
   return (
-    <Sheet visible={visible} onClose={onClose} dragAnywhere style={styles.sheet}>
-      <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
-        {title}
-      </Text>
-
+    <View style={styles.calendar}>
       <View style={styles.monthNav}>
         <IconButton accessibilityLabel="Prethodni mesec" onPress={() => shiftMonth(-1)}>
           <ChevronLeft size={20} color={colors.foreground} />
@@ -170,20 +206,7 @@ export function DatePickerSheet({
           );
         })}
       </View>
-
-      <View style={styles.actions}>
-        <Button
-          label="Bez roka"
-          variant="ghost"
-          onPress={() => {
-            haptics.tap();
-            onSelect(null);
-          }}
-          style={styles.flexBtn}
-        />
-        <Button label="Zatvori" variant="secondary" onPress={onClose} style={styles.flexBtn} />
-      </View>
-    </Sheet>
+    </View>
   );
 }
 
@@ -202,6 +225,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: fontWeight.semibold,
     paddingHorizontal: space[1],
+  },
+  // Isti razmak kao kad su delovi bili direktna deca sheet-a (`gap: space[2]`).
+  calendar: {
+    gap: space[2],
   },
   monthNav: {
     flexDirection: 'row',

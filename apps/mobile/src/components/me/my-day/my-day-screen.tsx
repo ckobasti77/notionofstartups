@@ -1,172 +1,319 @@
 import {
+  buildPlanDay,
+  completionCall,
+  dueCall,
   formatDayHeading,
-  SPRING,
-  springDurationMs,
-  type MyDaySectionId,
-  type TaskStatusKey,
+  moveInPlan,
+  planCall,
+  priorityCall,
+  quickAddCall,
+  quickAddSuccessMessage,
+  isOptimisticId,
+  OPTIMISTIC_PREFIX,
+  patchItem,
+  withEntry,
+  withEntryOrder,
+  withoutEntry,
+  withoutHistory,
+  type QuickAddDraft,
+  type RowCall,
+  type TaskPriorityKey,
+  type TaskRowModel,
 } from '@devotion/shared';
-import { useMutation, useQuery } from 'convex/react';
+import type { OptimisticLocalStore } from 'convex/browser';
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import type { FunctionReturnType } from 'convex/server';
 import { useRouter } from 'expo-router';
-import { CalendarCheck2, Sun } from 'lucide-react-native';
+import { CalendarPlus, Plus } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated from 'react-native-reanimated';
+import { AccessibilityInfo, Alert, StyleSheet, View } from 'react-native';
 
-import { EmptyState } from '@/components/empty-state';
-import { listLayout, exitFade, NumberRoll, ProgressRing, useListEntering } from '@/components/motion';
-import { SectionHeader } from '@/components/ui/section-header';
-import { Skeleton } from '@/components/ui/skeleton';
-import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { FAB } from '@/components/ui/fab';
+import { IconButton } from '@/components/ui/icon-button';
+import { UndoBar } from '@/components/undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
-import { useListRefresh } from '@/hooks/use-list-refresh';
-import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { useQueryTolerant } from '@/hooks/use-query-tolerant';
+import { useRetained } from '@/hooks/use-retained';
 import { useToday } from '@/hooks/use-today';
+import { readMyDayGrouping, writeMyDayGrouping } from '@/lib/device-prefs';
+import { announceWithUndoBar } from '@/lib/announce';
+import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
+import { readLastArea, readStoredDestination, rememberDestination } from '@/lib/quick-add-memory';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, space, text } from '@/theme/tokens';
 
 import { MeHeader } from '../me-header';
-import { TaskRow } from '../task-row';
+import { PlanDaySheet, type PlanDayState } from '../plan-day-sheet';
+import { QuickAddSheet, type QuickAddStartupOption } from '../quick-add-sheet';
+import { RokPlanSheet } from '../rok-plan-sheet';
+import { RowActionsSheet, type RowActionsTarget } from '../row-actions-sheet';
 import {
-  applyCompletionOverrides,
+  applyHolds,
   buildMyDay,
-  daySummary,
   firstNameOf,
-  progressValueText,
-  reopenStatus,
-  type CompletionHold,
-  type MyDayModel,
-  type MyDayRowData,
+  INITIAL_COLLAPSED,
+  listItems,
+  locateRow,
+  plannedOrder,
+  sectionsFor,
+  type MyDayGroupMode,
+  type MyDayListItem,
 } from './my-day-model';
+import { MyDayView } from './my-day-view';
+import { useCompletionQueue } from './use-completion-queue';
 
-/** Red ostaje na svom mestu dok se spring kvačice ne smiri (plan K07 E7, ≈ 741 ms). */
-const HOLD_MS = springDurationMs(SPRING.bouncy);
+type Overview = FunctionReturnType<typeof api.myDay.overview>;
+type OverviewEntry = Overview['entries'][number];
+type PlanRef =
+  | { kind: 'task'; taskPageId: Id<'pages'> }
+  | { kind: 'personal'; personalTaskId: Id<'personalTasks'> };
 
-/** Iznad ovoliko redova layout animacija se gasi (plan K07 E12). */
-const LAYOUT_ANIMATION_MAX_ROWS = 60;
+/** Optimistička izmena svih `myDay.overview` pretplata (opciono samo za jedan dan). */
+function updateOverviews(store: OptimisticLocalStore, dayKey: string | null, update: (value: Overview) => Overview) {
+  for (const { args, value } of store.getAllQueries(api.myDay.overview)) {
+    if (value === undefined || (dayKey !== null && args.dayKey !== dayKey)) continue;
+    store.setQuery(api.myDay.overview, args, update(value));
+  }
+}
 
-const INITIAL_COLLAPSED: Record<MyDaySectionId, boolean> = {
-  overdue: false,
-  today: false,
-  planned: false,
-  inProgress: false,
-  soon: false,
-  blocked: true,
-  doneToday: true,
-};
+function optimisticEntry(dayKey: string, ref: PlanRef, createdAt: number): OverviewEntry {
+  const refKey = ref.kind === 'task' ? `task:${ref.taskPageId}` : `personal:${ref.personalTaskId}`;
+  return {
+    // Privremeni id: zamenjuje ga pravi čim server odgovori (nikad ne ide na server).
+    _id: `${OPTIMISTIC_PREFIX}${refKey}` as Id<'myDayEntries'>,
+    dayKey,
+    refKind: ref.kind,
+    refKey,
+    taskPageId: ref.kind === 'task' ? ref.taskPageId : null,
+    personalTaskId: ref.kind === 'personal' ? ref.personalTaskId : null,
+    position: 0,
+    createdAt,
+  };
+}
+
+function refOfKey(refKey: string): PlanRef {
+  const separator = refKey.indexOf(':');
+  const kind = refKey.slice(0, separator);
+  const id = refKey.slice(separator + 1);
+  return kind === 'task'
+    ? { kind: 'task', taskPageId: id as Id<'pages'> }
+    : { kind: 'personal', personalTaskId: id as Id<'personalTasks'> };
+}
+
+function failed(title: string, error: unknown, fallback: string) {
+  haptics.error();
+  Alert.alert(title, accessErrorMessage(error, fallback));
+}
 
 /**
- * Tab „Danas" = Moj dan (v1, K09; O1): šta danas radim u SVIM startupima i
- * lično — jedna pretplata (`myDay.overview`), grupisanje iz shared paketa
- * (isto kao web), redovi sa kvačicom. Pune radnje (swipe, rok, plan, brzi
- * unos) dodaje K12. Startup zadatak se otvara u svom startupu
- * (`openStartupEntity`); lični nema ekran do panela (K13).
+ * Tab „Danas" = Moj dan (K12; O1, P5) — telefonski par web `MyDayContainer`
+ * (K10): jedna pretplata `myDay.overview`, grupisanje iz shared paketa
+ * (po vremenu ili po startupu, pamti se na uređaju), redovi sa swipe radnjama,
+ * dugim pritiskom i kvačicom, „Isplaniraj dan" i brzi unos (FAB). Sve radnje
+ * zovu ISTE mutacije kao web, kroz ista shared pravila (`completionCall`,
+ * `dueCall`, `priorityCall`, `planCall`, `moveInPlan`, `quickAddCall`), sa
+ * istom optimističkom slikom (`patchItem`, `withEntry`…). „Poništi" ide kroz
+ * postojeću traku (`UndoBar`, 8 s).
+ *
+ * Greška `myDay.overview` (profil ne postoji, pad veze) ide u `ErrorBoundary`
+ * rute (`(tabs)/danas.tsx`) sa „Pokušaj ponovo".
  */
 export function MyDayScreen() {
   const colors = useThemeColors();
   const router = useRouter();
-  const reduced = useReducedMotion();
   const { activeStartupId, setActiveStartupId } = useActiveStartup();
   const today = useToday();
+  const { dayKey, doneSince, now } = today;
   const profile = useQuery(api.profiles.getCurrent, {});
-  const overview = useQuery(api.myDay.overview, {
-    dayKey: today.dayKey,
-    doneSince: today.doneSince,
-  });
+  const liveOverview = useQuery(api.myDay.overview, { dayKey, doneSince });
+  // Novi dan (ponoć, povratak u aplikaciju) menja argumente: dok stiže nov
+  // odgovor, ostaje prethodni — lista ne trepne u skeleton.
+  const overview = useRetained(liveOverview ?? null);
+
+  // --- Mutacije (sa optimističkom slikom tamo gde se red pomera) ---
   const setPersonalStatus = useMutation(api.personalTasks.setStatus);
-  const updateMetadata = useMutation(api.tasks.updateMetadata);
-
-  const [holds, setHolds] = useState<ReadonlyMap<string, CompletionHold>>(() => new Map());
-  const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(() => new Map());
-  const [collapsed, setCollapsed] = useState(INITIAL_COLLAPSED);
-  const previousStatus = useRef(new Map<string, TaskStatusKey>());
-  const versions = useRef(new Map<string, number>());
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-  useEffect(() => {
-    const active = timers.current;
-    return () => active.forEach((timer) => clearTimeout(timer));
-  }, []);
-
-  const base = useMemo(
-    () => (overview ? buildMyDay(overview, today.now) : null),
-    [overview, today.now],
+  const updatePersonal = useMutation(api.personalTasks.update).withOptimisticUpdate((store, args) =>
+    updateOverviews(store, null, (value) =>
+      patchItem(value, { kind: 'personal', id: args.personalTaskId }, { dueDate: args.dueDate, priority: args.priority }),
+    ),
   );
-  const model = useMemo(
-    () => (base ? applyCompletionOverrides(base, holds, pending) : null),
-    [base, holds, pending],
+  const updateTask = useMutation(api.tasks.updateMetadata).withOptimisticUpdate((store, args) => {
+    if (args.dueDate === undefined && args.priority === undefined) return;
+    updateOverviews(store, null, (value) =>
+      patchItem(value, { kind: 'task', id: args.pageId }, { dueDate: args.dueDate, priority: args.priority }),
+    );
+  });
+  const planMutation = useMutation(api.myDay.plan).withOptimisticUpdate((store, args) =>
+    updateOverviews(store, args.dayKey, (value) => withEntry(value, optimisticEntry(args.dayKey, args.ref, now))),
   );
+  const unplanMutation = useMutation(api.myDay.unplan).withOptimisticUpdate((store, args) =>
+    updateOverviews(store, null, (value) => withoutEntry(value, args.entryId)),
+  );
+  const reorderMutation = useMutation(api.myDay.reorder).withOptimisticUpdate((store, args) =>
+    updateOverviews(store, args.dayKey, (value) => withEntryOrder(value, args.entryIds)),
+  );
+  const carryOverMutation = useMutation(api.myDay.carryOver).withOptimisticUpdate((store, args) =>
+    updateOverviews(store, args.dayKey, (value) =>
+      args.refKeys.reduce(
+        (next, refKey) => withEntry(next, optimisticEntry(args.dayKey, refOfKey(refKey), now)),
+        withoutHistory(value, new Set(args.refKeys)),
+      ),
+    ),
+  );
+  const clearOldMutation = useMutation(api.myDay.clearOld).withOptimisticUpdate((store, args) =>
+    updateOverviews(store, args.dayKey, (value) =>
+      withoutHistory(value, args.refKeys === undefined ? null : new Set(args.refKeys)),
+    ),
+  );
+  const createPersonal = useMutation(api.personalTasks.create);
+  const createPage = useMutation(api.pages.create);
 
-  const release = useCallback((key: string) => {
-    timers.current.delete(key);
-    setHolds((current) => {
-      if (!current.has(key)) return current;
-      const next = new Map(current);
-      next.delete(key);
-      return next;
-    });
-  }, []);
-
-  const toggle = (row: MyDayRowData, done: boolean) => {
-    if (!row.canComplete || model === null) return;
-    const section = model.sections.find((entry) => entry.rows.some((r) => r.key === row.key));
-    const index = section?.rows.findIndex((r) => r.key === row.key) ?? 0;
-    if (section) {
-      setHolds((current) =>
-        new Map(current).set(row.key, { section: section.id, index, row, done }),
-      );
-      const previousTimer = timers.current.get(row.key);
-      if (previousTimer !== undefined) clearTimeout(previousTimer);
-      timers.current.set(row.key, setTimeout(() => release(row.key), HOLD_MS));
-    }
-    if (row.kind === 'task' && done && !row.done) previousStatus.current.set(row.key, row.status);
-
-    const version = (versions.current.get(row.key) ?? 0) + 1;
-    versions.current.set(row.key, version);
-    setPending((current) => new Map(current).set(row.key, done));
-
-    // Mutacija kreće ODMAH (E7) — animacija ništa ne čeka.
-    const call =
-      row.kind === 'personal'
-        ? setPersonalStatus({
-            personalTaskId: row.id as Id<'personalTasks'>,
-            status: done ? 'done' : 'open',
-          })
-        : updateMetadata({
-            pageId: row.id as Id<'pages'>,
-            status: done ? 'done' : reopenStatus(previousStatus.current.get(row.key)),
-          });
-
-    void call
-      .then(() => {
-        AccessibilityInfo.announceForAccessibility(
-          done ? `Završeno: ${row.title}` : `Vraćeno u otvoreno: ${row.title}`,
-        );
-      })
-      .catch((error: unknown) => {
-        if (versions.current.get(row.key) !== version) return;
-        haptics.error();
-        release(row.key);
-        Alert.alert(
-          done ? 'Zadatak nije završen' : 'Zadatak nije vraćen',
-          error instanceof Error && error.message ? error.message : 'Pokušaj ponovo.',
-        );
-      })
-      .finally(() => {
-        if (versions.current.get(row.key) !== version) return;
-        setPending((current) => {
-          if (!current.has(row.key)) return current;
-          const next = new Map(current);
-          next.delete(row.key);
-          return next;
+  const send = (call: Exclude<RowCall, { fn: 'denied' }>): Promise<unknown> => {
+    // Id-jevi su prošli kroz shared model kao stringovi; potiču iz `overview`.
+    switch (call.fn) {
+      case 'personalTasks.setStatus':
+        return setPersonalStatus({ personalTaskId: call.personalTaskId as Id<'personalTasks'>, status: call.status });
+      case 'personalTasks.update':
+        return updatePersonal({
+          personalTaskId: call.personalTaskId as Id<'personalTasks'>,
+          ...(call.dueDate === undefined ? {} : { dueDate: call.dueDate }),
+          ...(call.priority === undefined ? {} : { priority: call.priority }),
         });
-      });
+      case 'tasks.updateMetadata':
+        return updateTask({
+          pageId: call.pageId as Id<'pages'>,
+          ...(call.status === undefined ? {} : { status: call.status }),
+          ...(call.dueDate === undefined ? {} : { dueDate: call.dueDate }),
+          ...(call.priority === undefined ? {} : { priority: call.priority }),
+        });
+      case 'myDay.plan':
+        return planMutation({
+          dayKey,
+          ref:
+            call.ref.kind === 'task'
+              ? { kind: 'task', taskPageId: call.ref.taskPageId as Id<'pages'> }
+              : { kind: 'personal', personalTaskId: call.ref.personalTaskId as Id<'personalTasks'> },
+        });
+      case 'myDay.unplan':
+        return unplanMutation({ entryId: call.entryId as Id<'myDayEntries'> });
+    }
   };
 
-  const openRow = (row: MyDayRowData) => {
+  // --- Prikaz ---
+  const [groupMode, setGroupMode] = useState<MyDayGroupMode>(readMyDayGrouping);
+  const changeGroupMode = (mode: MyDayGroupMode) => {
+    setGroupMode(mode);
+    writeMyDayGrouping(mode);
+  };
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(INITIAL_COLLAPSED);
+  const toggleSection = (key: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const baseModel = useMemo(() => (overview ? buildMyDay(overview, now) : null), [overview, now]);
+  // Sekcije na ekranu (sa zadržanim redovima) — rukovaoci posle dodira čitaju najnovije.
+  const sectionsRef = useRef<ReturnType<typeof sectionsFor>>([]);
+
+  const completion = useCompletionQueue({
+    locate: (key) => locateRow(sectionsRef.current, key),
+    commit: (row, done, previous) => {
+      const call = completionCall(row, done, previous);
+      return call.fn === 'denied' ? Promise.reject(new Error(call.reason)) : send(call);
+    },
+  });
+
+  const sections = useMemo(
+    () => (baseModel ? applyHolds(sectionsFor(baseModel, groupMode), completion.holds, completion.pending) : []),
+    [baseModel, groupMode, completion.holds, completion.pending],
+  );
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
+  const items = useMemo(() => listItems(sections, collapsed), [sections, collapsed]);
+
+  // Najnoviji red po ključu (sheet-ovi uvek prikazuju sveže podatke).
+  const rowByKey = useCallback(
+    (key: string | null): { row: TaskRowModel; item: Extract<MyDayListItem, { type: 'row' }> | null } | null => {
+      if (key === null || !baseModel) return null;
+      for (const section of sections) {
+        const row = section.rows.find((entry) => entry.key === key);
+        if (row) {
+          const item = items.find(
+            (entry): entry is Extract<MyDayListItem, { type: 'row' }> => entry.type === 'row' && entry.row.key === key,
+          );
+          return { row, item: item ?? null };
+        }
+      }
+      return null;
+    },
+    [baseModel, sections, items],
+  );
+
+  // --- Plan, rok, prioritet, redosled ---
+  const togglePlan = (row: TaskRowModel) => {
+    if (isOptimisticId(row.planEntryId)) return;
+    const call = planCall(row);
+    if (call.fn === 'myDay.unplan') {
+      void unplanMutation({ entryId: call.entryId as Id<'myDayEntries'> })
+        .then((removed) => {
+          announceWithUndoBar('Uklonjeno iz Moj dan.');
+          pushUndo({
+            label: 'Uklonjeno iz Moj dan.',
+            action: { kind: 'myDayUnplan', dayKey: removed.dayKey, ref: removed.ref, position: removed.position },
+          });
+        })
+        .catch((error: unknown) => failed('Plan nije sačuvan', error, 'Pokušaj ponovo.'));
+      return;
+    }
+    if (call.fn !== 'myDay.plan') return;
+    void send(call)
+      .then(() => AccessibilityInfo.announceForAccessibility('Dodato u Moj dan.'))
+      .catch((error: unknown) => failed('Plan nije sačuvan', error, 'Pokušaj ponovo.'));
+  };
+
+  const setDue = (row: TaskRowModel, due: number | null) => {
+    const call = dueCall(row, due);
+    if (call.fn === 'denied') {
+      haptics.warning();
+      Alert.alert('Rok nije promenjen', call.reason);
+      return;
+    }
+    if (row.dueDate === due) return;
+    void send(call)
+      .then(() => AccessibilityInfo.announceForAccessibility('Rok je promenjen.'))
+      .catch((error: unknown) => failed('Rok nije sačuvan', error, 'Pokušaj ponovo.'));
+  };
+
+  const setPriority = (row: TaskRowModel, priority: TaskPriorityKey | null) => {
+    const call = priorityCall(row, priority);
+    if (call.fn === 'denied') {
+      haptics.warning();
+      Alert.alert('Prioritet nije promenjen', call.reason);
+      return;
+    }
+    if (row.priority === priority) return;
+    void send(call).catch((error: unknown) => failed('Prioritet nije sačuvan', error, 'Pokušaj ponovo.'));
+  };
+
+  const move = (row: TaskRowModel, direction: -1 | 1) => {
+    if (!baseModel || row.planEntryId === null || isOptimisticId(row.planEntryId)) return;
+    const order = plannedOrder(baseModel).filter((id) => !isOptimisticId(id));
+    const next = moveInPlan(order, row.planEntryId, direction);
+    if (!next) return;
+    void reorderMutation({ dayKey, entryIds: next as Id<'myDayEntries'>[] }).catch((error: unknown) =>
+      failed('Plan nije sačuvan', error, 'Pokušaj ponovo.'),
+    );
+  };
+
+  const openRow = (row: TaskRowModel) => {
     if (row.kind !== 'task' || row.startup === null) return;
     openStartupEntity(router, setActiveStartupId, {
       startupId: row.startup._id as Id<'startups'>,
@@ -175,182 +322,231 @@ export function MyDayScreen() {
     });
   };
 
-  const openCommandCenter = () => {
-    haptics.tap();
-    router.navigate({ pathname: '/prostor', params: { segment: 'komandni-centar' } });
+  // --- Sheet-ovi: ključ reda, a red se čita svež iz modela ---
+  const [rokKey, setRokKey] = useState<string | null>(null);
+  const [actionsKey, setActionsKey] = useState<string | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const rokRow = rowByKey(rokKey)?.row ?? null;
+  const actionsFound = rowByKey(actionsKey);
+  const actionsTarget: RowActionsTarget | null = actionsFound
+    ? { row: actionsFound.row, movable: actionsFound.item?.movable ?? null }
+    : null;
+
+  // --- Sažeti čipovi (plan K07 E11): deljene pretplate sa tab barom ---
+  const inboxCounts = useQueryTolerant(api.inbox.unreadCounts, {});
+  const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
+  const pendingState = useQueryTolerant(api.inbox.pending, {});
+  const openPending = () => {
+    const first = pendingState?.items[0];
+    if (!first) return;
+    openStartupEntity(router, setActiveStartupId, {
+      startupId: first.startup._id,
+      href: '/odobrenja',
+      currentStartupId: activeStartupId,
+    });
+  };
+
+  // --- Isplaniraj dan ---
+  const planModel = useMemo(() => (overview ? buildPlanDay(overview, now) : null), [overview, now]);
+  const planState: PlanDayState = planModel ? { status: 'ready', model: planModel } : { status: 'loading' };
+
+  // --- Brzi unos (E16): isti putevi kao web `QuickAddContainer` ---
+  const { results: startupResults } = usePaginatedQuery(api.startups.listForCurrent, {}, { initialNumItems: 50 });
+  const quickAddStartups = useMemo<QuickAddStartupOption[]>(
+    () =>
+      startupResults.map((startup) => ({
+        _id: startup._id,
+        name: startup.name,
+        logoUrl: startup.logoUrl,
+        areas: startup.areas.map((area) => ({ _id: area._id, label: area.label })),
+      })),
+    [startupResults],
+  );
+  const submitQuickAdd = async (draft: QuickAddDraft) => {
+    if (!profile) throw new Error('Profil se još učitava. Pokušaj ponovo.');
+    const call = quickAddCall(draft, { profileId: profile._id, dayKey });
+    if (call.fn === 'invalid') throw new Error(call.reason ?? 'Unesi naslov zadatka.');
+    const message = quickAddSuccessMessage(draft.destination, quickAddStartups);
+    try {
+      if (call.fn === 'personalTasks.create') {
+        const personalTaskId = await createPersonal(call.args);
+        rememberDestination(draft.destination);
+        haptics.success();
+        // Traka se pojavi dok je sheet brzog unosa još aktivan prozor — njen live
+        // region tada možda ne progovori, pa se najavljuje izričito.
+        AccessibilityInfo.announceForAccessibility(message);
+        pushUndo({ label: message, action: { kind: 'personalTaskCreate', personalTaskId } });
+        return;
+      }
+      // Id-jevi su prošli kroz shared nacrt kao stringovi; potiču iz `startups.listForCurrent`.
+      const startupId = call.args.startupId as Id<'startups'>;
+      const pageId = await createPage({
+        ...call.args,
+        startupId,
+        areaId: call.args.areaId as Id<'startupAreas'>,
+        assigneeProfileIds: [profile._id],
+      });
+      rememberDestination(draft.destination);
+      if (call.planDayKey !== null) {
+        try {
+          await planMutation({ dayKey: call.planDayKey, ref: { kind: 'task', taskPageId: pageId } });
+        } catch (error) {
+          failed('Plan nije sačuvan', error, 'Zadatak je dodat, ali nije u Moj dan.');
+        }
+      }
+      haptics.success();
+      // Traka se pojavi dok je sheet brzog unosa još aktivan prozor — njen live
+      // region tada možda ne progovori, pa se najavljuje izričito.
+      AccessibilityInfo.announceForAccessibility(message);
+      pushUndo({
+        label: message,
+        action: { kind: 'pageCreate', startupId, pageId },
+        // „Otvori" kao na webu (toast). Promena aktivnog startupa ionako prazni
+        // traku, pa `activeStartupId` ovde ne može biti zastareo dok se traka vidi.
+        secondary: {
+          label: 'Otvori',
+          onPress: () =>
+            openStartupEntity(router, setActiveStartupId, {
+              startupId,
+              href: { pathname: '/zadatak/[id]', params: { id: pageId } },
+              currentStartupId: activeStartupId,
+            }),
+        },
+      });
+    } catch (error) {
+      throw new Error(accessErrorMessage(error, 'Zadatak nije dodat. Pokušaj ponovo.'));
+    }
   };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <MeHeader title="Danas" subtitle={formatDayHeading(today.now)} />
-      {model === null ? (
-        <MyDaySkeleton />
-      ) : (
-        <MyDayList
-          model={model}
-          now={today.now}
-          firstName={firstNameOf(profile?.displayName)}
-          collapsed={collapsed}
-          reduced={reduced}
-          onToggleSection={(id) => {
-            haptics.select();
-            setCollapsed((current) => ({ ...current, [id]: !current[id] }));
-          }}
-          onToggleDone={toggle}
-          onOpen={openRow}
-          onOpenCommandCenter={openCommandCenter}
-        />
-      )}
-    </View>
-  );
-}
+      <MeHeader
+        title="Danas"
+        subtitle={formatDayHeading(now)}
+        actions={
+          <IconButton
+            accessibilityLabel="Isplaniraj dan"
+            onPress={() => {
+              haptics.tap();
+              setPlanOpen(true);
+            }}>
+            <CalendarPlus size={22} color={colors.foreground} />
+          </IconButton>
+        }
+      />
+      <MyDayView
+        state={baseModel ? { status: 'ready', model: baseModel, items, groupMode } : { status: 'loading' }}
+        now={now}
+        firstName={firstNameOf(profile?.displayName)}
+        onGroupModeChange={changeGroupMode}
+        onToggleSection={toggleSection}
+        summary={{
+          inbox: inboxCounts ? inboxCounts.total.count : null,
+          chat: chatUnread ? chatUnread.total.unreadCount : null,
+          pending: pendingState ? pendingState.items.length : null,
+          onOpenInbox: () => router.navigate('/obavestenja'),
+          onOpenChat: () => router.navigate('/chat'),
+          onOpenPending: openPending,
+        }}
+        rowActions={{
+          onToggleDone: completion.toggleDone,
+          onOpen: openRow,
+          onLongPress: (row) => setActionsKey(row.key),
+          onSchedule: (row) => setRokKey(row.key),
+          // Zaključana kvačica: razlog vidljivo, kao toast na webu (E15).
+          onDenied: (row, reason) => Alert.alert(row.done ? 'Zadatak nije vraćen' : 'Zadatak nije završen', reason),
+        }}
+        onPlanDay={() => setPlanOpen(true)}
+      />
 
-function MyDayList({
-  model,
-  now,
-  firstName,
-  collapsed,
-  reduced,
-  onToggleSection,
-  onToggleDone,
-  onOpen,
-  onOpenCommandCenter,
-}: {
-  model: MyDayModel;
-  now: number;
-  firstName: string | null;
-  collapsed: Record<MyDaySectionId, boolean>;
-  reduced: boolean;
-  onToggleSection: (id: MyDaySectionId) => void;
-  onToggleDone: (row: MyDayRowData, done: boolean) => void;
-  onOpen: (row: MyDayRowData) => void;
-  onOpenCommandCenter: () => void;
-}) {
-  const colors = useThemeColors();
-  const refreshControl = useListRefresh();
-  const entering = useListEntering(reduced);
+      <FAB
+        icon={Plus}
+        accessibilityLabel="Brzi unos"
+        onPress={() => {
+          haptics.tap();
+          setQuickAddOpen(true);
+        }}
+      />
+      <UndoBar bottomOffset={72} />
 
-  const visible = model.sections.filter((section) => section.rows.length > 0);
-  const openSections = visible.filter((section) => section.id !== 'doneToday');
-  const doneCount = model.counts.doneToday;
-  const rowCount = visible.reduce((sum, section) => sum + section.rows.length, 0);
-  // Jedna instanca preseta za sve redove (ne nova po redu i renderu).
-  const layoutPreset = useMemo(() => listLayout(reduced), [reduced]);
-  const layout = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? layoutPreset : undefined;
-  let rowIndex = 0;
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.listContent}
-      showsVerticalScrollIndicator={false}
-      refreshControl={refreshControl}>
-      <SummaryCard model={model} firstName={firstName} />
-
-      {openSections.length === 0 ? (
-        <View style={styles.inlineEmpty}>
-          {doneCount > 0 ? (
-            <EmptyState
-              icon={<CalendarCheck2 size={40} color={colors.mutedForeground} />}
-              title="Sve za danas je završeno"
-              description={`Završeno danas: ${doneCount}. Pogledaj šta je sledeće.`}
-              actionLabel="Komandni centar"
-              onAction={onOpenCommandCenter}
-            />
-          ) : (
-            <EmptyState
-              icon={<Sun size={40} color={colors.mutedForeground} />}
-              title="Danas je mirno"
-              description="Nema rokova ni planova za danas."
-              actionLabel="Komandni centar"
-              onAction={onOpenCommandCenter}
-            />
-          )}
-        </View>
-      ) : null}
-
-      {visible.map((section) => {
-        const isCollapsible = section.collapsedByDefault;
-        const isCollapsed = isCollapsible && collapsed[section.id];
-        return (
-          <Animated.View key={section.id} layout={layout} style={styles.section}>
-            <SectionHeader
-              title={section.title}
-              count={section.rows.length}
-              tone={section.id === 'overdue' ? 'danger' : 'default'}
-              collapsible={isCollapsible}
-              collapsed={isCollapsed}
-              onToggle={isCollapsible ? () => onToggleSection(section.id) : undefined}
-            />
-            {isCollapsed
-              ? null
-              : section.rows.map((row) => {
-                  const index = rowIndex;
-                  rowIndex += 1;
-                  return (
-                    <Animated.View
-                      key={row.key}
-                      layout={layout}
-                      entering={entering(index)}
-                      exiting={exitFade(reduced)}>
-                      <TaskRow
-                        row={row}
-                        now={now}
-                        onToggleDone={onToggleDone}
-                        onOpen={row.kind === 'task' ? onOpen : undefined}
-                      />
-                    </Animated.View>
-                  );
-                })}
-          </Animated.View>
-        );
-      })}
-
-      {model.capped ? (
-        <Text style={[styles.capped, { color: colors.mutedForeground }]}>
-          Prikazan je deo zadataka. Sve nađi u Mojim zadacima.
-        </Text>
-      ) : null}
-    </ScrollView>
-  );
-}
-
-/** Pozdrav, sažetak i prsten napretka (obaveze dana: planirano ∪ rok danas). */
-function SummaryCard({ model, firstName }: { model: MyDayModel; firstName: string | null }) {
-  const colors = useThemeColors();
-  const { done, total } = model.progress;
-  return (
-    <View style={[styles.summary, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      {total > 0 ? (
-        <ProgressRing
-          progress={done / total}
-          accessibilityLabel="Napredak dana"
-          valueText={progressValueText(model.progress)}>
-          <NumberRoll value={done} style={[styles.ringNumber, { color: colors.foreground }]} />
-        </ProgressRing>
-      ) : null}
-      <View style={styles.summaryText}>
-        <Text style={[styles.greeting, { color: colors.foreground }]}>
-          {firstName ? `Zdravo, ${firstName}.` : 'Zdravo.'}
-        </Text>
-        <Text style={[styles.summaryLine, { color: colors.mutedForeground }]}>
-          {daySummary(model.counts)}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-/** Oblik onoga što stiže: kartica sažetka, naslov sekcije, tri reda. */
-function MyDaySkeleton() {
-  return (
-    <View
-      style={styles.listContent}
-      accessible
-      accessibilityLiveRegion="polite"
-      accessibilityLabel="Učitavanje dana">
-      <Skeleton width="100%" height={72} borderRadius={radius.card} />
-      <Skeleton width="30%" height={13} />
-      <SkeletonList count={3} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+      <RokPlanSheet
+        row={rokRow}
+        now={now}
+        onClose={() => setRokKey(null)}
+        onSetDue={(row, due) => {
+          setRokKey(null);
+          setDue(row, due);
+        }}
+        onTogglePlan={(row) => {
+          haptics.select();
+          setRokKey(null);
+          togglePlan(row);
+        }}
+      />
+      <RowActionsSheet
+        target={actionsTarget}
+        now={now}
+        onClose={() => setActionsKey(null)}
+        onOpen={(row) => {
+          setActionsKey(null);
+          openRow(row);
+        }}
+        onToggleDone={(row, done) => {
+          setActionsKey(null);
+          if (done) haptics.success();
+          else haptics.select();
+          completion.toggleDone(row, done);
+        }}
+        onTogglePlan={(row) => {
+          haptics.select();
+          setActionsKey(null);
+          togglePlan(row);
+        }}
+        onSetDue={(row, due) => {
+          setActionsKey(null);
+          setDue(row, due);
+        }}
+        onSetPriority={(row, priority) => {
+          setActionsKey(null);
+          setPriority(row, priority);
+        }}
+        onMove={(row, direction) => {
+          haptics.select();
+          setActionsKey(null);
+          move(row, direction);
+        }}
+      />
+      <PlanDaySheet
+        visible={planOpen}
+        onClose={() => setPlanOpen(false)}
+        now={now}
+        state={planState}
+        onAdd={(row) => {
+          const call = planCall(row);
+          if (call.fn !== 'myDay.plan') return;
+          void send(call).catch((error: unknown) => failed('Plan nije sačuvan', error, 'Pokušaj ponovo.'));
+        }}
+        onCarryOver={(refKeys) => {
+          void carryOverMutation({ dayKey, refKeys }).catch((error: unknown) =>
+            failed('Plan nije sačuvan', error, 'Pokušaj ponovo.'),
+          );
+        }}
+        onDismiss={(refKeys) => {
+          void clearOldMutation({ dayKey, refKeys }).catch((error: unknown) =>
+            failed('Plan nije sačuvan', error, 'Pokušaj ponovo.'),
+          );
+        }}
+      />
+      <QuickAddSheet
+        visible={quickAddOpen}
+        onClose={() => setQuickAddOpen(false)}
+        now={now}
+        startups={quickAddStartups}
+        readStored={readStoredDestination}
+        rememberedArea={readLastArea}
+        onSubmit={submitQuickAdd}
+      />
     </View>
   );
 }
@@ -358,44 +554,5 @@ function MyDaySkeleton() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  listContent: {
-    paddingHorizontal: space[4],
-    paddingTop: space[2],
-    paddingBottom: space[8],
-    gap: space[4],
-  },
-  summary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    padding: space[3],
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  summaryText: {
-    flex: 1,
-    gap: 2,
-  },
-  greeting: {
-    ...text.body,
-    fontWeight: fontWeight.semibold,
-  },
-  summaryLine: {
-    ...text.meta,
-  },
-  ringNumber: {
-    ...text.meta,
-    fontWeight: fontWeight.semibold,
-  },
-  inlineEmpty: {
-    minHeight: 240,
-  },
-  section: {
-    gap: 2,
-  },
-  capped: {
-    ...text.body,
-    paddingHorizontal: space[1],
   },
 });

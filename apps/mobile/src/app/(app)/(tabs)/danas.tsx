@@ -9,8 +9,9 @@ import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
 
 /**
- * Tab „Danas" — Moj dan, lični nivo (O1). Do K09 je ovde bio Komandni centar
- * startupa; on je sada prvi segment taba Prostor (P15,
+ * Tab „Danas" — Moj dan, lični nivo (O1): pun ekran od K12 (swipe radnje,
+ * sheet radnji, brzi unos, „Isplaniraj dan"). Do K09 je ovde bio Komandni
+ * centar startupa; on je sada prvi segment taba Prostor (P15,
  * `components/komandni-centar/command-center.tsx`) — nijedna radnja nije
  * izgubljena. Aplikacija se otvara ovde (`app/index.tsx`).
  */

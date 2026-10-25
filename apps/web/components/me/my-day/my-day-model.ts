@@ -15,7 +15,6 @@ import {
   type MyDaySectionId,
   rowFromMyDay,
   type StartupMini,
-  type TaskPriorityKey,
   type TaskRowModel,
 } from "@devotion/shared";
 
@@ -139,98 +138,18 @@ export function plannedOrder(model: MyDayModel): string[] {
 
 // --- Optimistička slika (`withOptimisticUpdate`) -----------------------------
 // Klijent odmah pokaže ishod (pa Flip ima šta da animira), a Convex vrati
-// pravo stanje čim server odgovori. Funkcije čuvaju tip odgovora servera
-// (`as T`: `map` nad generičkim nizom vraća tip ograničenja, oblik je isti).
+// pravo stanje čim server odgovori. Pravila su od K12 u `@devotion/shared`
+// (`my-day-plan.ts`), da ih telefon deli; ovde ostaju isti izvozi.
 
-type EntryLike = { _id: string; position: number };
-type OverviewShape = {
-  tasks: ReadonlyArray<{ _id: string; dueDate: number | null; taskPriority: TaskPriorityKey | null }>;
-  personal: ReadonlyArray<{ _id: string; dueDate: number | null; priority: TaskPriorityKey | null }>;
-  entries: ReadonlyArray<EntryLike>;
-};
-
-/** Privremeni id optimističke stavke plana (nikad ne ide na server). */
-export const OPTIMISTIC_PREFIX = "optimistic:";
-
-export function isOptimisticId(id: string | null): boolean {
-  return id !== null && id.startsWith(OPTIMISTIC_PREFIX);
-}
-
-/** Izmena roka ili prioriteta jedne stavke. */
-export function patchItem<T extends OverviewShape>(
-  overview: T,
-  target: { kind: "task" | "personal"; id: string },
-  patch: { dueDate?: number | null; priority?: TaskPriorityKey | null },
-): T {
-  if (target.kind === "task") {
-    return {
-      ...overview,
-      tasks: overview.tasks.map((task) =>
-        task._id !== target.id
-          ? task
-          : {
-              ...task,
-              ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
-              ...(patch.priority === undefined ? {} : { taskPriority: patch.priority }),
-            },
-      ),
-    } as T;
-  }
-  return {
-    ...overview,
-    personal: overview.personal.map((task) =>
-      task._id !== target.id
-        ? task
-        : {
-            ...task,
-            ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
-            ...(patch.priority === undefined ? {} : { priority: patch.priority }),
-          },
-    ),
-  } as T;
-}
-
-/** Nova stavka plana na kraju dana (pozicija kao `appendPlanEntry`: poslednja + 1024). */
-export function withEntry<T extends OverviewShape>(overview: T, entry: T["entries"][number]): T {
-  if (overview.entries.some((existing) => existing._id === entry._id)) return overview;
-  const last = overview.entries.reduce((max, existing) => Math.max(max, existing.position), 0);
-  return { ...overview, entries: [...overview.entries, { ...entry, position: last + 1024 }] } as T;
-}
-
-export function withoutEntry<T extends OverviewShape>(overview: T, entryId: string): T {
-  return { ...overview, entries: overview.entries.filter((entry) => entry._id !== entryId) } as T;
-}
-
-/**
- * Novi redosled zadatih stavki — kao `myDay.reorder`: stavke zadržavaju SKUP
- * pozicija koje već zauzimaju, ostale stoje gde jesu.
- */
-export function withEntryOrder<T extends OverviewShape>(overview: T, orderedIds: ReadonlyArray<string>): T {
-  const wanted = new Set(orderedIds);
-  const positions = overview.entries
-    .filter((entry) => wanted.has(entry._id))
-    .map((entry) => entry.position)
-    .sort((a, b) => a - b);
-  const nextPosition = new Map(orderedIds.map((id, index) => [id, positions[index]] as const));
-  const entries = overview.entries
-    .map((entry) => {
-      const position = nextPosition.get(entry._id);
-      return position === undefined ? entry : { ...entry, position };
-    })
-    .sort((a, b) => a.position - b.position);
-  return { ...overview, entries } as T;
-}
-
-/** Skloni stavke istorije (`clearOld`, `carryOver`); `null` = sve. */
-export function withoutHistory<T extends { history: ReadonlyArray<{ refKey: string }> }>(
-  overview: T,
-  refKeys: ReadonlySet<string> | null,
-): T {
-  return {
-    ...overview,
-    history: refKeys === null ? [] : overview.history.filter((entry) => !refKeys.has(entry.refKey)),
-  } as T;
-}
+export {
+  isOptimisticId,
+  OPTIMISTIC_PREFIX,
+  patchItem,
+  withEntry,
+  withEntryOrder,
+  withoutEntry,
+  withoutHistory,
+} from "@devotion/shared";
 
 // --- Zadržavanje reda posle kvačice (E7) u oba prikaza -----------------------
 

@@ -94,6 +94,9 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
       accessibilityLiveRegion="polite"
       style={[
         styles.bar,
+        // Sa drugom radnjom poruka dobija ceo red, a dugmad prelaze ispod nje —
+        // tri dugmeta pored teksta bi ga na uskom ekranu sekla elipsom.
+        entry.secondary ? styles.barStacked : null,
         {
           bottom: insets.bottom + 16 + bottomOffset,
           backgroundColor: colors.surfaceRaised,
@@ -101,9 +104,27 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           shadowColor: SHADOW_COLOR,
         },
       ]}>
-      <Text numberOfLines={2} style={[styles.label, { color: colors.foreground }]}>
+      <Text
+        numberOfLines={2}
+        style={[styles.label, entry.secondary ? styles.labelStacked : null, { color: colors.foreground }]}>
         {entry.label}
       </Text>
+      {entry.secondary && !busy ? (
+        // Druga radnja (K12, npr. „Otvori" posle brzog unosa) — traka se sklanja,
+        // a stavka ostaje u steku („Istorija radnji").
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${entry.secondary.label} — ${entry.label}`}
+          onPress={() => {
+            const secondary = entry.secondary;
+            haptics.tap();
+            hideUndoBar();
+            secondary?.onPress();
+          }}
+          style={({ pressed }) => [styles.undoBtn, pressed && { backgroundColor: colors.muted }]}>
+          <Text style={[styles.undoText, { color: colors.foreground }]}>{entry.secondary.label}</Text>
+        </Pressable>
+      ) : null}
       {busy ? (
         <ActivityIndicator color={colors.primary} accessibilityLabel="Vraćanje u toku" />
       ) : (
@@ -152,6 +173,15 @@ const styles = StyleSheet.create({
   label: {
     ...text.body,
     flex: 1,
+  },
+  barStacked: {
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  labelStacked: {
+    flexBasis: '100%',
+    paddingTop: 6,
+    paddingRight: 10,
   },
   undoBtn: {
     minHeight: MIN_TOUCH_TARGET,

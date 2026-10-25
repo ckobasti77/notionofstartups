@@ -32,6 +32,11 @@ export type AnimatedCheckProps = {
    */
   disabled?: boolean;
   disabledReason?: string;
+  /**
+   * Dodir na zabranjenu kvačicu (posle haptike `warning`) — npr. poruka sa
+   * razlogom, kao toast na webu (K12). Bez rukovaoca samo haptika.
+   */
+  onDisabledPress?: () => void;
   size?: 24 | 28;
 };
 
@@ -52,6 +57,7 @@ export function AnimatedCheck({
   accessibilityLabel,
   disabled = false,
   disabledReason,
+  onDisabledPress,
   size = 24,
 }: AnimatedCheckProps) {
   const colors = useThemeColors();
@@ -93,6 +99,7 @@ export function AnimatedCheck({
   const press = () => {
     if (disabled) {
       haptics.warning();
+      onDisabledPress?.();
       return;
     }
     if (checked) haptics.select();

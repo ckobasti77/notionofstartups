@@ -94,3 +94,42 @@ export function readPushOptOut(): boolean {
 export function writePushOptOut(off: boolean): void {
   write(PUSH_OPT_OUT_KEY, off ? '1' : '0');
 }
+
+// --- Moj dan i brzi unos (K12) ----------------------------------------------
+// Isto što web pamti u `localStorage` (`apps/web/lib/me/last-area.ts`,
+// `devotion:me-today:grouping`); `SecureStore` ne prima `:` u ključu, pa su
+// imena ključeva ovde sa tačkom, a pravila i oblik vrednosti iz shared paketa.
+
+const MY_DAY_GROUPING_KEY = 'devotion.myDay.grouping';
+const QUICK_ADD_DESTINATION_KEY = 'devotion.quickAdd.destination';
+const QUICK_ADD_AREA_PREFIX = 'devotion.quickAdd.area.';
+
+export type MyDayGroupingValue = 'time' | 'startup';
+
+/** Prekidač „Po vremenu / Po startupu" (plan K07 §1.2); podrazumevano po vremenu. */
+export function readMyDayGrouping(): MyDayGroupingValue {
+  return read(MY_DAY_GROUPING_KEY) === 'startup' ? 'startup' : 'time';
+}
+
+export function writeMyDayGrouping(next: MyDayGroupingValue): void {
+  write(MY_DAY_GROUPING_KEY, next);
+}
+
+/** Poslednje odredište brzog unosa (P8) — sirov zapis; tumači ga `parseStoredDestination`. */
+export function readQuickAddDestinationRaw(): string | null {
+  return read(QUICK_ADD_DESTINATION_KEY);
+}
+
+export function writeQuickAddDestinationRaw(value: string): void {
+  write(QUICK_ADD_DESTINATION_KEY, value);
+}
+
+/** Poslednja oblast po startupu (P8). */
+export function readQuickAddArea(startupId: string): string | null {
+  const value = read(QUICK_ADD_AREA_PREFIX + sanitizeKeyPart(startupId));
+  return value === null || value.length === 0 ? null : value;
+}
+
+export function writeQuickAddArea(startupId: string, areaId: string): void {
+  write(QUICK_ADD_AREA_PREFIX + sanitizeKeyPart(startupId), areaId);
+}
