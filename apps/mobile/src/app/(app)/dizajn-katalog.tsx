@@ -52,6 +52,8 @@ import {
 import {
   buildPlanDay,
   EMPTY_TASK_FILTERS,
+  hubGroups,
+  type HubChannel,
   type InboxScope,
   type InboxSegment,
   type TaskFilters,
@@ -73,6 +75,17 @@ import {
   type InboxItemModel,
 } from '@/components/me/inbox/inbox-view';
 import { TaskFiltersSheet } from '@/components/me/tasks/task-filters-sheet';
+import {
+  KATALOG_CHAT_ME,
+  KATALOG_CHAT_PEOPLE,
+  katalogHubInput,
+  katalogHubRows,
+} from '@/components/me/chat/__fixtures__';
+import { HubActionsSheet } from '@/components/me/chat/hub-actions-sheet';
+import { toggleHubCollapsed } from '@/components/me/chat/hub-model';
+import { HubGroupHeader, HubRow } from '@/components/me/chat/hub-row';
+import { ChatHubView, type HubListState } from '@/components/me/chat/hub-view';
+import { GroupSettingsSheet, NewDmSheet, NewGroupSheet } from '@/components/me/chat/people-sheets';
 import {
   MoveToStartupStep,
   PanelError,
@@ -139,6 +152,18 @@ function katalogInboxFeed(
   return { status: 'ready', items: visible, canLoadMore: false, loadingMore: false, onLoadMore: noop };
 }
 
+/** Stanje huba Poruka u katalogu (K16). */
+function katalogHubState(
+  mode: 'ready' | 'loading' | 'empty' | 'error',
+  hub: ReturnType<typeof katalogHubInput>,
+  retry: () => void,
+): HubListState {
+  if (mode === 'loading') return { status: 'loading' };
+  if (mode === 'error') return { status: 'error', retry };
+  if (mode === 'empty') return { status: 'ready', input: { personal: [], startups: [] }, capped: false };
+  return { status: 'ready', input: hub, capped: hub.capped };
+}
+
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
   { value: 'light', label: 'Svetlo', icon: Sun },
   { value: 'dark', label: 'Tamno', icon: Moon },
@@ -192,6 +217,17 @@ export default function DizajnKatalogScreen() {
   const [k14Items, setK14Items] = useState<InboxItemModel[]>(() => katalogInboxItems(Date.now()));
   const [k14Mode, setK14Mode] = useState<'ready' | 'loading' | 'empty' | 'error'>('ready');
   const [k14Log, setK14Log] = useState<string | null>(null);
+  // Poruke (K16)
+  const [k16Rows] = useState(() => katalogHubRows(Date.now()));
+  const [k16Hub] = useState(() => katalogHubInput(Date.now()));
+  const [k16Mode, setK16Mode] = useState<'ready' | 'loading' | 'empty' | 'error'>('ready');
+  const [k16Query, setK16Query] = useState('');
+  const [k16Collapsed, setK16Collapsed] = useState<Set<string>>(() => new Set());
+  const [k16Actions, setK16Actions] = useState<HubChannel | null>(null);
+  const [k16DmOpen, setK16DmOpen] = useState(false);
+  const [k16GroupOpen, setK16GroupOpen] = useState(false);
+  const [k16Settings, setK16Settings] = useState<'owner' | 'member' | null>(null);
+  const [k16Log, setK16Log] = useState<string | null>(null);
   const [sectionCount, setSectionCount] = useState(3);
   const [sectionCollapsed, setSectionCollapsed] = useState(true);
   const [k12Overview] = useState(() => katalogOverview(Date.now()));
@@ -890,6 +926,81 @@ export default function DizajnKatalogScreen() {
             onOpenSettings={() => setK14Log('Podešavanja obaveštenja')}
           />
         </View>
+
+        {/* ── Poruke (K16) ── */}
+        <SectionHeader title="Red razgovora" />
+        <Caption
+          text="Lični DM (2 nepročitane) · lična grupa · kanal startupa (pominjanje) · dugi pritisak = radnje"
+          colors={colors}
+        />
+        <Card style={styles.taskRowsCard}>
+          <HubGroupHeader
+            group={{
+              key: 'licno',
+              title: 'Lično',
+              startup: null,
+              unreadCount: 2,
+              mentionCount: 0,
+              channels: k16Rows.slice(0, 2),
+              collapsible: false,
+              collapsed: false,
+            }}
+          />
+          {k16Rows.map((row) => (
+            <HubRow
+              key={row._id}
+              channel={row}
+              now={demoNow}
+              meId={KATALOG_CHAT_ME}
+              place={row.startupId === null ? 'Lično' : 'Cluck Rush'}
+              onPress={() => setK16Log(`Otvori razgovor: ${row.name || 'DM'}`)}
+              onLongPress={() => setK16Actions(row)}
+            />
+          ))}
+        </Card>
+        {k16Log ? <Caption text={k16Log} colors={colors} /> : null}
+
+        <SectionHeader title="Nova poruka, nova grupa, podešavanja" />
+        <Caption text={'Sheet-ovi sa fixture ljudima; „greska" kao naziv grupe prikazuje grešku servera'} colors={colors} />
+        <View style={styles.modeRow}>
+          <Button label="Nova poruka" size="sm" variant="secondary" onPress={() => setK16DmOpen(true)} />
+          <Button label="Nova grupa" size="sm" variant="secondary" onPress={() => setK16GroupOpen(true)} />
+          <Button label="Grupa (vlasnik)" size="sm" variant="secondary" onPress={() => setK16Settings('owner')} />
+          <Button label="Grupa (član)" size="sm" variant="secondary" onPress={() => setK16Settings('member')} />
+        </View>
+
+        <SectionHeader title="Poruke — ceo ekran" />
+        <Caption text="Lično pa startupi (sklopivi), pretraga, nepročitano kroz NumberRoll. Stanje:" colors={colors} />
+        <View style={styles.modeRow}>
+          {(['ready', 'loading', 'empty', 'error'] as const).map((mode) => (
+            <Button
+              key={mode}
+              label={{ ready: 'Podaci', loading: 'Učitavanje', empty: 'Prazno', error: 'Greška' }[mode]}
+              size="sm"
+              variant={k16Mode === mode ? 'default' : 'secondary'}
+              onPress={() => setK16Mode(mode)}
+            />
+          ))}
+        </View>
+        <View style={[styles.inboxFrame, { borderColor: colors.border }]}>
+          <ChatHubView
+            now={demoNow}
+            meId={KATALOG_CHAT_ME}
+            safeArea={false}
+            state={katalogHubState(k16Mode, k16Hub, () => setK16Mode('ready'))}
+            groups={
+              k16Mode === 'ready' ? hubGroups(k16Hub, { query: k16Query, collapsed: k16Collapsed }) : []
+            }
+            query={k16Query}
+            onQueryChange={setK16Query}
+            onToggleGroup={(key) => setK16Collapsed((current) => toggleHubCollapsed(current, key))}
+            onOpen={(row) => setK16Log(`Otvori razgovor: ${row.name || 'DM'}`)}
+            onLongPress={setK16Actions}
+            onNewMessage={() => setK16DmOpen(true)}
+            onNewGroup={() => setK16GroupOpen(true)}
+            unreadTotal={k16Mode === 'ready' ? { unreadCount: 14 } : null}
+          />
+        </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -966,6 +1077,61 @@ export default function DizajnKatalogScreen() {
         resultCount={12}
         onChange={setK13Filters}
         onClose={() => setK13FiltersOpen(false)}
+      />
+      {/* Sheet-ovi Poruka (K16) — fixture podaci, radnje se samo beleže. */}
+      <HubActionsSheet
+        channel={k16Actions}
+        onClose={() => setK16Actions(null)}
+        onAction={(action, row) => {
+          setK16Actions(null);
+          const label = {
+            open: 'Otvori razgovor',
+            markRead: 'Označi kao pročitano',
+            groupSettings: 'Podešavanja grupe',
+            leaveGroup: 'Napusti grupu',
+          }[action];
+          setK16Log(`${label}: ${row.name || 'DM'}`);
+        }}
+      />
+      <NewDmSheet
+        open={k16DmOpen}
+        onClose={() => setK16DmOpen(false)}
+        people={{ status: 'ready', people: KATALOG_CHAT_PEOPLE }}
+        pendingId={null}
+        onPick={(personId) => {
+          setK16DmOpen(false);
+          setK16Log(`Lični razgovor sa: ${KATALOG_CHAT_PEOPLE.find((p) => p._id === personId)?.displayName}`);
+        }}
+      />
+      <NewGroupSheet
+        open={k16GroupOpen}
+        onClose={() => setK16GroupOpen(false)}
+        people={{ status: 'ready', people: KATALOG_CHAT_PEOPLE }}
+        onCreate={async (name, memberIds) => {
+          if (name.trim().toLowerCase() === 'greska') return 'Grupa nije napravljena.';
+          setK16GroupOpen(false);
+          setK16Log(`Grupa „${name}" (${memberIds.length + 1} članova)`);
+          return null;
+        }}
+      />
+      <GroupSettingsSheet
+        open={k16Settings !== null}
+        onClose={() => setK16Settings(null)}
+        state={{
+          status: 'ready',
+          name: 'Vikend plan',
+          isOwner: k16Settings !== 'member',
+          members: KATALOG_CHAT_PEOPLE.slice(0, 2),
+          people: KATALOG_CHAT_PEOPLE,
+        }}
+        onSave={async (name, memberIds) => {
+          setK16Log(`Sačuvano: ${name} (${memberIds.length} drugih)`);
+          return null;
+        }}
+        onLeave={async () => {
+          setK16Log('Grupa je napuštena.');
+          return null;
+        }}
       />
       <PlanDaySheet
         visible={planOpen}

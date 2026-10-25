@@ -335,3 +335,50 @@ export function groupDraftProblem(draft: { name: string; otherCount: number }): 
   if (draft.otherCount > GROUP_OTHER_MEMBERS_MAX) return `Grupa može imati najviše ${GROUP_MEMBERS_MAX} članova.`;
   return null;
 }
+
+// --- Dozvole u razgovoru (ogledalo serverskih gejtova, K06 D4) ---------------
+
+export type ChatConversationPermissions = {
+  /** Lični razgovor (`startupId === null`). */
+  personal: boolean;
+  /** „Arhiviraj razgovor": admin, kanal startupa, ne „Opšte" (`chat.archiveChannel`). */
+  canArchive: boolean;
+  /** „Članovi kanala": admin i kanal startupa vrste `custom` (`chat.setChannelMembers`). */
+  canManageMembers: boolean;
+  /** „Podešavanja grupe": samo lična grupa (ime i članove menja vlasnik, napušta svako). */
+  canOpenGroupSettings: boolean;
+};
+
+/**
+ * Šta meni razgovora nudi — isto pravilo kao server, da korisnik ne dobije
+ * serversku grešku: lični razgovor se ne arhivira i nema admin-članstvo (D4),
+ * grupom upravlja njen vlasnik kroz „Podešavanja grupe".
+ */
+export function chatConversationPermissions(
+  role: string | null | undefined,
+  channel: { startupId: string | null; kind: HubChannelKind },
+): ChatConversationPermissions {
+  const personal = channel.startupId === null;
+  const admin = role === "admin";
+  return {
+    personal,
+    canArchive: !personal && admin && channel.kind !== "startup",
+    canManageMembers: !personal && admin && channel.kind === "custom",
+    canOpenGroupSettings: personal && channel.kind === "custom",
+  };
+}
+
+/**
+ * Ogledalo `chat.deleteMessage`: autor briše svoju poruku; admin briše tuđe
+ * samo u kanalima startupa (u ličnom razgovoru briše samo autor).
+ */
+export function canDeleteChatMessage(input: {
+  isOwn: boolean;
+  isAdmin: boolean;
+  /** `startupId` poruke (`null` = lični razgovor). */
+  startupId: string | null;
+  deleted: boolean;
+}): boolean {
+  if (input.deleted) return false;
+  return input.isOwn || (input.isAdmin && input.startupId !== null);
+}

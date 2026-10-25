@@ -60,6 +60,28 @@ export function enterFadeUp(index: number, reduced: boolean): EntryExitAnimation
   };
 }
 
+/**
+ * Ulaz pristigle poruke (K16, plan K07 §4.2 — par web `animateArrivals`): mehurić
+ * se podigne 8 px (`snappy`) uz neprozirnost (`quick`), bez skaliranja i bez
+ * zakašnjenja — poruka je jedna, nema stagger-a. Smanjen pokret: pretapanje 120 ms.
+ */
+export function enterRise(reduced: boolean): EntryExitAnimationFunction | FadeIn {
+  if (reduced) return FadeIn.duration(REDUCED_FADE_MS).reduceMotion(ReduceMotion.Never);
+  const spring = SPRINGS.snappy;
+  const fade = { duration: DURATIONS.quick, easing: STANDARD_EASING };
+  const offsetY = ENTER.offsetY;
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 0, transform: [{ translateY: offsetY }] },
+      animations: {
+        opacity: withTiming(1, fade),
+        transform: [{ translateY: withSpring(0, spring) }],
+      },
+    };
+  };
+}
+
 /** Izlaz stavke: samo neprozirnost (`quick`; smanjen pokret 120 ms). */
 export function exitFade(reduced: boolean) {
   return FadeOut.duration(reduced ? REDUCED_FADE_MS : DURATIONS.quick).reduceMotion(

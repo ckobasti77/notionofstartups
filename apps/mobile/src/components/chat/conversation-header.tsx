@@ -1,3 +1,4 @@
+import { personalSubtitle } from '@devotion/shared';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,9 +19,11 @@ import {
   Check,
   ChevronLeft,
   ExternalLink,
+  FolderOpen,
   Hash,
   MessagesSquare,
   MoreVertical,
+  Settings,
   Users,
 } from 'lucide-react-native';
 
@@ -51,7 +54,11 @@ const LEVELS: { level: NotificationLevel; label: string; Icon: typeof Bell }[] =
   { level: 'none', label: 'Bez obaveštenja', Icon: BellOff },
 ];
 
-function subtitle(channel: ChatChannel, area: ChannelArea): string {
+function subtitle(channel: ChatChannel, area: ChannelArea, memberCount: number | null): string {
+  // Lični razgovor (K16, isti tekst kao web): „Lična poruka" / „Lična grupa · 3 člana".
+  if (channel.startupId === null) {
+    return personalSubtitle(channel.kind, channel.kind === 'custom' ? memberCount : null);
+  }
   switch (channel.kind) {
     case 'startup':
       return 'Ceo tim · svi članovi';
@@ -90,6 +97,10 @@ export function ConversationHeader({
   onOpenAnchor,
   onArchived,
   onMeasure,
+  contextLabel = null,
+  memberCount = null,
+  onOpenGroupSettings,
+  onOpenInStartup,
 }: {
   channel: ChatChannel;
   /**
@@ -113,6 +124,20 @@ export function ConversationHeader({
   /** Po uspešnom arhiviranju (npr. povratak na listu razgovora). OBAVEZAN. */
   onArchived: () => void;
   onMeasure?: (height: number) => void;
+  /**
+   * Ime startupa ispred podnaslova — kad je kanal iz startupa koji NIJE aktivan
+   * (razgovor otvoren iz huba Poruka ili push-a, K16). `null` = bez prefiksa.
+   */
+  contextLabel?: string | null;
+  /** Broj članova lične grupe za podnaslov („Lična grupa · 3 člana"); `null` dok ne stigne. */
+  memberCount?: number | null;
+  /** „Podešavanja grupe" u meniju — samo lična grupa (K16); bez njega stavka ne postoji. */
+  onOpenGroupSettings?: () => void;
+  /**
+   * „Otvori u startupu" (K16, par web `onOpenInStartup`): prebacuje aktivan
+   * startup na startup kanala i vodi u njegove Kanale. Bez njega stavka ne postoji.
+   */
+  onOpenInStartup?: () => void;
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -196,7 +221,9 @@ export function ConversationHeader({
           {channelDisplayName(channel)}
         </Text>
         <Text numberOfLines={1} style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          {subtitle(channel, area)}
+          {contextLabel
+            ? `${contextLabel} · ${subtitle(channel, area, memberCount)}`
+            : subtitle(channel, area, memberCount)}
         </Text>
       </View>
 
@@ -241,6 +268,39 @@ export function ConversationHeader({
             />
           );
         })}
+        {onOpenInStartup ? (
+          <>
+            <View style={[styles.menuSeparator, { backgroundColor: colors.border }]} />
+            <Row
+              icon={<FolderOpen size={20} color={colors.foreground} />}
+              title="Otvori u startupu"
+              subtitle={contextLabel ? `Kanali startupa ${contextLabel}` : 'Kanali ovog startupa'}
+              onPress={() => {
+                haptics.tap();
+                setMenuOpen(false);
+                onOpenInStartup();
+              }}
+              showChevron={false}
+            />
+          </>
+        ) : null}
+        {onOpenGroupSettings ? (
+          <>
+            <View style={[styles.menuSeparator, { backgroundColor: colors.border }]} />
+            <Row
+              icon={<Settings size={20} color={colors.foreground} />}
+              title="Podešavanja grupe"
+              subtitle="Ime, članovi i napuštanje grupe"
+              onPress={() => {
+                haptics.tap();
+                // Isti razmak između dva `Modal`-a kao za „Članovi kanala".
+                setMenuOpen(false);
+                setTimeout(onOpenGroupSettings, SHEET_HANDOFF_MS);
+              }}
+              showChevron={false}
+            />
+          </>
+        ) : null}
         {canManageMembers ? (
           <>
             <View style={[styles.menuSeparator, { backgroundColor: colors.border }]} />
@@ -297,6 +357,14 @@ function ConversationIcon({
   area: ChannelArea;
   colors: ColorTokens;
 }) {
+  // Lična grupa (K16): ista prigušena `Users` pločica kao web i red huba.
+  if (channel.startupId === null && channel.kind === 'custom') {
+    return (
+      <View style={[styles.iconBox, { backgroundColor: colors.muted }]}>
+        <Users size={18} color={colors.mutedForeground} />
+      </View>
+    );
+  }
   if (channel.kind === 'dm') {
     return (
       <Avatar

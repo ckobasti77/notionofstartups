@@ -11,7 +11,7 @@ import type { UndoAction } from '@/lib/undo';
  * vremenom razišla. Preseljenje je MEHANIČKO: nijedna grana ni redosled poziva nisu
  * menjani (24 `case` grane, isto kao unija `UndoAction`). K12 je dodao pet grana za
  * Moj dan i brzi unos (`taskStatus`, `personalTaskStatus`, `myDayUnplan`,
- * `personalTaskArchive`, `personalTaskCreate`).
+ * `personalTaskArchive`, `personalTaskCreate`), a K16 granu `personalGroup` (Poruke).
  */
 export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const restoreNodes = useMutation(api.thoughts.restoreNodes);
@@ -47,6 +47,7 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const archivePersonalTask = useMutation(api.personalTasks.archive);
   const restorePersonalTask = useMutation(api.personalTasks.restore);
   const planMyDay = useMutation(api.myDay.plan);
+  const updatePersonalGroup = useMutation(api.chat.updatePersonalGroup);
 
   return useCallback(
     async (action: UndoAction): Promise<void> => {
@@ -313,6 +314,15 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
           // Inverz NOVOG ličnog zadatka (brzi unos) je arhiviranje — web E16 isto.
           await archivePersonalTask({ personalTaskId: action.personalTaskId });
           return;
+        case 'personalGroup':
+          // Inverz izmene grupe je ISTI poziv sa imenom i članovima od pre (K16).
+          // Ako u međuvremenu više nisam vlasnik, server baci poruku i traka OSTAJE.
+          await updatePersonalGroup({
+            channelId: action.channelId,
+            name: action.name,
+            memberProfileIds: action.profileIds,
+          });
+          return;
       }
     },
     [
@@ -349,6 +359,7 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
       archivePersonalTask,
       restorePersonalTask,
       planMyDay,
+      updatePersonalGroup,
     ],
   );
 }

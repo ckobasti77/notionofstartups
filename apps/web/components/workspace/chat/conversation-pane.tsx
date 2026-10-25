@@ -18,7 +18,7 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import { personalSubtitle } from "@devotion/shared";
+import { chatConversationPermissions, personalSubtitle } from "@devotion/shared";
 
 import { ChannelMembersDialog } from "@/components/workspace/chat/channel-members-dialog";
 import { MessageComposer } from "@/components/workspace/chat/message-composer";
@@ -179,15 +179,14 @@ export function ConversationPane({
   }
 
   // Lični razgovor se ne arhivira i nema admin-članstvo (D4): grupom upravlja
-  // njen vlasnik kroz „Podešavanja grupe“.
-  const canArchive =
-    !personal && profile.role === "admin" && channel.kind !== "startup";
-  // Ogledalo serverskog gejta iz `chat.setChannelMembers`: samo admin i samo
-  // `custom` kanal — članstvo ostalih vrsta je izvedeno iz pristupa.
-  const canManageMembers =
-    !personal && profile.role === "admin" && channel.kind === "custom";
+  // njen vlasnik kroz „Podešavanja grupe“. Admin radnje su ogledalo serverskih
+  // gejtova (`chat.archiveChannel`, `chat.setChannelMembers`: samo admin i samo
+  // `custom` kanal) — isto pravilo koristi i telefon (`@devotion/shared`).
+  const permissions = chatConversationPermissions(profile.role, channel);
+  const canArchive = permissions.canArchive;
+  const canManageMembers = permissions.canManageMembers;
   const showGroupSettings =
-    personal && channel.kind === "custom" && onOpenGroupSettings !== undefined;
+    permissions.canOpenGroupSettings && onOpenGroupSettings !== undefined;
   const showOpenInStartup = !personal && onOpenInStartup !== undefined;
 
   /** Ima li drag uopšte fajlove — prevučen tekst ne sme da otvori zonu za slanje. */

@@ -31,6 +31,7 @@ import Animated from 'react-native-reanimated';
 import { AppHeader } from '@/components/app-header';
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
 import { SegmentedControl } from '@/components/chat/segmented-control';
+import { StartupChannelsRow } from '@/components/chat/startup-channels-row';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { EmptyState } from '@/components/empty-state';
@@ -415,6 +416,13 @@ function Level1({
               showsVerticalScrollIndicator={false}
               refreshControl={refreshControl}>
               <StaggerGroup>
+                {/* Chat startupa (O5): od K16 je tab „Poruke" hub svih razgovora, a
+                    kanali, DM-ovi i diskusije OVOG startupa su ovde. */}
+                {startupId ? (
+                  <StaggerItem index={0}>
+                    <StartupChannelsRow startupId={startupId} />
+                  </StaggerItem>
+                ) : null}
                 <View style={styles.areaList}>
                   {startup.areas.map((area, index) => (
                     <StaggerItem key={area._id} index={index}>

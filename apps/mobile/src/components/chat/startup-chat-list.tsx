@@ -2,13 +2,13 @@ import { useRouter } from 'expo-router';
 import { MessageSquare, SquarePen } from 'lucide-react-native';
 import { useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from 'convex/react';
 
 import { ConversationRow } from '@/components/chat/conversation-row';
 import { NewConversationSheet } from '@/components/chat/new-conversation-sheet';
 import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
-import { ElsewhereHint } from '@/components/me/elsewhere-hint';
 import { NoStartupState, useHasNoStartups } from '@/components/no-startup-state';
 import { TabScreen } from '@/components/tab-screen';
 import { IconButton } from '@/components/ui/icon-button';
@@ -19,7 +19,6 @@ import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
-import { useQueryTolerant } from '@/hooks/use-query-tolerant';
 import {
   channelsForSegment,
   CHAT_SEGMENTS,
@@ -29,20 +28,17 @@ import {
 } from '@/lib/chat';
 import type { StartupArea } from '@/lib/tasks';
 import { haptics } from '@/lib/haptics';
-import { elsewhereCount, unreadMessagesPhrase } from '@/lib/tabs';
 import { useThemeColors } from '@/theme/theme-provider';
 
 /**
  * Chat AKTIVNOG startupa — kanali, direktne poruke i praćeni threadovi
  * (docs/mobile/02-EKRANI.md §6). Tri segmenta nad tri realtime upita; tap na red
- * otvara ekran razgovora. Do K09 je ovo bio ceo tab „Chat"; sada ga tab
- * „Poruke" prikazuje dok K16 ne napravi globalni hub (lično + svi startupi), a
- * posle K16 ostaje kao „Kanali" startupa (O5).
- *
- * Bedž taba je globalan (P14), a lista je po startupu — zato red iznad liste
- * kaže koliko nepročitanog ima VAN ovog startupa (`ElsewhereHint`).
+ * otvara ekran razgovora. Do K09 je ovo bio ceo tab „Chat", K09–K15 telo taba
+ * „Poruke"; od K16 je stack ekran „Kanali" iz Prostora (O5: chat ostaje i
+ * unutar startupa), a tab „Poruke" je hub svih razgovora. Zato više nema
+ * napomene o nepročitanom van startupa — hub ga prikazuje sam.
  */
-export function StartupChatList({ title }: { title: string }) {
+export function StartupChatList({ title, onBack }: { title: string; onBack?: () => void }) {
   const colors = useThemeColors();
   const router = useRouter();
   const { activeStartupId } = useActiveStartup();
@@ -59,12 +55,7 @@ export function StartupChatList({ title }: { title: string }) {
   // ostalim ekranima koji je već imaju (`prostor.tsx`, `danas.tsx`, `zadaci.tsx`),
   // pa nije nov mrežni saobraćaj po tabu.
   const startup = useQuery(api.startups.get, startupArg);
-  const unread = useQueryTolerant(api.chat.unreadSummary, {});
   const noStartups = useHasNoStartups();
-  const elsewhere = elsewhereCount(
-    unread?.total.unreadCount ?? 0,
-    unread?.byStartup.find((entry) => entry.startupId === activeStartupId)?.unreadCount ?? 0,
-  );
 
   const data: ChatChannel[] | undefined =
     segment === 'channels'
@@ -81,6 +72,7 @@ export function StartupChatList({ title }: { title: string }) {
   return (
     <TabScreen
       title={title}
+      onBack={onBack}
       actions={
         <IconButton
           accessibilityLabel="Nova poruka"
@@ -97,11 +89,6 @@ export function StartupChatList({ title }: { title: string }) {
       }
       // Segment je deo zaglavlja: jedan blok gore umesto treće trake ispod njega.
       below={<SegmentedControl options={CHAT_SEGMENTS} value={segment} onChange={setSegment} />}>
-      {elsewhere > 0 && !noStartups ? (
-        <ElsewhereHint
-          text={`Još ${unreadMessagesPhrase(elsewhere)} u drugim startupima i ličnim razgovorima.`}
-        />
-      ) : null}
       {activeStartupId === null && noStartups ? (
         <NoStartupState />
       ) : (
@@ -138,6 +125,7 @@ function ConversationList({
   onOpen: (channelId: Id<'chatChannels'>) => void;
 }) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const refreshControl = useListRefresh();
 
   if (channels !== undefined && channels.length === 0) {
@@ -177,7 +165,8 @@ function ConversationList({
               />
             </StaggerItem>
           )}
-          contentContainerStyle={styles.listContent}
+          // Stack ekran (bez tab bara ispod): donji safe-area je na listi.
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 16 }]}
           keyboardShouldPersistTaps="handled"
           refreshControl={refreshControl}
         />

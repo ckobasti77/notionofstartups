@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { MAX_CHAT_CHANNEL_MEMBERS } from "../../backend/convex/lib/validators";
 import {
+  canDeleteChatMessage,
+  chatConversationPermissions,
   clanWord,
   compareHubChannels,
   filterPeople,
@@ -283,5 +285,54 @@ describe("ljudi i nacrt lične grupe", () => {
     expect(groupDraftProblem({ name: "Vikend", otherCount: 0 })).toBe("Grupi treba bar još jedan član.");
     expect(groupDraftProblem({ name: "Vikend", otherCount: 49 })).toBeNull();
     expect(groupDraftProblem({ name: "Vikend", otherCount: 50 })).toBe("Grupa može imati najviše 50 članova.");
+  });
+});
+
+describe("dozvole u razgovoru — ogledalo serverskih gejtova (D4)", () => {
+  test("kanal startupa: admin arhivira (ne „Opšte“) i upravlja članovima samo u `custom`", () => {
+    expect(chatConversationPermissions("admin", { startupId: "s-1", kind: "area" })).toEqual({
+      personal: false,
+      canArchive: true,
+      canManageMembers: false,
+      canOpenGroupSettings: false,
+    });
+    expect(chatConversationPermissions("admin", { startupId: "s-1", kind: "startup" }).canArchive).toBe(false);
+    expect(chatConversationPermissions("admin", { startupId: "s-1", kind: "custom" }).canManageMembers).toBe(true);
+    expect(chatConversationPermissions("admin", { startupId: "s-1", kind: "dm" }).canManageMembers).toBe(false);
+  });
+
+  test("član startupa ne dobija admin radnje", () => {
+    expect(chatConversationPermissions("member", { startupId: "s-1", kind: "custom" })).toEqual({
+      personal: false,
+      canArchive: false,
+      canManageMembers: false,
+      canOpenGroupSettings: false,
+    });
+    expect(chatConversationPermissions(undefined, { startupId: "s-1", kind: "area" }).canArchive).toBe(false);
+  });
+
+  test("lični razgovor: bez arhiviranja i admin-članstva i za admina; podešavanja samo za grupu", () => {
+    expect(chatConversationPermissions("admin", { startupId: null, kind: "custom" })).toEqual({
+      personal: true,
+      canArchive: false,
+      canManageMembers: false,
+      canOpenGroupSettings: true,
+    });
+    expect(chatConversationPermissions("member", { startupId: null, kind: "custom" }).canOpenGroupSettings).toBe(true);
+    expect(chatConversationPermissions("admin", { startupId: null, kind: "dm" })).toEqual({
+      personal: true,
+      canArchive: false,
+      canManageMembers: false,
+      canOpenGroupSettings: false,
+    });
+  });
+
+  test("brisanje poruke: autor uvek, admin tuđe samo u startupu, obrisana nikad", () => {
+    expect(canDeleteChatMessage({ isOwn: true, isAdmin: false, startupId: null, deleted: false })).toBe(true);
+    expect(canDeleteChatMessage({ isOwn: true, isAdmin: false, startupId: "s-1", deleted: false })).toBe(true);
+    expect(canDeleteChatMessage({ isOwn: false, isAdmin: true, startupId: "s-1", deleted: false })).toBe(true);
+    expect(canDeleteChatMessage({ isOwn: false, isAdmin: true, startupId: null, deleted: false })).toBe(false);
+    expect(canDeleteChatMessage({ isOwn: false, isAdmin: false, startupId: "s-1", deleted: false })).toBe(false);
+    expect(canDeleteChatMessage({ isOwn: true, isAdmin: true, startupId: "s-1", deleted: true })).toBe(false);
   });
 });

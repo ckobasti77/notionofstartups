@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { CornerUpLeft, FileText, Pencil, Reply, Trash2 } from "lucide-react";
+import { canDeleteChatMessage } from "@devotion/shared";
 
 import { ReactionPicker } from "@/components/workspace/chat/reaction-picker";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
@@ -61,8 +62,12 @@ export function MessageRow({
   const canEdit = isOwn && !message.deleted;
   // Ogledalo `chat.deleteMessage`: admin briše tuđe poruke samo u kanalima
   // startupa; u ličnom razgovoru (`startupId === null`) briše samo autor.
-  const canDelete =
-    (isOwn || (isAdmin && message.startupId !== null)) && !message.deleted;
+  const canDelete = canDeleteChatMessage({
+    isOwn,
+    isAdmin,
+    startupId: message.startupId,
+    deleted: message.deleted,
+  });
 
   function beginEdit() {
     if (Date.now() - message.createdAt >= CHAT_EDIT_WINDOW_MS) {

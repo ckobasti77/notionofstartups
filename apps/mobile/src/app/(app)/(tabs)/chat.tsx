@@ -1,29 +1,28 @@
 import type { ErrorBoundaryProps } from 'expo-router';
 import { MessageSquareX } from 'lucide-react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { StartupChatList } from '@/components/chat/startup-chat-list';
 import { EmptyState } from '@/components/empty-state';
-import { TabScreen } from '@/components/tab-screen';
+import { ChatHubScreen } from '@/components/me/chat/chat-hub-screen';
+import { MeHeader } from '@/components/me/me-header';
 import { accessErrorMessage } from '@/lib/errors';
 import { TAB_TITLES } from '@/lib/tabs';
 import { useThemeColors } from '@/theme/theme-provider';
 
 /**
- * Tab „Poruke" (O1 — globalni tab). Dok K16 ne napravi hub svih razgovora
- * (lično + svi startupi), tab prikazuje chat aktivnog startupa — nikad prazno.
- * Ime fajla ostaje `chat` (plan K01, D1): `devotion://chat` i push navigacija
- * (`router.navigate('/chat')`) rade kao pre.
+ * Tab „Poruke" (O1 — globalni tab, K16): hub svih razgovora — lični DM-ovi i
+ * grupe, pa kanali svih mojih startupa (`chat.listConversations`). Chat
+ * jednog startupa (segmenti Kanali / Direktne / Praćeno) je u Prostoru →
+ * „Kanali" (O5). Ime fajla ostaje `chat` (plan K01, D1): `devotion://chat` i
+ * push navigacija (`router.navigate('/chat')`) rade kao pre.
  */
 export default function ChatScreen() {
-  return <StartupChatList title={TAB_TITLES.chat} />;
+  return <ChatHubScreen />;
 }
 
 /**
- * Greška stanje za ceo tab. Sva tri upita prolaze kroz `requireStartupMember`,
- * koji baca kad korisnik nije član aktivnog startupa (npr. uklonjen, ili je
- * `activeStartupId` zastareo) — `useQuery` tada baca pri renderu. expo-router
- * hvata to ovde i prikazuje oporavljivu grešku umesto pada ekrana
- * (.claude/rules/mobile.md: prazno/učitavanje/greška za svaki prikaz).
+ * Greška stanje za ceo tab. Hub sam prikazuje grešku svog upita (sa „Pokušaj
+ * ponovo" bez ponovnog montiranja); ovde stiže ostalo (npr. profil).
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
@@ -37,7 +36,8 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 function ChatErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
   return (
-    <TabScreen title={TAB_TITLES.chat}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <MeHeader title={TAB_TITLES.chat} />
       <EmptyState
         icon={<MessageSquareX size={40} color={colors.destructive} />}
         title="Razgovori se ne mogu učitati"
@@ -45,6 +45,12 @@ function ChatErrorState({ message, onRetry }: { message: string; onRetry: () => 
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
-    </TabScreen>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+});

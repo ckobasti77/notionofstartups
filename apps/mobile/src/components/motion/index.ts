@@ -6,6 +6,7 @@
 export { AnimatedCheck, type AnimatedCheckProps } from './animated-check';
 export {
   enterFadeUp,
+  enterRise,
   exitFade,
   FIRST_FILL_WINDOW_MS,
   listLayout,

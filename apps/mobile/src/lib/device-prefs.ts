@@ -133,3 +133,19 @@ export function readQuickAddArea(startupId: string): string | null {
 export function writeQuickAddArea(startupId: string, areaId: string): void {
   write(QUICK_ADD_AREA_PREFIX + sanitizeKeyPart(startupId), areaId);
 }
+
+// --- Poruke (K16) ------------------------------------------------------------
+// Sklopljene grupe huba — isto što web pamti u `localStorage`
+// (`devotion:me-chat:collapsed`). Vrednost tumače `parseHubCollapsed` /
+// `serializeHubCollapsed` (`components/me/chat/hub-model.ts`).
+
+const CHAT_HUB_COLLAPSED_KEY = 'devotion.meChat.collapsed';
+
+/** Sirov zapis sklopljenih grupa (JSON niz ključeva) ili `null`. */
+export function readChatHubCollapsedRaw(): string | null {
+  return read(CHAT_HUB_COLLAPSED_KEY);
+}
+
+export function writeChatHubCollapsedRaw(value: string): void {
+  write(CHAT_HUB_COLLAPSED_KEY, value);
+}

@@ -44,7 +44,7 @@ export function MeSectionHeader({
 
   const content = (
     <>
-      {collapsible ? <Chevron collapsed={collapsed} color={colors.mutedForeground} /> : null}
+      {collapsible ? <SectionChevron collapsed={collapsed} color={colors.mutedForeground} /> : null}
       {startup !== undefined ? <StartupChip startup={startup} size="sm" /> : null}
       <Text numberOfLines={1} style={[styles.label, { color: labelColor }]}>
         {title}
@@ -85,7 +85,8 @@ export function MeSectionHeader({
   );
 }
 
-function Chevron({ collapsed, color }: { collapsed: boolean; color: string }) {
+/** Strelica sklopive sekcije (okreće se springom `snappy`); deli je i hub Poruka (K16). */
+export function SectionChevron({ collapsed, color }: { collapsed: boolean; color: string }) {
   const reduced = useReducedMotion();
   const turn = useSharedValue(collapsed ? 0 : 1);
   const mounted = useRef(false);

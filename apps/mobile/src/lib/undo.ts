@@ -289,7 +289,19 @@ export type UndoAction =
    * (web E16 isto); stavka plana na arhiviranom zadatku se pri čitanju preskače.
    * Zadatak u startupu iz brzog unosa koristi postojeći `pageCreate`.
    */
-  | { kind: 'personalTaskCreate'; personalTaskId: Id<'personalTasks'> };
+  | { kind: 'personalTaskCreate'; personalTaskId: Id<'personalTasks'> }
+  /**
+   * Izmena lične grupe iz „Podešavanja grupe" (K16). Kao `channelMembers` — inverzan
+   * upis, ne vraćanje arhiviranog: `chat.updatePersonalGroup` vraća ime i aktivne
+   * članove OD PRE izmene, pa je poništavanje isti poziv sa tim vrednostima (web
+   * „Poništi" u toastu radi isto).
+   */
+  | {
+      kind: 'personalGroup';
+      channelId: Id<'chatChannels'>;
+      name: string;
+      profileIds: Id<'profiles'>[];
+    };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */

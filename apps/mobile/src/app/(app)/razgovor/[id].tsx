@@ -1,3 +1,4 @@
+import { chatConversationPermissions } from '@devotion/shared';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,27 +24,43 @@ import { ConversationHeader } from '@/components/chat/conversation-header';
 import { MessageComposer } from '@/components/chat/message-composer';
 import { MessageList } from '@/components/chat/message-list';
 import { EmptyState } from '@/components/empty-state';
+import { GroupSettingsController } from '@/components/me/chat/group-settings-controller';
+import { conversationContextLabel } from '@/components/me/chat/hub-model';
 import { UndoBar } from '@/components/undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useChatPresence } from '@/hooks/use-chat-presence';
+import { useQueryState } from '@/hooks/use-query-state';
+import { useRetained } from '@/hooks/use-retained';
 import type { Id } from '@/convex/_generated/dataModel';
-import { findChannelArea, type ChatMessage } from '@/lib/chat';
+import { findChannelArea, type ChatMember, type ChatMessage } from '@/lib/chat';
+import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
+
+/** Koliko članova startupa chat čita za pominjanja i imena autora (isto kao pre K16). */
+const STARTUP_MEMBERS_LIMIT = 50;
 
 /**
  * Ekran razgovora — full-screen, van tabova (docs/mobile/02-EKRANI.md §6,
  * 04-CHAT.md §7). Obrnuta lista poruka + unos u `KeyboardAvoidingView`, svajp za
- * odgovor i long-press za reakcije. Kanal se razrešava iz `listChannels` po id-ju
- * iz rute; header nosi kontekst (za threadove i „otvori entitet").
+ * odgovor i long-press za reakcije.
+ *
+ * Od K16 kanal se razrešava po id-ju iz rute kroz `chat.getChannel` — za
+ * razgovor BILO KOG opsega, bez aktivnog startupa: lični DM i lična grupa
+ * (`startupId: null`) i kanal bilo kog mog startupa (hub Poruka, push, Inbox).
+ * Članovi za pominjanja dolaze po opsegu kanala: `chat.channelMembers` za lični
+ * razgovor (pominju se samo njegovi članovi), `startups.listMembers` za startup
+ * KANALA (ne aktivnog startupa). Otvaranje razgovora ne menja aktivan startup.
  */
 export default function ConversationScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const channelId = id as Id<'chatChannels'>;
-  const { activeStartupId } = useActiveStartup();
+  // Samo za prefiks imena startupa u zaglavlju i „Otvori u startupu" — razgovor
+  // se NE učitava po aktivnom startupu.
+  const { activeStartupId, setActiveStartupId } = useActiveStartup();
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
@@ -60,35 +77,65 @@ export default function ConversationScreen() {
    */
   const [atBottom, setAtBottom] = useState(true);
   const [focused, setFocused] = useState(false);
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
+  /**
+   * Izlazim iz grupe sa ovog ekrana (od trenutka PRE poziva mutacije; ostaje i
+   * posle uspeha, dok traje povratak na listu). Pretplate na kanal se gase pre
+   * nego što bi ih server odbio, lista poruka i kompozitor se sklanjaju (lista
+   * baca grešku kad pristup nestane), a zaglavlje ostaje sa poslednjim kanalom —
+   * bez treptaja „nije pronađen". Neuspeh vraća sve (`onLeaveFailed`).
+   */
+  const [leaving, setLeaving] = useState(false);
 
-  const channels = useQuery(
-    api.chat.listChannels,
-    activeStartupId ? { startupId: activeStartupId } : 'skip',
+  const fetched = useQueryState(api.chat.getChannel, leaving ? 'skip' : { channelId });
+  // Poslednji učitan kanal ostaje dok `leaving` gasi pretplatu (greška ide granom ispod).
+  const liveChannel = fetched.status === 'ready' ? fetched.data : null;
+  const retainedChannel = useRetained(liveChannel);
+  const channel = leaving ? retainedChannel : liveChannel;
+  const channelStartupId = channel?.startupId ?? null;
+  const personal = channel !== null && channelStartupId === null;
+
+  const channelMembers = useQueryState(
+    api.chat.channelMembers,
+    personal && !leaving ? { channelId } : 'skip',
   );
-  const members = useQuery(
+  const startupMembers = useQueryState(
     api.startups.listMembers,
-    activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
+    channelStartupId !== null
+      ? { startupId: channelStartupId, limit: STARTUP_MEMBERS_LIMIT }
+      : 'skip',
   );
-  // Oblasti — samo za ikonicu i naziv oblasti u zaglavlju kanala (P7/D12, pandan
-  // web `conversation-pane.tsx:118`). Isti upit koji ostali ekrani već drže.
-  const startup = useQuery(
+  const members: ChatMember[] | undefined = personal
+    ? channelMembers.status === 'ready'
+      ? channelMembers.data
+      : undefined
+    : startupMembers.status === 'ready'
+      ? startupMembers.data
+      : undefined;
+  // Oblasti — samo za ikonicu i naziv oblasti u zaglavlju kanala oblasti (P7/D12,
+  // pandan web `conversation-pane.tsx:118`), iz startupa KANALA.
+  // Kao stanje (ne baca): gubitak pristupa startupu ne sme da obori ekran pre
+  // grane „nije pronađen" — ikonica tada pada na generički `Hash`.
+  const startup = useQueryState(
     api.startups.get,
-    activeStartupId ? { startupId: activeStartupId } : 'skip',
+    channel !== null && channel.kind === 'area' && channelStartupId !== null
+      ? { startupId: channelStartupId }
+      : 'skip',
   );
   const profile = useQuery(api.profiles.getCurrent, {});
   const markChannelRead = useMutation(api.chat.markChannelRead);
 
-  const channel = channels?.find((item) => item._id === channelId) ?? null;
   const lastMessageAt = channel?.lastMessageAt;
 
   // Označi pročitanim na fokus i kad stigne nova poruka dok je ekran u prvom planu
   // (04-CHAT.md §5). `useFocusEffect` se ponovo pokreće kad se `lastMessageAt` promeni.
   useFocusEffect(
     useCallback(() => {
+      if (leaving) return;
       void markChannelRead({ channelId }).catch(() => {
         // Neuspelo označavanje ne sme da blokira čitanje.
       });
-    }, [channelId, lastMessageAt, markChannelRead]),
+    }, [channelId, lastMessageAt, markChannelRead, leaving]),
   );
 
   // Fokus ekrana kao STANJE (ne samo efekat): prisustvo mora da se ugasi čim se
@@ -100,7 +147,7 @@ export default function ConversationScreen() {
     }, []),
   );
 
-  useChatPresence(channelId, focused && atBottom);
+  useChatPresence(channelId, focused && atBottom && !leaving);
 
   const beginReply = useCallback((message: ChatMessage) => {
     setEditing(null);
@@ -119,29 +166,38 @@ export default function ConversationScreen() {
    */
   function openAnchor() {
     if (channel === null || channel.anchorId === null) return;
-    router.push({ pathname: '/stranica/[id]', params: { id: channel.anchorId } });
+    router.push({
+      pathname: '/stranica/[id]',
+      params: { id: channel.anchorId },
+    });
   }
 
-  if (profile == null || channels === undefined) {
+  // `chat.getChannel` baca samo kad razgovor ne postoji, arhiviran je ili nisam
+  // član (prekid veze ne baca — Convex čeka i ponavlja). Zato je svaka greška
+  // „nije pronađen", kao na webu (`HubConversation`); u produkciji Convex ionako
+  // skriva tekst obične serverske greške, pa se slučajevi ne bi ni razlikovali.
+  if (fetched.status === 'error') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <MinimalHeader title="Razgovor" onBack={() => router.back()} colors={colors} />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje razgovora" />
-        </View>
+        <MinimalHeader title="Razgovor" onBack={() => goBack(router)} colors={colors} />
+        <EmptyState
+          icon={<MessagesSquare size={40} color={colors.mutedForeground} />}
+          title="Razgovor nije pronađen"
+          description="Možda je arhiviran ili više nisi član."
+          actionLabel="Nazad na razgovore"
+          onAction={() => goBack(router)}
+        />
       </View>
     );
   }
 
-  if (channel === null) {
+  if (profile == null || channel === null) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <MinimalHeader title="Razgovor" onBack={() => router.back()} colors={colors} />
-        <EmptyState
-          icon={<MessagesSquare size={40} color={colors.mutedForeground} />}
-          title="Razgovor nije pronađen"
-          description="Možda je arhiviran ili nemaš pristup ovom razgovoru."
-        />
+        <MinimalHeader title="Razgovor" onBack={() => goBack(router)} colors={colors} />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje razgovora" />
+        </View>
       </View>
     );
   }
@@ -151,23 +207,58 @@ export default function ConversationScreen() {
     displayName: profile.displayName,
     avatarUrl: profile.avatarUrl ?? null,
   };
+  // Isto pravilo kao web (`@devotion/shared`): lični razgovor se ne arhivira i
+  // nema admin-članstvo; grupom upravlja vlasnik kroz „Podešavanja grupe".
+  const permissions = chatConversationPermissions(profile.role, channel);
+  const contextLabel = conversationContextLabel(
+    channelStartupId,
+    activeStartupId,
+    channel.startup?.name,
+  );
+
+  /**
+   * „Otvori u startupu" (par web `onOpenInStartup`): samo za kanal startupa koji
+   * NIJE aktivan — u chatu aktivnog startupa meni ostaje kakav je bio. Prebaci
+   * aktivan startup, pa Prostor (lista oblasti) → Kanali tog startupa (obrazac
+   * „navigate na tab + push detalja" kao `lib/notifications/navigate.ts`).
+   */
+  const openInStartup =
+    contextLabel !== null && channelStartupId !== null
+      ? () => {
+          setActiveStartupId(channelStartupId);
+          // Bez parametra segmenta: Prostor ga troši posle fokusa, a tada je
+          // fokusirana ruta već `kanali` (`setParams` bi gađao pogrešan ekran).
+          router.navigate('/prostor');
+          router.push('/kanali');
+        }
+      : undefined;
 
   return (
     <GestureHandlerRootView style={styles.container}>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ConversationHeader
           channel={channel}
-          area={findChannelArea(channel, startup?.areas)}
+          area={findChannelArea(
+            channel,
+            startup.status === 'ready' ? startup.data.areas : undefined,
+          )}
           // Klijentski ogleda serverski gejt (`chat.archiveChannel`): samo admin,
-          // a „Opšte" (kind `startup`) se ne arhivira nikad. Oba podatka ekran
-          // već drži — nema novog upita.
-          canArchive={profile.role === 'admin' && channel.kind !== 'startup'}
+          // samo kanal startupa, a „Opšte" (kind `startup`) se ne arhivira nikad.
+          canArchive={permissions.canArchive}
           // Ogledalo gejta iz `chat.setChannelMembers`: samo admin i samo kanal
-          // vrste `custom` — članstvo ostalih vrsta je izvedeno iz pristupa.
-          canManageMembers={profile.role === 'admin' && channel.kind === 'custom'}
-          onBack={() => router.back()}
+          // startupa vrste `custom` — članstvo ostalih vrsta je izvedeno iz pristupa.
+          canManageMembers={permissions.canManageMembers}
+          contextLabel={contextLabel}
+          onOpenInStartup={openInStartup}
+          memberCount={
+            personal && channelMembers.status === 'ready' ? channelMembers.data.length : null
+          }
+          onOpenGroupSettings={
+            permissions.canOpenGroupSettings ? () => setGroupSettingsOpen(true) : undefined
+          }
+          onBack={() => goBack(router)}
           onOpenAnchor={openAnchor}
-          onArchived={() => router.back()}
+          onArchived={() => goBack(router)}
           onMeasure={setHeaderHeight}
         />
 
@@ -179,39 +270,71 @@ export default function ConversationScreen() {
           // keyboard visina merena od dna, pa je offset 0.
           behavior="padding"
           keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
-          <MessageList
-            channelId={channelId}
-            currentProfileId={profile._id}
-            isAdmin={profile.role === 'admin'}
-            members={members}
-            onReplyTo={beginReply}
-            onEdit={beginEdit}
-            onAtBottomChange={setAtBottom}
-            scrollToBottomSignal={sentTick}
-          />
-          <MessageComposer
-            channel={channel}
-            currentProfile={currentProfile}
-            members={members}
-            replyTo={replyTo}
-            editing={editing}
-            onCancelReply={() => setReplyTo(null)}
-            onCancelEdit={() => setEditing(null)}
-            onSent={() => {
-              setReplyTo(null);
-              setEditing(null);
-              setSentTick((tick) => tick + 1);
-            }}
-          />
+          {/* Izlazak iz grupe: lista (baca kad pristup nestane) i kompozitor se
+              sklanjaju pre poziva mutacije; ostaje samo zaglavlje do povratka. */}
+          {leaving ? null : (
+            <>
+              <MessageList
+                channelId={channelId}
+                currentProfileId={profile._id}
+                // Brisanje tuđih poruka i dalje gleda opseg PORUKE (`canDeleteChatMessage`):
+                // admin moderira samo kanale startupa.
+                isAdmin={profile.role === 'admin'}
+                members={members}
+                onReplyTo={beginReply}
+                onEdit={beginEdit}
+                onAtBottomChange={setAtBottom}
+                scrollToBottomSignal={sentTick}
+                // Jedan ekran za sve opsege (hub, Kanali, push), pa pristigla poruka
+                // ulazi podizanjem u svakom razgovoru (K16; web zasad samo u Porukama).
+                animateArrivals
+              />
+              <MessageComposer
+                channel={channel}
+                currentProfile={currentProfile}
+                members={members}
+                replyTo={replyTo}
+                editing={editing}
+                onCancelReply={() => setReplyTo(null)}
+                onCancelEdit={() => setEditing(null)}
+                onSent={() => {
+                  setReplyTo(null);
+                  setEditing(null);
+                  setSentTick((tick) => tick + 1);
+                }}
+              />
+            </>
+          )}
         </KeyboardAvoidingView>
 
-        {/* Traka „Poništi" posle izmene članova kanala (⋯ → Članovi kanala). Van
+        {/* Traka „Poništi" posle izmene članova kanala ili grupe. Van
             `KeyboardAvoidingView`-a i iznad kompozera — `bottomOffset` je visina
             reda za unos, pa traka ne pokriva polje za pisanje. */}
         <UndoBar bottomOffset={MIN_TOUCH_TARGET + 16} />
+
+        {permissions.canOpenGroupSettings ? (
+          <GroupSettingsController
+            channelId={channelId}
+            open={groupSettingsOpen}
+            onClose={() => setGroupSettingsOpen(false)}
+            meId={profile._id}
+            onLeaveStart={() => setLeaving(true)}
+            onLeaveFailed={() => setLeaving(false)}
+            onLeft={() => goBack(router)}
+          />
+        ) : null}
       </View>
     </GestureHandlerRootView>
   );
+}
+
+/**
+ * „Nazad" sa rezervom: razgovor otvoren direktnim linkom (`devotion://razgovor/<id>`)
+ * nema prethodni ekran — tada vodi u hub Poruka.
+ */
+function goBack(router: ReturnType<typeof useRouter>) {
+  if (router.canGoBack()) router.back();
+  else router.navigate('/chat');
 }
 
 /** Lagani header za stanja učitavanja / greške (kad kanal još nije razrešen). */
@@ -250,25 +373,25 @@ function MinimalHeader({
 }
 
 /**
- * Greška stanje: `messages`/`listChannels` prolaze kroz `requireChannelAccess` i
- * bacaju kad korisnik nije član — expo-router to hvata ovde umesto pada ekrana.
+ * Greška stanje: `messages` (paginirano) prolazi kroz `requireChannelAccess` i
+ * baca kad korisnik nije član — expo-router to hvata ovde umesto pada ekrana.
+ * Greška samog kanala (`getChannel`) je stanje ekrana iznad („nije pronađen").
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <ConversationErrorState message={error.message} onRetry={retry} />;
+  return (
+    <ConversationErrorState
+      message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju razgovora.')}
+      onRetry={retry}
+    />
+  );
 }
 
-function ConversationErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
+function ConversationErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <MinimalHeader title="Razgovor" onBack={() => router.back()} colors={colors} />
+      <MinimalHeader title="Razgovor" onBack={() => goBack(router)} colors={colors} />
       <EmptyState
         icon={<MessageSquareX size={40} color={colors.destructive} />}
         title="Razgovor se ne može učitati"

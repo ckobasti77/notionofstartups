@@ -28,9 +28,9 @@ export function navigateToNotificationDestination(
   switch (dest.screen) {
     case 'chat':
       // Isti put za oba opsega (`dest.scope`): lični razgovor i kanal startupa
-      // se otvaraju po id-ju kanala. Chat tab posle K16 postaje hub svih
-      // razgovora; za lični razgovor `razgovor/[id]` čita kanal kroz
-      // `chat.getChannel` (K16), bez promene aktivnog startupa.
+      // se otvaraju po id-ju kanala. Chat tab je od K16 hub svih razgovora (pa
+      // „nazad" vodi u hub), a `razgovor/[id]` čita kanal kroz `chat.getChannel`
+      // — bez aktivnog startupa, pa lični razgovor ne menja aktivan startup.
       router.navigate('/chat');
       if (dest.entityId) {
         router.push({ pathname: '/razgovor/[id]', params: { id: dest.entityId } });
