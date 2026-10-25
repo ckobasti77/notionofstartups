@@ -137,6 +137,16 @@ export function Sheet({
   const settle = () => {
     drag.value = reduced ? 0 : withSpring(0, SHEET_SPRING);
   };
+  // `onClose` ne mora da zatvori sheet (npr. panel koji 'nazad' vraća iz podprikaza):
+  // ako je i dalje vidljiv, vrati ga sa prevučenog položaja.
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const dismiss = () => {
+    onClose();
+    setTimeout(() => {
+      if (visibleRef.current) settle();
+    }, 0);
+  };
 
   const pan = Gesture.Pan()
     // Vertikalni prag: tap i horizontalni gestovi u sadržaju ostaju netaknuti.
@@ -148,7 +158,7 @@ export function Sheet({
     .onEnd((event) => {
       'worklet';
       if (drag.value > DISMISS_DISTANCE || event.velocityY > DISMISS_VELOCITY) {
-        runOnJS(onClose)();
+        runOnJS(dismiss)();
       } else {
         runOnJS(settle)();
       }

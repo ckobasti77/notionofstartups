@@ -1,4 +1,4 @@
-import type { TaskRowModel } from '@devotion/shared';
+import { STATUS_LABELS, type TaskRowModel } from '@devotion/shared';
 import { CalendarClock, Check, Lock, RotateCcw } from 'lucide-react-native';
 import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -36,6 +36,8 @@ export type TaskRowProps = {
    */
   onDenied?: (row: TaskRowModel, reason: string) => void;
   showStartup?: boolean;
+  /** Oznaka statusa u meta-liniji (Moji zadaci, osim kad se grupiše po statusu) — kao web `showStatus`. */
+  showStatus?: boolean;
 };
 
 /**
@@ -61,6 +63,7 @@ export function TaskRow({
   onSchedule,
   onDenied,
   showStartup = true,
+  showStatus = false,
 }: TaskRowProps) {
   const colors = useThemeColors();
   const due = dueChipText(row.dueDate, now, row.done);
@@ -70,6 +73,7 @@ export function TaskRow({
     row.title,
     context || null,
     due.tone === 'none' ? null : due.ariaLabel,
+    showStatus ? STATUS_LABELS[row.status] : null,
     row.planned ? 'u Moj dan' : null,
     row.done ? 'završeno' : null,
   ]
@@ -123,6 +127,12 @@ export function TaskRow({
             {row.areaLabel}
           </Text>
         ) : null}
+        {showStatus ? (
+          <Text numberOfLines={1} style={[styles.area, { color: colors.mutedForeground }]}>
+            {row.areaLabel || showStartup ? '· ' : ''}
+            {STATUS_LABELS[row.status]}
+          </Text>
+        ) : null}
         <View style={styles.grow} />
         <DueChip dueDate={row.dueDate} now={now} done={row.done} accessible={false} />
       </View>
@@ -146,13 +156,7 @@ export function TaskRow({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityHint={
-            onOpen
-              ? row.kind === 'task'
-                ? 'Otvara zadatak u njegovom startupu'
-                : 'Otvara zadatak'
-              : 'Otvara radnje zadatka'
-          }
+          accessibilityHint={onOpen ? 'Otvara panel zadatka' : 'Otvara radnje zadatka'}
           {...a11y}
           delayLongPress={LONG_PRESS_MS}
           onPress={() => {

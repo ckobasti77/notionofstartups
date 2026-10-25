@@ -49,9 +49,15 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/
 export function TaskCheckpointList({
   taskPageId,
   canCreate,
+  onDeleted,
+  onInputFocus,
 }: {
   taskPageId: Id<'pages'>;
   canCreate: boolean;
+  /** Posle direktnog brisanja koraka (traka „Poništi" je nudi) — panel se zatvara da je traka vidljiva. */
+  onDeleted?: () => void;
+  /** Fokus u polju za korak (panel doskrola do njega iznad tastature). */
+  onInputFocus?: () => void;
 }) {
   const colors = useThemeColors();
   const checkpoints = useQuery(api.taskCheckpoints.listForTask, { taskPageId });
@@ -148,6 +154,8 @@ export function TaskCheckpointList({
                     action: { kind: 'checkpoint', checkpointId: result.checkpointId },
                     undoUntil: result.undoUntil,
                   });
+                  // Panel zadatka (K13) se zatvara da traka ispod njega bude vidljiva.
+                  onDeleted?.();
                 })
               : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
             )
@@ -256,6 +264,7 @@ export function TaskCheckpointList({
           <Input
             value={draft}
             onChangeText={setDraft}
+            onFocus={onInputFocus}
             placeholder={atLimit ? 'Dostignut maksimum (100)' : 'Dodaj checkpoint…'}
             editable={!atLimit}
             returnKeyType="done"
@@ -340,6 +349,7 @@ export function TaskCheckpointList({
                   <Input
                     value={editingText}
                     onChangeText={setEditingText}
+                    onFocus={onInputFocus}
                     autoFocus
                     returnKeyType="done"
                     onSubmitEditing={() => saveEdit(item)}

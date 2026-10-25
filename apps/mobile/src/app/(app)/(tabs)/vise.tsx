@@ -5,6 +5,7 @@ import {
   Bell,
   Brain,
   ChartColumn,
+  CheckSquare2,
   FlaskConical,
   History,
   KeyRound,
@@ -57,6 +58,7 @@ type MenuItem = {
 const MENU: MenuItem[][] = [
   [
     { icon: Vote, label: 'Odobrenja', route: '/odobrenja' },
+    { icon: CheckSquare2, label: 'Moji zadaci', route: '/moji-zadaci' },
     { icon: ListTodo, label: 'Svi zadaci', route: '/zadaci' },
     { icon: ChartColumn, label: 'Puls', route: '/puls' },
     { icon: Lightbulb, label: 'Ideje', route: '/ideje' },

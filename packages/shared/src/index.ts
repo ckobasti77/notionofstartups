@@ -241,3 +241,24 @@ export {
   type PlanDayOverviewLike,
   type PlanDaySuggestionRow,
 } from "./my-day-plan";
+
+export {
+  buildMyTasks,
+  buildTaskRows,
+  enterKey,
+  findRow,
+  locateTaskRow,
+  patchPersonalItems,
+  patchTaskItems,
+  PERSONAL_TASKS_LIMIT,
+  plannedKeysOf,
+  taskHoldSection,
+  TASKS_EVERYWHERE_LIMIT,
+  TASKS_GROUP_PAGE,
+  type MyTasksGroup,
+  type MyTasksModel,
+  type MyTasksSource,
+  type PersonalPatch,
+  type TaskItemPatch,
+  type TaskRowHold,
+} from "./my-tasks";

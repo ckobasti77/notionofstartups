@@ -8,6 +8,8 @@ export type OptionChipProps = {
   label: string;
   /** Tačkica levo (status/prioritet) — boja dolazi iz `statusColor`/`priorityColor`. */
   dotColor?: string;
+  /** Čvor levo od oznake (npr. čip startupa u filterima). */
+  leading?: React.ReactNode;
   active: boolean;
   disabled?: boolean;
   onPress: () => void;
@@ -20,7 +22,7 @@ export type OptionChipProps = {
  * Deljen između menija akcija zadatka (`TaskActionsSheet`) i kreiranja zadatka
  * (`PageCreateSheet`) — isti izgled i ista dodirna meta na oba mesta.
  */
-export function OptionChip({ label, dotColor, active, disabled, onPress }: OptionChipProps) {
+export function OptionChip({ label, dotColor, leading, active, disabled, onPress }: OptionChipProps) {
   const colors = useThemeColors();
   return (
     <Pressable
@@ -41,6 +43,7 @@ export function OptionChip({ label, dotColor, active, disabled, onPress }: Optio
           opacity: disabled ? 0.4 : pressed ? 0.85 : 1,
         },
       ]}>
+      {leading}
       {dotColor ? <View style={[styles.dot, { backgroundColor: dotColor }]} /> : null}
       <Text style={[styles.label, { color: active ? colors.accentForeground : colors.foreground }]}>
         {label}

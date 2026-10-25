@@ -1,7 +1,7 @@
 import type { TaskRowModel } from '@devotion/shared';
 import { CalendarCheck2, Sun } from 'lucide-react-native';
 import { useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
 import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, space, text } from '@/theme/tokens';
 
@@ -49,6 +50,8 @@ export type MyDayViewProps = {
   summary: MyDaySummaryChipsProps;
   rowActions: MyDayRowActions;
   onPlanDay: () => void;
+  /** „Moji zadaci“: CTA kad je sve završeno i dodirljiva napomena o odsečenju. */
+  onOpenMyTasks: () => void;
   /** Pull-to-refresh (podrazumevano da); katalog ga gasi. */
   refreshable?: boolean;
 };
@@ -88,6 +91,7 @@ function MyDayList({
   summary,
   rowActions,
   onPlanDay,
+  onOpenMyTasks,
   refreshable = true,
 }: MyDayViewProps & { state: Extract<MyDayViewState, { status: 'ready' }> }) {
   const colors = useThemeColors();
@@ -114,8 +118,8 @@ function MyDayList({
               icon={<CalendarCheck2 size={40} color={colors.mutedForeground} />}
               title="Sve za danas je završeno"
               description={`Završeno danas: ${model.counts.doneToday}. Pogledaj šta je sledeće.`}
-              actionLabel="Isplaniraj dan"
-              onAction={onPlanDay}
+              actionLabel="Moji zadaci"
+              onAction={onOpenMyTasks}
             />
           ) : (
             <EmptyState
@@ -143,9 +147,18 @@ function MyDayList({
       ListHeaderComponent={header}
       ListFooterComponent={
         model.capped ? (
-          <Text style={[styles.capped, { color: colors.mutedForeground }]}>
-            Prikazan je deo zadataka. Sve nađi u Mojim zadacima.
-          </Text>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Prikazan je deo zadataka. Otvori Moje zadatke."
+            onPress={() => {
+              haptics.tap();
+              onOpenMyTasks();
+            }}
+            style={styles.cappedPress}>
+            <Text style={[styles.capped, { color: colors.mutedForeground }]}>
+              Prikazan je deo zadataka. Sve nađi u <Text style={{ color: colors.primaryText }}>Mojim zadacima</Text>.
+            </Text>
+          </Pressable>
         ) : null
       }
       initialNumToRender={16}
@@ -170,8 +183,7 @@ function MyDayList({
               row={item.row}
               now={now}
               onToggleDone={rowActions.onToggleDone}
-              // Lični zadatak nema ekran do panela (K13): dodir otvara radnje.
-              onOpen={item.row.kind === 'task' ? rowActions.onOpen : undefined}
+              onOpen={rowActions.onOpen}
               onLongPress={rowActions.onLongPress}
               onSchedule={rowActions.onSchedule}
               onDenied={rowActions.onDenied}
@@ -284,9 +296,13 @@ const styles = StyleSheet.create({
   sectionGap: {
     marginTop: space[3],
   },
+  cappedPress: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingTop: space[2],
+  },
   capped: {
     ...text.body,
     paddingHorizontal: space[1],
-    paddingTop: space[3],
   },
 });

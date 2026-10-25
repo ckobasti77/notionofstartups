@@ -49,7 +49,20 @@ import {
   katalogOverview,
   katalogRows,
 } from '@/components/me/__fixtures__';
-import { buildPlanDay, type TaskRowModel } from '@devotion/shared';
+import { buildPlanDay, EMPTY_TASK_FILTERS, type TaskFilters, type TaskRowModel } from '@devotion/shared';
+import { CircleDot, Flag } from 'lucide-react-native';
+import { MetaChip } from '@/components/me/meta-chip';
+import { TaskFiltersSheet } from '@/components/me/tasks/task-filters-sheet';
+import {
+  MoveToStartupStep,
+  PanelError,
+  PanelGone,
+  PanelLoading,
+  PanelPlace,
+  TextBlockField,
+  TitleField,
+} from '@/components/me/task-panel-parts';
+import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
   AnimatedCheck,
   NumberRoll,
@@ -125,6 +138,12 @@ export default function DizajnKatalogScreen() {
   const [k12Log, setK12Log] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [k13Filters, setK13Filters] = useState<TaskFilters>(EMPTY_TASK_FILTERS);
+  const [k13FiltersOpen, setK13FiltersOpen] = useState(false);
+  const [k13DateOpen, setK13DateOpen] = useState(false);
+  const [k13Due, setK13Due] = useState<number | null>(null);
+  const [k13Move, setK13Move] = useState(false);
+  const [k13Log, setK13Log] = useState<string | null>(null);
   const [sectionCount, setSectionCount] = useState(3);
   const [sectionCollapsed, setSectionCollapsed] = useState(true);
   const [k12Overview] = useState(() => katalogOverview(Date.now()));
@@ -660,6 +679,85 @@ export default function DizajnKatalogScreen() {
         <SectionHeader title="Isplaniraj dan" />
         <Caption text="Preneto od ranije (Vrati / Skloni) i predlozi po razlogu" colors={colors} />
         <Button label="Otvori Isplaniraj dan" variant="secondary" onPress={() => setPlanOpen(true)} />
+
+        {/* ── Moji zadaci, panel, datum (K13) ── */}
+        <SectionHeader title="Metapodatak-čip" />
+        <Caption text="Dozvoljeno otvara izbor; zabranjeno je isprekidan čip sa katancem, a dodir pokazuje razlog" colors={colors} />
+        <View style={styles.k13Chips}>
+          <MetaChip label="Status" value="U toku" icon={CircleDot} perm={{ allowed: true, reason: null }} onPress={() => setK13Log("Status")} />
+          <MetaChip label="Rok" value="sre 28. okt" icon={CalendarClock} perm={{ allowed: true, reason: null }} onPress={() => setK13Log("Rok")} />
+          <MetaChip label="Prioritet" value="Bez prioriteta" bare icon={Flag} perm={{ allowed: true, reason: null }} onPress={() => setK13Log("Prioritet")} />
+          <MetaChip
+            label="Prioritet"
+            value="Visok"
+            icon={Flag}
+            perm={{ allowed: false, reason: "Prioritet menja samo kreator zadatka." }}
+            onPress={() => undefined}
+            onDenied={(reason) => setK13Log("Zaključano: " + reason)}
+          />
+        </View>
+        <Caption text={k13Log ? "Poslednja radnja: " + k13Log : "Još nema radnje"} colors={colors} />
+
+        <SectionHeader title="Panel zadatka — delovi" />
+        <Caption text="Zaglavlje, polje beleške, prebacivanje i stanja (pun panel traži žive podatke: Danas → dodir na red)" colors={colors} />
+        <Card style={styles.typeCard}>
+          <PanelPlace startup={KATALOG_STARTUPS[0]} areaLabel="Sales" />
+          <TitleField value="Ugovor sa dobavljačem" editable onCommit={(title) => setK13Log("Naslov: " + title)} />
+          <TextBlockField
+            title="Beleška"
+            value={null}
+            editable
+            max={5000}
+            placeholder="Dodaj belešku…"
+            emptyText="Nema beleške."
+            accessibilityLabel="Beleška"
+            onSave={(value) => setK13Log("Beleška: " + (value ?? "prazno"))}
+          />
+          <TextBlockField
+            title="Instrukcije"
+            value="Proveriti klauzulu o rokovima pre potpisa."
+            editable={false}
+            lockedReason="Instrukcije menja samo kreator zadatka."
+            max={20000}
+            placeholder=""
+            emptyText="Nema instrukcija."
+            accessibilityLabel="Instrukcije"
+            onSave={() => undefined}
+          />
+        </Card>
+        <Button label={k13Move ? "Sakrij prebacivanje" : "Prebaci u startup (korak)"} variant="secondary" onPress={() => setK13Move((value) => !value)} />
+        {k13Move ? (
+          <Card style={styles.typeCard}>
+            <MoveToStartupStep
+              title="Faktura za oktobar"
+              startups={KATALOG_QUICK_ADD_STARTUPS}
+              onCancel={() => setK13Move(false)}
+              onMove={async (startupId) => {
+                if (startupId === "katalog-na") throw new Error("Zadatak nije prebačen. Pokušaj ponovo.");
+                setK13Log("Prebačeno: " + startupId);
+                setK13Move(false);
+              }}
+            />
+          </Card>
+        ) : null}
+        <Caption text="Stanja panela: učitavanje, ne postoji, greška" colors={colors} />
+        <Card style={styles.typeCard}>
+          <PanelLoading />
+        </Card>
+        <Card style={styles.typeCard}>
+          <PanelGone onClose={() => setK13Log("Zatvori")} />
+        </Card>
+        <Card style={styles.typeCard}>
+          <PanelError retry={() => setK13Log("Pokušaj ponovo")} onClose={() => setK13Log("Zatvori")} />
+        </Card>
+
+        <SectionHeader title="Birač datuma sa čipovima" />
+        <Caption text="Danas · Sutra · Vikend · Sledeće nedelje · Bez roka, pa mesečni kalendar (lokalno podne)" colors={colors} />
+        <Button label={k13Due === null ? "Izaberi rok" : "Rok izabran"} variant="secondary" onPress={() => setK13DateOpen(true)} />
+
+        <SectionHeader title="Filteri" />
+        <Caption text="Startup (uključujući Lično), status, prioritet, rok i Prikaži završene" colors={colors} />
+        <Button label="Otvori filtere" variant="secondary" onPress={() => setK13FiltersOpen(true)} />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -717,6 +815,25 @@ export default function DizajnKatalogScreen() {
           }
           setK12Log(`Dodato: ${draft.title.trim()}`);
         }}
+      />
+      <DatePickerSheet
+        visible={k13DateOpen}
+        value={k13Due}
+        shortcuts
+        now={demoNow}
+        onSelect={(value) => {
+          setK13Due(value);
+          setK13DateOpen(false);
+        }}
+        onClose={() => setK13DateOpen(false)}
+      />
+      <TaskFiltersSheet
+        visible={k13FiltersOpen}
+        filters={k13Filters}
+        startups={KATALOG_STARTUPS}
+        resultCount={12}
+        onChange={setK13Filters}
+        onClose={() => setK13FiltersOpen(false)}
       />
       <PlanDaySheet
         visible={planOpen}
@@ -800,6 +917,11 @@ function Header({
 }
 
 const styles = StyleSheet.create({
+  k13Chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   container: { flex: 1 },
   header: {
     flexDirection: 'row',

@@ -20,10 +20,7 @@ export type RowActionsSheetProps = {
   target: RowActionsTarget | null;
   now: number;
   onClose: () => void;
-  /**
-   * „Otvori" za zadatak u startupu (njegov ekran u njegovom startupu). Lični
-   * zadatak tu stavku nema ni uz rukovaoca — nema ekran do panela (K13).
-   */
+  /** „Otvori": panel zadatka (startup i lični zadatak), kao „Otvori" u meniju reda na webu. */
   onOpen?: (row: TaskRowModel) => void;
   onToggleDone: (row: TaskRowModel, done: boolean) => void;
   onTogglePlan: (row: TaskRowModel) => void;
@@ -71,14 +68,13 @@ export function RowActionsSheet({
 
           {/* Redovi do ivice sheet-a: ikonica poravnata sa tekstom (Row ima 16 pt unutra). */}
           <View style={styles.rows}>
-            {/* Otvara se samo zadatak u startupu; lični nema ekran do panela (K13). */}
-            {onOpen && row.kind === 'task' && row.startup !== null ? (
+            {onOpen ? (
               <Row
                 icon={<ExternalLink size={20} color={colors.foreground} />}
                 title="Otvori"
                 showChevron={false}
                 onPress={() => onOpen(row)}
-                accessibilityHint={row.kind === 'task' ? 'Otvara zadatak u njegovom startupu' : undefined}
+                accessibilityHint='Otvara panel zadatka'
               />
             ) : null}
             {status?.allowed ? (

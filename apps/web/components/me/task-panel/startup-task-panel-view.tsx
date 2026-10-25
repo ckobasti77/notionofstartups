@@ -38,7 +38,7 @@ export const STARTUP_STATUSES: ReadonlyArray<StartupTaskStatus> = ["backlog", "n
 export const PANEL_MAX_ASSIGNEES = 10;
 
 /** Najviše znakova instrukcija (server `MAX_TASK_INSTRUCTIONS_LENGTH`). */
-export const PANEL_INSTRUCTIONS_MAX = 5_000;
+export const PANEL_INSTRUCTIONS_MAX = 20_000;
 
 export type PanelPerson = { _id: string; displayName: string; avatarUrl: string | null };
 
