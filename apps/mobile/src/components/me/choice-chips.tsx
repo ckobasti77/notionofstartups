@@ -5,7 +5,10 @@ import {
   formatDateShort,
   formatDayHeading,
   PRIORITY_LABELS,
+  STARTUP_TASK_STATUSES,
+  STATUS_LABELS,
   type DueShortcut,
+  type StartupTaskStatus,
   type TaskPriorityKey,
 } from '@devotion/shared';
 import { CalendarDays, Check, ChevronLeft, Lock } from 'lucide-react-native';
@@ -18,7 +21,7 @@ import { MonthCalendar } from '@/components/ui/date-picker-sheet';
 import { IconButton } from '@/components/ui/icon-button';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { haptics } from '@/lib/haptics';
-import { priorityColor } from '@/lib/task-meta';
+import { priorityColor, statusColor } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -253,6 +256,30 @@ export function SheetTaskHeader({
         {place}
       </Text>
     </View>
+  );
+}
+
+/** Status zadatka u startupu: Backlog · Sledeće · U toku · Blokirano · Gotovo (par web menija „Status"). */
+export function StatusChoiceChips({
+  value,
+  onSelect,
+}: {
+  value: StartupTaskStatus;
+  onSelect: (status: StartupTaskStatus) => void;
+}) {
+  const colors = useThemeColors();
+  return (
+    <ChipGroup label="Status">
+      {STARTUP_TASK_STATUSES.map((status) => (
+        <ChoiceChip
+          key={status}
+          label={STATUS_LABELS[status]}
+          leading={<View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />}
+          selected={value === status}
+          onPress={() => onSelect(status)}
+        />
+      ))}
+    </ChipGroup>
   );
 }
 

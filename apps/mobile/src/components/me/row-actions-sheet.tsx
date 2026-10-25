@@ -1,5 +1,11 @@
-import { formatDateShort, type TaskPriorityKey, type TaskRowModel } from '@devotion/shared';
-import { ArrowDown, ArrowUp, Check, ExternalLink, RotateCcw, Sun, SunDim } from 'lucide-react-native';
+import {
+  canJoinTask,
+  formatDateShort,
+  type StartupTaskStatus,
+  type TaskPriorityKey,
+  type TaskRowModel,
+} from '@devotion/shared';
+import { ArrowDown, ArrowUp, Check, ExternalLink, LogIn, RotateCcw, Sun, SunDim } from 'lucide-react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { Row } from '@/components/ui/row';
@@ -7,7 +13,14 @@ import { Sheet } from '@/components/ui/sheet';
 import { useRetained } from '@/hooks/use-retained';
 import { useThemeColors } from '@/theme/theme-provider';
 
-import { DueChoiceChips, InlineDatePicker, LockedNotice, PriorityChoiceChips, SheetTaskHeader } from './choice-chips';
+import {
+  DueChoiceChips,
+  InlineDatePicker,
+  LockedNotice,
+  PriorityChoiceChips,
+  SheetTaskHeader,
+  StatusChoiceChips,
+} from './choice-chips';
 import { dueChoiceOf, useInlineDatePick } from './rok-plan-sheet';
 
 export type RowActionsTarget = {
@@ -26,7 +39,14 @@ export type RowActionsSheetProps = {
   onTogglePlan: (row: TaskRowModel) => void;
   onSetDue: (row: TaskRowModel, dueDate: number | null) => void;
   onSetPriority: (row: TaskRowModel, priority: TaskPriorityKey | null) => void;
-  onMove: (row: TaskRowModel, direction: -1 | 1) => void;
+  /** Samo u „Planirano" (Moj dan); liste u startupu ga nemaju. */
+  onMove?: (row: TaskRowModel, direction: -1 | 1) => void;
+  /**
+   * Samo u listama startupa (K18): ceo izbor statusa i „Priključi se", kao
+   * meni „…" u redu na webu. Bez rukovaoca (Moj dan) ih nema.
+   */
+  onSetStatus?: (row: TaskRowModel, status: StartupTaskStatus) => void;
+  onJoin?: (row: TaskRowModel) => void;
 };
 
 /**
@@ -46,6 +66,8 @@ export function RowActionsSheet({
   onSetDue,
   onSetPriority,
   onMove,
+  onSetStatus,
+  onJoin,
 }: RowActionsSheetProps) {
   const colors = useThemeColors();
   const target = useRetained(current);
@@ -101,13 +123,21 @@ export function RowActionsSheet({
               showChevron={false}
               onPress={() => onTogglePlan(row)}
             />
+            {onJoin && canJoinTask(row) ? (
+              <Row
+                icon={<LogIn size={20} color={colors.foreground} />}
+                title="Priključi se"
+                showChevron={false}
+                onPress={() => onJoin(row)}
+              />
+            ) : null}
             {/* Samo smer koji postoji (prvi red nema „gore", poslednji „dole"). */}
             {target.movable?.up ? (
               <Row
                 icon={<ArrowUp size={20} color={colors.foreground} />}
                 title="Pomeri gore"
                 showChevron={false}
-                onPress={() => onMove(row, -1)}
+                onPress={() => onMove?.(row, -1)}
               />
             ) : null}
             {target.movable?.down ? (
@@ -115,10 +145,14 @@ export function RowActionsSheet({
                 icon={<ArrowDown size={20} color={colors.foreground} />}
                 title="Pomeri dole"
                 showChevron={false}
-                onPress={() => onMove(row, 1)}
+                onPress={() => onMove?.(row, 1)}
               />
             ) : null}
           </View>
+
+          {onSetStatus && status?.allowed && row.kind === 'task' && row.status !== 'open' ? (
+            <StatusChoiceChips value={row.status} onSelect={(next) => onSetStatus(row, next)} />
+          ) : null}
 
           {due?.allowed ? (
             <DueChoiceChips

@@ -102,7 +102,7 @@ export function SkeletonCard({
   );
 }
 
-/** Oblik `danas/task-card.tsx`: naslov + stack izvršilaca, pa red meta-pilula. */
+/** Oblik reda zadatka: naslov + stack izvršilaca, pa red meta-pilula. */
 export function SkeletonTaskCard({ index = 0 }: { index?: number }) {
   return (
     <SkeletonCard style={styles.taskCard}>

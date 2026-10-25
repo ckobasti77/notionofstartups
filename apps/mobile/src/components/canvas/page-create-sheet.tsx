@@ -1,3 +1,4 @@
+import { DUE_SHORTCUT_LABELS, formatDateShort, matchDueShortcut } from '@devotion/shared';
 import { useMutation, useQuery } from 'convex/react';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -34,8 +35,9 @@ import {
 import { NoteInsertSheet } from '@/components/stranica/note-insert-sheet';
 import { NoteLinkSheet } from '@/components/stranica/note-link-sheet';
 import type { EditorSelection, LinkRequest } from '@/components/stranica/note-toolbar';
+import { DueChoiceChips, InlineDatePicker } from '@/components/me/choice-chips';
+import { dueChoiceOf } from '@/components/me/rok-plan-sheet';
 import { Button } from '@/components/ui/button';
-import { DatePickerSheet, formatDueDate } from '@/components/ui/date-picker-sheet';
 import { OptionChip } from '@/components/ui/option-chip';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
@@ -81,7 +83,6 @@ import {
   MAX_TABLE_ROWS,
 } from '@/lib/table-limits';
 import {
-  dueDateInDays,
   priorityColor,
   statusColor,
   TASK_PRIORITY_META,
@@ -111,24 +112,13 @@ const KIND_CREATED_LABEL: Record<PageKind, string> = {
   file: 'Oblačić je kreiran.',
 };
 
-type DuePreset = { label: string; days: number | null };
-
 /**
- * Isti preseti kao u meniju akcija zadatka. Proizvoljan datum nosi peti čip
- * („Neki drugi dan…") koji otvara `DatePickerSheet`.
+ * Kratak opis roka za red „Više opcija": čip iz shared datuma („Danas", „Sutra",
+ * „Vikend", „Sledeće nedelje") ili srpski datum („sre 28. okt").
  */
-const DUE_PRESETS: readonly DuePreset[] = [
-  { label: 'Bez roka', days: null },
-  { label: 'Danas', days: 0 },
-  { label: 'Sutra', days: 1 },
-  { label: 'Za 7 dana', days: 7 },
-];
-
-/** Presetu koji odgovara datom trenutku — `null` kad je datum „neki drugi dan". */
-function presetFor(dueAt: number | null): DuePreset | undefined {
-  return DUE_PRESETS.find((preset) =>
-    preset.days === null ? dueAt === null : dueAt === dueDateInDays(preset.days),
-  );
+function dueSummary(dueAt: number, now: number): string {
+  const shortcut = matchDueShortcut(dueAt, now);
+  return shortcut === null ? formatDateShort(dueAt) : DUE_SHORTCUT_LABELS[shortcut];
 }
 
 /**
@@ -191,7 +181,8 @@ export function PageCreateSheet({
   const [phase, setPhase] = useState<{ label: string; done: number; total: number } | null>(null);
 
   // Strana sheeta: obrazac ili pun editor tela beleške.
-  const [page, setPage] = useState<'form' | 'body'>('form');
+  // "date" je kalendar roka U ovom sheet-u (iOS ne prikazuje drugi `Modal` preko prvog).
+  const [page, setPage] = useState<'form' | 'body' | 'date'>('form');
 
   // Detalji zadatka (iza „Više opcija").
   const [expanded, setExpanded] = useState(false);
@@ -203,7 +194,6 @@ export function PageCreateSheet({
   const [instructions, setInstructions] = useState('');
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
   const [assigneesOpen, setAssigneesOpen] = useState(false);
-  const [dueOpen, setDueOpen] = useState(false);
 
   // Telo beleške: HTML u REF-u (kucanje ne sme da prerenderuje WebView),
   // `noteSummary` je tekstualni pregled za red u obrascu.
@@ -293,16 +283,29 @@ export function PageCreateSheet({
   // Vraćanje nacrta na otvaranje — samo za ISTO mesto (ključ nosi startup,
   // oblast i roditelja), pa nacrt ne može da iskoči pod tuđim zaglavljem.
   const openedRef = useRef(false);
+  // Podrazumevani izvršilac je ja (shared `defaultTaskDraft`, par web K17): upisuje se
+  // jednom po otvaranju, tek kad profil stigne, i nikad preko vraćenog nacrta.
+  const assigneeDefaultedRef = useRef(false);
+  const profile = useQuery(api.profiles.getCurrent, open ? {} : 'skip');
   useEffect(() => {
     if (open && !openedRef.current) {
       openedRef.current = true;
+      assigneeDefaultedRef.current = false;
       const draft = readCreateDraft(draftKey);
-      if (draft !== null) hydrate(draft);
+      if (draft !== null) {
+        hydrate(draft);
+        assigneeDefaultedRef.current = true;
+      }
     } else if (!open) {
       openedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, draftKey]);
+  useEffect(() => {
+    if (!open || assigneeDefaultedRef.current || !profile) return;
+    assigneeDefaultedRef.current = true;
+    setAssigneeIds((current) => (current.length === 0 ? [profile._id] : current));
+  }, [open, profile]);
 
   /**
    * Zatvaranje ČUVA nacrt (lanac 7) — slučajan dodir po backdrop-u više ne
@@ -311,7 +314,6 @@ export function PageCreateSheet({
   const closeAll = () => {
     if (busy) return; // usred upisa/uploada sheet se ne zatvara
     setAssigneesOpen(false);
-    setDueOpen(false);
     setInsertOpen(false);
     setLinkRequest(null);
     if (isDirty()) {
@@ -343,7 +345,6 @@ export function PageCreateSheet({
   /** Posle uspeha: nacrt se briše, obrazac čisti, sheet zatvara. */
   const finishClose = () => {
     setAssigneesOpen(false);
-    setDueOpen(false);
     setInsertOpen(false);
     setLinkRequest(null);
     clearCreateDraft(draftKey);
@@ -663,12 +664,12 @@ export function PageCreateSheet({
   };
 
   // Sažetak u podnaslovu reda „Više opcija" zadatka.
-  const duePreset = presetFor(dueAt);
+  const now = Date.now();
   const optionsSummary = [
     TASK_STATUS_META[status].label,
     TASK_PRIORITY_META[priority].label,
     assigneeIds.length > 0 ? `${assigneeIds.length} izvršilaca` : null,
-    dueAt === null ? null : (duePreset?.label ?? formatDueDate(dueAt)),
+    dueAt === null ? null : dueSummary(dueAt, now),
     checkpoints.length > 0 ? `${checkpoints.length} podzadataka` : null,
   ]
     .filter(Boolean)
@@ -689,8 +690,25 @@ export function PageCreateSheet({
     // Pomoćni sheet-ovi (izvršioci, kalendar, link, „Dodaj u belešku") su BRAĆA,
     // ne deca: ugnježden `Modal` na Androidu proguta `onRequestClose`.
     <>
-      <Sheet visible={open} onClose={closeAll} avoidKeyboard maxHeight="88%" style={styles.sheet}>
-        {page === 'body' ? (
+      <Sheet
+        visible={open}
+        // U kalendaru „nazad" (Android) i escape (VoiceOver) vraćaju na formu — nacrt se ne odbacuje.
+        onClose={page === 'date' ? () => setPage('form') : closeAll}
+        avoidKeyboard
+        maxHeight="88%"
+        style={styles.sheet}>
+        {page === 'date' ? (
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+            <InlineDatePicker
+              value={dueAt}
+              onBack={() => setPage('form')}
+              onSelect={(next) => {
+                setDueAt(next);
+                setPage('form');
+              }}
+            />
+          </ScrollView>
+        ) : page === 'body' ? (
           <View style={[styles.bodyPage, { height: bodyHeight }]}>
             <View style={styles.bodyHead}>
               <Text
@@ -1103,34 +1121,17 @@ export function PageCreateSheet({
                         </View>
                       </Section>
 
-                      <Section label="Rok" colors={colors}>
-                        <View style={styles.chips}>
-                          {DUE_PRESETS.map((preset) => (
-                            <OptionChip
-                              key={preset.label}
-                              label={preset.label}
-                              active={duePreset?.label === preset.label}
-                              disabled={busy}
-                              onPress={() =>
-                                setDueAt(preset.days === null ? null : dueDateInDays(preset.days))
-                              }
-                            />
-                          ))}
-                          <OptionChip
-                            label={
-                              dueAt !== null && duePreset === undefined
-                                ? formatDueDate(dueAt)
-                                : 'Neki drugi dan…'
-                            }
-                            active={dueAt !== null && duePreset === undefined}
-                            disabled={busy}
-                            onPress={() => {
-                              haptics.tap();
-                              setDueOpen(true);
-                            }}
-                          />
-                        </View>
-                      </Section>
+                      <DueChoiceChips
+                        now={now}
+                        selected={dueChoiceOf(dueAt, now)}
+                        dateLabel={dueAt === null ? null : formatDateShort(dueAt)}
+                        onShortcut={(_, value) => setDueAt(value)}
+                        onPickDate={() => {
+                          haptics.tap();
+                          setPage('date');
+                        }}
+                        onNone={() => setDueAt(null)}
+                      />
 
                       <Row
                         variant="value"
@@ -1193,18 +1194,6 @@ export function PageCreateSheet({
         selectedIds={assigneeIds}
         onChange={setAssigneeIds}
         onClose={() => setAssigneesOpen(false)}
-      />
-
-      {/* I kalendar je BRAT, iz istog razloga kao izbor izvršilaca (isti obrazac
-          kao `task-actions-sheet.tsx`). */}
-      <DatePickerSheet
-        visible={dueOpen}
-        value={dueAt}
-        onSelect={(next) => {
-          setDueAt(next);
-          setDueOpen(false);
-        }}
-        onClose={() => setDueOpen(false)}
       />
 
       {/* Editor tela: link i „Dodaj u belešku" sheet-ovi — komande se vraćaju u

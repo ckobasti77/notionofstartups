@@ -4,12 +4,14 @@ import {
   OPTIMISTIC_PREFIX,
   patchItem,
   patchPersonalItems,
+  patchStartupTasks,
   patchTaskItems,
   planCall,
   priorityCall,
   withEntry,
   withoutEntry,
   type RowCall,
+  type StartupTaskPatch,
   type TaskPriorityKey,
   type TaskRowModel,
 } from '@devotion/shared';
@@ -42,6 +44,24 @@ export function updateOverviews(
   for (const { args, value } of store.getAllQueries(api.myDay.overview)) {
     if (value === undefined || (dayKey !== null && args.dayKey !== dayKey)) continue;
     store.setQuery(api.myDay.overview, args, update(value));
+  }
+}
+
+/**
+ * Optimistička slika za liste zadataka u startupu (K18, par web
+ * `patchStartupLists`): Komandni centar (`tasks.commandCenter`) i svaka strana
+ * `tasks.listForStartup`, pa red odmah ode u novu zonu ili grupu.
+ */
+function patchStartupLists(store: OptimisticLocalStore, pageId: Id<'pages'>, patch: StartupTaskPatch) {
+  for (const { args, value } of store.getAllQueries(api.tasks.commandCenter)) {
+    if (value === undefined) continue;
+    const tasks = patchStartupTasks(value.tasks, pageId, patch);
+    if (tasks !== value.tasks) store.setQuery(api.tasks.commandCenter, args, { ...value, tasks: [...tasks] });
+  }
+  for (const { args, value } of store.getAllQueries(api.tasks.listForStartup)) {
+    if (value === undefined) continue;
+    const page = patchStartupTasks(value.page, pageId, patch);
+    if (page !== value.page) store.setQuery(api.tasks.listForStartup, args, { ...value, page: [...page] });
   }
 }
 
@@ -122,6 +142,7 @@ export function useRowMutations({ dayKey, now }: { dayKey: string; now: number }
         store.setQuery(api.tasks.listEverywhere, queryArgs, patchTaskItems(value, args.pageId, patch));
       }
     }
+    patchStartupLists(store, args.pageId, patch);
     if (args.dueDate !== undefined || args.priority !== undefined) {
       updateOverviews(store, null, (value) =>
         patchItem(value, { kind: 'task', id: args.pageId }, { dueDate: args.dueDate, priority: args.priority }),
@@ -224,7 +245,9 @@ export function useRowMutations({ dayKey, now }: { dayKey: string; now: number }
       return;
     }
     if (row.priority === priority) return;
-    void send(call).catch((error: unknown) => failed('Prioritet nije sačuvan', error, 'Pokušaj ponovo.'));
+    void send(call)
+      .then(() => AccessibilityInfo.announceForAccessibility('Prioritet je promenjen.'))
+      .catch((error: unknown) => failed('Prioritet nije sačuvan', error, 'Pokušaj ponovo.'));
   };
 
   return { send, planMutation, unplanMutation, togglePlanOf, togglePlan, setDue, setPriority };

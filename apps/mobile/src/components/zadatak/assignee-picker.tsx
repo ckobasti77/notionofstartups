@@ -14,11 +14,11 @@ import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /**
  * Izbor izvršilaca zadatka — JEDNA implementacija granice `MAX_TASK_ASSIGNEES`
- * za sva mesta. Ranije je logika živela u `TaskActionsSheet`, pa je kreiranje
- * zadatka (canvas / podstranica) ostajalo bez nje; sada oba puta zovu isto.
+ * za sva mesta. Ranije je logika živela u meniju akcija zadatka (ukinut u K18), pa je
+ * kreiranje zadatka (canvas / podstranica) ostajalo bez nje; sada svi zovu isto.
  *
  * Dva ulaza:
- *  - `AssigneePickerList` — lista u mestu (koristi je `TaskActionsSheet`, koji već
+ *  - `AssigneePickerList` — lista u mestu (koristi je panel zadatka, koji već
  *    ima svoj sheet i sekcije).
  *  - `AssigneePickerSheet` — samostalan bottom sheet nad tom istom listom (koristi
  *    ga kreiranje stranice i detalj zadatka).

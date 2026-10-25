@@ -19,8 +19,8 @@ export type OptionChipProps = {
  * Chip iz reda opcija koje se isključuju (status, prioritet, rok). Aktivan je
  * indigo-tint (`accent`), neaktivan suptilna površina. Dodirna meta ≥ 44pt.
  *
- * Deljen između menija akcija zadatka (`TaskActionsSheet`) i kreiranja zadatka
- * (`PageCreateSheet`) — isti izgled i ista dodirna meta na oba mesta.
+ * Deljen između filtera (zadaci, stranice) i kreiranja zadatka (`PageCreateSheet`)
+ * — isti izgled i ista dodirna meta na svim mestima.
  */
 export function OptionChip({ label, dotColor, leading, active, disabled, onPress }: OptionChipProps) {
   const colors = useThemeColors();

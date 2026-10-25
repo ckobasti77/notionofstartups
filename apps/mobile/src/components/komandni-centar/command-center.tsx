@@ -1,46 +1,49 @@
-import { useMutation, useQuery } from 'convex/react';
-import { useRouter } from 'expo-router';
-import { CalendarX2, ChevronDown, ChevronRight, ListTodo } from 'lucide-react-native';
-import { Component, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { findStartupRow, locateStartupRow, type StartupMini, type TaskRowModel } from '@devotion/shared';
+import { useQuery } from 'convex/react';
+import { CalendarX2, ListTodo } from 'lucide-react-native';
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
+import { SegmentedControl } from '@/components/chat/segmented-control';
 import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
-import { QuickAddSheet } from '@/components/danas/quick-add-sheet';
-import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
-import { TaskCard } from '@/components/danas/task-card';
 import {
   UNASSIGNED_KEY,
   WorkloadStrip,
   type WorkloadEntry,
   type WorkloadFilter,
 } from '@/components/danas/workload-strip';
-import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
+import { LAYOUT_ANIMATION_MAX_ROWS } from '@/components/me/my-day/my-day-model';
+import { QuickAddSheet } from '@/components/me/quick-add-sheet';
+import { MeSectionHeader } from '@/components/me/section-header';
+import { TaskRow } from '@/components/me/task-row';
+import { useQuickAdd } from '@/components/me/use-quick-add';
+import { exitFade, listLayout } from '@/components/motion';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
 import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
+import { UndoBar } from '@/components/undo-bar';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
-import {
-  bucketTasksForToday,
-  classifyDeadline,
-  nextLocalMidnight,
-  TODAY_SECTION_ORDER,
-  type TodaySection,
-} from '@/lib/deadline';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { useRetained } from '@/hooks/use-retained';
+import { classifyDeadline, type TodaySection } from '@/lib/deadline';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import type { TaskPriority, TaskStatus } from '@/lib/task-meta';
-import {
-  TODAY_SEGMENTS,
-  type CommandCenterTask,
-  type TodaySegmentId,
-} from '@/lib/tasks';
+import { readLastArea, readStoredDestination } from '@/lib/quick-add-memory';
+import { TODAY_SEGMENTS, type CommandCenterTask, type TodaySegmentId } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, space, text, type ColorTokens } from '@/theme/tokens';
+import { space, text } from '@/theme/tokens';
+
+import { buildCommandSections, COMMAND_CENTER_LIST, sectionRowCount } from './startup-task-model';
+import { useStartupTaskCommands } from './use-startup-task-commands';
+
+/** Ogledalo `MAX_ASSIGNEE_LOOKUP_PAGES` u `taskAssignees.ts`. */
+const MAX_ASSIGNEE_LOOKUP = 300;
 
 const SECTION_LABEL: Record<TodaySection, string> = {
   overdue: 'Prekoračeno',
@@ -49,24 +52,17 @@ const SECTION_LABEL: Record<TodaySection, string> = {
   blocked: 'Blokirano',
 };
 
-/** `now` u stanju, sa preklasifikacijom na sledeću lokalnu ponoć (kao web). */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const delay = Math.max(1_000, nextLocalMidnight(now) - now);
-    const timer = setTimeout(() => setNow(Date.now()), delay);
-    return () => clearTimeout(timer);
-  }, [now]);
-  return now;
-}
-
 /**
  * Komandni centar startupa (docs/mobile/02-EKRANI.md §4) — do K09 je to bio tab
  * „Danas"; sada živi u tabu Prostor kao prvi segment (P15, plan K07 E14), jer je
- * „Danas" postao lični Moj dan. Telo je preneto bez izmena funkcija: segment
- * Pregled/Moji zadaci nad startupom, traka opterećenja, zadaci grupisani u
- * prekoračeno → danas → sledeće → blokirano, svajp/tap/long-press akcije, FAB za
- * brzo dodavanje. Bez kanbana — svajp lista.
+ * „Danas" postao lični Moj dan. Od K18 (par web K17) redovi su zajednički red
+ * zadatka (`TaskRow` nad `TaskRowModel`): swipe desno = završi sa „Poništi",
+ * swipe levo = „Rok i plan", dugi pritisak = radnje (status, rok, prioritet,
+ * „Dodaj u Moj dan", „Priključi se"), dodir = panel zadatka sa „Puni prikaz".
+ * Mutacije i dozvole su iste kao na webu i u Moj dan (`useStartupTaskCommands`).
+ * Brzi unos je isti sheet kao u Moj dan, sa unapred izabranim startupom.
+ * Segment Pregled/Moji zadaci, traka opterećenja i sekcije prekoračeno → danas →
+ * sledeće → blokirano ostaju. Bez kanbana — svajp lista.
  *
  * Greška upita (npr. korisnik više nije član) ostaje u ovom segmentu
  * (`CommandCenterBoundary`), pa „Oblasti" i ostatak Prostora rade dalje.
@@ -81,8 +77,7 @@ export function CommandCenter({ startupId }: { startupId: Id<'startups'> }) {
 
 function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   const colors = useThemeColors();
-  const router = useRouter();
-  const now = useNow();
+  const reduced = useReducedMotion();
   const [segment, setSegment] = useState<TodaySegmentId>('overview');
   const [blockedOpen, setBlockedOpen] = useState(false);
   // Filter trake opterećenja: `null` = svi, `UNASSIGNED_KEY` = bez izvršioca.
@@ -94,28 +89,53 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   const startupArg = { startupId };
   const command = useQuery(api.tasks.commandCenter, startupArg);
   const startup = useQuery(api.startups.get, startupArg);
-  // Članovi su potrebni i traci opterećenja i meniju akcija — jedna pretplata za oba.
+  // Članovi su potrebni traci opterećenja — jedna pretplata.
   const members = useQuery(api.startups.listMembers, { startupId, limit: 50 });
 
   const tasks = command?.tasks;
-  const taskIds = useMemo(() => tasks?.map((task) => task._id) ?? [], [tasks]);
-  const assigneeRows = useQuery(
+  // `listForTasks` BACA iznad 300 id-jeva (`MAX_ASSIGNEE_LOOKUP_PAGES`), a Komandni centar
+  // ih može imati do 600: zadaci iznad granice ostaju bez poznatih izvršilaca (dozvole
+  // padaju na „ne znamo"), umesto da ceo segment padne u granicu greške.
+  const taskIds = useMemo(
+    () => tasks?.slice(0, MAX_ASSIGNEE_LOOKUP).map((task) => task._id) ?? [],
+    [tasks],
+  );
+  const liveAssigneeRows = useQuery(
     api.taskAssignees.listForTasks,
     taskIds.length > 0 ? { startupId, taskPageIds: taskIds } : 'skip',
   );
+  // Svaka promena liste (završen zadatak…) menja argumente pa upit nakratko vraća
+  // `undefined`: zadržavamo poslednji odgovor da kvačice ne trepnu u zaključano
+  // i da lista ne ode u skeleton (par web `useLastReady`).
+  const assigneeRows = useRetained(liveAssigneeRows ?? null) ?? undefined;
 
   const assigneesByTask = useMemo(() => {
     const map = new Map<Id<'pages'>, NonNullable<typeof assigneeRows>[number]['assignees']>();
     assigneeRows?.forEach((row) => map.set(row.taskPageId, row.assignees));
     return map;
   }, [assigneeRows]);
-  const assigneesOf = (taskId: Id<'pages'>) => assigneesByTask.get(taskId) ?? [];
+  // Dok se izvršioci ne učitaju, ne-kreator nije izvršilac (server je izvor istine).
+  const assigneeIdsByTask = useMemo<ReadonlyMap<string, ReadonlyArray<string>> | null>(() => {
+    if (taskIds.length > 0 && assigneeRows === undefined) return null;
+    return new Map([...assigneesByTask].map(([id, list]) => [id, list.map((a) => a.profileId)]));
+  }, [taskIds, assigneeRows, assigneesByTask]);
 
-  const areaById = useMemo(() => {
-    const map = new Map<Id<'startupAreas'>, NonNullable<typeof startup>['areas'][number]>();
-    startup?.areas.forEach((area) => map.set(area._id, area));
+  const areaLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    startup?.areas.forEach((area) => map.set(area._id, area.label));
     return map;
   }, [startup]);
+  const startupMini = useMemo<StartupMini | null>(
+    () => (startup ? { _id: startup._id, name: startup.name, logoUrl: startup.logoUrl ?? null } : null),
+    [startup],
+  );
+
+  // Sekcije na ekranu (sa zadržanim redovima) — rukovaoci posle dodira čitaju najnovije.
+  const sectionsRef = useRef<ReturnType<typeof buildCommandSections>>([]);
+  const commands = useStartupTaskCommands({
+    locate: (key) => locateStartupRow(COMMAND_CENTER_LIST, sectionsRef.current, key),
+  });
+  const { now } = commands;
 
   // „Moji zadaci" = otvoreni zadaci aktivnog startupa gde sam izvršilac.
   const segmentTasks = useMemo<CommandCenterTask[] | undefined>(() => {
@@ -123,9 +143,7 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
     if (segment === 'overview') return tasks;
     if (taskIds.length > 0 && assigneeRows === undefined) return undefined; // čeka izvršioce
     if (myId === null) return [];
-    return tasks.filter((task) =>
-      assigneesByTask.get(task._id)?.some((a) => a.profileId === myId),
-    );
+    return tasks.filter((task) => assigneesByTask.get(task._id)?.some((a) => a.profileId === myId));
   }, [tasks, segment, taskIds, assigneeRows, myId, assigneesByTask]);
 
   // Opterećenje tima (traka čipova) — računa se iz SVIH otvorenih zadataka, ne iz
@@ -153,7 +171,9 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
     for (const task of tasks) {
       // Svi izvršioci su ravnopravni, pa zadatak ulazi u opterećenje svakog od njih;
       // zbir po članovima je zato veći od broja zadataka.
-      const taskAssignees = assigneesByTask.get(task._id) ?? [];
+      // Nepoznati izvršioci (nije stigao odgovor ili je iznad granice) se ne broje.
+      const taskAssignees = assigneesByTask.get(task._id);
+      if (taskAssignees === undefined) continue;
       const targets =
         taskAssignees.length === 0
           ? [unassigned]
@@ -180,17 +200,44 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
     if (segmentTasks === undefined) return undefined;
     if (segment !== 'overview' || memberFilter === null) return segmentTasks;
     if (memberFilter === UNASSIGNED_KEY) {
-      return segmentTasks.filter((task) => (assigneesByTask.get(task._id) ?? []).length === 0);
+      return segmentTasks.filter((task) => assigneesByTask.get(task._id)?.length === 0);
     }
     return segmentTasks.filter((task) =>
       (assigneesByTask.get(task._id) ?? []).some((a) => a.profileId === memberFilter),
     );
   }, [segmentTasks, segment, memberFilter, assigneesByTask]);
 
-  const buckets = useMemo(
-    () => (visibleTasks ? bucketTasksForToday(visibleTasks, now) : undefined),
-    [visibleTasks, now],
+  // Redovi po sekcijama: zajednički `TaskRowModel` (dozvole, plan, zadržavanje).
+  const sections = useMemo(
+    () =>
+      visibleTasks && startupMini && myId
+        ? buildCommandSections(visibleTasks, now, {
+            profileId: myId,
+            startup: startupMini,
+            areaLabels,
+            assigneeIdsByTask,
+            assumeAssignee: segment === 'mine',
+            plannedKeys: commands.plannedKeys,
+            holds: commands.holds,
+            pending: commands.pending,
+          })
+        : undefined,
+    [
+      visibleTasks,
+      startupMini,
+      myId,
+      now,
+      areaLabels,
+      assigneeIdsByTask,
+      segment,
+      commands.plannedKeys,
+      commands.holds,
+      commands.pending,
+    ],
   );
+  useEffect(() => {
+    sectionsRef.current = sections ?? [];
+  }, [sections]);
 
   // Brojači za `DaySummary` — isti skup zadataka koji je i u listi, pa se pozdrav i
   // lista ne mogu razići (segment „Moji zadaci" sužava oba).
@@ -216,112 +263,27 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   const firstName = profile?.displayName.trim().split(/\s+/)[0] ?? null;
   const filteredName =
     memberFilter === null ? null : (workload.find((e) => e.key === memberFilter)?.name ?? null);
-  const segmentLabel =
-    filteredName ?? (segment === 'mine' ? 'Moji zadaci' : 'Pregled');
+  const segmentLabel = filteredName ?? (segment === 'mine' ? 'Moji zadaci' : 'Pregled');
 
-  // Meni akcija cilja živi zadatak po id-ju, pa prati realtime izmene / nestanak.
-  const [menuTaskId, setMenuTaskId] = useState<Id<'pages'> | null>(null);
-  const [menuStatusOnly, setMenuStatusOnly] = useState(false);
-  const menuTask = useMemo(
-    () => (menuTaskId ? (tasks?.find((task) => task._id === menuTaskId) ?? null) : null),
-    [menuTaskId, tasks],
-  );
-  useEffect(() => {
-    // Zadatak je napustio otvoreni skup (npr. označen „gotovo") → zatvori meni.
-    if (menuTaskId && menuTask === null) setMenuTaskId(null);
-  }, [menuTaskId, menuTask]);
-
+  // --- Brzi unos: isti sheet i isti tok kao u Moj dan, startup je unapred izabran ---
   const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-
-  const updateMetadata = useMutation(api.tasks.updateMetadata);
-  const join = useMutation(api.taskAssignees.join);
-  const leave = useMutation(api.taskAssignees.leave);
-  const setAssignees = useMutation(api.taskAssignees.setAssignees);
-  const createPage = useMutation(api.pages.create);
+  const quickAdd = useQuickAdd({
+    dayKey: commands.dayKey,
+    profileId: myId,
+    planMutation: commands.mutations.planMutation,
+  });
 
   const refreshControl = useListRefresh();
+  const layoutPreset = useMemo(() => listLayout(reduced), [reduced]);
+  const rowCount = sections ? sectionRowCount(sections) : 0;
+  const layout = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? layoutPreset : undefined;
 
-  const notifyError = (error: unknown) => {
-    haptics.error();
-    Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
-  };
-  const run = (promise: Promise<unknown>, announcement = 'Zadatak je ažuriran.') => {
-    void promise
-      .then(() => {
-        haptics.success();
-        // Isti razlog kao u Odobrenjima: uspeh je bio samo vibracija.
-        AccessibilityInfo.announceForAccessibility(announcement);
-      })
-      .catch(notifyError);
-  };
-
-  const canChangeStatusFor = (task: CommandCenterTask) =>
-    myId !== null &&
-    (task.createdByProfileId === myId || assigneesOf(task._id).some((a) => a.profileId === myId));
-  const canEditAllFor = (task: CommandCenterTask) =>
-    myId !== null && task.createdByProfileId === myId;
-
-  const openMenu = (task: CommandCenterTask, statusOnly: boolean) => {
-    setMenuStatusOnly(statusOnly);
-    setMenuTaskId(task._id);
-  };
-  const closeMenu = () => setMenuTaskId(null);
-
-  const markDone = (task: CommandCenterTask) =>
-    run(updateMetadata({ pageId: task._id, status: 'done' }));
-
-  const applyStatus = (status: TaskStatus) => {
-    if (menuTaskId) run(updateMetadata({ pageId: menuTaskId, status }));
-    closeMenu();
-  };
-  const applyPriority = (priority: TaskPriority) => {
-    if (menuTaskId) run(updateMetadata({ pageId: menuTaskId, priority }));
-    closeMenu();
-  };
-  const applyDue = (dueDate: number | null) => {
-    if (menuTaskId) run(updateMetadata({ pageId: menuTaskId, dueDate }));
-    closeMenu();
-  };
-  const applyJoinLeave = (isSelfAssigned: boolean) => {
-    if (!menuTaskId) return;
-    run(isSelfAssigned ? leave({ taskPageId: menuTaskId }) : join({ taskPageId: menuTaskId }));
-  };
-  const applySetAssignees = (profileIds: Id<'profiles'>[]) => {
-    if (menuTaskId) run(setAssignees({ taskPageId: menuTaskId, profileIds }));
-  };
-
-  const createTask = async (title: string, areaId: Id<'startupAreas'>) => {
-    setCreating(true);
-    try {
-      await createPage({
-        startupId,
-        areaId,
-        parentPageId: null,
-        kind: 'task',
-        title,
-      });
-      setQuickAddOpen(false);
-    } catch (error) {
-      notifyError(error);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const renderTask = (task: CommandCenterTask, index: number) => (
-    <StaggerItem key={task._id} index={index}>
-      <TaskCard
-        task={task}
-        areaLabel={areaById.get(task.areaId)?.label ?? 'Bez oblasti'}
-        assignees={assigneesOf(task._id)}
-        now={now}
-        canDone={canChangeStatusFor(task)}
-        onDone={() => markDone(task)}
-        onOpen={() => router.push({ pathname: '/zadatak/[id]', params: { id: task._id } })}
-        onMenu={() => openMenu(task, false)}
-        onQuickStatus={() => openMenu(task, true)}
-      />
+  const renderRow = (row: TaskRowModel, index: number) => (
+    <StaggerItem key={row.key} index={index}>
+      <Animated.View layout={layout} exiting={exitFade(reduced)}>
+        {/* Startup je isti za ceo ekran (zaglavlje Prostora ga nosi), pa bez čipa. */}
+        <TaskRow row={row} now={now} showStartup={false} showStatus {...commands.rowActions} />
+      </Animated.View>
     </StaggerItem>
   );
 
@@ -329,9 +291,8 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
     command === undefined ||
     startup === undefined ||
     visibleTasks === undefined ||
-    buckets === undefined;
-  const allEmpty =
-    buckets !== undefined && TODAY_SECTION_ORDER.every((key) => buckets[key].length === 0);
+    sections === undefined;
+  const allEmpty = sections !== undefined && rowCount === 0;
   const startupReady = startup !== undefined;
 
   return (
@@ -375,7 +336,7 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
         />
       ) : (
         <LoadingSwap loading={loading} skeleton={<LoadingList />}>
-          {buckets === undefined ? null : (
+          {sections === undefined ? null : (
             <ScrollView
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
@@ -388,27 +349,21 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
               {/* Promena segmenta ili filtera je NOVO punjenje liste — `resetKey`
                   restartuje stagger da se to i vidi. */}
               <StaggerGroup resetKey={`${segment}:${memberFilter ?? 'all'}`}>
-                {TODAY_SECTION_ORDER.map((key) => {
-                  const items = buckets[key];
-                  if (items.length === 0) return null;
-                  const isBlocked = key === 'blocked';
+                {sections.map((section) => {
+                  if (section.rows.length === 0) return null;
+                  const isBlocked = section.id === 'blocked';
                   const open = !isBlocked || blockedOpen;
-                  const danger = key === 'overdue';
                   return (
-                    <View key={key} style={styles.section}>
-                      <SectionHeader
-                        label={SECTION_LABEL[key]}
-                        count={items.length}
-                        danger={danger}
+                    <View key={section.id} style={styles.section}>
+                      <MeSectionHeader
+                        title={SECTION_LABEL[section.id]}
+                        count={section.rows.length}
+                        tone={section.id === 'overdue' ? 'danger' : 'default'}
                         collapsible={isBlocked}
-                        open={open}
-                        onToggle={() => {
-                          haptics.select();
-                          setBlockedOpen((value) => !value);
-                        }}
-                        colors={colors}
+                        collapsed={!open}
+                        onToggle={isBlocked ? () => setBlockedOpen((value) => !value) : undefined}
                       />
-                      {open ? <View style={styles.cards}>{items.map(renderTask)}</View> : null}
+                      {open ? <View>{section.rows.map(renderRow)}</View> : null}
                     </View>
                   );
                 })}
@@ -436,101 +391,28 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
           }}
         />
       ) : null}
+      {/* „Završeno: …" i „Uklonjeno iz Moj dan" vraćaju se odavde (par web toasta). */}
+      <UndoBar bottomOffset={72} />
 
-      <TaskActionsSheet
-        task={menuTask}
-        statusOnly={menuStatusOnly}
-        now={now}
-        assignees={menuTaskId ? assigneesOf(menuTaskId) : []}
-        members={members}
-        currentProfileId={myId}
-        canChangeStatus={menuTask ? canChangeStatusFor(menuTask) : false}
-        canEditAll={menuTask ? canEditAllFor(menuTask) : false}
-        onStatus={applyStatus}
-        onPriority={applyPriority}
-        onDue={applyDue}
-        onJoinLeave={applyJoinLeave}
-        onSetAssignees={applySetAssignees}
-        onClose={closeMenu}
-      />
+      {commands.renderSheets((key) => findStartupRow(sections ?? [], key))}
 
       <QuickAddSheet
         visible={quickAddOpen}
-        areas={startup?.areas ?? []}
-        submitting={creating}
         onClose={() => setQuickAddOpen(false)}
-        onCreate={createTask}
+        now={now}
+        startups={quickAdd.startups}
+        preset={{ startupId }}
+        readStored={readStoredDestination}
+        rememberedArea={readLastArea}
+        onSubmit={quickAdd.submit}
       />
-    </View>
-  );
-}
-
-function SectionHeader({
-  label,
-  count,
-  danger,
-  collapsible,
-  open,
-  onToggle,
-  colors,
-}: {
-  label: string;
-  count: number;
-  danger: boolean;
-  collapsible: boolean;
-  open: boolean;
-  onToggle: () => void;
-  colors: ColorTokens;
-}) {
-  const tint = danger ? colors.destructive : colors.foreground;
-  const content = (
-    <>
-      <View style={styles.sectionHeaderLeft}>
-        <Text style={[styles.sectionTitle, { color: tint }]}>{label}</Text>
-        <View
-          style={[
-            styles.countPill,
-            { backgroundColor: danger ? `${colors.destructive}22` : colors.muted },
-          ]}>
-          <Text
-            style={[styles.countText, { color: danger ? colors.destructive : colors.mutedForeground }]}>
-            {count}
-          </Text>
-        </View>
-      </View>
-      {collapsible ? (
-        open ? (
-          <ChevronDown size={20} color={colors.mutedForeground} />
-        ) : (
-          <ChevronRight size={20} color={colors.mutedForeground} />
-        )
-      ) : null}
-    </>
-  );
-
-  if (collapsible) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${label}, ${count}`}
-        onPress={onToggle}
-        style={[styles.sectionHeaderRow, styles.sectionHeaderTappable]}>
-        {content}
-      </Pressable>
-    );
-  }
-
-  return (
-    <View accessibilityRole="header" style={styles.sectionHeaderRow}>
-      {content}
     </View>
   );
 }
 
 /**
- * Skeleton u obliku onoga što stiže: pozdrav dana, pa naslov sekcije, pa kartice
- * zadatka sa istim merama kao `TaskCard` — prelaz je zato čist crossfade.
+ * Skeleton u obliku onoga što stiže: pozdrav dana, pa naslov sekcije, pa redovi
+ * zadatka sa istim merama kao pravi — prelaz je zato čist crossfade.
  */
 function LoadingList() {
   return (
@@ -603,41 +485,7 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   section: {
-    gap: 10,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 28,
-  },
-  sectionHeaderTappable: {
-    minHeight: 44,
-  },
-  sectionHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  countPill: {
-    minWidth: 22,
-    paddingHorizontal: 7,
-    paddingVertical: 1,
-    borderRadius: radius.full,
-    alignItems: 'center',
-  },
-  countText: {
-    fontSize: 12,
-    fontWeight: fontWeight.semibold,
-  },
-  cards: {
-    gap: 10,
+    gap: 4,
   },
   skeletonSummary: {
     gap: 8,

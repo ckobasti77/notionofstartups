@@ -42,6 +42,7 @@ import { RowActionsSheet, type RowActionsTarget } from '@/components/me/row-acti
 import { MeSectionHeader } from '@/components/me/section-header';
 import { StartupChip } from '@/components/me/startup-chip';
 import { TaskRow } from '@/components/me/task-row';
+import { TaskMetaSheet, type TaskMetaView } from '@/components/zadatak/task-meta-sheet';
 import {
   KATALOG_QUICK_ADD_STARTUPS,
   KATALOG_STARTUPS,
@@ -211,6 +212,10 @@ export default function DizajnKatalogScreen() {
   const [k13Due, setK13Due] = useState<number | null>(null);
   const [k13Move, setK13Move] = useState(false);
   const [k13Log, setK13Log] = useState<string | null>(null);
+  // Zadaci u startupu (K18)
+  const [k18Target, setK18Target] = useState<RowActionsTarget | null>(null);
+  const [k18Meta, setK18Meta] = useState<TaskMetaView | null>(null);
+  const [k18Log, setK18Log] = useState<string | null>(null);
   // Inbox (K14)
   const [k14Segment, setK14Segment] = useState<InboxSegment>('all');
   const [k14Scope, setK14Scope] = useState<InboxScope>({ kind: 'all' });
@@ -843,6 +848,37 @@ export default function DizajnKatalogScreen() {
         <Caption text="Startup (uključujući Lično), status, prioritet, rok i Prikaži završene" colors={colors} />
         <Button label="Otvori filtere" variant="secondary" onPress={() => setK13FiltersOpen(true)} />
 
+        {/* ── Zadaci u startupu (K18) ── */}
+        <SectionHeader title="Zadatak u startupu — radnje" />
+        <Caption
+          text={'Dugi pritisak u startupu: Otvori, Završi, Moj dan, „Priključi se" (tuđ zadatak), Status, Rok, Prioritet'}
+          colors={colors}
+        />
+        <View style={styles.k13Chips}>
+          {katalogRows(demoNow)
+            .filter((row) => row.kind === 'task')
+            .slice(0, 4)
+            .map((row) => (
+              <Button
+                key={row.key}
+                label={row.permissions.status.allowed ? 'Radnje: moj zadatak' : 'Radnje: tuđ zadatak'}
+                size="sm"
+                variant="secondary"
+                onPress={() => setK18Target({ row, movable: null })}
+              />
+            ))}
+        </View>
+
+        <SectionHeader title="Zadatak u startupu — metapodaci" />
+        <Caption text="Sheet izbora sa detalja zadatka: status, prioritet, rok (srpski čipovi + kalendar u sheet-u), izvršioci" colors={colors} />
+        <View style={styles.k13Chips}>
+          <Button label="Status" size="sm" variant="secondary" onPress={() => setK18Meta('status')} />
+          <Button label="Prioritet" size="sm" variant="secondary" onPress={() => setK18Meta('priority')} />
+          <Button label="Rok" size="sm" variant="secondary" onPress={() => setK18Meta('due')} />
+          <Button label="Izvršioci" size="sm" variant="secondary" onPress={() => setK18Meta('assignees')} />
+        </View>
+        <Caption text={k18Log ? `Poslednja radnja: ${k18Log}` : 'Još nema radnje'} colors={colors} />
+
         {/* ── Inbox (K14) ── */}
         <SectionHeader title="Inbox stavka" />
         <Caption text="Nepročitano · pročitano · lična poruka · ikonica po tipu · swipe udesno = pročitano" colors={colors} />
@@ -1032,6 +1068,70 @@ export default function DizajnKatalogScreen() {
         onMove={(_, direction) => {
           setActionsTarget(null);
           setK12Log(direction < 0 ? 'Pomeri gore' : 'Pomeri dole');
+        }}
+      />
+      {/* Radnje u startupu (K18): status i „Priključi se" uz iste redove kao Moj dan. */}
+      <RowActionsSheet
+        target={k18Target}
+        now={demoNow}
+        onClose={() => setK18Target(null)}
+        onOpen={(row) => {
+          setK18Target(null);
+          setK18Log(`Otvori: ${row.title}`);
+        }}
+        onToggleDone={(row, done) => {
+          setK18Target(null);
+          setK18Log(done ? `Završeno: ${row.title}` : `Vraćeno: ${row.title}`);
+        }}
+        onTogglePlan={(row) => {
+          setK18Target(null);
+          setK18Log(row.planned ? 'Uklonjeno iz Moj dan' : 'Dodato u Moj dan');
+        }}
+        onSetDue={() => {
+          setK18Target(null);
+          setK18Log('Rok je promenjen');
+        }}
+        onSetPriority={() => {
+          setK18Target(null);
+          setK18Log('Prioritet je promenjen');
+        }}
+        onSetStatus={(row, status) => {
+          setK18Target(null);
+          setK18Log(`Status: ${status}`);
+        }}
+        onJoin={() => {
+          setK18Target(null);
+          setK18Log('Priključio/la si se');
+        }}
+      />
+      <TaskMetaSheet
+        view={k18Meta}
+        onViewChange={setK18Meta}
+        onClose={() => setK18Meta(null)}
+        now={demoNow}
+        title="Landing za Q4"
+        status="in_progress"
+        priority="high"
+        dueDate={k13Due}
+        assigneesPerm={{ allowed: true, reason: 'Zadatak vodi kreator; ti možeš da se priključiš ili napustiš.' }}
+        assignees={[{ profileId: 'p1', displayName: 'Ana Ilić', avatarUrl: null }]}
+        isAssignee={false}
+        onStatus={(status) => {
+          setK18Meta(null);
+          setK18Log(`Status: ${status}`);
+        }}
+        onPriority={(priority) => {
+          setK18Meta(null);
+          setK18Log(`Prioritet: ${priority}`);
+        }}
+        onDue={(due) => {
+          setK18Meta(null);
+          setK13Due(due);
+          setK18Log('Rok je promenjen');
+        }}
+        onJoinLeave={() => {
+          setK18Meta(null);
+          setK18Log('Priključio/la si se');
         }}
       />
       <RokPlanSheet

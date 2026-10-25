@@ -83,6 +83,11 @@ export type TaskPanelSheetProps = {
   onClose: () => void;
   /** „Otvori" (startup zadatak): ekran zadatka u njegovom startupu. */
   onOpenInStartup: (startupId: Id<'startups'>, pageId: Id<'pages'>) => void;
+  /**
+   * Natpis dugmeta za startup zadatak. Podrazumevano „Otvori u startupu"; u
+   * listama unutar startupa (K18) je „Puni prikaz" — punu stranicu, kao web.
+   */
+  openLabel?: string;
 };
 
 type PanelView = 'main' | 'status' | 'priority' | 'due' | 'date' | 'assignees' | 'move';
@@ -116,7 +121,7 @@ export function panelRequestKey(request: TaskPanelRequest | null): string | null
  * K12). Radnje koje nude traku „Poništi" (završi, obriši, ukloni iz Moj dan)
  * zatvaraju panel da traka ispod njega bude vidljiva.
  */
-export function TaskPanelSheet({ request, onClose, onOpenInStartup }: TaskPanelSheetProps) {
+export function TaskPanelSheet({ request, onClose, onOpenInStartup, openLabel }: TaskPanelSheetProps) {
   // Sadržaj ostaje tokom izlazne animacije (zahtev je već `null`).
   const shown = useRetained(request);
   // „Pokušaj ponovo" ponovo montira sadržaj (nova pretplata).
@@ -142,6 +147,7 @@ export function TaskPanelSheet({ request, onClose, onOpenInStartup }: TaskPanelS
           setView={setView}
           onClose={onClose}
           onOpenInStartup={onOpenInStartup}
+          openLabel={openLabel}
           retry={() => setAttempt((value) => value + 1)}
         />
       ) : null}
@@ -155,6 +161,7 @@ type ContentProps = {
   setView: (view: PanelView) => void;
   onClose: () => void;
   onOpenInStartup: TaskPanelSheetProps['onOpenInStartup'];
+  openLabel: string | undefined;
   retry: () => void;
 };
 
@@ -172,7 +179,7 @@ type PanelContext = {
   revealField: () => void;
 };
 
-function PanelContent({ request, view, setView, onClose, onOpenInStartup, retry }: ContentProps) {
+function PanelContent({ request, view, setView, onClose, onOpenInStartup, openLabel, retry }: ContentProps) {
   const today = useToday();
   // Polje pri dnu panela se posle fokusa doskroluje iznad tastature.
   const scrollRef = useRef<ScrollView>(null);
@@ -220,6 +227,7 @@ function PanelContent({ request, view, setView, onClose, onOpenInStartup, retry 
           ctx={ctx}
           onClose={onClose}
           onOpenInStartup={onOpenInStartup}
+          openLabel={openLabel}
           retry={retry}
         />
       ) : (
@@ -243,6 +251,7 @@ function StartupTaskPanel({
   ctx,
   onClose,
   onOpenInStartup,
+  openLabel,
   retry,
 }: {
   pageId: Id<'pages'>;
@@ -250,6 +259,7 @@ function StartupTaskPanel({
   ctx: PanelContext;
   onClose: () => void;
   onOpenInStartup: TaskPanelSheetProps['onOpenInStartup'];
+  openLabel: string | undefined;
   retry: () => void;
 }) {
   const colors = useThemeColors();
@@ -503,7 +513,7 @@ function StartupTaskPanel({
       <View style={styles.chips}>
         <PlanButton planned={planEntryId !== null} onPress={togglePlan} />
         <Button
-          label="Otvori u startupu"
+          label={openLabel ?? 'Otvori u startupu'}
           variant="secondary"
           icon={<ExternalLink size={16} color={colors.foreground} />}
           onPress={() => {
