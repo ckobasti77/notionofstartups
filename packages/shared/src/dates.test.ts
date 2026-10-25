@@ -6,6 +6,7 @@ import {
   dayDiff,
   dayKeyOf,
   describeDue,
+  describeDueForRow,
   diffDayKeys,
   DUE_SHORTCUT_LABELS,
   dueShortcutDayKey,
@@ -227,6 +228,16 @@ describe("srpski formati", () => {
 describe("opis roka", () => {
   const now = bg("2026-10-24", 10);
   const noon = (key: string) => noonOfDayKey(key, BG);
+
+  test("red: završen zadatak pokazuje samo datum, bez „kasni“", () => {
+    const late = noon("2026-10-21");
+    expect(describeDueForRow(late, now, false, BG).tone).toBe("overdue");
+    expect(describeDueForRow(late, now, true, BG)).toMatchObject({
+      label: formatDateShort(late, BG),
+      tone: "later",
+    });
+    expect(describeDueForRow(null, now, true, BG).tone).toBe("none");
+  });
 
   test("bez roka", () => {
     expect(describeDue(null, now, BG)).toEqual({

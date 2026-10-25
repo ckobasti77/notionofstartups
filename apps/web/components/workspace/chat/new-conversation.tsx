@@ -152,6 +152,7 @@ function NewDirectMessageDialog({
           </DialogDescription>
         </DialogHeader>
         <Input
+          aria-label="Pretraži članove"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Pretraži članove…"

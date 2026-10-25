@@ -253,7 +253,7 @@ export function HubList({
               <TriangleAlert className="size-5" aria-hidden="true" />
             </span>
             <p className="text-sm font-semibold">Razgovori se ne mogu učitati</p>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">Proveri vezu pa pokušaj ponovo.</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">Proveri vezu i pokušaj ponovo.</p>
             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={state.retry}>
               <RefreshCw aria-hidden="true" />
               Pokušaj ponovo

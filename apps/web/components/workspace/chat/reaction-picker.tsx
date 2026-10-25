@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { QUICK_REACTIONS } from "@/lib/chat";
@@ -37,15 +38,16 @@ export function ReactionPicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="flex w-auto gap-1 p-1">
         {QUICK_REACTIONS.map((emoji) => (
-          <button
+          // Stavka menija: strelice biraju emodži, Enter potvrđuje (obično dugme
+          // unutar Radix menija nije dostupno tastaturom).
+          <DropdownMenuItem
             key={emoji}
-            type="button"
-            onClick={() => onSelect(emoji)}
-            className="grid size-8 place-items-center rounded-md text-lg leading-none transition-colors hover:bg-accent"
+            onSelect={() => onSelect(emoji)}
+            className="size-8 justify-center rounded-md p-0 text-lg leading-none"
             aria-label={`Reaguj sa ${emoji}`}
           >
             {emoji}
-          </button>
+          </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

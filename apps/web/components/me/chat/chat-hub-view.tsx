@@ -172,8 +172,8 @@ export function ChatHubView({
       <div
         ref={conversationPaneRef}
         tabIndex={-1}
-        aria-label="Otvoren razgovor"
-        role="region"
+        aria-label={selected ? "Otvoren razgovor" : undefined}
+        role={selected ? "region" : undefined}
         data-hub-conversation=""
         className={cn("min-h-0 min-w-0 flex-1 flex-col outline-none", selected ? "flex" : "hidden xl:flex")}
       >
@@ -184,6 +184,7 @@ export function ChatHubView({
             <div className="flex h-full items-center justify-center p-6">
               {empty ? (
                 <EmptyState
+                  headingAs="h2"
                   icon={MessagesSquare}
                   title="Još nemaš razgovora"
                   description="Pošalji poruku nekome iz tima ili napravi grupu."
@@ -197,6 +198,7 @@ export function ChatHubView({
                 />
               ) : (
                 <EmptyState
+                  headingAs="h2"
                   icon={MessagesSquare}
                   title="Izaberi razgovor"
                   description="Otvori razgovor sa leve strane."

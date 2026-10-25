@@ -97,7 +97,7 @@ export function DatePickerPanel({ value, now, onSelect, allowClear = true, class
     setFocusKey((current) => moveCalendarFocus(current, delta === 1 ? "nextMonth" : "prevMonth"));
 
   return (
-    <div className={cn("w-[17.5rem] space-y-3 pointer-coarse:w-[19.5rem]", className)}>
+    <div className={cn("w-[17.5rem] space-y-3 pointer-coarse:w-[20.5rem]", className)}>
       <div role="group" aria-label="Brzi izbor" className="flex flex-wrap gap-1.5">
         {chips.map((chip) => {
           const selected = selectedChip === chip.id;

@@ -485,3 +485,20 @@ export function describeDue(
     dayDiff: diff,
   };
 }
+
+/**
+ * Opis roka za red liste: otvoren zadatak ide kroz `describeDue`; završen
+ * prikazuje samo datum bez tona upozorenja — završen zadatak ne „kasni".
+ * Isti tekst na webu i telefonu.
+ */
+export function describeDueForRow(
+  dueMs: number | null,
+  nowMs: number,
+  done: boolean,
+  zone?: string,
+): DueDescription {
+  const due = describeDue(dueMs, nowMs, zone);
+  if (!done || dueMs === null || due.tone === "none") return due;
+  const date = formatDateShort(dueMs, zone);
+  return { label: date, ariaLabel: `Rok bio ${date}`, tone: "later", dayDiff: due.dayDiff };
+}

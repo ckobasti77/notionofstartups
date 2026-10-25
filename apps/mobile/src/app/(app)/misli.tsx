@@ -447,7 +447,7 @@ function MisliSkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <MisliError message={error.message} onRetry={retry} />;
+  return <MisliError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function MisliError({ message, onRetry }: { message: string; onRetry: () => void }) {

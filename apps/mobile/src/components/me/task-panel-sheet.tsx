@@ -176,7 +176,7 @@ type PanelContext = {
   setView: (view: PanelView) => void;
   onOpenInStartup: TaskPanelSheetProps['onOpenInStartup'];
   /** Doskrolaj panel do dna posle fokusa polja (tastatura smanji vidljiv deo). */
-  revealField: () => void;
+  revealField: (field?: View | null) => void;
 };
 
 function PanelContent({ request, view, setView, onClose, onOpenInStartup, openLabel, retry }: ContentProps) {
@@ -210,7 +210,24 @@ function PanelContent({ request, view, setView, onClose, onOpenInStartup, openLa
     view,
     setView,
     onOpenInStartup,
-    revealField: () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250),
+    revealField: (field) => {
+      // Sačekaj da se tastatura podigne i sheet suzi, pa spusti TAČNO to polje
+      // (korak usred liste), ne samo dno panela. Bez mere, dno kao ranije.
+      setTimeout(() => {
+        const scroll = scrollRef.current;
+        const inner = scroll?.getInnerViewNode();
+        if (!scroll) return;
+        if (!field || !inner) {
+          scroll.scrollToEnd({ animated: true });
+          return;
+        }
+        field.measureLayout(
+          inner,
+          (_x, y) => scroll.scrollTo({ y: Math.max(0, y - 96), animated: true }),
+          () => scroll.scrollToEnd({ animated: true }),
+        );
+      }, 250);
+    },
   };
 
   return (
@@ -542,7 +559,12 @@ function StartupTaskPanel({
       </View>
 
       <View style={styles.stack}>
-        <TaskCheckpointList taskPageId={pageId} canCreate={permissions.checkpoints.allowed} onDeleted={onClose} />
+        <TaskCheckpointList
+          taskPageId={pageId}
+          canCreate={permissions.checkpoints.allowed}
+          onDeleted={onClose}
+          onInputFocus={ctx.revealField}
+        />
         {permissions.checkpoints.allowed ? null : (
           <LockedNotice label="Koraci" reason={permissions.checkpoints.reason ?? ''} />
         )}

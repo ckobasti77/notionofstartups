@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { InboxScreen } from '@/components/me/inbox/inbox-screen';
-import { ScreenHeader } from '@/components/ui/screen-header';
+import { MeHeader } from '@/components/me/me-header';
 import { accessErrorMessage } from '@/lib/errors';
 import { TAB_TITLES } from '@/lib/tabs';
 import { useThemeColors } from '@/theme/theme-provider';
@@ -30,7 +30,7 @@ function ObavestenjaErrorState({ message, onRetry }: { message: string; onRetry:
   const colors = useThemeColors();
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader title={TAB_TITLES.obavestenja} />
+      <MeHeader title={TAB_TITLES.obavestenja} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Obaveštenja se ne mogu učitati"

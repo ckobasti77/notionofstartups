@@ -58,6 +58,7 @@ import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /**
  * Detalj zadatka — full-screen, van tabova (docs/mobile/02-EKRANI.md §9.2).
@@ -193,7 +194,7 @@ export default function ZadatakScreen() {
       .then(() => {
         haptics.success();
         AccessibilityInfo.announceForAccessibility(
-          isAssignee ? 'Napustio/la si zadatak.' : 'Priključio/la si se zadatku.',
+          isAssignee ? 'Više nisi na zadatku.' : 'Sad si na zadatku.',
         );
       })
       .catch(notifyError);
@@ -422,7 +423,7 @@ function TaskSkeleton() {
  * baca kad korisnik nema pristup — expo-router to hvata ovde umesto pada ekrana.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <TaskErrorState message={error.message} onRetry={retry} />;
+  return <TaskErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function TaskErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

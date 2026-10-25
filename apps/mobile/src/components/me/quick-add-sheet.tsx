@@ -312,7 +312,7 @@ function ToggleRow({
       <Switch
         value={checked}
         onValueChange={flip}
-        trackColor={{ true: colors.primary, false: colors.muted }}
+        trackColor={{ true: colors.primary, false: colors.mutedForeground }}
         thumbColor={colors.surface}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"

@@ -174,12 +174,15 @@ export function EmptyState({
   description,
   action,
   className,
+  headingAs: Heading = "h3",
 }: {
   icon?: ComponentType<{ className?: string }>;
   title: string;
   description: string;
   action?: React.ReactNode;
   className?: string;
+  /** Nivo naslova: „h2" kad je prazno stanje odmah ispod h1 prikaza (bez preskoka nivoa). */
+  headingAs?: "h2" | "h3";
 }) {
   return (
     <div
@@ -191,7 +194,7 @@ export function EmptyState({
       <span className="mb-4 grid size-11 place-items-center rounded-xl bg-accent text-accent-foreground">
         <Icon className="size-5" />
       </span>
-      <h3 className="text-sm font-semibold">{title}</h3>
+      <Heading className="text-sm font-semibold">{title}</Heading>
       <p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{description}</p>
       {action ? <div className="mt-5">{action}</div> : null}
     </div>

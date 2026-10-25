@@ -174,6 +174,7 @@ function ActionRow({
 const styles = StyleSheet.create({
   reactions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-around',
     paddingVertical: 8,
     paddingHorizontal: 8,

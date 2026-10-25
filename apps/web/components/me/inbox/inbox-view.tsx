@@ -107,7 +107,7 @@ export type InboxViewProps = {
 };
 
 const chipClass =
-  "relative inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+  "relative inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
  * Inbox (K14, plan K07 §1.5): obaveštenja iz svih startupa i ličnih poruka na
@@ -155,7 +155,7 @@ export function InboxView({
       </p>
       <header data-workspace-enter className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-[-0.03em]">Inbox</h1>
+          <h1 className="text-2xl font-bold tracking-[-0.035em] sm:text-3xl">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {total === null ? (
               "Obaveštenja iz svih startupa i ličnih poruka"
@@ -204,7 +204,7 @@ export function InboxView({
         onValueChange={(value) => onSegmentChange(value as InboxSegment)}
         className="mt-5"
       >
-        <TabsList aria-label="Prikaz Inboxa" className="h-10 w-full sm:w-auto">
+        <TabsList aria-label="Prikaz Inboxa" className="h-10 w-full sm:w-auto pointer-coarse:h-12">
           {INBOX_SEGMENTS.map(({ key, label }) => {
             const count = key === "unread" ? scoped : key === "pending" ? (pendingScoped ? { count: pendingScoped.length, capped: false } : null) : null;
             return (
@@ -212,7 +212,7 @@ export function InboxView({
                 key={key}
                 value={key}
                 id={`${tabId}-${key}`}
-                className="h-8 flex-1 gap-2 px-3 sm:flex-none"
+                className="h-8 flex-1 gap-2 px-3 sm:flex-none pointer-coarse:h-11"
               >
                 {label}
                 {count !== null && count.count > 0 ? (
@@ -364,6 +364,7 @@ function FeedPanel({
     const more = state.canLoadMore || state.loadingMore;
     return (
       <EmptyState
+        headingAs="h2"
         icon={segment === "unread" ? Check : Inbox}
         title={more ? "Nema ništa na ovoj strani" : copy.title}
         description={more ? "Ostalo može biti dalje u istoriji." : copy.description}
@@ -458,7 +459,7 @@ function InboxRow({
         type="button"
         data-inbox-row
         onClick={() => onOpen(item)}
-        className="flex min-w-0 flex-1 items-start gap-3 rounded-xl px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="flex min-w-0 flex-1 items-start gap-3 rounded-xl px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span
           className={cn(
@@ -497,7 +498,7 @@ function InboxRow({
           aria-label={`Označi kao pročitano: ${item.title}`}
           title="Označi kao pročitano"
           onClick={() => onMarkRead(item)}
-          className="mr-1.5 mt-1.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 md:pointer-fine:opacity-0 md:pointer-fine:group-hover/row:opacity-100 md:pointer-fine:group-focus-within/row:opacity-100"
+          className="mr-1.5 mt-1.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:pointer-fine:opacity-0 md:pointer-fine:group-hover/row:opacity-100 md:pointer-fine:group-focus-within/row:opacity-100"
         >
           <Check className="size-4" aria-hidden="true" />
         </button>
@@ -526,7 +527,7 @@ function PendingPanel({
   const items = inboxPendingFor(state.items, scope);
   if (items.length === 0) {
     const copy = inboxEmptyCopy(segment, scope);
-    return <EmptyState icon={Hourglass} title={copy.title} description={copy.description} />;
+    return <EmptyState headingAs="h2" icon={Hourglass} title={copy.title} description={copy.description} />;
   }
   return (
     <div className="space-y-3">

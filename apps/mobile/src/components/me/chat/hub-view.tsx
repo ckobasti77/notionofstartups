@@ -105,7 +105,7 @@ export function ChatHubView<C extends HubChannel>({
   const header = (
     <MeHeader
       title="Poruke"
-      subtitle={hubHeaderSubtitle(unreadTotal)}
+      subtitle={hubHeaderSubtitle(unreadTotal) ?? ' '}
       safeArea={safeArea}
       actions={
         <>
@@ -150,7 +150,7 @@ export function ChatHubView<C extends HubChannel>({
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Razgovori se ne mogu učitati"
-        description="Proveri vezu pa pokušaj ponovo."
+        description="Proveri vezu i pokušaj ponovo."
         actionLabel="Pokušaj ponovo"
         onAction={state.retry}
       />

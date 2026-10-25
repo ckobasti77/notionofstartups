@@ -170,12 +170,12 @@ export function TaskRow({
   };
 
   const meta = columns ? (
-    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground lg:shrink-0 lg:flex-nowrap lg:gap-0">
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground xl:shrink-0 xl:flex-nowrap xl:gap-0">
       {showStartup ? (
-        <StartupChip startup={row.startup} size="xs" showName className="max-w-[11rem] lg:w-[9rem] lg:max-w-[9rem] lg:shrink-0 lg:pr-3" nameClassName="text-xs" />
+        <StartupChip startup={row.startup} size="xs" showName className="max-w-[11rem] xl:w-[9rem] xl:max-w-[9rem] xl:shrink-0 xl:pr-3" nameClassName="text-xs" />
       ) : null}
-      <span className={cn("min-w-0 truncate lg:w-[120px] lg:pr-3", !row.areaLabel && "max-lg:hidden")}>
-        {showStartup ? <span aria-hidden="true" className="lg:hidden">· </span> : null}
+      <span className={cn("min-w-0 truncate xl:w-[120px] xl:pr-3", !row.areaLabel && "max-xl:hidden")}>
+        {showStartup ? <span aria-hidden="true" className="xl:hidden">· </span> : null}
         {row.areaLabel ?? (
           <>
             <span aria-hidden="true">—</span>
@@ -183,11 +183,11 @@ export function TaskRow({
           </>
         )}
       </span>
-      {extraMeta ? <span className="flex min-w-0 shrink-0 items-center lg:w-28 lg:pr-3">{extraMeta}</span> : null}
+      {extraMeta ? <span className="flex min-w-0 shrink-0 items-center xl:w-28 xl:pr-3">{extraMeta}</span> : null}
       {showStatus ? (
-        <span className="shrink-0 whitespace-nowrap lg:w-24 lg:pr-3">
+        <span className="shrink-0 whitespace-nowrap xl:w-24 xl:pr-3">
           {showStartup || row.areaLabel ? (
-            <span aria-hidden="true" className="lg:hidden">
+            <span aria-hidden="true" className="xl:hidden">
               ·{" "}
             </span>
           ) : null}
@@ -195,11 +195,11 @@ export function TaskRow({
           {STATUS_LABELS[row.status]}
         </span>
       ) : null}
-      <span className="ml-auto flex shrink-0 items-center gap-1.5 lg:ml-0 lg:w-[104px]">
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 xl:ml-0 xl:w-[104px]">
         <DueChip dueDate={row.dueDate} now={now} done={row.done} />
-        <PriorityDot priority={row.priority} className="lg:hidden" />
+        <PriorityDot priority={row.priority} className="xl:hidden" />
       </span>
-      <span className="hidden shrink-0 items-center gap-1.5 lg:flex lg:w-[88px]">
+      <span className="hidden shrink-0 items-center gap-1.5 xl:flex xl:w-[88px]">
         {row.priority ? (
           <>
             <PriorityDot priority={row.priority} />
@@ -387,7 +387,7 @@ function TitleArea({
 
   const body = (
     <>
-      <span className={cn("relative min-w-0 max-w-full", card ? null : columns ? "lg:flex-1" : "md:flex-1")}>
+      <span className={cn("relative min-w-0 max-w-full", card ? null : columns ? "xl:flex-1" : "md:flex-1")}>
         <span
           title={row.title}
           data-row-title
@@ -420,7 +420,7 @@ function TitleArea({
   const layout = card
     ? "flex min-w-0 flex-1 flex-col gap-1.5 py-0.5 text-left"
     : columns
-      ? "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left lg:flex-row lg:items-center lg:gap-3"
+      ? "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left xl:flex-row xl:items-center xl:gap-3"
       : "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left md:flex-row md:items-center md:gap-3";
   if (!canOpen) return <span className={layout}>{body}</span>;
   return (

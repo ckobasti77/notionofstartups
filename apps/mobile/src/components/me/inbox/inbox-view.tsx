@@ -203,7 +203,8 @@ export function InboxView({
   const header = (
     <MeHeader
       title="Inbox"
-      subtitle={subtitle}
+      // Nerazdvojivi razmak drži visinu zaglavlja dok brojači ne stignu (bez skoka).
+      subtitle={subtitle ?? ' '}
       safeArea={safeArea}
       actions={
         <>
@@ -826,16 +827,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -space[2],
     right: space[1],
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 5,
+    minWidth: 22,
+    minHeight: 22,
+    paddingHorizontal: 6,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   segBadgeText: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: fontWeight.bold,
   },
   chipScroll: {

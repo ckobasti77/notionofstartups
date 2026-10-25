@@ -79,7 +79,8 @@ export function WorkspaceRail({
   const keys = ["me", ...startups.map((startup) => startup.id as string)];
   const [focusKey, setFocusKey] = useState<string | null>(null);
   // Mesto u Tab redosledu je izabrani opseg; dok je fokus u traci, prati ga.
-  const tabStopKey = focusKey !== null && keys.includes(focusKey) ? focusKey : activeKey;
+  const tabStopKey =
+    focusKey !== null && keys.includes(focusKey) ? focusKey : keys.includes(activeKey) ? activeKey : "me";
 
   function moveFocus(event: KeyboardEvent<HTMLElement>) {
     // Samo pločice opsega su roving grupa („Učitaj još" i „+" nisu).
@@ -208,7 +209,7 @@ export function WorkspaceRail({
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <span className="block font-medium">{startup.name}</span>
-                  {dot ? <span className="block text-[0.6875rem] text-muted-foreground">Ima nepročitano</span> : null}
+                  {dot ? <span className="block text-[0.6875rem] text-background/70">Ima nepročitano</span> : null}
                 </TooltipContent>
               </Tooltip>
             </div>

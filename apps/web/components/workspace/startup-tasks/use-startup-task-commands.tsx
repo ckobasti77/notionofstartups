@@ -285,7 +285,7 @@ export function useStartupTaskCommands({
 
   const joinTask = (row: TaskRowModel) => {
     void join({ taskPageId: row.id as Id<"pages"> })
-      .then(() => toast.success("Priključio/la si se zadatku."))
+      .then(() => toast.success("Sad si na zadatku."))
       .catch((error: unknown) => toast.error(accessErrorMessage(error, "Priključivanje nije uspelo.")));
   };
 

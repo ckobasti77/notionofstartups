@@ -51,6 +51,7 @@ import {
 import { areaColor, statusColor, TASK_STATUS_META, type TaskStatus } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 type PulsData = FunctionReturnType<typeof api.puls.getWeekly>;
 type StuckTask = PulsData['stuckTasks'][number];
@@ -811,7 +812,7 @@ function PulsSkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <PulsErrorState message={error.message} onRetry={retry} />;
+  return <PulsErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function PulsErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

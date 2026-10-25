@@ -684,12 +684,12 @@ export function PageEditorView({
       onChange={changeTaskMeta}
       onJoin={() =>
         void joinTask({ taskPageId: page._id })
-          .then(() => toast.success("Priključio/la si se zadatku."))
+          .then(() => toast.success("Sad si na zadatku."))
           .catch((error: unknown) => toast.error(accessErrorMessage(error, "Priključivanje nije uspelo.")))
       }
       onLeave={() =>
         void leaveTask({ taskPageId: page._id })
-          .then(() => toast.success("Napustio/la si zadatak."))
+          .then(() => toast.success("Više nisi na zadatku."))
           .catch((error: unknown) => toast.error(accessErrorMessage(error, "Napuštanje zadatka nije uspelo.")))
       }
       onDenied={(reason) => toast.error(reason)}

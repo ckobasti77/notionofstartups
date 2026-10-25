@@ -1105,7 +1105,7 @@ export default function DizajnKatalogScreen() {
         }}
         onJoin={() => {
           setK18Target(null);
-          setK18Log('Priključio/la si se');
+          setK18Log('Sad si na zadatku');
         }}
       />
       <TaskMetaSheet
@@ -1135,7 +1135,7 @@ export default function DizajnKatalogScreen() {
         }}
         onJoinLeave={() => {
           setK18Meta(null);
-          setK18Log('Priključio/la si se');
+          setK18Log('Sad si na zadatku');
         }}
       />
       <RokPlanSheet

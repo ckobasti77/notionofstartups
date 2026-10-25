@@ -16,6 +16,7 @@ export {
   dayKeyOf,
   daysWord,
   describeDue,
+  describeDueForRow,
   diffDayKeys,
   DUE_SHORTCUT_LABELS,
   DUE_SHORTCUTS,

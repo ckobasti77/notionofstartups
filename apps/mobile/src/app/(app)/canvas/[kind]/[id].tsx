@@ -55,6 +55,7 @@ import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useAppTheme, useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 const KINDS: readonly CanvasKind[] = ['thoughts', 'ideas', 'area', 'page'];
 const webBase = process.env.EXPO_PUBLIC_WEB_URL;
@@ -1220,7 +1221,7 @@ function Fallback({
  * renderu ekrana i nudi „Pokušaj ponovo" umesto pada cele navigacije.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <CanvasError message={error.message} onRetry={retry} />;
+  return <CanvasError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function CanvasError({ message, onRetry }: { message: string; onRetry: () => void }) {

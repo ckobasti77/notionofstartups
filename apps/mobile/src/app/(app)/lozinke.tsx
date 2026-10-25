@@ -19,6 +19,7 @@ import { useListRefresh } from '@/hooks/use-list-refresh';
 import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, text } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /** `profiles.listAll` odseca na 50 (boundedLimit). Ako se vrati tačno toliko —
  * verovatno ima još; kaže se pošteno umesto tihog odsecanja (rn-review). */
@@ -159,7 +160,7 @@ export default function LozinkeScreen() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <LozinkeError message={error.message} onRetry={retry} />;
+  return <LozinkeError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function LozinkeError({ message, onRetry }: { message: string; onRetry: () => void }) {

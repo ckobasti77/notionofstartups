@@ -120,6 +120,22 @@ export function SkeletonTaskCard({ index = 0 }: { index?: number }) {
   );
 }
 
+/**
+ * Oblik reda `me/task-row` (K20): bez kartice i ivice, kvačica 24 + naslov i
+ * jedna linija meta, visina 56 — lista ne skače kad stignu pravi redovi.
+ */
+export function SkeletonTaskRow({ index = 0 }: { index?: number }) {
+  return (
+    <View style={styles.taskRow}>
+      <Skeleton width={24} height={24} borderRadius={radius.pill} />
+      <View style={styles.taskRowBody}>
+        <Skeleton width={titleWidth(index)} height={16} />
+        <Skeleton width={subtitleWidth(index)} height={13} />
+      </View>
+    </View>
+  );
+}
+
 /** Oblik kartice ideje: naslov, dve linije teksta, podnožje sa autorom i glasovima. */
 export function SkeletonIdeaCard({ index = 0 }: { index?: number }) {
   return (
@@ -186,6 +202,17 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingVertical: 6,
+  },
+  taskRowBody: {
+    flex: 1,
+    gap: 6,
   },
   taskCard: {
     gap: 12,

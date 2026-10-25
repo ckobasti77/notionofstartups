@@ -140,6 +140,7 @@ export function MyDayView({
             {openRows === 0 ? (
               doneToday > 0 ? (
                 <EmptyState
+                  headingAs="h2"
                   icon={PartyPopper}
                   title="Sve za danas je završeno"
                   description={`Završeno danas: ${doneToday}. Pogledaj šta je sledeće.`}
@@ -151,6 +152,7 @@ export function MyDayView({
                 />
               ) : (
                 <EmptyState
+                  headingAs="h2"
                   icon={Coffee}
                   title="Danas je mirno"
                   description="Nema rokova ni planova za danas."

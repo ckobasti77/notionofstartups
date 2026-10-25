@@ -169,7 +169,7 @@ function IzlogKomandniCentar({ initial = IZLOG_ST_TASKS, loading = false }: { in
         next.set(row.id, [...people, { profileId: ME, displayName: IZLOG_PROFILE.displayName, avatarUrl: null }]);
         return next;
       });
-      toast.success("Priključio/la si se zadatku.");
+      toast.success("Sad si na zadatku.");
     },
   });
 

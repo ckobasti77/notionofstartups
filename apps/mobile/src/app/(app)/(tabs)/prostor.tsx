@@ -50,7 +50,7 @@ import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { SkeletonList, SkeletonTaskRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Doc, Id } from '@/convex/_generated/dataModel';
@@ -81,6 +81,7 @@ import {
   text,
   type ColorTokens,
 } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /**
  * Minimalni oblik stranice koji ovaj ekran koristi — presek polja koja i
@@ -338,6 +339,7 @@ export default function ProstorScreen() {
         areaId={top.areaId}
         now={now}
         onOpenLeaf={openLeaf}
+        onCreate={() => setCreatingPage(true)}
       />
       {/* Stranica se prirodno pravi u oblasti (E13); Nivo 1 FAB nema — tamo se
           pravi OBLAST i taj ulaz već postoji („Nova oblast"). */}
@@ -509,7 +511,7 @@ function CommandCenterPending() {
       accessibilityLiveRegion="polite"
       accessibilityLabel="Učitavanje komandnog centra">
       <Skeleton width="100%" height={44} borderRadius={radius.lg} />
-      <SkeletonList count={3} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+      <SkeletonList count={3} item={(index) => <SkeletonTaskRow index={index} />} />
     </View>
   );
 }
@@ -619,11 +621,13 @@ function PageLevel({
   areaId,
   now,
   onOpenLeaf,
+  onCreate,
 }: {
   startupId: Id<'startups'> | null;
   areaId: Id<'startupAreas'>;
   now: number;
   onOpenLeaf: (page: PageItem) => void;
+  onCreate: () => void;
 }) {
   const colors = useThemeColors();
   // Filter po vrsti (C7) živi ovde jer `PageLevel` već ima `key={frameKey}` u
@@ -665,6 +669,7 @@ function PageLevel({
           colors={colors}
           kindFilter={kindFilter}
           onClearFilter={() => setKindFilter(null)}
+          onCreate={onCreate}
         />
       ) : (
         <PageLevelList
@@ -1042,17 +1047,19 @@ function PageLevelEmpty({
   colors,
   kindFilter,
   onClearFilter,
+  onCreate,
 }: {
   colors: ColorTokens;
   kindFilter: PageKind | null;
   onClearFilter: () => void;
+  onCreate: () => void;
 }) {
   if (kindFilter !== null) {
     const Icon = pageKindMeta(kindFilter).icon;
     return (
       <EmptyState
         icon={<Icon size={40} color={colors.mutedForeground} />}
-        title={`Nema stranica vrste ${pageKindMeta(kindFilter).label} u ovoj oblasti.`}
+        title={`Nema stranica vrste ${pageKindMeta(kindFilter).label} u ovoj oblasti`}
         description="Filter važi za koren oblasti — podstranice se ne filtriraju."
         actionLabel="Prikaži sve"
         onAction={onClearFilter}
@@ -1062,8 +1069,10 @@ function PageLevelEmpty({
   return (
     <EmptyState
       icon={<FolderOpen size={40} color={colors.mutedForeground} />}
-      title="Ova oblast je prazna."
-      description="Dodaj prvu stranicu dugmetom + dole desno."
+      title="Ova oblast je prazna"
+      description="Dodaj prvu stranicu."
+      actionLabel="Nova stranica"
+      onAction={onCreate}
     />
   );
 }
@@ -1117,7 +1126,7 @@ function PageListSkeleton() {
  * član — expo-router to hvata ovde umesto pada ekrana.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <ProstorErrorState message={error.message} onRetry={retry} />;
+  return <ProstorErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function ProstorErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

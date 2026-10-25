@@ -131,7 +131,7 @@ export function useStartupTaskCommands({
     void join({ taskPageId: row.id as Id<'pages'> })
       .then(() => {
         haptics.success();
-        AccessibilityInfo.announceForAccessibility('Priključio/la si se zadatku.');
+        AccessibilityInfo.announceForAccessibility('Sad si na zadatku.');
       })
       .catch((error: unknown) => failed('Priključivanje nije uspelo', error, 'Pokušaj ponovo.'));
   };

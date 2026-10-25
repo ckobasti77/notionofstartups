@@ -1182,7 +1182,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               : {
                   kind: "startup",
                   startup,
-                  subtitle: route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Komandni centar" : route.kind === "chat" ? "Chat" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor",
+                  subtitle: route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Komandni centar" : route.kind === "chat" ? "Poruke" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor",
                   onSearch: () => setSearchOpen(true),
                 }
           }

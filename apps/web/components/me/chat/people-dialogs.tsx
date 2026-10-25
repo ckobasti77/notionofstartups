@@ -111,7 +111,7 @@ function PeopleError({ retry }: { retry: () => void }) {
   return (
     <div role="alert" className="rounded-xl border border-dashed px-4 py-6 text-center">
       <p className="text-sm font-semibold">Ljudi se ne mogu učitati</p>
-      <p className="mt-1 text-sm text-muted-foreground">Proveri vezu pa pokušaj ponovo.</p>
+      <p className="mt-1 text-sm text-muted-foreground">Proveri vezu i pokušaj ponovo.</p>
       <Button type="button" variant="outline" size="sm" className="mt-3" onClick={retry}>
         <RefreshCw aria-hidden="true" />
         Pokušaj ponovo
@@ -654,7 +654,7 @@ export function GroupSettingsDialog({
       ) : state.status === "error" ? (
         <div role="alert" className="rounded-xl border border-dashed px-4 py-6 text-center">
           <p className="text-sm font-semibold">Podešavanja se ne mogu učitati</p>
-          <p className="mt-1 text-sm text-muted-foreground">Proveri vezu pa pokušaj ponovo.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Proveri vezu i pokušaj ponovo.</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" onClick={state.retry}>
             <RefreshCw aria-hidden="true" />
             Pokušaj ponovo

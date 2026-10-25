@@ -12,7 +12,7 @@ const SIZE = 56;
  */
 export function QuickAddFab({
   onPress,
-  label = 'Novi zadatak',
+  label = 'Brzi unos',
 }: {
   onPress: () => void;
   label?: string;

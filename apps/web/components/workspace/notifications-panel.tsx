@@ -133,7 +133,7 @@ export function NotificationsSheet({
           <SheetDescription>
             {unreadCount === 0
               ? "Sve je pročitano."
-              : `${unreadCount}${unread?.capped ? "+" : ""} nepročitano.`}
+              : `${unreadCount}${unread?.capped ? "+" : ""} nepročitanih.`}
           </SheetDescription>
         </SheetHeader>
 

@@ -49,7 +49,14 @@ export function ConversationRow({
       }
       onPress={onPress}
       showChevron={false}
-      accessibilityLabel={name}
+      accessibilityLabel={[
+        name,
+        channel.unreadCount > 0 ? `${channel.unreadCount} nepročitanih` : null,
+        channelPreview(channel),
+        time.length > 0 ? time : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}
     />
   );
 }

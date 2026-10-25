@@ -245,7 +245,7 @@ export default function ClanoviScreen() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <ClanoviError message={error.message} onRetry={retry} />;
+  return <ClanoviError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function ClanoviError({ message, onRetry }: { message: string; onRetry: () => void }) {

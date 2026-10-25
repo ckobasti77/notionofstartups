@@ -34,7 +34,7 @@ import { FAB } from '@/components/ui/fab';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SearchField } from '@/components/ui/search-field';
-import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { SkeletonList, SkeletonTaskRow } from '@/components/ui/skeletons';
 import { UndoBar } from '@/components/undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
@@ -239,7 +239,7 @@ function MyTasksContent({ retry }: { retry: () => void }) {
         accessible
         accessibilityLiveRegion="polite"
         accessibilityLabel="Učitavanje zadataka">
-        <SkeletonList count={6} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+        <SkeletonList count={6} item={(index) => <SkeletonTaskRow index={index} />} />
       </View>
     );
   } else if (!model.hasAny) {
@@ -467,16 +467,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
+    minWidth: 20,
+    minHeight: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: '700',
   },
 });

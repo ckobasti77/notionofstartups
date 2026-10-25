@@ -161,7 +161,7 @@ function HistoryRow({
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <IstorijaErrorState message={error.message} onRetry={retry} />;
+  return <IstorijaErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function IstorijaErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

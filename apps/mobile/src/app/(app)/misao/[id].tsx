@@ -41,6 +41,7 @@ import { THOUGHT_COLOR_LABEL, THOUGHT_SWATCH } from '@/lib/thought-colors';
 import { misaoWord, thoughtDisplayTitle } from '@/lib/thought-layout';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, text } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /** Ista pauza kao na listi — dva RN modala se ne otvaraju istovremeno. */
 const SHEET_HANDOFF_MS = 320;
@@ -367,7 +368,7 @@ function MisaoSkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <MisaoError message={error.message} onRetry={retry} />;
+  return <MisaoError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function MisaoError({ message, onRetry }: { message: string; onRetry: () => void }) {

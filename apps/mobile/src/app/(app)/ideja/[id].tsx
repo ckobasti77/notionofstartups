@@ -428,7 +428,7 @@ function IdeaSkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <IdejaError message={error.message} onRetry={retry} />;
+  return <IdejaError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function IdejaError({ message, onRetry }: { message: string; onRetry: () => void }) {

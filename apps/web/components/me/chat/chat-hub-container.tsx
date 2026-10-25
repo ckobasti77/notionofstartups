@@ -3,7 +3,7 @@
 import { Component, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { LoaderCircle, MessagesSquare, RefreshCw, TriangleAlert } from "lucide-react";
+import { MessagesSquare, RefreshCw, TriangleAlert } from "lucide-react";
 import { findHubChannel, hubGroups, type HubInput } from "@devotion/shared";
 
 import { useShortcuts } from "@/components/shortcuts/shortcut-provider";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ChatChannel, ChatMember } from "@/lib/chat";
+import { Skeleton } from "@/components/ui/skeleton";
 import { accessErrorMessage } from "@/lib/errors";
 import { CHAT_LIST_HELP, CHAT_SHORTCUTS } from "@/lib/shortcuts/registry";
 import type { Today } from "@/lib/today";
@@ -331,7 +332,8 @@ function HubConversation({
   onOpenGroupSettings: () => void;
 }) {
   // Bez čekanja huba: razgovor iz linka se prikazuje čim `getChannel` stigne.
-  const fetched = useQueryState(api.chat.getChannel, hubChannel === null ? { channelId } : "skip");
+  const [fetchPaused, retryFetch] = useResubscribe();
+  const fetched = useQueryState(api.chat.getChannel, hubChannel === null && !fetchPaused ? { channelId } : "skip");
   const channel: ChatChannel | null = hubChannel ?? (fetched.status === "ready" ? fetched.data : null);
   const channelStartupId = channel?.startupId ?? null;
   const personal = channel !== null && channelStartupId === null;
@@ -354,9 +356,37 @@ function HubConversation({
   if (channel === null) {
     if (fetched.status === "loading") {
       return (
-        <div role="status" className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-          Učitavanje razgovora…
+        <div role="status" aria-busy="true" className="flex h-full flex-col gap-4 p-6">
+          <span className="sr-only">Učitavanje razgovora</span>
+          <Skeleton className="h-6 w-48" />
+          <div className="mt-auto space-y-3">
+            <Skeleton className="h-10 w-2/3" />
+            <Skeleton className="ml-auto h-10 w-1/2" />
+            <Skeleton className="h-10 w-3/5" />
+          </div>
+        </div>
+      );
+    }
+    if (fetched.status === "error") {
+      return (
+        <div className="flex h-full items-center justify-center p-6">
+          <EmptyState
+            icon={TriangleAlert}
+            title="Razgovor se ne može učitati"
+            description="Proveri vezu i pokušaj ponovo."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={onBack}>
+                  Nazad na razgovore
+                </Button>
+                <Button type="button" size="sm" onClick={retryFetch}>
+                  <RefreshCw aria-hidden="true" />
+                  Pokušaj ponovo
+                </Button>
+              </div>
+            }
+            className="max-w-md border-none bg-transparent"
+          />
         </div>
       );
     }
@@ -488,7 +518,7 @@ class ConversationBoundary extends Component<
           </span>
           <h2 className="mt-4 text-base font-semibold">Razgovor se ne može učitati</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            {accessErrorMessage(error, "Proveri vezu pa pokušaj ponovo.")}
+            {accessErrorMessage(error, "Proveri vezu i pokušaj ponovo.")}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={this.props.onBack}>

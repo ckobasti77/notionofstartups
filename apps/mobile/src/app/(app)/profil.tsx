@@ -320,7 +320,7 @@ function ProfilSkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <ProfilError message={error.message} onRetry={retry} />;
+  return <ProfilError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function ProfilError({ message, onRetry }: { message: string; onRetry: () => void }) {

@@ -147,6 +147,7 @@ export function EntityDiscussionPanel({
 
       <div className="mt-3 flex items-end gap-2">
         <Textarea
+          aria-label="Poruka u diskusiji"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {

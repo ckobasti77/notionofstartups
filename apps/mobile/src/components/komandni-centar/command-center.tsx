@@ -317,7 +317,7 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
       {allEmpty && memberFilter !== null ? (
         <EmptyState
           icon={<ListTodo size={40} color={colors.mutedForeground} />}
-          title="Za izabranog člana nema otvorenih zadataka."
+          title="Za izabranog člana nema otvorenih zadataka"
           description="Filter je uključen u traci opterećenja iznad."
           actionLabel="Prikaži sve"
           onAction={() => setMemberFilter(null)}
@@ -325,13 +325,13 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
       ) : allEmpty ? (
         <EmptyState
           icon={<ListTodo size={40} color={colors.mutedForeground} />}
-          title="Nema zadataka za danas."
+          title="Nema otvorenih zadataka"
           description={
             segment === 'mine'
               ? 'Kad ti neko dodeli zadatak, pojaviće se ovde.'
               : 'Otvoreni zadaci tima pojaviće se ovde.'
           }
-          actionLabel="Novi zadatak"
+          actionLabel="Brzi unos"
           onAction={() => setQuickAddOpen(true)}
         />
       ) : (

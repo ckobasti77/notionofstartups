@@ -39,6 +39,7 @@ import { haptics } from '@/lib/haptics';
 import { useUndoStack } from '@/lib/undo';
 import { useAppTheme, useThemeColors, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, radius } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /** Tipizovana ruta expo-routera (isti tip koji `router.push` prima). */
 type AppRoute = Parameters<ReturnType<typeof useRouter>['push']>[0];
@@ -204,7 +205,7 @@ export default function ViseScreen() {
                     isHistory
                       ? historyValue
                       : badge
-                        ? <Badge label={badge} variant="destructive" />
+                        ? <Badge label={badge} />
                         : undefined
                   }
                   onPress={() => {
@@ -296,7 +297,7 @@ export default function ViseScreen() {
  * bi pao bez puta nazad — a „Više" je jedini ulaz u odjavu.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <ViseErrorState message={error.message} onRetry={retry} />;
+  return <ViseErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

@@ -1,6 +1,8 @@
 import { ChevronRight } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import {
+  type AccessibilityRole,
+  type AccessibilityState,
   Pressable,
   StyleSheet,
   Switch,
@@ -61,6 +63,9 @@ export type RowProps = {
   onToggle?: (next: boolean) => void;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** Uloga umesto podrazumevanog „button" (npr. `checkbox` u listi za izbor). */
+  accessibilityRole?: AccessibilityRole;
+  accessibilityState?: AccessibilityState;
   /** Doterivanje po kontekstu (padding u kartici, ivica, pozadina kartice). */
   style?: StyleProp<ViewStyle>;
 };
@@ -88,6 +93,8 @@ export function Row({
   onToggle,
   accessibilityLabel,
   accessibilityHint,
+  accessibilityRole = 'button',
+  accessibilityState,
   style,
 }: RowProps) {
   const colors = useThemeColors();
@@ -140,7 +147,7 @@ export function Row({
           value={Boolean(checked)}
           onValueChange={onToggle}
           disabled={disabled || onToggle == null}
-          trackColor={{ true: colors.primary, false: colors.muted }}
+          trackColor={{ true: colors.primary, false: colors.mutedForeground }}
           thumbColor={colors.surface}
           // Semantiku (role „switch" + stanje) nosi omotač reda; unutrašnji Switch
           // se sakriva iz a11y stabla da se stanje ne najavi dvaput.
@@ -189,7 +196,8 @@ export function Row({
 
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
       accessibilityLabel={resolvedLabel}
       accessibilityHint={accessibilityHint}
       onPress={onPress}

@@ -581,7 +581,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                                   className={cn(
                                     "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
                                     node.userVote === "up"
-                                      ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-400"
+                                      ? "border-emerald-500/50 bg-emerald-500/20 text-success"
                                       : "border-border/60 text-muted-foreground hover:bg-muted",
                                   )}
                                   aria-label={`Glasaj za ideju. Trenutno ${node.upvotes}`}
@@ -595,7 +595,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                                   className={cn(
                                     "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
                                     node.userVote === "down"
-                                      ? "border-rose-500/50 bg-rose-500/20 text-rose-400"
+                                      ? "border-rose-500/50 bg-rose-500/20 text-destructive"
                                       : "border-border/60 text-muted-foreground hover:bg-muted",
                                   )}
                                   aria-label={`Glasaj protiv ideje. Trenutno ${node.downvotes}`}
@@ -607,11 +607,11 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                             </td>
                             <td className="whitespace-nowrap px-6 py-4">
                               {node.isApproved ? (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-success">
                                   <Check className="size-3" /> Odobreno
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-foreground">
                                   U razmatranju
                                 </span>
                               )}
@@ -884,7 +884,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
       <Dialog open={!!convertIdea} onOpenChange={() => setConvertIdea(null)}>
         <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-emerald-500">
+            <DialogTitle className="flex items-center gap-2 text-success">
               <Sparkles className="size-5" />
               <span>Pretvori Ideju u Radnu Stavku</span>
             </DialogTitle>
@@ -896,7 +896,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
           {convertIdea ? (
             <div className="space-y-4 py-2">
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-                <span className="text-xs font-bold text-emerald-400 block mb-1">
+                <span className="text-xs font-bold text-success block mb-1">
                   Odobrena Ideja:
                 </span>
                 <p className="text-sm font-semibold">{convertIdea.title || convertIdea.text}</p>
@@ -911,7 +911,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                     onClick={() => setTargetKind("task")}
                     className="rounded-xl gap-2 justify-start"
                   >
-                    <CheckSquare2 className="size-4 text-emerald-400" />
+                    <CheckSquare2 className="size-4 text-success" />
                     <span>Zadatak (Task)</span>
                   </Button>
                   <Button
@@ -920,7 +920,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                     onClick={() => setTargetKind("note")}
                     className="rounded-xl gap-2 justify-start"
                   >
-                    <FileText className="size-4 text-sky-400" />
+                    <FileText className="size-4 text-info" />
                     <span>Beleška (Note)</span>
                   </Button>
                 </div>

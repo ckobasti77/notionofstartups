@@ -36,6 +36,7 @@ import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text as textStyles, type ColorTokens } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 300;
@@ -410,7 +411,7 @@ function NodeRow({
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <PretragaError message={error.message} onRetry={retry} />;
+  return <PretragaError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function PretragaError({ message, onRetry }: { message: string; onRetry: () => void }) {

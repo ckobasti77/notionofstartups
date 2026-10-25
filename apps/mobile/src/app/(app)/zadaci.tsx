@@ -28,7 +28,7 @@ import { FAB } from '@/components/ui/fab';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { ScreenHeader } from '@/components/ui/screen-header';
-import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { SkeletonList, SkeletonTaskRow } from '@/components/ui/skeletons';
 import { UndoBar } from '@/components/undo-bar';
 import {
   TasksFilterSheet,
@@ -83,7 +83,7 @@ export default function ZadaciScreen() {
   const router = useRouter();
   const reduced = useReducedMotion();
   const insets = useSafeAreaInsets();
-  const { activeStartupId } = useActiveStartup();
+  const { activeStartupId, restoring } = useActiveStartup();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
@@ -310,11 +310,17 @@ export default function ZadaciScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Svi zadaci" onBack={() => router.back()} />
-        <EmptyState
-          icon={<ListTodo size={40} color={colors.mutedForeground} />}
-          title="Izaberi startup"
-          description="Zadaci se prikazuju po startupu. Izaberi ga iz zaglavlja."
-        />
+        {restoring ? (
+          <TasksSkeleton />
+        ) : (
+          <EmptyState
+            icon={<ListTodo size={40} color={colors.mutedForeground} />}
+            title="Izaberi startup"
+            description="Zadaci se prikazuju po startupu. Izaberi ga u Prostoru."
+            actionLabel="Otvori Prostor"
+            onAction={() => router.navigate('/prostor')}
+          />
+        )}
       </View>
     );
   }
@@ -350,7 +356,7 @@ export default function ZadaciScreen() {
                 pointerEvents="none"
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants">
-                <Badge label={String(activeFilterCount)} variant="destructive" />
+                <Badge label={String(activeFilterCount)} />
               </View>
             ) : null}
           </View>
@@ -456,7 +462,7 @@ function TasksSkeleton() {
       accessible
       accessibilityLiveRegion="polite"
       accessibilityLabel="Učitavanje zadataka">
-      <SkeletonList count={5} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+      <SkeletonList count={5} item={(index) => <SkeletonTaskRow index={index} />} />
     </View>
   );
 }

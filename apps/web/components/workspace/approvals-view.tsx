@@ -283,7 +283,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
-                        className="rounded-xl text-rose-600"
+                        className="rounded-xl text-destructive"
                         onClick={() =>
                           void vote({
                             requestId: request._id,
@@ -731,9 +731,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     className={cn(
                       "rounded-full",
                       request.status === "approved" &&
-                        "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+                        "bg-emerald-500/12 text-success",
                       request.status === "rejected" &&
-                        "bg-rose-500/12 text-rose-700 dark:text-rose-300",
+                        "bg-rose-500/12 text-destructive",
                     )}
                   >
                     {request.status === "approved"

@@ -1,4 +1,4 @@
-import { describeDue, formatDateShort, type DueTone } from '@devotion/shared';
+import { describeDueForRow, type DueTone } from '@devotion/shared';
 import { CalendarClock, Flame } from 'lucide-react-native';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
@@ -69,17 +69,14 @@ export function DueChip({
 
 /**
  * Oznaka roka: za otvoren zadatak `describeDue`; za završen samo datum bez
- * tona upozorenja — završen zadatak ne „kasni".
+ * tona upozorenja (shared `describeDueForRow`, isto kao na webu).
  */
 export function dueChipText(
   dueDate: number | null,
   now: number,
   done: boolean,
 ): { label: string; ariaLabel: string; tone: DueTone } {
-  const due = describeDue(dueDate, now);
-  if (!done || dueDate === null || due.tone === 'none') return due;
-  const date = formatDateShort(dueDate);
-  return { label: date, ariaLabel: `Rok bio ${date}`, tone: 'later' };
+  return describeDueForRow(dueDate, now, done);
 }
 
 const styles = StyleSheet.create({

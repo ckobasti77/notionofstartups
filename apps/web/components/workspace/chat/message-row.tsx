@@ -243,6 +243,7 @@ export function MessageRow({
                         : "border-border bg-card text-muted-foreground hover:bg-accent",
                     )}
                     aria-pressed={reaction.mine}
+                    aria-label={`Reakcija ${reaction.emoji}, ${reaction.count}${reaction.mine ? ", tvoja" : ""}`}
                   >
                     <span className="text-sm leading-none">{reaction.emoji}</span>
                     {reaction.count}

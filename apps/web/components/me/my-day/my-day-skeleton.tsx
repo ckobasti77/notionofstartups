@@ -23,10 +23,15 @@ export function MyDaySkeleton({ withSide = true }: { withSide?: boolean }) {
       </div>
       <div className="mt-6 xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-6">
         <div className="space-y-5">
-          <Skeleton className="h-10 w-full rounded-xl" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Skeleton className="h-10 min-w-0 flex-1 rounded-xl" />
+            <Skeleton className="h-9 w-48 rounded-lg" />
+          </div>
           {[0, 1, 2].map((section) => (
-            <div key={section} className="space-y-2">
-              <Skeleton className="h-3 w-24" />
+            <div key={section} className="space-y-0.5">
+              <div className="flex min-h-8 items-center">
+                <Skeleton className="h-3 w-24" />
+              </div>
               {[0, 1, 2].map((row) => (
                 <Skeleton key={row} className="h-14 w-full rounded-xl md:h-11" />
               ))}

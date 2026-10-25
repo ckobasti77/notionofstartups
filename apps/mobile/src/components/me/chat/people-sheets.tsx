@@ -72,7 +72,7 @@ function PeopleError({ title, retry }: { title: string; retry: () => void }) {
     <View accessibilityRole="alert" style={[styles.errorBox, { borderColor: colors.border }]}>
       <Text style={[styles.errorTitle, { color: colors.foreground }]}>{title}</Text>
       <Text style={[styles.meta, { color: colors.mutedForeground }]}>
-        Proveri vezu pa pokušaj ponovo.
+        Proveri vezu i pokušaj ponovo.
       </Text>
       <Button
         label="Pokušaj ponovo"
@@ -193,11 +193,9 @@ function PeoplePicker({
                         onToggle(person._id);
                       }
                 }
-                accessibilityLabel={
-                  locked
-                    ? `${person.displayName}. ${subtitle}`
-                    : `${person.displayName}, ${checked ? 'izabran' : 'nije izabran'}. ${subtitle}`
-                }
+                accessibilityRole={locked ? undefined : 'checkbox'}
+                accessibilityState={locked ? undefined : { checked, disabled: blocked || disabled }}
+                accessibilityLabel={`${person.displayName}. ${subtitle}`}
               />
             );
           })

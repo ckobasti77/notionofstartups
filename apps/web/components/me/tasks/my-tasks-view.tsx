@@ -112,7 +112,7 @@ export function MyTasksView({
       </p>
       <header data-workspace-enter className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-[-0.03em]">Moji zadaci</h1>
+          <h1 className="text-2xl font-bold tracking-[-0.035em] sm:text-3xl">Moji zadaci</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Svi startupi i lično
             {model ? ` · ${openTasksPhrase(model.openCount)}` : null}
@@ -145,6 +145,7 @@ export function MyTasksView({
           <MyTasksError retry={state.retry} />
         ) : !state.model.hasAny ? (
           <EmptyState
+            headingAs="h2"
             icon={CheckSquare2}
             title="Nemaš otvorenih zadataka"
             description="Kad ti neko dodeli zadatak ili dodaš lični, biće ovde."
@@ -158,6 +159,7 @@ export function MyTasksView({
         ) : state.model.visibleCount === 0 ? (
           <>
             <EmptyState
+              headingAs="h2"
               icon={SearchX}
               title="Nijedan zadatak ne odgovara filterima"
               description="Promeni ili očisti filtere."
@@ -173,7 +175,7 @@ export function MyTasksView({
           <>
             <div
               aria-hidden="true"
-              className="hidden items-center gap-2 px-2 text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground lg:flex"
+              className="hidden items-center gap-2 px-2 text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground xl:flex"
             >
               {/* Iste širine kao red: kvačica 32 · naslov · (startup 144) · oblast 120 · status 96 · rok 104 · prioritet 88 · radnje 100. */}
               <span className="w-8 shrink-0" />

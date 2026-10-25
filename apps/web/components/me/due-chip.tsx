@@ -1,5 +1,5 @@
 import { CalendarClock, Flame } from "lucide-react";
-import { describeDue, type DueTone } from "@devotion/shared";
+import { describeDueForRow, type DueTone } from "@devotion/shared";
 
 import { cn } from "@/lib/utils";
 
@@ -23,13 +23,14 @@ export type DueChipProps = {
 
 /**
  * Čip roka (plan K07 §5): kratka oznaka iz `describeDue` (srpski format,
- * „kasni 2 d", „danas", „sre 28. okt"), puna rečenica za čitač ekrana.
+ * „kasni 2 d", „danas", „sre 28. okt"; završen zadatak samo datum), puna
+ * rečenica za čitač ekrana.
  * Boja prati ton roka, nikad ton startupa.
  */
 export function DueChip({ dueDate, now, done = false, showEmpty = false, className }: DueChipProps) {
-  const due = describeDue(dueDate, now);
+  const due = describeDueForRow(dueDate, now, done);
   if (due.tone === "none" && !showEmpty) return null;
-  const tone: DueTone = done && due.tone !== "none" ? "later" : due.tone;
+  const tone: DueTone = due.tone;
   const Icon = tone === "overdue" ? Flame : tone === "today" ? CalendarClock : null;
   return (
     <span

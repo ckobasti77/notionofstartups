@@ -22,9 +22,10 @@ export function accessErrorMessage(error: unknown, fallback: string): string {
   }
 
   const uncaught = error.message.match(/Uncaught (?:ConvexError: )?(.+?)(?:\n|$)/);
-  return (
-    (uncaught?.[1] ?? error.message).replace(/^\[CONVEX[^\]]*\]\s*/, '').trim() || fallback
-  );
+  const text = (uncaught?.[1] ?? error.message).replace(/^\[CONVEX[^\]]*\]\s*/, '').trim();
+  // Tehnički tekst servera (Server Error, Request ID) korisniku ne govori ništa: srpski rezervni tekst.
+  if (!text || /Server Error|Request ID|Called by client|^Error:/i.test(text)) return fallback;
+  return text;
 }
 
 /** Vraća `code` iz ConvexError data, ako postoji (npr. "INVITE_REQUIRED"). */

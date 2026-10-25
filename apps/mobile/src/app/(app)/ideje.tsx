@@ -231,7 +231,9 @@ export default function IdejeScreen() {
         <EmptyState
           icon={<Lightbulb size={40} color={colors.mutedForeground} />}
           title="Izaberi startup"
-          description="Ideje se prikazuju po startupu. Izaberi ga iz zaglavlja."
+          description="Ideje se prikazuju po startupu. Izaberi ga u Prostoru."
+          actionLabel="Otvori Prostor"
+          onAction={() => router.navigate('/prostor')}
         />
       ) : ideas && ideas.nodes.length === 0 ? (
         <EmptyState
@@ -435,7 +437,7 @@ function IdeaRow({
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <IdejeError message={error.message} onRetry={retry} />;
+  return <IdejeError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function IdejeError({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -479,6 +481,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
     marginTop: 4,

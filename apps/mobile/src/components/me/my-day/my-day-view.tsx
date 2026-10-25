@@ -9,7 +9,7 @@ import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
 import { enterFadeUp, exitFade, listLayout, NumberRoll, ProgressRing, useListEntering } from '@/components/motion';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { SkeletonList, SkeletonTaskRow } from '@/components/ui/skeletons';
 import { useListRefresh } from '@/hooks/use-list-refresh';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { haptics } from '@/lib/haptics';
@@ -252,7 +252,7 @@ function MyDaySkeleton() {
       <Skeleton width="100%" height={72} borderRadius={radius.card} />
       <Skeleton width="100%" height={44} borderRadius={radius.card} />
       <Skeleton width="30%" height={13} />
-      <SkeletonList count={3} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+      <SkeletonList count={3} item={(index) => <SkeletonTaskRow index={index} />} />
     </View>
   );
 }

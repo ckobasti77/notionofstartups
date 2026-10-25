@@ -356,7 +356,7 @@ function CreateInviteSheet({
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <PozivniceError message={error.message} onRetry={retry} />;
+  return <PozivniceError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function PozivniceError({ message, onRetry }: { message: string; onRetry: () => void }) {

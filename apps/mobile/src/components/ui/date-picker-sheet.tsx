@@ -15,7 +15,15 @@ import {
 } from '@devotion/shared';
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
-import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { enterFadeUp } from '@/components/motion';
@@ -181,6 +189,13 @@ export function MonthCalendar({
   const reduced = useReducedMotion();
   const [anchor] = useState(() => now ?? Date.now());
   const [month, setMonth] = useState<MonthKey>(() => initialMonth(value, anchor));
+  // Na ekranima užim od ~340 dp sedam ćelija u sheet-u sa bočnim razmakom je uže
+  // od 44 pt: kalendar tada izlazi u razmak sheet-a taman koliko treba (K20).
+  const { width: windowWidth } = useWindowDimensions();
+  const bleed = Math.min(
+    space[3],
+    Math.max(0, Math.ceil((7 * MIN_TOUCH_TARGET - (windowWidth - 2 * space[4])) / 2)),
+  );
 
   const todayKey = dayKeyOf(anchor);
   const selectedKey = dayKeyOfDue(value);
@@ -197,7 +212,7 @@ export function MonthCalendar({
   }
 
   return (
-    <View style={styles.calendar}>
+    <View style={[styles.calendar, bleed > 0 && { marginHorizontal: -bleed }]}>
       <View style={styles.monthNav}>
         <IconButton accessibilityLabel="Prethodni mesec" onPress={() => moveMonth(-1)}>
           <ChevronLeft size={20} color={colors.foreground} />

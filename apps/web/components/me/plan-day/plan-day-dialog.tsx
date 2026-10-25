@@ -135,6 +135,7 @@ export function PlanDayDialog({ open, onOpenChange, now, state, onAdd, onCarryOv
                   type="button"
                   size="sm"
                   variant="ghost"
+                  className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                   aria-disabled={full || undefined}
                   aria-describedby={full ? fullId : undefined}
                   onClick={(event) => {
@@ -248,6 +249,7 @@ function CarryRow({
         type="button"
         size="sm"
         variant="outline"
+        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         data-plan-primary
         aria-disabled={full !== null || undefined}
         aria-describedby={full ?? undefined}

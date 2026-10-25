@@ -128,7 +128,7 @@ type WorkspaceSidebarProps = {
 
 const primaryNav = [
   { kind: "home" as const, label: "Početna", icon: Home },
-  { kind: "chat" as const, label: "Chat", icon: MessageCircle },
+  { kind: "chat" as const, label: "Poruke", icon: MessageCircle },
   {
     kind: "thoughts" as const,
     label: "Moje misli",
@@ -227,12 +227,12 @@ function SidebarButton({
       <TooltipContent side="right">
         <span className="block font-medium">{label}</span>
         {badge && badge > 0 ? (
-          <span className="block text-[0.6875rem] text-muted-foreground">
+          <span className="block text-[0.6875rem] text-background/70">
             {badge} za tvoju reakciju
           </span>
         ) : null}
         {hint ? (
-          <span className="block text-[0.6875rem] text-muted-foreground">
+          <span className="block text-[0.6875rem] text-background/70">
             {hint}
           </span>
         ) : null}

@@ -8,7 +8,7 @@ import { radius, space, text } from '@/theme/tokens';
  * Red iznad liste startupa u globalnom tabu (Poruke, Inbox) dok K14/K16 ne
  * naprave globalne ekrane: bedž taba broji SVE (P14), a lista samo aktivni
  * startup — ovaj red objašnjava razliku i kaže gde je ostatak. Informacija,
- * ne radnja; startup se menja na imenu startupa iznad naslova.
+ * ne radnja; startup se menja u Prostoru.
  */
 export function ElsewhereHint({ text: message }: { text: string }) {
   const colors = useThemeColors();
@@ -16,11 +16,11 @@ export function ElsewhereHint({ text: message }: { text: string }) {
     <View
       accessible
       accessibilityRole="text"
-      accessibilityLabel={`${message} Startup menjaš na imenu iznad naslova.`}
+      accessibilityLabel={`${message} Startup menjaš u Prostoru.`}
       style={[styles.box, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <Info size={18} color={colors.mutedForeground} style={styles.icon} />
       <Text style={[styles.text, { color: colors.mutedForeground }]}>
-        {message} Startup menjaš na imenu iznad naslova.
+        {message} Startup menjaš u Prostoru.
       </Text>
     </View>
   );

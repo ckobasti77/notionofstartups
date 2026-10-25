@@ -140,7 +140,9 @@ function InboxContent({
   const open = (item: InboxItemModel) => {
     if (item.readAt === null) {
       // Označavanje je „ispali i zaboravi": navigacija ne čeka mrežu.
-      void markRead({ notificationId: item._id as Id<"notifications"> }).catch(() => {});
+      void markRead({ notificationId: item._id as Id<"notifications"> }).catch((error: unknown) =>
+        toast.error(accessErrorMessage(error, "Označavanje nije uspelo.")),
+      );
     }
     const target = inboxTarget(item, notificationDestination);
     if (target.kind === "none") {
