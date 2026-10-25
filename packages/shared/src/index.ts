@@ -158,6 +158,51 @@ export {
 } from "./task-row";
 
 export {
+  addMonthsToKey,
+  CALENDAR_WEEKDAYS,
+  CALENDAR_WEEKS,
+  calendarMoveForKey,
+  datePickerChips,
+  dayAriaLabel,
+  dayKeyOfDue,
+  dueFromDayKey,
+  formatMonthTitle,
+  initialMonth,
+  monthGrid,
+  monthKeyOf,
+  moveCalendarFocus,
+  NO_DUE_LABEL,
+  selectedDatePickerChip,
+  shiftMonth,
+  type CalendarDay,
+  type CalendarMove,
+  type DatePickerChip,
+  type DatePickerChipId,
+  type MonthKey,
+} from "./calendar";
+
+export {
+  activeFilterCount,
+  applyTaskFilters,
+  clearTaskFilters,
+  EMPTY_TASK_FILTERS,
+  groupTaskRows,
+  hasActiveFilters,
+  matchesTaskQuery,
+  normalizeSearchText,
+  openTasksPhrase,
+  pageOfGroup,
+  PERSONAL_FILTER_KEY,
+  rowStartupKey,
+  TASK_FILTER_DUE,
+  TASK_FILTER_PRIORITIES,
+  TASK_FILTER_STATUSES,
+  TASK_GROUP_BY_OPTIONS,
+  toggleFilterValue,
+  type TaskFilters,
+} from "./task-filters";
+
+export {
   cleanQuickAddTitle,
   defaultAddToMyDay,
   lastAreaKey,

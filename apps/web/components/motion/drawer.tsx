@@ -17,6 +17,26 @@ type DrawerProps = {
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  /**
+   * Sopstveno zaglavlje (npr. panel zadatka: čip startupa + naslov koji se
+   * menja u mestu). `title` tada ostaje ime dijaloga samo za čitač ekrana.
+   */
+  header?: ReactNode;
+  /**
+   * Fokus pri otvaranju: prvi kontrol (Radix, podrazumevano) ili sam panel —
+   * kad je prvi kontrol polje za izmenu ili kvačica, ne sme se slučajno kucati
+   * ili čekirati (panel zadatka).
+   */
+  initialFocus?: "first" | "panel";
+  /**
+   * Gde ide fokus posle zatvaranja kad element koji je otvorio panel više ne
+   * postoji (npr. stavka menija „Otvori"): obično naslov reda.
+   */
+  returnFocusFallback?: () => HTMLElement | null;
+  /** Posle izlaza (panel demontiran) — kontejner može da pusti pretplate. */
+  onExited?: () => void;
+  /** Ime dugmeta za zatvaranje (sr-only). */
+  closeLabel?: string;
 };
 
 /**
@@ -36,6 +56,11 @@ export function Drawer({
   children,
   footer,
   className,
+  header,
+  initialFocus = "first",
+  returnFocusFallback,
+  onExited,
+  closeLabel = "Zatvori",
 }: DrawerProps) {
   const [present, setPresent] = useState(open);
   // Montiraj odmah pri otvaranju (izvedeno stanje, bez efekta).
@@ -51,6 +76,12 @@ export function Drawer({
   // pamtimo šta je bilo fokusirano pre otvaranja i vraćamo to pri zatvaranju.
   const returnFocus = useRef<HTMLElement | null>(null);
   const play = useTweenSlots();
+  const onExitedRef = useRef(onExited);
+  const fallbackRef = useRef(returnFocusFallback);
+  useLayoutEffect(() => {
+    onExitedRef.current = onExited;
+    fallbackRef.current = returnFocusFallback;
+  });
 
   useLayoutEffect(() => {
     if (!present || !overlay || !panel) return;
@@ -59,7 +90,8 @@ export function Drawer({
       play("overlay", ({ gsap, reduced }) => {
         if (!entered.current) {
           gsap.set(overlay, { autoAlpha: 0 });
-          gsap.set(panel, reduced ? { autoAlpha: 0 } : { xPercent: 100 });
+          // Smanjen pokret: samo `opacity` — `visibility: hidden` bi sprečio Radix da fokusira panel.
+          gsap.set(panel, reduced ? { opacity: 0 } : { xPercent: 100 });
           entered.current = true;
         }
         gsap.set([overlay, panel], { clearProps: "pointerEvents" });
@@ -67,7 +99,7 @@ export function Drawer({
       });
       play("panel", ({ gsap, reduced }) =>
         reduced
-          ? gsap.to(panel, { autoAlpha: 1, xPercent: 0, ...reducedFade() })
+          ? gsap.to(panel, { opacity: 1, xPercent: 0, ...reducedFade() })
           : gsap.to(panel, { autoAlpha: 1, xPercent: 0, ...springTween("smooth") }),
       );
       return;
@@ -76,6 +108,7 @@ export function Drawer({
     const finish = () => {
       entered.current = false;
       setPresent(false);
+      onExitedRef.current?.();
     };
     play("overlay", ({ gsap, reduced }) => {
       // Izlazni sloj ne sme da hvata klikove dok nestaje.
@@ -84,7 +117,7 @@ export function Drawer({
     });
     play("panel", ({ gsap, reduced }) =>
       reduced
-        ? gsap.to(panel, { autoAlpha: 0, ...reducedFade(), onComplete: finish })
+        ? gsap.to(panel, { opacity: 0, ...reducedFade(), onComplete: finish })
         : gsap.to(panel, { xPercent: 100, ...standardTween("base"), onComplete: finish }),
     );
   }, [open, present, overlay, panel, play]);
@@ -98,7 +131,9 @@ export function Drawer({
     returnFocus.current = null;
     // Ako je korisnik tokom izlaza već kliknuo nešto drugo, fokus se ne otima.
     const lost = document.activeElement === null || document.activeElement === document.body;
-    if (lost && target?.isConnected) target.focus({ preventScroll: true });
+    if (!lost) return;
+    const destination = target?.isConnected ? target : fallbackRef.current?.();
+    destination?.focus({ preventScroll: true });
   }, [present]);
 
   return (
@@ -115,10 +150,26 @@ export function Drawer({
             ref={setPanel}
             forceMount
             data-slot="drawer-content"
-            onOpenAutoFocus={() => {
+            onOpenAutoFocus={(event) => {
               if (document.activeElement instanceof HTMLElement) returnFocus.current = document.activeElement;
+              if (initialFocus === "panel") {
+                event.preventDefault();
+                (event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+              }
             }}
             onCloseAutoFocus={(event) => event.preventDefault()}
+            // Polje koje samo obrađuje Esc (npr. naslov u izmeni: Esc vraća staru
+            // vrednost) nosi `data-escape-local`; panel se tada ne zatvara.
+            onEscapeKeyDown={(event) => {
+              const active = document.activeElement;
+              if (active instanceof HTMLElement && active.dataset.escapeLocal === "true") {
+                event.preventDefault();
+                return;
+              }
+              // Polje koje čuva na blur (beleška, instrukcije) mora da sačuva pre
+              // nego što panel ode — demontiran element ne dobija `blur`.
+              if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) active.blur();
+            }}
             // Bez opisa: Radix ne traži Description (inače upozorenje u konzoli).
             {...(description ? {} : { "aria-describedby": undefined })}
             className={cn(
@@ -129,9 +180,10 @@ export function Drawer({
           >
             <header className="flex shrink-0 items-start gap-3 border-b px-5 py-4">
               <div className="min-w-0 flex-1">
-                <DialogPrimitive.Title className="text-base font-semibold tracking-[-0.02em]">
+                <DialogPrimitive.Title className={header ? "sr-only" : "text-base font-semibold tracking-[-0.02em]"}>
                   {title}
                 </DialogPrimitive.Title>
+                {header}
                 {description ? (
                   <DialogPrimitive.Description className="mt-1 text-sm leading-5 text-muted-foreground">
                     {description}
@@ -140,7 +192,7 @@ export function Drawer({
               </div>
               <DialogPrimitive.Close className="-mr-1 -mt-1 grid size-10 shrink-0 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
                 <X className="size-4" aria-hidden="true" />
-                <span className="sr-only">Zatvori</span>
+                <span className="sr-only">{closeLabel}</span>
               </DialogPrimitive.Close>
             </header>
             <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>

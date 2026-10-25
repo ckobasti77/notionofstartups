@@ -37,6 +37,15 @@ export type ShortcutDef = {
   allowInDialogs?: boolean;
   /** Ponavljanje dok se drži taster (npr. j/k); podrazumevano ne. */
   allowRepeat?: boolean;
+  /**
+   * Samo za dijalog pomoći (npr. tasteri birača datuma, koje obrađuje sam
+   * birač): `matchShortcut` ga nikad ne vraća.
+   */
+  displayOnly?: boolean;
+  /** Ne prikazuje se u dijalogu pomoći (npr. strelica uz j/k — prikazuje je `helpKeys`). */
+  hideInHelp?: boolean;
+  /** Prikaz u pomoći: alternative (svaka je kombinacija tastera), npr. `[["J"], ["↓"]]`. */
+  helpKeys?: string[][];
 };
 
 export type ShortcutEvent = {
@@ -92,6 +101,7 @@ export function matchShortcut(
   defs: ReadonlyArray<ShortcutDef>,
 ): string | null {
   for (const def of defs) {
+    if (def.displayOnly) continue;
     if (event.typing && !def.allowInInputs) continue;
     if (event.dialogOpen && !def.allowInDialogs) continue;
     if (event.repeat && !def.allowRepeat) continue;
@@ -141,7 +151,16 @@ const KEY_NAMES: Record<string, string> = {
   ArrowUp: "↑",
   ArrowLeft: "←",
   ArrowRight: "→",
+  PageUp: "PgUp",
+  PageDown: "PgDn",
+  Home: "Home",
+  End: "End",
 };
+
+/** Alternative za dijalog pomoći: `helpKeys` ili jedina kombinacija prečice. */
+export function shortcutHelpKeys(def: ShortcutDef, isMac = false): string[][] {
+  return def.helpKeys ?? [shortcutKeys(def, isMac)];
+}
 
 /** Prečice ljuske (K08). Kasniji koraci dodaju svoje kroz `useShortcuts`. */
 export const SHELL_SHORTCUTS = {
@@ -158,6 +177,36 @@ export const SHELL_SHORTCUTS = {
   },
 } as const satisfies Record<string, ShortcutDef>;
 
+const LIST = "Liste zadataka" as const;
+
+/**
+ * Prečice liste zadataka (plan K07 §6.1, E20): Moj dan, Moji zadaci, a od K17
+ * i liste u startupu. Registruje ih `useTaskListShortcuts`.
+ */
+export const TASK_LIST_SHORTCUTS = {
+  next: { id: "list-next", key: "j", label: "Sledeći zadatak", group: LIST, allowRepeat: true, helpKeys: [["J"], ["↓"]] },
+  nextArrow: { id: "list-next-arrow", key: "ArrowDown", label: "Sledeći zadatak", group: LIST, allowRepeat: true, hideInHelp: true },
+  prev: { id: "list-prev", key: "k", label: "Prethodni zadatak", group: LIST, allowRepeat: true, helpKeys: [["K"], ["↑"]] },
+  prevArrow: { id: "list-prev-arrow", key: "ArrowUp", label: "Prethodni zadatak", group: LIST, allowRepeat: true, hideInHelp: true },
+  complete: { id: "list-complete", key: "x", label: "Završi ili vrati", group: LIST },
+  open: { id: "list-open", key: "Enter", label: "Otvori panel zadatka", group: LIST },
+  due: { id: "list-due", key: "d", label: "Rok", group: LIST },
+  priority: { id: "list-priority", key: "p", label: "Prioritet", group: LIST },
+  plan: { id: "list-plan", key: "t", label: "Dodaj u Moj dan / ukloni", group: LIST },
+  search: { id: "list-search", key: "/", label: "Pretraga zadataka", group: LIST },
+} as const satisfies Record<string, ShortcutDef>;
+
+const PICKER = "Birač datuma" as const;
+
+/** Tasteri birača datuma — obrađuje ih sam birač; ovde su samo za pomoć. */
+export const DATE_PICKER_HELP: ReadonlyArray<ShortcutDef> = [
+  { id: "picker-day", key: "ArrowLeft", label: "Prethodni / sledeći dan", group: PICKER, displayOnly: true, helpKeys: [["←"], ["→"]] },
+  { id: "picker-week", key: "ArrowUp", label: "Nedelju ranije / kasnije", group: PICKER, displayOnly: true, helpKeys: [["↑"], ["↓"]] },
+  { id: "picker-month", key: "PageUp", label: "Prethodni / sledeći mesec", group: PICKER, displayOnly: true, helpKeys: [["PgUp"], ["PgDn"]] },
+  { id: "picker-week-edge", key: "Home", label: "Početak / kraj nedelje", group: PICKER, displayOnly: true, helpKeys: [["Home"], ["End"]] },
+  { id: "picker-select", key: "Enter", label: "Izaberi dan", group: PICKER, displayOnly: true },
+];
+
 /** Grupiše definicije za dijalog pomoći, redom grupa; duplikati po `id` jednom. */
 export function groupShortcuts(
   defs: ReadonlyArray<ShortcutDef>,
@@ -165,7 +214,7 @@ export function groupShortcuts(
   const seen = new Set<string>();
   const byGroup = new Map<ShortcutGroup, ShortcutDef[]>();
   for (const def of defs) {
-    if (seen.has(def.id)) continue;
+    if (def.hideInHelp || seen.has(def.id)) continue;
     seen.add(def.id);
     byGroup.set(def.group, [...(byGroup.get(def.group) ?? []), def]);
   }

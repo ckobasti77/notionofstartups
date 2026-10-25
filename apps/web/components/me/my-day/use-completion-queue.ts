@@ -13,7 +13,10 @@ import {
 
 import { accessErrorMessage } from "@/lib/errors";
 
-import { locateRow, type MyDayGroupMode, type MyDayModel, type RowHold } from "./my-day-model";
+import type { RowHold } from "./my-day-model";
+
+/** Gde se red sada vidi: sekcija zadržavanja (`<mod>:<id>`) i indeks u njoj. */
+export type RowLocation = { section: string; index: number };
 
 /** Red ostaje na mestu dok se kvačica ne smiri (plan K07 E7, ≈ 741 ms). */
 export const HOLD_DONE_MS = springDurationMs(SPRING.bouncy);
@@ -30,7 +33,8 @@ export type CompletionQueue = {
 };
 
 /**
- * Završi / vrati (plan K07 §4.1, trenutak 1 i E7): mutacija kreće odmah;
+ * Završi / vrati (plan K07 §4.1, trenutak 1 i E7) — Moj dan i Moji zadaci
+ * (K11, `locate` opisuje raspored liste): mutacija kreće odmah;
  * red ostaje na svom mestu kao završen dok se kvačica ne smiri, pa se Flip-om
  * seli (npr. u „Završeno danas"). Drugi klik pre toga je „Poništi". Do
  * odgovora servera `pending` drži red kao završen; greška vraća red i
@@ -41,15 +45,16 @@ export type CompletionQueue = {
  */
 export function useCompletionQueue({
   listRef,
-  modelRef,
-  groupMode,
+  locate,
   flipCapture,
   commit,
 }: {
   listRef: RefObject<HTMLElement | null>;
-  /** Model na ekranu (sa zadržanim redovima) — kontejner ga osvežava posle svakog commit-a. */
-  modelRef: RefObject<MyDayModel | null>;
-  groupMode: MyDayGroupMode;
+  /**
+   * Gde je red u modelu na ekranu (sa zadržanim redovima). Čita najnoviji
+   * model (ref), a raspored (grupisanje) iz trenutka klika.
+   */
+  locate: (key: string) => RowLocation | null;
   flipCapture: () => void;
   commit: (row: TaskRowModel, done: boolean, previousStatus: TaskStatusKey | undefined) => Promise<unknown>;
 }): CompletionQueue {
@@ -60,7 +65,9 @@ export function useCompletionQueue({
   const previousStatus = useRef(new Map<string, TaskStatusKey>());
   // Redni broj poslednjeg slanja po redu: stariji odgovor ne briše noviju nameru.
   const sequence = useRef(new Map<string, number>());
-  const refocus = useRef<{ key: string; section: string; index: number } | null>(null);
+  // `control`: fokus se vraća na istu vrstu kontrole — kvačicu (klik) ili
+  // naslov reda (prečica `x`), da sledeći Enter ne završi i susedni red.
+  const refocus = useRef<{ key: string; section: string; index: number; control: string } | null>(null);
   useEffect(() => {
     const pendingTimers = timers.current;
     return () => pendingTimers.forEach((timer) => window.clearTimeout(timer));
@@ -77,13 +84,13 @@ export function useCompletionQueue({
     const focusable = (element: Element | null | undefined) =>
       element instanceof HTMLElement && !element.closest("[inert]") ? element : null;
     const inSection = Array.from(
-      root.querySelectorAll(`[data-section="${CSS.escape(target.section)}"] [role="checkbox"]`),
+      root.querySelectorAll(`[data-section="${CSS.escape(target.section)}"] ${target.control}`),
     );
     const candidate =
-      focusable(root.querySelector(`[data-row-key="${CSS.escape(target.key)}"] [role="checkbox"]`)) ??
+      focusable(root.querySelector(`[data-row-key="${CSS.escape(target.key)}"] ${target.control}`)) ??
       focusable(inSection[target.index]) ??
       focusable(inSection[target.index - 1]) ??
-      Array.from(root.querySelectorAll('[role="checkbox"]'))
+      Array.from(root.querySelectorAll(target.control))
         .map((element) => focusable(element))
         .find((element) => element !== null) ??
       null;
@@ -118,12 +125,16 @@ export function useCompletionQueue({
   const announce = (text: string) =>
     setAnnouncement((previous) => (previous === text ? `${text} ` : text));
 
-  const release = (row: TaskRowModel, done: boolean, mode: MyDayGroupMode) => {
+  const release = (row: TaskRowModel, done: boolean, locateAtClick: (key: string) => RowLocation | null) => {
     timers.current.delete(row.key);
     const element = listRef.current?.querySelector(`[data-row-key="${CSS.escape(row.key)}"]`);
     if (element?.contains(document.activeElement)) {
-      const location = modelRef.current ? locateRow(modelRef.current, mode, row.key) : null;
+      const location = locateAtClick(row.key);
       refocus.current = {
+        control:
+          document.activeElement instanceof HTMLElement && document.activeElement.hasAttribute("data-row-focus")
+            ? "[data-row-focus]"
+            : '[role="checkbox"]',
         key: row.key,
         section: location ? location.section.slice(location.section.indexOf(":") + 1) : "",
         index: location?.index ?? 0,
@@ -168,14 +179,14 @@ export function useCompletionQueue({
       return;
     }
     if (done && row.status !== "done") previousStatus.current.set(row.key, row.status);
-    const mode = groupMode;
-    const location = modelRef.current ? locateRow(modelRef.current, mode, row.key) : null;
+    const locateAtClick = locate;
+    const location = locateAtClick(row.key);
     clearTimer(row.key);
     if (location) {
       setHolds((current) => new Map(current).set(row.key, { section: location.section, index: location.index, row, done }));
       timers.current.set(
         row.key,
-        window.setTimeout(() => release(row, done, mode), done ? HOLD_DONE_MS : HOLD_REOPEN_MS),
+        window.setTimeout(() => release(row, done, locateAtClick), done ? HOLD_DONE_MS : HOLD_REOPEN_MS),
       );
     } else {
       dropHold(row.key);

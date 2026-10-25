@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CornerDownLeft, LoaderCircle } from "lucide-react";
+import { useId, useRef, useState, type ComponentPropsWithoutRef, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { CalendarDays, CornerDownLeft, LoaderCircle } from "lucide-react";
 import {
   cleanQuickAddTitle,
   defaultAddToMyDay,
@@ -25,6 +25,7 @@ import { MotionDialog } from "@/components/motion/motion-dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
 
 import { StartupChip } from "../startup-chip";
@@ -93,10 +94,17 @@ function QuickAddForm({
     () => initialDraft?.destination ?? resolveDestination(readStored?.() ?? null, startups, { preset, rememberedArea }),
   );
   // Izbor čipa, ne samo datum: petkom/subotom/nedeljom dve prečice mogu biti isti dan.
-  const [dueChoice, setDueChoice] = useState<DueShortcut | null>(() =>
-    matchDueShortcut(initialDraft?.dueDate ?? null, now),
+  // `"date"` = dan iz birača (K11, „Datum…").
+  const initialDue = initialDraft?.dueDate ?? null;
+  const [dueChoice, setDueChoice] = useState<DueShortcut | "date" | null>(() => {
+    const shortcut = matchDueShortcut(initialDue, now);
+    return shortcut ?? (initialDue === null ? null : "date");
+  });
+  const [customDue, setCustomDue] = useState<number | null>(() =>
+    initialDue !== null && matchDueShortcut(initialDue, now) === null ? initialDue : null,
   );
-  const dueDate = dueChoice === null ? null : dueShortcutValue(dueChoice, now);
+  const dueDate =
+    dueChoice === null ? null : dueChoice === "date" ? customDue : dueShortcutValue(dueChoice, now);
   // Kvačica prati rok dok je korisnik sam ne promeni.
   const [addOverride, setAddOverride] = useState<boolean | null>(initialDraft?.addToMyDay ?? null);
   const [error, setError] = useState<string | null>(initialError);
@@ -230,6 +238,19 @@ function QuickAddForm({
               </Chip>
             );
           })}
+          <DatePicker
+            value={dueChoice === "date" ? customDue : dueDate}
+            now={now}
+            allowClear={false}
+            onChange={(value) => {
+              if (value === null) return;
+              const shortcut = matchDueShortcut(value, now);
+              setDueChoice(shortcut ?? "date");
+              setCustomDue(shortcut === null ? value : null);
+            }}
+          >
+            <DateChip selected={dueChoice === "date"} label={dueChoice === "date" && customDue !== null ? formatDateShort(customDue) : "Datum…"} />
+          </DatePicker>
           <Chip selected={dueChoice === null} onSelect={() => setDueChoice(null)}>
             Bez roka
           </Chip>
@@ -271,7 +292,8 @@ function ChipGroup({ label, children }: { label: string; children: ReactNode }) 
           ? radios.length - 1
           : (index + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1) + radios.length) % radios.length;
     radios[next].focus();
-    radios[next].click();
+    // „Datum…" se strelicama samo fokusira (Enter/Space otvara birač).
+    if (radios[next].dataset.noAutoselect !== "true") radios[next].click();
   };
   return (
     <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
@@ -285,6 +307,44 @@ function ChipGroup({ label, children }: { label: string; children: ReactNode }) 
         {children}
       </div>
     </div>
+  );
+}
+
+/**
+ * „Datum…" (P8): radio čip koji otvara birač datuma; posle izbora nosi dan
+ * („sre 28. okt"). Ide kroz `PopoverTrigger asChild`, pa prosleđuje ref i
+ * Radix atribute.
+ */
+function DateChip({
+  selected,
+  label,
+  ref,
+  ...props
+}: { selected: boolean; label: string; ref?: Ref<HTMLButtonElement> } & ComponentPropsWithoutRef<"button">) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={selected ? `Rok: ${label}` : "Izaberi datum"}
+      data-no-autoselect="true"
+      tabIndex={selected ? 0 : -1}
+      {...props}
+      // Radio ne nosi popup atribute (axe `aria-allowed-attr`); birač je dijalog sa svojim imenom.
+      aria-haspopup={undefined}
+      aria-expanded={undefined}
+      aria-controls={undefined}
+      className={cn(
+        "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+        selected
+          ? "border-primary/60 bg-accent text-accent-foreground"
+          : "border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      )}
+    >
+      <CalendarDays className="size-3.5" aria-hidden="true" />
+      {label}
+    </button>
   );
 }
 

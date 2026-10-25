@@ -4,7 +4,7 @@ import { useId } from "react";
 
 import { MotionDialog } from "@/components/motion/motion-dialog";
 import { Kbd } from "@/components/ui/kbd";
-import { shortcutKeys, type ShortcutDef, type ShortcutGroup } from "@/lib/shortcuts/registry";
+import { shortcutHelpKeys, type ShortcutDef, type ShortcutGroup } from "@/lib/shortcuts/registry";
 
 export type ShortcutHelpDialogProps = {
   open: boolean;
@@ -41,9 +41,23 @@ export function ShortcutHelpDialog({ open, onOpenChange, groups, isMac = false }
               {defs.map((def) => (
                 <div key={def.id} className="flex min-h-10 items-center justify-between gap-3 px-3 py-1.5">
                   <dt className="text-sm">{def.label}</dt>
-                  <dd className="flex shrink-0 items-center gap-1" aria-label={shortcutKeys(def, isMac).join(" + ")}>
-                    {shortcutKeys(def, isMac).map((key) => (
-                      <Kbd key={key}>{key}</Kbd>
+                  <dd
+                    className="flex shrink-0 items-center gap-1"
+                    aria-label={shortcutHelpKeys(def, isMac)
+                      .map((combo) => combo.join(" + "))
+                      .join(" ili ")}
+                  >
+                    {shortcutHelpKeys(def, isMac).map((combo, index) => (
+                      <span key={combo.join("+")} className="flex items-center gap-1">
+                        {index > 0 ? (
+                          <span aria-hidden="true" className="text-xs text-muted-foreground">
+                            /
+                          </span>
+                        ) : null}
+                        {combo.map((key) => (
+                          <Kbd key={key}>{key}</Kbd>
+                        ))}
+                      </span>
                     ))}
                   </dd>
                 </div>

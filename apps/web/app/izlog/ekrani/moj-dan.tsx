@@ -12,6 +12,7 @@ import {
   applyHolds,
   buildMyDay,
   FLIP_MAX_ROWS,
+  locateRow,
   type MyDayGroupMode,
   type MyDayModel,
   type MyDayOverviewData,
@@ -30,7 +31,9 @@ import { PlanDayDialog } from "@/components/me/plan-day/plan-day-dialog";
 import { buildPlanDay } from "@/components/me/plan-day/plan-day-model";
 import { QuickAddDialog } from "@/components/me/quick-add/quick-add-dialog";
 import type { TaskRowActions } from "@/components/me/task-row";
+import { ShortcutProvider } from "@/components/shortcuts/shortcut-provider";
 import { useFlip } from "@/lib/motion";
+import { useTaskListShortcuts } from "@/lib/shortcuts/use-task-list-shortcuts";
 
 import type { IzlogEkranProps } from "../registry";
 import { fakeId } from "../fixtures/ids";
@@ -44,6 +47,7 @@ import {
   IZLOG_SIDE_PENDING,
   QUICK_ADD_STARTUPS,
 } from "../fixtures/moj-dan";
+import { IzlogPanel, type IzlogPanelKind } from "./panel-zadatka";
 
 const noop = () => {};
 
@@ -94,6 +98,9 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
   const [groupMode, setGroupMode] = useState(initialMode);
   const [planOpen, setPlanOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  // K11: red otvara ISTI panel zadatka kao u Mojim zadacima.
+  const [panel, setPanel] = useState<{ kind: IzlogPanelKind; title: string; key: string; origin: HTMLElement | null; openedAt: number } | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const counter = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const { capture } = useFlip(listRef);
@@ -103,8 +110,7 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
   };
   const completion = useCompletionQueue({
     listRef,
-    modelRef,
-    groupMode,
+    locate: (key) => (modelRef.current ? locateRow(modelRef.current, groupMode, key) : null),
     flipCapture: flip,
     commit: async (row, done) => setOverview((current) => withStatus(current, row, done)),
   });
@@ -123,6 +129,10 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
     [model, groupMode],
   );
   useArrival(listRef, keys, { maxRows: FLIP_MAX_ROWS });
+  const rowByKey = useMemo(
+    () => new Map([...model.sections.flatMap((section) => section.rows), ...model.byStartup.doneToday].map((row) => [row.key, row] as const)),
+    [model],
+  );
 
   const actions: TaskRowActions = {
     onToggleDone: completion.toggleDone,
@@ -141,7 +151,18 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
     onSetPriority: (row, priority: TaskPriorityKey | null) => {
       setOverview((current) => patchItem(current, row, { priority }));
     },
-    onOpen: noop,
+    onOpen: (row) => {
+      const origin =
+        listRef.current?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(row.key)}"] [data-row-title]`) ?? null;
+      setPanel({
+        kind: row.kind === "personal" ? "licni" : row.permissions.priority.allowed ? "kreator" : "clan",
+        title: row.title,
+        key: row.key,
+        origin,
+        openedAt: performance.now(),
+      });
+      setPanelOpen(true);
+    },
     onMove: (row, direction) => {
       if (row.planEntryId === null) return;
       if (!modelRef.current) return;
@@ -151,6 +172,14 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
       setOverview((current) => withEntryOrder(current, next));
     },
   };
+
+  const shortcuts = useTaskListShortcuts({
+    listRef,
+    getRow: (key) => rowByKey.get(key),
+    actions,
+    reorder: true,
+    enabled: !panelOpen && !planOpen && !quickOpen,
+  });
 
   return (
     <div className="desk-surface overflow-hidden rounded-2xl border bg-background">
@@ -162,7 +191,11 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
         onGroupModeChange={setGroupMode}
         side={{ ...side, onOpenInbox: noop, onOpenChat: noop, onOpenPending: noop }}
         actions={actions}
-        canOpen={(row) => row.kind === "task"}
+        canOpen={() => true}
+        activeKey={panelOpen ? (panel?.key ?? null) : null}
+        selectedKey={shortcuts.selectedKey}
+        request={shortcuts.request}
+        onListFocus={shortcuts.onListFocus}
         onQuickAdd={() => setQuickOpen(true)}
         onPlanDay={() => setPlanOpen(true)}
         onOpenTasks={noop}
@@ -213,6 +246,17 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
           toast.success("Dodato u Lično.", { duration: 8_000, action: { label: "Poništi", onClick: noop } });
         }}
       />
+      {panel ? (
+        <IzlogPanel
+          key={`${panel.key}:${panel.openedAt}`}
+          kind={panel.kind}
+          title={panel.title}
+          origin={panel.origin}
+          openedAt={panel.openedAt}
+          open={panelOpen}
+          onClose={() => setPanelOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -245,11 +289,13 @@ export default function MojDanEkran({ varijanta }: IzlogEkranProps) {
   const initial =
     varijanta === "prazan" ? IZLOG_DAY_PRAZAN : varijanta === "pretrpan" ? IZLOG_DAY_PRETRPAN : IZLOG_DAY_OBICAN;
   return (
-    <IzlogMojDan
-      key={varijanta}
-      initial={initial}
-      initialMode={varijanta === "po-startupu" ? "startup" : "time"}
-      side={varijanta === "prazan" ? SIDE_EMPTY : SIDE_READY}
-    />
+    <ShortcutProvider>
+      <IzlogMojDan
+        key={varijanta}
+        initial={initial}
+        initialMode={varijanta === "po-startupu" ? "startup" : "time"}
+        side={varijanta === "prazan" ? SIDE_EMPTY : SIDE_READY}
+      />
+    </ShortcutProvider>
   );
 }

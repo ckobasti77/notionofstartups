@@ -24,9 +24,12 @@ import {
 
 import { ShortcutHelpDialog } from "./shortcut-help-dialog";
 
+/** `false` = prečica ovde ne važi (npr. Enter na dugmetu): taster ide dalje, svom podrazumevanom ponašanju. */
+type ShortcutHandler = (id: string, event: KeyboardEvent) => boolean | void;
+
 type Registration = {
   defs: ReadonlyArray<ShortcutDef>;
-  handler: (id: string, event: KeyboardEvent) => void;
+  handler: ShortcutHandler;
 };
 
 type ShortcutContextValue = {
@@ -41,6 +44,7 @@ const OPEN_LAYER_SELECTOR = [
   '[role="dialog"][data-state="open"]',
   '[role="alertdialog"][data-state="open"]',
   '[role="menu"][data-state="open"]',
+  '[role="listbox"][data-state="open"]',
 ].join(",");
 
 function isMacPlatform() {
@@ -96,8 +100,8 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
         if (!current) continue;
         const id = matchShortcut(shortcutEvent, current.defs);
         if (id === null) continue;
+        if (current.handler(id, event) === false) continue;
         event.preventDefault();
-        current.handler(id, event);
         return;
       }
     }
@@ -133,7 +137,7 @@ function HelpShortcut() {
  */
 export function useShortcuts(
   defs: ReadonlyArray<ShortcutDef>,
-  onTrigger: (id: string, event: KeyboardEvent) => void,
+  onTrigger: ShortcutHandler,
   enabled = true,
 ): void {
   const context = useContext(ShortcutContext);

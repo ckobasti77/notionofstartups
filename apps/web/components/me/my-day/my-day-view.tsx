@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, type RefObject } from "react";
+import { useRef, type FocusEvent, type RefObject } from "react";
 import { CalendarPlus, Coffee, PartyPopper, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import type { TaskRowModel } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/workspace/workspace-ui";
 import { useEnter } from "@/lib/motion";
+import type { RowRequest } from "@/lib/shortcuts/task-list";
 import { cn } from "@/lib/utils";
 
 import { TaskSection } from "../section-header";
@@ -42,6 +43,11 @@ export type MyDayViewProps = {
   listRef?: RefObject<HTMLDivElement | null>;
   /** Jedan `aria-live` region po prikazu („Završeno: …"). */
   announcement?: string;
+  /** Prečice liste (K11): izabran red, red sa otvorenim panelom, zahtev `d`/`p`. */
+  selectedKey?: string | null;
+  activeKey?: string | null;
+  request?: RowRequest | null;
+  onListFocus?: (event: FocusEvent<HTMLElement>) => void;
 };
 
 /**
@@ -66,7 +72,12 @@ export function MyDayView({
   onOpenApprovals,
   listRef,
   announcement = "",
+  selectedKey = null,
+  activeKey = null,
+  request = null,
+  onListFocus,
 }: MyDayViewProps) {
+  const rowState = { selectedKey, activeKey, request };
   const ownListRef = useRef<HTMLDivElement>(null);
   const scopeRef = listRef ?? ownListRef;
   // Ulaz liste samo na prvo punjenje i promenu grupisanja (plan K07 §4.1, tačka 8).
@@ -125,7 +136,7 @@ export function MyDayView({
             />
           ) : null}
 
-          <div ref={scopeRef} data-workspace-enter className="space-y-5">
+          <div ref={scopeRef} data-workspace-enter onFocus={onListFocus} className="space-y-5">
             {openRows === 0 ? (
               doneToday > 0 ? (
                 <EmptyState
@@ -170,6 +181,7 @@ export function MyDayView({
                       actions={actions}
                       canOpen={canOpen}
                       movable={(row) => movableOf(row, section.id)}
+                      rowState={rowState}
                     />
                   </TaskSection>
                 ))
@@ -182,12 +194,12 @@ export function MyDayView({
                         count={group.rows.length}
                         leading={<StartupChip startup={group.startup} size="sm" />}
                       >
-                        <RowList sectionId={group.key} rows={group.rows} now={now} actions={actions} canOpen={canOpen} showStartup={false} />
+                        <RowList sectionId={group.key} rows={group.rows} now={now} actions={actions} canOpen={canOpen} showStartup={false} rowState={rowState} />
                       </TaskSection>
                     ))}
                     {model.byStartup.doneToday.length > 0 ? (
                       <TaskSection title="Završeno danas" count={model.byStartup.doneToday.length} collapsible defaultCollapsed>
-                        <RowList sectionId="doneToday" rows={model.byStartup.doneToday} now={now} actions={actions} canOpen={canOpen} />
+                        <RowList sectionId="doneToday" rows={model.byStartup.doneToday} now={now} actions={actions} canOpen={canOpen} rowState={rowState} />
                       </TaskSection>
                     ) : null}
                   </>
@@ -217,7 +229,9 @@ function RowList({
   canOpen,
   showStartup = true,
   movable,
+  rowState,
 }: {
+  rowState: { selectedKey: string | null; activeKey: string | null; request: RowRequest | null };
   /** Za vraćanje fokusa kad red pređe u skupljenu sekciju. */
   sectionId: string;
   rows: TaskRowModel[];
@@ -238,6 +252,9 @@ function RowList({
             canOpen={canOpen(row)}
             showStartup={showStartup}
             movable={movable?.(row)}
+            selected={rowState.selectedKey === row.key}
+            active={rowState.activeKey === row.key}
+            request={rowState.request?.key === row.key ? rowState.request : null}
           />
         </li>
       ))}

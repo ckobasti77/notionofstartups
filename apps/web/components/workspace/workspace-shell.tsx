@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
   Building2,
-  CheckSquare2,
   Inbox,
   MessageCircle,
   ExternalLink,
@@ -21,6 +20,7 @@ import {
 
 import { ComingSoon } from "@/components/me/coming-soon";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
+import { MyTasksSkeleton } from "@/components/me/tasks/my-tasks-skeleton";
 import { buildMyDay, firstNameOf, openByStartup, openTodayCount } from "@/components/me/my-day/my-day-model";
 import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
 import {
@@ -150,6 +150,17 @@ const ThoughtsCanvasView = dynamic(
 const MyDayContainer = dynamic(
   () => import("@/components/me/my-day/my-day-container").then((module) => module.MyDayContainer),
   { loading: () => <MyDaySkeleton /> },
+);
+
+const MyTasksContainer = dynamic(
+  () => import("@/components/me/tasks/my-tasks-container").then((module) => module.MyTasksContainer),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
+        <MyTasksSkeleton />
+      </div>
+    ),
+  },
 );
 
 /** Prvi prikaz iz URL-a (ljuska se učitava tek na klijentu, posle prijave). */
@@ -1116,6 +1127,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               <MyDayContainer
                 today={today}
                 firstName={firstNameOf(profile.displayName)}
+                profileId={profile._id}
+                startups={startups}
                 onOpenTask={(taskStartupId, pageId) =>
                   openInStartup(taskStartupId, { pageId })
                 }
@@ -1129,13 +1142,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-tasks" ? (
-            <ComingSoon
-              title="Moji zadaci"
-              icon={CheckSquare2}
-              description={`Zadaci iz svih startupa i lični zadaci stižu ovde. Do tada koristi Moje zadatke u startupu ${startup.name}.`}
-              actionLabel="Otvori Moje zadatke u startupu"
-              onAction={() => openInStartup(startup._id, { route: { kind: "my-tasks" } })}
-            />
+            <WorkspaceErrorBoundary key="me-tasks" title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <MyTasksContainer
+                today={today}
+                profileId={profile._id}
+                startups={startups}
+                onQuickAdd={openQuickAdd}
+                onOpenInStartup={(taskStartupId, pageId) => openInStartup(taskStartupId, { pageId })}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "me-inbox" ? (
             <ComingSoon
               title="Inbox"

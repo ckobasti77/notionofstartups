@@ -91,6 +91,8 @@ export type TaskRowModel = {
   done: boolean;
   checkpoints: { done: number; total: number } | null;
   permissions: TaskPermissions;
+  /** Za stabilan redosled pri grupisanju (Moji zadaci); opciono. */
+  createdAt?: number;
 };
 
 /** Red iz grupisanja Moj dan (`groupMyDay`); startup sa logom iz `overview.startups`. */
@@ -137,6 +139,7 @@ export type TaskItemLike = {
   isAssignee: boolean;
   startup: StartupMini;
   area: { label: string } | null;
+  createdAt?: number;
 };
 
 /** Strukturni oblik stavke `personalTasks.list`. */
@@ -146,6 +149,7 @@ export type PersonalTaskLike = {
   status: "open" | "done";
   priority: TaskPriorityKey | null;
   dueDate: number | null;
+  createdAt?: number;
 };
 
 /** `plannedKeys`: refKey → id stavke plana za danas. */
@@ -178,6 +182,7 @@ export function rowFromTaskItem(
       isCreator: item.isCreator,
       isAssignee: item.isAssignee,
     }),
+    ...(item.createdAt === undefined ? {} : { createdAt: item.createdAt }),
   };
 }
 
@@ -202,6 +207,7 @@ export function rowFromPersonal(
     done: item.status === "done",
     checkpoints: null,
     permissions: taskPermissions({ kind: "personal", isCreator: true, isAssignee: true }),
+    ...(item.createdAt === undefined ? {} : { createdAt: item.createdAt }),
   };
 }
 

@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
   ArrowDown,
   ArrowUp,
   CalendarClock,
+  CalendarDays,
   CalendarX2,
   Check,
   ExternalLink,
@@ -22,12 +23,14 @@ import {
   formatDateShort,
   matchDueShortcut,
   PRIORITY_LABELS,
+  STATUS_LABELS,
   type Perm,
   type TaskPriorityKey,
   type TaskRowModel,
 } from "@devotion/shared";
 
 import { AnimatedCheck } from "@/components/motion/animated-check";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +43,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { reducedFade, standardTween, useTweenSlots } from "@/lib/motion";
+import { reducedFade, standardTween, usePress, useTweenSlots } from "@/lib/motion";
+import type { RowRequest } from "@/lib/shortcuts/task-list";
 import { cn } from "@/lib/utils";
 
 import { DueChip } from "./due-chip";
@@ -62,11 +66,24 @@ export type TaskRowProps = {
   row: TaskRowModel;
   now: number;
   actions?: TaskRowActions;
-  /** Ima li stavka prikaz za otvaranje (lični zadatak dobija panel u K11). */
+  /** Ima li stavka prikaz za otvaranje (od K11 panel zadatka za obe vrste). */
   canOpen?: boolean;
   showStartup?: boolean;
   /** Pomeranje u planu: koje strane su moguće (samo u „Planirano"). */
   movable?: { up: boolean; down: boolean };
+  /** Izabran red (prečice `j`/`k`). */
+  selected?: boolean;
+  /** Panel ovog reda je otvoren (red ostaje istaknut, trenutak 3). */
+  active?: boolean;
+  /** Prečica `d`/`p` za ovaj red: otvori birač roka ili meni prioriteta. */
+  request?: RowRequest | null;
+  /**
+   * Kolone (Moji zadaci, plan K07 §1.3): na `lg` oblast 120 · status 96 ·
+   * rok 104 · prioritet 88; uže — isti podaci u drugom redu. `showStatus`
+   * gasi kolonu statusa kad je lista grupisana po statusu.
+   */
+  columns?: boolean;
+  showStatus?: boolean;
   className?: string;
 };
 
@@ -99,9 +116,24 @@ export function TaskRow({
   canOpen = false,
   showStartup = true,
   movable,
+  selected = false,
+  active = false,
+  request = null,
+  columns = false,
+  showStatus = true,
   className,
 }: TaskRowProps) {
   const statusPerm = row.permissions.status;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [dueOpen, setDueOpen] = useState(false);
+  const [priorityOpen, setPriorityOpen] = useState(false);
+  // Prečica `d`/`p` stiže kao nov `nonce` (izvedeno stanje, bez efekta).
+  const [seenRequest, setSeenRequest] = useState(request?.nonce ?? 0);
+  if (request && request.nonce !== seenRequest) {
+    setSeenRequest(request.nonce);
+    if (request.kind === "due") setDueOpen(true);
+    else setPriorityOpen(true);
+  }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!actions?.onMove || !movable || !event.altKey) return;
@@ -114,7 +146,51 @@ export function TaskRow({
     }
   };
 
-  const meta = (
+  const meta = columns ? (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground lg:shrink-0 lg:flex-nowrap lg:gap-0">
+      {showStartup ? (
+        <StartupChip startup={row.startup} size="xs" showName className="max-w-[11rem] lg:w-[9rem] lg:max-w-[9rem] lg:shrink-0 lg:pr-3" nameClassName="text-xs" />
+      ) : null}
+      <span className={cn("min-w-0 truncate lg:w-[120px] lg:pr-3", !row.areaLabel && "max-lg:hidden")}>
+        {showStartup ? <span aria-hidden="true" className="lg:hidden">· </span> : null}
+        {row.areaLabel ?? (
+          <>
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">Bez oblasti</span>
+          </>
+        )}
+      </span>
+      {showStatus ? (
+        <span className="shrink-0 whitespace-nowrap lg:w-24 lg:pr-3">
+          {showStartup || row.areaLabel ? (
+            <span aria-hidden="true" className="lg:hidden">
+              ·{" "}
+            </span>
+          ) : null}
+          <span className="sr-only">Status: </span>
+          {STATUS_LABELS[row.status]}
+        </span>
+      ) : null}
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 lg:ml-0 lg:w-[104px]">
+        <DueChip dueDate={row.dueDate} now={now} done={row.done} />
+        <PriorityDot priority={row.priority} className="lg:hidden" />
+      </span>
+      <span className="hidden shrink-0 items-center gap-1.5 lg:flex lg:w-[88px]">
+        {row.priority ? (
+          <>
+            <PriorityDot priority={row.priority} />
+            <span className="sr-only">Prioritet: </span>
+            {PRIORITY_LABELS[row.priority]}
+          </>
+        ) : (
+          <>
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">Bez prioriteta</span>
+          </>
+        )}
+      </span>
+    </span>
+  ) : (
     <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground md:max-w-[52%] md:shrink-0">
       {showStartup ? (
         <StartupChip startup={row.startup} size="xs" showName className="max-w-[11rem]" nameClassName="text-xs" />
@@ -134,11 +210,14 @@ export function TaskRow({
 
   return (
     <div
+      ref={rootRef}
       data-motion-enter
       data-row-key={row.key}
+      data-selected={selected ? "true" : undefined}
       onKeyDown={onKeyDown}
       className={cn(
-        "group/row relative isolate flex min-h-14 w-full items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60 focus-within:bg-muted/60 md:min-h-11 md:items-center md:py-1",
+        "group/row relative isolate flex min-h-14 w-full items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60 focus-within:bg-muted/60 data-[selected=true]:bg-muted/60 md:min-h-11 md:items-center md:py-1",
+        active && "bg-accent hover:bg-accent focus-within:bg-accent data-[selected=true]:bg-accent",
         className,
       )}
     >
@@ -162,7 +241,7 @@ export function TaskRow({
         )}
       </span>
 
-      <TitleArea row={row} canOpen={canOpen && Boolean(actions)} onOpen={() => actions?.onOpen(row)}>
+      <TitleArea row={row} columns={columns} canOpen={canOpen && Boolean(actions)} onOpen={() => actions?.onOpen(row)}>
         {meta}
       </TitleArea>
 
@@ -183,22 +262,62 @@ export function TaskRow({
           >
             {row.planned ? <Sun className="size-4" aria-hidden="true" /> : <SunDim className="size-4" aria-hidden="true" />}
           </button>
-          <DueButton row={row} now={now} onSetDue={(due) => actions.onSetDue(row, due)} />
-          <MoreMenu row={row} now={now} actions={actions} canOpen={canOpen} movable={movable} />
+          <DueButton
+            row={row}
+            now={now}
+            open={dueOpen}
+            onOpenChange={setDueOpen}
+            rootRef={rootRef}
+            onSetDue={(due) => actions.onSetDue(row, due)}
+          />
+          <MoreMenu
+            row={row}
+            now={now}
+            actions={actions}
+            canOpen={canOpen}
+            movable={movable}
+            onPickDate={() => setDueOpen(true)}
+          />
+          {priorityOpen && row.permissions.priority.allowed ? (
+            <PriorityMenu
+              row={row}
+              rootRef={rootRef}
+              onClose={() => setPriorityOpen(false)}
+              onSetPriority={(priority) => actions.onSetPriority(row, priority)}
+            />
+          ) : null}
         </span>
       ) : null}
     </div>
   );
 }
 
+/** Fokus na naslov reda (posle birača/menija otvorenog prečicom, kad okidač nije vidljiv). */
+function focusRowTitle(rootRef: RefObject<HTMLDivElement | null>) {
+  const target =
+    rootRef.current?.querySelector<HTMLElement>("[data-row-focus]") ??
+    rootRef.current?.querySelector<HTMLElement>("button");
+  target?.focus({ preventScroll: true });
+}
+
+function isShown(element: Element | null | undefined) {
+  return element instanceof HTMLElement && element.getClientRects().length > 0 && getComputedStyle(element).opacity !== "0";
+}
+
+/** Tačka uz desnu ivicu reda: birač i meni otvoreni prečicom se postavljaju uz nju. */
+const rowAnchorClass = "pointer-events-none absolute bottom-1 right-2 size-px";
+
 /** Naslov + metapodaci; klik otvara stavku kad postoji prikaz. Precrt prolazi sleva nadesno. */
 function TitleArea({
   row,
+  columns = false,
   canOpen,
   onOpen,
   children,
 }: {
   row: TaskRowModel;
+  /** Kolone: naslov i podaci u istom redu tek od `lg` (na `md` podaci idu ispod). */
+  columns?: boolean;
   canOpen: boolean;
   onOpen: () => void;
   children: ReactNode;
@@ -229,9 +348,10 @@ function TitleArea({
 
   const body = (
     <>
-      <span className="relative min-w-0 max-w-full md:flex-1">
+      <span className={cn("relative min-w-0 max-w-full", columns ? "lg:flex-1" : "md:flex-1")}>
         <span
           title={row.title}
+          data-row-title
           className={cn(
             "block truncate text-sm transition-colors",
             row.done ? "text-muted-foreground" : "text-foreground",
@@ -251,11 +371,27 @@ function TitleArea({
     </>
   );
 
-  const layout = "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left md:flex-row md:items-center md:gap-3";
+  const layout = columns
+    ? "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left lg:flex-row lg:items-center lg:gap-3"
+    : "flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left md:flex-row md:items-center md:gap-3";
   if (!canOpen) return <span className={layout}>{body}</span>;
   return (
-    <button type="button" onClick={onOpen} className={cn(layout, "rounded-md")}>
+    <OpenButton className={layout} onOpen={onOpen}>
       {body}
+    </OpenButton>
+  );
+}
+
+/**
+ * Naslov koji otvara panel: na pointer-down se „podigne" (`usePress`, 0,97 →
+ * snappy, trenutak 3). `data-row-focus` je cilj fokusa za prečice `j`/`k`,
+ * a `data-row-title` izvor „leteće kopije" naslova u zaglavlje panela.
+ */
+function OpenButton({ className, onOpen, children }: { className: string; onOpen: () => void; children: ReactNode }) {
+  const pressRef = usePress<HTMLButtonElement>();
+  return (
+    <button ref={pressRef} type="button" data-row-focus onClick={onOpen} className={cn(className, "rounded-md")}>
+      {children}
     </button>
   );
 }
@@ -303,25 +439,102 @@ function LockedCheck({
   );
 }
 
-function DueButton({ row, now, onSetDue }: { row: TaskRowModel; now: number; onSetDue: (due: number | null) => void }) {
+/**
+ * Rok kroz birač datuma (P9, K11): čipovi + kalendar. Okidač se vidi na
+ * hover/fokus (miš); prečica `d` i „Datum…" iz menija ga otvaraju i kad
+ * okidač nije vidljiv — popover se tada postavlja uz desnu ivicu reda.
+ */
+function DueButton({
+  row,
+  now,
+  open,
+  onOpenChange,
+  rootRef,
+  onSetDue,
+}: {
+  row: TaskRowModel;
+  now: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  rootRef: RefObject<HTMLDivElement | null>;
+  onSetDue: (due: number | null) => void;
+}) {
   const perm = row.permissions.due;
   const label = `Rok za ${row.title}`;
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const classes = cn(iconButton, "hidden md:pointer-fine:grid", hoverReveal);
   if (!perm.allowed) return <DisabledAction label={label} reason={perm.reason} className={classes} icon={CalendarClock} />;
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger aria-label={label} title="Rok" className={classes}>
+    <DatePicker
+      value={row.dueDate}
+      now={now}
+      onChange={onSetDue}
+      open={open}
+      onOpenChange={onOpenChange}
+      align="end"
+      anchor={<span aria-hidden="true" className={rowAnchorClass} />}
+      onCloseAutoFocus={(event) => {
+        if (isShown(triggerRef.current)) return;
+        event.preventDefault();
+        focusRowTitle(rootRef);
+      }}
+    >
+      <button ref={triggerRef} type="button" aria-label={label} title="Rok" className={classes}>
         <CalendarClock className="size-4" aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Rok</DropdownMenuLabel>
-        <DueItems row={row} now={now} onSetDue={onSetDue} />
+      </button>
+    </DatePicker>
+  );
+}
+
+/** Meni prioriteta otvoren prečicom `p` — postavlja se uz desnu ivicu reda. */
+function PriorityMenu({
+  row,
+  rootRef,
+  onClose,
+  onSetPriority,
+}: {
+  row: TaskRowModel;
+  rootRef: RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  onSetPriority: (priority: TaskPriorityKey | null) => void;
+}) {
+  return (
+    <DropdownMenu
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      modal={false}
+    >
+      <DropdownMenuTrigger tabIndex={-1} aria-hidden="true" className={cn(rowAnchorClass, "opacity-0")} />
+      <DropdownMenuContent
+        align="end"
+        className="w-48"
+        aria-label={`Prioritet: ${row.title}`}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusRowTitle(rootRef);
+        }}
+      >
+        <DropdownMenuLabel>Prioritet</DropdownMenuLabel>
+        <PriorityItems row={row} onSetPriority={onSetPriority} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function DueItems({ row, now, onSetDue }: { row: TaskRowModel; now: number; onSetDue: (due: number | null) => void }) {
+function DueItems({
+  row,
+  now,
+  onSetDue,
+  onPickDate,
+}: {
+  row: TaskRowModel;
+  now: number;
+  onSetDue: (due: number | null) => void;
+  /** „Datum…" otvara birač datuma (kalendar). */
+  onPickDate?: () => void;
+}) {
   // Petkom/subotom/nedeljom dve prečice mogu biti isti dan: kvačica samo na prvoj.
   const selected = matchDueShortcut(row.dueDate, now);
   return (
@@ -336,6 +549,12 @@ function DueItems({ row, now, onSetDue }: { row: TaskRowModel; now: number; onSe
           </MenuItem>
         );
       })}
+      {onPickDate ? (
+        <MenuItem onSelect={onPickDate}>
+          <CalendarDays aria-hidden="true" />
+          Datum…
+        </MenuItem>
+      ) : null}
       {row.dueDate !== null ? (
         <>
           <DropdownMenuSeparator />
@@ -395,20 +614,34 @@ function MoreMenu({
   actions,
   canOpen,
   movable,
+  onPickDate,
 }: {
   row: TaskRowModel;
   now: number;
   actions: TaskRowActions;
   canOpen: boolean;
   movable?: { up: boolean; down: boolean };
+  onPickDate: () => void;
 }) {
   const { status, due, priority } = row.permissions;
+  // „Datum…": birač se otvara tek kad se meni zatvori, inače bi ga povratak
+  // fokusa na „…" odmah zatvorio.
+  const pickDate = useRef(false);
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger aria-label={`Radnje: ${row.title}`} title="Radnje" className={cn(iconButton, hoverReveal)}>
         <MoreHorizontal className="size-4" aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
+      <DropdownMenuContent
+        align="end"
+        className="w-60"
+        onCloseAutoFocus={(event) => {
+          if (!pickDate.current) return;
+          pickDate.current = false;
+          event.preventDefault();
+          onPickDate();
+        }}
+      >
         {canOpen ? (
           <MenuItem onSelect={() => actions.onOpen(row)}>
             <ExternalLink aria-hidden="true" />
@@ -435,7 +668,14 @@ function MoreMenu({
               Rok
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-56">
-              <DueItems row={row} now={now} onSetDue={(value) => actions.onSetDue(row, value)} />
+              <DueItems
+                row={row}
+                now={now}
+                onSetDue={(value) => actions.onSetDue(row, value)}
+                onPickDate={() => {
+                  pickDate.current = true;
+                }}
+              />
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         ) : (

@@ -15,12 +15,13 @@ export type QueryState<T> = { status: "loading" } | { status: "error"; error: Er
  */
 export function useQueryState<Query extends FunctionReference<"query">>(
   query: Query,
-  args: Query["_args"],
+  /** `"skip"` = upit se ne šalje (stanje ostaje „učitavanje"). */
+  args: Query["_args"] | "skip",
 ): QueryState<FunctionReturnType<Query>> {
   const argsKey = JSON.stringify(args);
   const queryKey = getFunctionName(query);
   const queries = useMemo(
-    () => ({ value: { query, args } }) as RequestForQueries,
+    () => (args === "skip" ? {} : ({ value: { query, args } } as RequestForQueries)),
     // `queryKey`/`argsKey` vrednosno pokrivaju `query`/`args`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [queryKey, argsKey],

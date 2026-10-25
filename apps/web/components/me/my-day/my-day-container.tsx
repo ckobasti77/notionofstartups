@@ -20,9 +20,11 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { accessErrorMessage } from "@/lib/errors";
 import { useFlip } from "@/lib/motion";
+import { useTaskListShortcuts } from "@/lib/shortcuts/use-task-list-shortcuts";
 import type { Today } from "@/lib/today";
 
 import { PlanDayDialog, type PlanDayState } from "../plan-day/plan-day-dialog";
+import { panelRequestKey, TaskPanel, type TaskPanelProps, type TaskPanelRequest } from "../task-panel/task-panel";
 import { buildPlanDay } from "../plan-day/plan-day-model";
 import type { TaskRowActions } from "../task-row";
 import {
@@ -31,6 +33,7 @@ import {
   FLIP_MAX_ROWS,
   GROUP_MODE_STORAGE_KEY,
   isOptimisticId,
+  locateRow,
   type MyDayGroupMode,
   type MyDayModel,
   OPTIMISTIC_PREFIX,
@@ -51,7 +54,10 @@ import { useQueryState, type QueryState } from "./use-query-state";
 export type MyDayContainerProps = {
   today: Today;
   firstName: string | null;
-  /** Startup zadatak se otvara u svom startupu (panel zadatka stiže u K11). */
+  profileId: Id<"profiles">;
+  /** Startupi sa oblastima (ljuska) — panel zadatka: mini podaci i „Prebaci u startup". */
+  startups: TaskPanelProps["startups"];
+  /** „Otvori u startupu" iz panela: postojeći detalj stranice u njenom startupu. */
   onOpenTask: (startupId: Id<"startups">, pageId: Id<"pages">) => void;
   onOpenTasks: () => void;
   onQuickAdd: () => void;
@@ -126,6 +132,8 @@ export function MyDayContainer(props: MyDayContainerProps) {
 function MyDayContent({
   today,
   firstName,
+  profileId,
+  startups: shellStartups,
   onOpenTask,
   onOpenTasks,
   onQuickAdd,
@@ -231,8 +239,7 @@ function MyDayContent({
   // --- Završi / vrati (E7) ---
   const completion = useCompletionQueue({
     listRef,
-    modelRef,
-    groupMode,
+    locate: (key) => (modelRef.current ? locateRow(modelRef.current, groupMode, key) : null),
     flipCapture,
     commit: (row, done, previous) => {
       const call = completionCall(row, done, previous);
@@ -322,18 +329,48 @@ function MyDayContent({
     );
   };
 
+  // --- Panel zadatka (K11): isti panel kao u Mojim zadacima ---
+  const [panel, setPanel] = useState<TaskPanelRequest | null>(null);
+  const openPanel = (row: TaskRowModel) => {
+    const origin =
+      listRef.current?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(row.key)}"] [data-row-title]`) ?? null;
+    setPanel({
+      target:
+        row.kind === "task"
+          ? { kind: "task", pageId: row.id as Id<"pages"> }
+          : { kind: "personal", personalTaskId: row.id as Id<"personalTasks"> },
+      title: row.title,
+      origin,
+      openedAt: performance.now(),
+    });
+  };
+
   const actions: TaskRowActions = {
     onToggleDone: completion.toggleDone,
     onTogglePlan: togglePlan,
     onSetDue: setDue,
     onSetPriority: setPriority,
-    onOpen: (row) => {
-      if (row.kind === "task" && row.startup) {
-        onOpenTask(row.startup._id as Id<"startups">, row.id as Id<"pages">);
-      }
-    },
+    onOpen: openPanel,
     onMove: move,
   };
+
+  // --- Prečice liste (E20): isti red, iste radnje kao u Mojim zadacima ---
+  const shortcuts = useTaskListShortcuts({
+    listRef,
+    getRow: (key) => {
+      const current = modelRef.current;
+      if (!current) return undefined;
+      const all = [
+        ...current.sections.flatMap((section) => section.rows),
+        ...current.byStartup.groups.flatMap((group) => group.rows),
+        ...current.byStartup.doneToday,
+      ];
+      return all.find((row) => row.key === key);
+    },
+    actions,
+    reorder: true,
+    enabled: panel === null && !planOpen,
+  });
 
   // --- Desna kolona ---
   const inboxCounts = useQueryState(api.inbox.unreadCounts, {});
@@ -397,7 +434,11 @@ function MyDayContent({
           onOpenPending: (startupId) => onOpenApprovals(startupId as Id<"startups">),
         }}
         actions={actions}
-        canOpen={(row) => row.kind === "task" && row.startup !== null}
+        canOpen={() => true}
+        selectedKey={shortcuts.selectedKey}
+        activeKey={panelRequestKey(panel)}
+        request={shortcuts.request}
+        onListFocus={shortcuts.onListFocus}
         onQuickAdd={onQuickAdd}
         onPlanDay={() => setPlanOpen(true)}
         onOpenTasks={onOpenTasks}
@@ -428,6 +469,14 @@ function MyDayContent({
             toast.error(accessErrorMessage(error, "Plan nije sačuvan.")),
           );
         }}
+      />
+      <TaskPanel
+        request={panel}
+        onClose={() => setPanel(null)}
+        today={today}
+        profileId={profileId}
+        startups={shellStartups}
+        onOpenInStartup={onOpenTask}
       />
     </>
   );
