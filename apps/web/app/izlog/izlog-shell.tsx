@@ -7,13 +7,21 @@ import { Moon, Sun } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
-import { izlogHref, type IzlogTema } from "./params";
+import { izlogHref, resolveVarijanta, type IzlogTema } from "./params";
 import { IZLOG_EKRANI } from "./registry";
 
 const linkBase =
   "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors";
 
-export function IzlogShell({ ekran, tema }: { ekran: string; tema: IzlogTema }) {
+export function IzlogShell({
+  ekran,
+  tema,
+  varijanta: requestedVarijanta,
+}: {
+  ekran: string;
+  tema: IzlogTema;
+  varijanta: string | null;
+}) {
   const { setForcedTheme } = useTheme();
   useLayoutEffect(() => {
     setForcedTheme(tema);
@@ -24,6 +32,7 @@ export function IzlogShell({ ekran, tema }: { ekran: string; tema: IzlogTema }) 
   const entry = Object.hasOwn(IZLOG_EKRANI, ekran) ? IZLOG_EKRANI[ekran] : undefined;
   const Ekran = entry?.Komponenta;
   const ekrani = Object.entries(IZLOG_EKRANI);
+  const varijanta = resolveVarijanta(entry?.varijante, requestedVarijanta);
 
   return (
     <div className="app-canvas min-h-dvh">
@@ -59,7 +68,7 @@ export function IzlogShell({ ekran, tema }: { ekran: string; tema: IzlogTema }) 
               return (
                 <Link
                   key={opcija}
-                  href={izlogHref(ekran, opcija)}
+                  href={izlogHref(ekran, opcija, varijanta)}
                   aria-current={opcija === tema ? "true" : undefined}
                   className={cn(
                     linkBase,
@@ -72,11 +81,29 @@ export function IzlogShell({ ekran, tema }: { ekran: string; tema: IzlogTema }) 
               );
             })}
           </div>
+          {entry?.varijante ? (
+            <nav aria-label="Varijante ekrana" className="flex w-full flex-wrap gap-1">
+              {entry.varijante.map((ime) => (
+                <Link
+                  key={ime}
+                  href={izlogHref(ekran, tema, ime)}
+                  aria-current={ime === varijanta ? "page" : undefined}
+                  className={cn(
+                    linkBase,
+                    "border",
+                    ime === varijanta ? "border-primary/40 bg-accent text-accent-foreground" : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {ime}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         {Ekran ? (
-          <Ekran />
+          <Ekran varijanta={varijanta} />
         ) : (
           <div className="desk-surface mx-auto max-w-md rounded-2xl border bg-card p-6">
             <h2 className="text-base font-semibold">Ekran „{ekran}&ldquo; ne postoji</h2>

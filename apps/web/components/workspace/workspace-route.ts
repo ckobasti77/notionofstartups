@@ -1,6 +1,22 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import type { WorkspaceRoute } from "./types";
+import type { MeRoute, WorkspaceRoute, WorkspaceScope } from "./types";
+
+/** Prikazi ličnog nivoa „Ja" (P1). */
+export const ME_ROUTE_KINDS = [
+  "me-today",
+  "me-tasks",
+  "me-inbox",
+  "me-chat",
+] as const satisfies ReadonlyArray<MeRoute["kind"]>;
+
+export function isMeRoute(route: { kind: string }): route is MeRoute {
+  return (ME_ROUTE_KINDS as ReadonlyArray<string>).includes(route.kind);
+}
+
+export function routeScope(route: WorkspaceRoute): WorkspaceScope {
+  return isMeRoute(route) ? "me" : "startup";
+}
 
 export type AreasRouteCandidate =
   | { kind: "area"; areaId: string }
@@ -30,9 +46,18 @@ export function readWorkspaceRouteCandidate(
 ): WorkspaceRouteCandidate | null {
   const params = new URLSearchParams(search);
   const view = params.get("view");
-  // Bez izričitog prikaza otvara se komandni centar: prvi ekran odgovara na
-  // „šta me čeka”, a ne na pozdrav.
-  if (view === null) return { kind: "today" };
+  // Bez izričitog prikaza otvara se Moj dan (O1, P1): prvi ekran odgovara na
+  // „šta me danas čeka" kroz sve startupe, a ne na pozdrav.
+  if (view === null) return { kind: "me-today" };
+  if (view === "me-today") return { kind: "me-today" };
+  if (view === "me-tasks") return { kind: "me-tasks" };
+  if (view === "me-inbox") return { kind: "me-inbox" };
+  if (view === "me-chat") {
+    const channelId = params.get("channelId")?.trim();
+    return channelId
+      ? { kind: "me-chat", channelId: channelId as Id<"chatChannels"> }
+      : { kind: "me-chat" };
+  }
   if (view === "home") return { kind: "home" };
   if (view === "thoughts") return { kind: "thoughts" };
   if (view === "ideas") return { kind: "ideas" };
@@ -120,12 +145,19 @@ export function workspaceRouteHref(
     url.searchParams.set("areaId", route.areaId);
   } else if (route.kind === "page") {
     url.searchParams.set("pageId", route.pageId);
-  } else if (route.kind === "chat" && route.channelId) {
+  } else if (
+    (route.kind === "chat" || route.kind === "me-chat") &&
+    route.channelId
+  ) {
     url.searchParams.set("channelId", route.channelId);
   } else if (route.kind === "puls" && route.weekStart !== undefined) {
     url.searchParams.set("week", String(route.weekStart));
   }
-  if (startupId) url.searchParams.set("startupId", startupId);
+  // Lični nivo ne pripada startupu: `startupId` se ne upisuje ni kad je
+  // prosleđen (startup „u pozadini" se drži u memoriji ljuske, D10).
+  if (startupId && !isMeRoute(route)) {
+    url.searchParams.set("startupId", startupId);
+  }
 
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -133,6 +165,8 @@ export function workspaceRouteHref(
 export function workspaceRouteAfterStartupSwitch(
   currentRoute: WorkspaceRoute,
 ): WorkspaceRoute {
+  // Iz ličnog nivoa se u startup ulazi kroz Komandni centar.
+  if (isMeRoute(currentRoute)) return { kind: "today" };
   // Kanali su per-startup: ostani u chatu, ali otpusti izabrani kanal.
   if (currentRoute.kind === "chat") return { kind: "chat" };
   return currentRoute.kind === "home" ||

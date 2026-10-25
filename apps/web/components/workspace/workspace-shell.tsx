@@ -1,24 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
-  Bell,
   Building2,
+  CheckSquare2,
+  Inbox,
+  MessageCircle,
   ExternalLink,
   FileText,
   FolderOutput,
   LoaderCircle,
   Plus,
-  Search,
   Sparkles,
   UserRound,
 } from "lucide-react";
 
+import { ComingSoon } from "@/components/me/coming-soon";
+import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
+import { buildMyDay, firstNameOf, openByStartup, openTodayCount } from "@/components/me/my-day/my-day-model";
+import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
+import {
+  railBadges,
+  railDirection,
+  railKey,
+  type RailScope,
+} from "@/components/me/shell/scope";
+import { MobileScopeHeader } from "@/components/me/shell/mobile-scope-header";
+import type { ScopeChipsProps } from "@/components/me/shell/scope-chips";
+import { ScopeSwap } from "@/components/me/shell/scope-swap";
 import { MotionStage } from "@/components/motion/motion-stage";
+import { ShortcutProvider, useShortcuts } from "@/components/shortcuts/shortcut-provider";
+import { WorkspaceRail } from "@/components/workspace/workspace-rail";
+import { SHELL_SHORTCUTS } from "@/lib/shortcuts/registry";
+import { useToday } from "@/lib/use-today";
 import { ActivityView } from "@/components/workspace/activity-view";
 import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
@@ -43,7 +61,6 @@ import { TasksView } from "@/components/workspace/tasks-view";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
 import {
   ProfileAvatar,
-  StartupLogo,
 } from "@/components/workspace/workspace-ui";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
 import {
@@ -56,7 +73,7 @@ import type {
   ThoughtDropTarget,
   ThoughtSidebarDragRequest,
 } from "@/components/workspace/thought-sharing";
-import type { CreatePageTarget, ProfileWithAvatar, WorkspaceRoute } from "@/components/workspace/types";
+import type { CreatePageTarget, MeRoute, ProfileWithAvatar, WorkspaceRoute } from "@/components/workspace/types";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +84,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PageEditorSaveState } from "@/components/workspace/page-editor-view";
@@ -84,6 +100,7 @@ import {
 } from "@/components/workspace/workspace-history";
 import {
   isAreasRouteCandidate,
+  isMeRoute,
   readWorkspaceLocation,
   resolvedAreasRoute,
   workspaceRouteAfterStartupSwitch,
@@ -129,10 +146,24 @@ const ThoughtsCanvasView = dynamic(
   },
 );
 
+const MyDayContainer = dynamic(
+  () => import("@/components/me/my-day/my-day-container").then((module) => module.MyDayContainer),
+  { loading: () => <MyDaySkeleton /> },
+);
+
+/** Prvi prikaz iz URL-a (ljuska se učitava tek na klijentu, posle prijave). */
+function initialRoute(): WorkspaceRoute {
+  if (typeof window === "undefined") return { kind: "home" };
+  const candidate = readWorkspaceLocation(window.location.search).route;
+  return candidate && !isAreasRouteCandidate(candidate) ? candidate : { kind: "home" };
+}
+
 export function WorkspaceShell(props: { profile: ProfileWithAvatar; onSignOut: () => void }) {
   return (
     <WorkspaceHistoryProvider>
-      <WorkspaceShellContent {...props} />
+      <ShortcutProvider>
+        <WorkspaceShellContent {...props} />
+      </ShortcutProvider>
     </WorkspaceHistoryProvider>
   );
 }
@@ -148,7 +179,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     { initialNumItems: 50 },
   );
   const [selectedStartupId, setSelectedStartupId] = useState<Id<"startups"> | null>(null);
-  const [route, setRoute] = useState<WorkspaceRoute>({ kind: "home" });
+  const [route, setRoute] = useState<WorkspaceRoute>(initialRoute);
+  // Poslednji prikaz ličnog nivoa — „Ja" u traci vraća tamo gde si bio.
+  const lastMeRouteRef = useRef<MeRoute>({ kind: "me-today" });
+  // Smer kretanja kroz traku za smenu menija: postavlja ga rukovalac klika i
+  // važi samo za opseg ka kome je postavljen (Nazad/Napred ide bez smera).
+  const [scopeMotion, setScopeMotion] = useState<{ toKey: string; direction: -1 | 0 | 1 }>({
+    toKey: "",
+    direction: 0,
+  });
   const routeResolutionRequestRef = useRef(0);
   const activeStartupIdRef = useRef<Id<"startups"> | null>(null);
   const resetForStartupIdRef = useRef<Id<"startups"> | null>(null);
@@ -209,7 +248,27 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     api.notifications.unreadCount,
     startup ? { startupId: startup._id } : "skip",
   );
-  const chatUnread = useQuery(api.chat.unreadSummary, {});
+  // Tolerantno kao ostali brojači: od K08 hrani i bedž „Ja" i meni.
+  const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
+  // Lični nivo: tolerantno — greška brojača ne sme da obori ljusku; bedž se
+  // tada samo ne prikazuje (plan K01 §5).
+  const today = useToday();
+  const inboxUnread = useQueryTolerant(api.inbox.unreadCounts, {});
+  const myDayOverview = useQueryTolerant(api.myDay.overview, {
+    dayKey: today.dayKey,
+    doneSince: today.doneSince,
+  });
+  const myDayStats = useMemo(
+    () =>
+      myDayOverview
+        ? {
+            counts: buildMyDay(myDayOverview, today.now).counts,
+            openByStartup: openByStartup(myDayOverview, today.now),
+            capped: myDayOverview.capped.tasks,
+          }
+        : null,
+    [myDayOverview, today.now],
+  );
   // Tolerantno: pad `pages.get` obara body dijaloga kroz granicu, a footer se
   // degradira na „Autor nije dostupan" umesto da sruši ceo shell.
   const detailPage = useQueryTolerant(
@@ -310,7 +369,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
     if (!candidate) {
       navigateRoute(
-        { kind: "home" },
+        { kind: "me-today" },
         {
           replace: true,
           bypassGuard: true,
@@ -318,7 +377,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         },
       );
       if (location.hasExplicitView) {
-        toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
+        toast.error("Traženi prikaz nije dostupan. Otvoren je Moj dan.");
       }
       return;
     }
@@ -421,28 +480,116 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   ]);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); if (startup) setSearchOpen(true); }
+    if (isMeRoute(route)) lastMeRouteRef.current = route;
+  }, [route]);
+
+  // Promena prikaza ili opsega ume da ukloni element koji je imao fokus (stavka
+  // menija „Ja", dugme „Stiže uskoro"); tada fokus ide na sadržaj, ne na body.
+  const routeFocusArmedRef = useRef(false);
+  useEffect(() => {
+    // Prvi prikaz ne krade fokus (skip link i čitač ekrana kreću od vrha).
+    if (!routeFocusArmedRef.current) {
+      routeFocusArmedRef.current = true;
+      return;
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [startup]);
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      document.getElementById("sadrzaj")?.focus({ preventScroll: true });
+    }
+  }, [route]);
+
+  // Ctrl/⌘+K kroz registar prečica — isto ponašanje kao ranije (radi i u
+  // polju i uz otvoren dijalog).
+  useShortcuts([SHELL_SHORTCUTS.search], () => {
+    if (startup) setSearchOpen(true);
+  });
+  // Brzi unos (`q`): do K10 otvara „Novi zadatak" izabranog startupa; u
+  // opsegu „Ja" prečicu preuzima Brzi unos iz K10.
+  useShortcuts(
+    [SHELL_SHORTCUTS.quickAdd],
+    () => openCreate({ initialKind: "task" }),
+    startup !== undefined && !isMeRoute(route),
+  );
+
+  const railScope: RailScope | null = startup
+    ? isMeRoute(route)
+      ? { kind: "me" }
+      : { kind: "startup", startupId: startup._id }
+    : null;
+  const startupOrder = (startups ?? []).map((item) => item._id as string);
+
+  function markScopeMotion(next: RailScope) {
+    if (!railScope) return;
+    setScopeMotion({
+      toKey: railKey(next),
+      direction: railDirection(railScope, next, startupOrder),
+    });
+  }
+
+  /** „Ja": poslednji lični prikaz (ili zadati); startup ostaje u pozadini. */
+  function goToMe(next?: MeRoute) {
+    const target = next ?? lastMeRouteRef.current;
+    // Isti prikaz: bez novog unosa u istoriji.
+    if (JSON.stringify(target) === JSON.stringify(route)) return;
+    markScopeMotion({ kind: "me" });
+    navigateRoute(target);
+  }
+
+  /**
+   * Otvori nešto u startupu iz ličnog nivoa (npr. stavku iz Moj dan): isti
+   * mehanizam kao izbor startupa, pa po potrebi detalj stranice.
+   */
+  function openInStartup(
+    targetStartupId: Id<"startups">,
+    target: { pageId: Id<"pages"> } | { route: WorkspaceRoute },
+  ) {
+    const nextRoute: WorkspaceRoute =
+      "route" in target ? target.route : { kind: "today" };
+    markScopeMotion({ kind: "startup", startupId: targetStartupId });
+    if (startup?._id !== targetStartupId) {
+      resetForStartupIdRef.current = targetStartupId;
+      if (!navigateRoute(nextRoute, { targetStartupId })) {
+        resetForStartupIdRef.current = null;
+        return;
+      }
+      setSelectedStartupId(targetStartupId);
+      resetStartupLocalState();
+    } else if (!navigateRoute(nextRoute)) {
+      return;
+    }
+    if ("pageId" in target) openPageDetails(target.pageId);
+  }
 
   function selectStartup(nextStartupId: Id<"startups">) {
-    if (startup?._id !== nextStartupId) {
+    // Iz „Ja" je izbor startupa nov unos u istoriji (Nazad vraća u „Ja");
+    // između startupa ostaje zamena kao ranije.
+    const fromMe = isMeRoute(route);
+    const changesStartup = startup?._id !== nextStartupId;
+    markScopeMotion({ kind: "startup", startupId: nextStartupId });
+    if (changesStartup) {
       const nextRoute = workspaceRouteAfterStartupSwitch(route);
       resetForStartupIdRef.current = nextStartupId;
       if (
         !navigateRoute(nextRoute, {
-          replace: true,
+          replace: !fromMe,
           targetStartupId: nextStartupId,
         })
       ) {
         resetForStartupIdRef.current = null;
         return;
       }
+    } else if (fromMe) {
+      // Startup u pozadini je već izabran: samo prelaz u Komandni centar.
+      if (!navigateRoute({ kind: "today" }, { targetStartupId: nextStartupId })) {
+        return;
+      }
     }
     setSelectedStartupId(nextStartupId);
+    // Stablo oblasti i prevlačenja pripadaju startupu: čiste se samo pri promeni.
+    if (changesStartup) resetStartupLocalState();
+  }
+
+  function resetStartupLocalState() {
     setExpandedAreas({});
     setExpandedPageIds(new Set());
     setTransientExpandedAreaIds(new Set());
@@ -801,7 +948,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
   const sidebarProps = {
     profile,
-    startups,
     startup,
     route,
     collapsed: sidebarCollapsed,
@@ -814,15 +960,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onCollapsedChange: setSidebarCollapsed,
     onAreaExpandedChange: setAreaExpanded,
     onPageExpandedChange: setPageExpanded,
-    onStartupChange: selectStartup,
     onRouteChange: navigateRoute,
     onCreate: openCreate,
     onCreateArea: () => setCreateAreaOpen(true),
     onSearch: () => setSearchOpen(true),
     onAdmin: openAdmin,
-    onCreateStartup: openCreateStartup,
-    onLoadMoreStartups: () => loadMoreStartups(50),
-    startupsStatus,
     onProfile: () => setProfileOpen(true),
     onSignOut,
     draggedPageId,
@@ -842,13 +984,159 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onDropPage: handleDropPage,
   };
   const routeKey = route.kind === "page" ? `page:${route.pageId}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
+  const meActive = isMeRoute(route);
+  const currentScope: RailScope = meActive
+    ? { kind: "me" }
+    : { kind: "startup", startupId: startup._id };
+  const railStartups = startups.map((item) => ({
+    id: item._id,
+    name: item.name,
+    logoUrl: item.logoUrl,
+  }));
+  const badges = railBadges(inboxUnread, chatUnread);
+  const meSidebarProps: MeSidebarProps = {
+    profile,
+    active: meActive ? route.kind : null,
+    counts: {
+      today: myDayStats ? openTodayCount(myDayStats.counts) : null,
+      inbox: inboxUnread?.total.count ?? null,
+      inboxCapped: inboxUnread?.total.capped ?? false,
+      chat: chatUnread?.total.unreadCount ?? null,
+    },
+    startups: railStartups.map((item) => ({
+      ...item,
+      openCount: myDayStats ? (myDayStats.openByStartup[item.id] ?? 0) : null,
+      capped: myDayStats?.capped ?? false,
+    })),
+    onNavigate: (key) => goToMe({ kind: key }),
+    onOpenStartup: selectStartup,
+  };
+  const scopeChipsProps: ScopeChipsProps = {
+    profile,
+    startups: railStartups,
+    active: currentScope,
+    badges,
+    onSelectMe: () => goToMe(),
+    onSelectStartup: selectStartup,
+    onCreateStartup: profile.role === "admin" ? openCreateStartup : undefined,
+  };
+  const meTitle =
+    route.kind === "me-tasks"
+      ? "Moji zadaci"
+      : route.kind === "me-inbox"
+        ? "Inbox"
+        : route.kind === "me-chat"
+          ? "Poruke"
+          : "Moj dan";
+  const notificationCount = meActive
+    ? (inboxUnread?.total.count ?? 0)
+    : (unreadNotifications?.count ?? 0);
+  const notificationCapped = meActive
+    ? (inboxUnread?.total.capped ?? false)
+    : (unreadNotifications?.capped ?? false);
   return (
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
-      <WorkspaceSidebar {...sidebarProps} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "chat" ? "Chat" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><Button variant="ghost" size="icon" className="relative" aria-label={`Obaveštenja${(unreadNotifications?.count ?? 0) > 0 ? `, ${unreadNotifications?.count} nepročitano` : ""}`} onClick={() => setNotificationsOpen(true)}><Bell />{(unreadNotifications?.count ?? 0) > 0 ? <span aria-hidden="true" className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[0.625rem] font-bold leading-4 tabular-nums text-primary-foreground">{unreadNotifications?.capped ? "99+" : unreadNotifications?.count}</span> : null}</Button><ThemeToggle /></header>
+      <a
+        href="#sadrzaj"
+        onClick={(event) => {
+          // Bez promene hash-a: ne pravi `popstate` ni trag u URL-u ljuske.
+          event.preventDefault();
+          document.getElementById("sadrzaj")?.focus();
+        }}
+        className="sr-only z-50 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground focus:not-sr-only focus:absolute focus:left-3 focus:top-3"
+      >
+        Preskoči na sadržaj
+      </a>
+      <WorkspaceRail
+        profile={profile}
+        startups={railStartups}
+        active={currentScope}
+        isAdmin={profile.role === "admin"}
+        badges={badges}
+        onSelectMe={() => goToMe()}
+        onSelectStartup={selectStartup}
+        onCreateStartup={openCreateStartup}
+        onLoadMore={
+          startupsStatus === "CanLoadMore" || startupsStatus === "LoadingMore"
+            ? () => loadMoreStartups(50)
+            : undefined
+        }
+        loadingMore={startupsStatus === "LoadingMore"}
+        onProfile={() => setProfileOpen(true)}
+        onSignOut={onSignOut}
+      />
+      <ScopeSwap
+        scopeKey={railKey(currentScope)}
+        direction={
+          scopeMotion.toKey === railKey(currentScope) ? scopeMotion.direction : 0
+        }
+        className="hidden h-dvh shrink-0 lg:flex"
+      >
+        {meActive ? (
+          <aside className="h-dvh w-[18.5rem] shrink-0 border-r border-sidebar-border bg-sidebar">
+            <MeSidebar {...meSidebarProps} />
+          </aside>
+        ) : (
+          <WorkspaceSidebar {...sidebarProps} />
+        )}
+      </ScopeSwap>
+      <div id="sadrzaj" tabIndex={-1} className="flex min-w-0 flex-1 flex-col outline-none">
+        <MobileScopeHeader
+          menu={<MobileWorkspaceMenu {...sidebarProps} scopeChips={scopeChipsProps} me={meActive ? meSidebarProps : null} />}
+          scope={
+            meActive
+              ? { kind: "me", profile, title: meTitle }
+              : {
+                  kind: "startup",
+                  startup,
+                  subtitle: route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Komandni centar" : route.kind === "chat" ? "Chat" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor",
+                  onSearch: () => setSearchOpen(true),
+                }
+          }
+          notifications={{
+            label: meActive ? "Inbox" : "Obaveštenja",
+            count: notificationCount,
+            capped: notificationCapped,
+            onOpen: () => (meActive ? goToMe({ kind: "me-inbox" }) : setNotificationsOpen(true)),
+          }}
+        />
         <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
-          {route.kind === "home" ? (
+          {route.kind === "me-today" ? (
+            <WorkspaceErrorBoundary key="me-today" title="Moj dan se ne može učitati" className="m-4 min-h-[20rem]">
+              <MyDayContainer
+                today={today}
+                firstName={firstNameOf(profile.displayName)}
+                onOpenTask={(taskStartupId, pageId) =>
+                  openInStartup(taskStartupId, { pageId })
+                }
+                onOpenTasks={() => goToMe({ kind: "me-tasks" })}
+              />
+            </WorkspaceErrorBoundary>
+          ) : route.kind === "me-tasks" ? (
+            <ComingSoon
+              title="Moji zadaci"
+              icon={CheckSquare2}
+              description={`Zadaci iz svih startupa i lični zadaci stižu ovde. Do tada koristi Moje zadatke u startupu ${startup.name}.`}
+              actionLabel="Otvori Moje zadatke u startupu"
+              onAction={() => openInStartup(startup._id, { route: { kind: "my-tasks" } })}
+            />
+          ) : route.kind === "me-inbox" ? (
+            <ComingSoon
+              title="Inbox"
+              icon={Inbox}
+              description={`Obaveštenja iz svih startupa stižu na jedno mesto. Do tada koristi obaveštenja startupa ${startup.name}.`}
+              actionLabel="Otvori obaveštenja startupa"
+              onAction={() => setNotificationsOpen(true)}
+            />
+          ) : route.kind === "me-chat" ? (
+            <ComingSoon
+              title="Poruke"
+              icon={MessageCircle}
+              description={`Lične poruke i svi kanali tvojih startupa stižu na jedno mesto. Do tada koristi chat startupa ${startup.name}.`}
+              actionLabel="Otvori chat startupa"
+              onAction={() => openInStartup(startup._id, { route: { kind: "chat" } })}
+            />
+          ) : route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
             <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />

@@ -19,6 +19,6 @@ export default async function IzlogPage({
   searchParams: Promise<IzlogSearchParams>;
 }) {
   if (process.env.NODE_ENV === "production") notFound();
-  const { ekran, tema } = resolveIzlogParams(await searchParams);
-  return <IzlogShell ekran={ekran} tema={tema} />;
+  const { ekran, tema, varijanta } = resolveIzlogParams(await searchParams);
+  return <IzlogShell ekran={ekran} tema={tema} varijanta={varijanta} />;
 }
