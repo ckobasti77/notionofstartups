@@ -1,61 +1,48 @@
-import { useQuery } from 'convex/react';
 import { Tabs } from 'expo-router';
-import { Bell, FolderClosed, House, MessageCircle, Menu, type LucideIcon } from 'lucide-react-native';
+import { FolderClosed, Inbox, Menu, MessageCircle, Sun, type LucideIcon } from 'lucide-react-native';
 import type { ColorValue } from 'react-native';
 
-import { useActiveStartup } from '@/context/active-startup';
+import { TabIcon } from '@/components/motion';
 import { api } from '@/convex/_generated/api';
+import { useQueryTolerant } from '@/hooks/use-query-tolerant';
 import { haptics } from '@/lib/haptics';
+import { chatBadge, inboxBadge, TAB_TITLES } from '@/lib/tabs';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight } from '@/theme/tokens';
 
-/** Iznad ovoga badge prikazuje „99+" — dvocifren broj je granica čitljivosti. */
-const BADGE_CAP = 99;
-
-function badgeLabel(count: number, capped: boolean): string | undefined {
-  if (count <= 0) return undefined;
-  if (capped || count > BADGE_CAP) return `${BADGE_CAP}+`;
-  return String(count);
-}
-
 /**
- * Tab bar sa pet tabova: Danas · Prostor · Chat · Obaveštenja · Više
- * (docs/mobile/02-EKRANI.md, sekcija 2). Zaglavlje nosi svaki tab sam
- * (`TabScreen` → `AppHeader`), zato je `headerShown: false`.
+ * Tab bar posle prelaska na lični nivo (O1, plan K01 §6): Danas · Prostor ·
+ * Poruke · Inbox · Više. Imena FAJLOVA su ista kao pre (D1) — deep linkovi
+ * (`devotion://chat`) i `router.navigate('/chat')` ostaju važeći; menjaju se
+ * naslovi, ikonice (E13) i izvor bedževa. Zaglavlje nosi svaki tab sam
+ * (`MeHeader` za globalne, `AppHeader` sa biračem startupa u Prostoru), zato
+ * je `headerShown: false`.
  *
- * Aktivan tab je JEDINO obojeno mesto u traci — accent ikonica i labela; neaktivni
- * su prigušeni (`subtle`), sa tanjim potezom ikonice. Jedini izuzetak su bedževi
- * nepročitanog na Chatu i Obaveštenjima — pandan web `workspace-shell` bedžu na
- * zvonu i ikonici chata. Na telefonu vrede više nego na webu jer je aplikacija
- * najčešće zatvorena kad obaveštenje stigne.
+ * Aktivan tab je JEDINO obojeno mesto u traci — accent ikonica i labela;
+ * neaktivni su prigušeni (`subtle`), sa tanjim potezom. Ikonica izabranog taba
+ * kratko odskoči (`TabIcon`, spring `bouncy`).
+ *
+ * Bedževi su GLOBALNI (P14): Poruke = nepročitane poruke svih aktivnih startupa
+ * + lične (`chat.unreadSummary.total`), Inbox = nepročitana obaveštenja iz svih
+ * startupa + lična (`inbox.unreadCounts.total`). Ne čitaju aktivan startup.
+ * Greška brojača ne obara navigaciju — bedž se samo ne prikaže.
  */
 export default function TabsLayout() {
   const colors = useThemeColors();
-  const { activeStartupId } = useActiveStartup();
-
-  const unreadNotifications = useQuery(
-    api.notifications.unreadCount,
-    activeStartupId ? { startupId: activeStartupId } : 'skip',
-  );
-  const chatUnread = useQuery(api.chat.unreadSummary, {});
-
-  // Chat badge je po AKTIVNOM startupu, da odgovara onome što tab zaista prikazuje
-  // (`chat.listChannels` je scope-ovan na startup). Globalni zbir bi obećavao
-  // poruke koje se u tom tabu ne vide.
-  const chatCount =
-    activeStartupId === null
-      ? 0
-      : (chatUnread?.byStartup.find((entry) => entry.startupId === activeStartupId)?.unreadCount ??
-        0);
+  const inboxCounts = useQueryTolerant(api.inbox.unreadCounts, {});
+  const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
+  const inbox = inboxBadge(inboxCounts);
+  const chat = chatBadge(chatUnread);
 
   /** Ikonica taba: accent + deblji potez kad je aktivna, inače prigušeno. */
   const tabIcon =
     (Icon: LucideIcon) =>
     ({ focused, size }: { focused: boolean; color: ColorValue; size: number }) => (
-      <Icon
+      <TabIcon
+        icon={Icon}
+        focused={focused}
         color={focused ? colors.primaryText : colors.subtle}
         size={size}
-        strokeWidth={focused ? 2.4 : 1.8}
       />
     );
 
@@ -84,38 +71,31 @@ export default function TabsLayout() {
       }}>
       <Tabs.Screen
         name="danas"
-        options={{ title: 'Danas', tabBarIcon: tabIcon(House) }}
+        options={{ title: TAB_TITLES.danas, tabBarIcon: tabIcon(Sun) }}
       />
       <Tabs.Screen
         name="prostor"
-        options={{ title: 'Prostor', tabBarIcon: tabIcon(FolderClosed) }}
+        options={{ title: TAB_TITLES.prostor, tabBarIcon: tabIcon(FolderClosed) }}
       />
       <Tabs.Screen
         name="chat"
         options={{
-          title: 'Chat',
+          title: TAB_TITLES.chat,
           tabBarIcon: tabIcon(MessageCircle),
-          tabBarBadge: badgeLabel(chatCount, false),
-          tabBarAccessibilityLabel:
-            chatCount > 0 ? `Chat, ${chatCount} nepročitanih poruka` : 'Chat',
+          tabBarBadge: chat.label,
+          tabBarAccessibilityLabel: chat.accessibilityLabel,
         }}
       />
       <Tabs.Screen
         name="obavestenja"
         options={{
-          title: 'Obaveštenja',
-          tabBarIcon: tabIcon(Bell),
-          tabBarBadge: badgeLabel(
-            unreadNotifications?.count ?? 0,
-            unreadNotifications?.capped ?? false,
-          ),
-          tabBarAccessibilityLabel:
-            (unreadNotifications?.count ?? 0) > 0
-              ? `Obaveštenja, ${unreadNotifications?.count} nepročitanih`
-              : 'Obaveštenja',
+          title: TAB_TITLES.obavestenja,
+          tabBarIcon: tabIcon(Inbox),
+          tabBarBadge: inbox.label,
+          tabBarAccessibilityLabel: inbox.accessibilityLabel,
         }}
       />
-      <Tabs.Screen name="vise" options={{ title: 'Više', tabBarIcon: tabIcon(Menu) }} />
+      <Tabs.Screen name="vise" options={{ title: TAB_TITLES.vise, tabBarIcon: tabIcon(Menu) }} />
     </Tabs>
   );
 }

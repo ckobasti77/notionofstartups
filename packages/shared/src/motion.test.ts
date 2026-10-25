@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   DURATION,
   formatCount,
+  LONG_PRESS_MS,
   reanimatedSpring,
   REDUCED_FADE_MS,
   rollDigits,
@@ -17,6 +18,7 @@ import {
   STAGGER,
   staggerDelayMs,
   staggerTotalMs,
+  SWIPE,
 } from "./motion";
 
 describe("tokeni", () => {
@@ -131,6 +133,26 @@ describe("stagger", () => {
     for (const count of [1, 3, 6, 50, 1_000]) {
       expect(staggerTotalMs(count)).toBeLessThanOrEqual(STAGGER.maxTotalMs);
     }
+  });
+});
+
+describe("swipe (telefon, plan K07 E5)", () => {
+  test("brojevi iz plana i redosled pragova", () => {
+    expect(SWIPE.activationPx).toBe(14);
+    expect(SWIPE.failOffsetYPx).toBe(10);
+    expect(SWIPE.commitPx).toBe(96);
+    expect(SWIPE.flickVelocity).toBe(800);
+    expect(SWIPE.flickMinPx).toBe(48);
+    expect(SWIPE.resistAfterPx).toBe(120);
+    expect(LONG_PRESS_MS).toBe(300);
+    // Aktivacija < trzaj < prag < otpor: svaki prag ima smisla tek posle prethodnog.
+    expect(SWIPE.activationPx).toBeLessThan(SWIPE.flickMinPx);
+    expect(SWIPE.flickMinPx).toBeLessThan(SWIPE.commitPx);
+    expect(SWIPE.commitPx).toBeLessThan(SWIPE.resistAfterPx);
+    expect(SWIPE.iconScaleFrom).toBeGreaterThan(0);
+    expect(SWIPE.iconScaleFrom).toBeLessThan(1);
+    expect(SWIPE.rubberband).toBeGreaterThan(0);
+    expect(SWIPE.rubberband).toBeLessThan(1);
   });
 });
 

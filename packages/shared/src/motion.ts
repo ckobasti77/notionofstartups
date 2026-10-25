@@ -77,6 +77,35 @@ export const SCALE = {
 /** Koliko stavka „doputuje" nagore pri ulasku (px). */
 export const ENTER_OFFSET_PX = 8;
 
+/**
+ * Swipe reda na telefonu (plan K07, E5) — jedan skup brojeva za svaku listu.
+ * Web nema swipe; brojevi su ovde da telefonski `components/motion/` ne uvodi
+ * sopstvene konstante pokreta (pravilo „brojevi samo iz shared").
+ */
+export const SWIPE = {
+  /** Vodoravni pomeraj posle kog gest preuzima red (pt). */
+  activationPx: 14,
+  /** Uspravni pomeraj posle kog gest odustaje u korist skrola (pt). */
+  failOffsetYPx: 10,
+  /** Prag potvrde radnje (pt). */
+  commitPx: 96,
+  /** Brzina „trzaja" koja potvrđuje i pre praga (pt/s)… */
+  flickVelocity: 800,
+  /** …ali tek posle bar ovoliko puta u istom smeru (pt). */
+  flickMinPx: 48,
+  /** Posle ovoliko red prati prst uz gumeni otpor (pt). */
+  resistAfterPx: 120,
+  /** Konstanta gumenog otpora (Apple: 0,55). */
+  rubberband: 0.55,
+  /** Ikonica radnje raste od ove veličine do 1 na pragu. */
+  iconScaleFrom: 0.8,
+  /** Dodir u prvih ovoliko pt od leve ivice pripada sistemskom „nazad". */
+  edgeGuardPx: 24,
+} as const;
+
+/** Dugi pritisak na redu (ms). */
+export const LONG_PRESS_MS = 300;
+
 /** Prag za vreme smirivanja: preostalo odstupanje ≤ 0,1 % puta (plan K01, D9). */
 export const SETTLE_EPSILON = 0.001;
 

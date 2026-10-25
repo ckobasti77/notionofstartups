@@ -63,7 +63,8 @@ export function useNotificationTapCapture(): void {
  * Otvara zapamćeni cilj kad je korisnik prijavljen i kad su startupi učitani.
  * Živi UNUTAR `(app)` segmenta (posle auth gate-a) — pre toga navigacije nema, a
  * cilj strpljivo čeka u kontekstu. Rešava pristup pre otvaranja: ako korisnik
- * nije član ciljnog startupa, ne vodi na belo nego na „Danas" uz poruku.
+ * nije član ciljnog startupa, ne vodi na belo nego na „Danas" (lični Moj dan,
+ * ne zavisi od startupa) uz poruku.
  */
 export function useNotificationTargetNavigation(): void {
   const router = useRouter();
@@ -86,7 +87,7 @@ export function useNotificationTargetNavigation(): void {
 
     if (targetStartupId !== null && !isMember) {
       // Uklonjen iz tima ili zastareo link — ne otvaraj ništa, objasni i vrati
-      // na komandni centar (ne na belo).
+      // na Moj dan (ne na belo; Moj dan ne zavisi od tog startupa).
       clearTarget();
       router.navigate('/danas');
       Alert.alert(

@@ -1,0 +1,648 @@
+import { useMutation, useQuery } from 'convex/react';
+import { useRouter } from 'expo-router';
+import { CalendarX2, ChevronDown, ChevronRight, ListTodo } from 'lucide-react-native';
+import { Component, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
+import { QuickAddFab } from '@/components/danas/quick-add-fab';
+import { QuickAddSheet } from '@/components/danas/quick-add-sheet';
+import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
+import { TaskCard } from '@/components/danas/task-card';
+import {
+  UNASSIGNED_KEY,
+  WorkloadStrip,
+  type WorkloadEntry,
+  type WorkloadFilter,
+} from '@/components/danas/workload-strip';
+import { SegmentedControl } from '@/components/chat/segmented-control';
+import { EmptyState } from '@/components/empty-state';
+import { LoadingSwap } from '@/components/ui/loading-swap';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
+import { api } from '@/convex/_generated/api';
+import type { Id } from '@/convex/_generated/dataModel';
+import { useListRefresh } from '@/hooks/use-list-refresh';
+import {
+  bucketTasksForToday,
+  classifyDeadline,
+  nextLocalMidnight,
+  TODAY_SECTION_ORDER,
+  type TodaySection,
+} from '@/lib/deadline';
+import { accessErrorMessage } from '@/lib/errors';
+import { haptics } from '@/lib/haptics';
+import type { TaskPriority, TaskStatus } from '@/lib/task-meta';
+import {
+  TODAY_SEGMENTS,
+  type CommandCenterTask,
+  type TodaySegmentId,
+} from '@/lib/tasks';
+import { useThemeColors } from '@/theme/theme-provider';
+import { fontWeight, radius, space, text, type ColorTokens } from '@/theme/tokens';
+
+const SECTION_LABEL: Record<TodaySection, string> = {
+  overdue: 'Prekoračeno',
+  today: 'Danas',
+  next: 'Sledeće',
+  blocked: 'Blokirano',
+};
+
+/** `now` u stanju, sa preklasifikacijom na sledeću lokalnu ponoć (kao web). */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const delay = Math.max(1_000, nextLocalMidnight(now) - now);
+    const timer = setTimeout(() => setNow(Date.now()), delay);
+    return () => clearTimeout(timer);
+  }, [now]);
+  return now;
+}
+
+/**
+ * Komandni centar startupa (docs/mobile/02-EKRANI.md §4) — do K09 je to bio tab
+ * „Danas"; sada živi u tabu Prostor kao prvi segment (P15, plan K07 E14), jer je
+ * „Danas" postao lični Moj dan. Telo je preneto bez izmena funkcija: segment
+ * Pregled/Moji zadaci nad startupom, traka opterećenja, zadaci grupisani u
+ * prekoračeno → danas → sledeće → blokirano, svajp/tap/long-press akcije, FAB za
+ * brzo dodavanje. Bez kanbana — svajp lista.
+ *
+ * Greška upita (npr. korisnik više nije član) ostaje u ovom segmentu
+ * (`CommandCenterBoundary`), pa „Oblasti" i ostatak Prostora rade dalje.
+ */
+export function CommandCenter({ startupId }: { startupId: Id<'startups'> }) {
+  return (
+    <CommandCenterBoundary key={startupId}>
+      <CommandCenterBody startupId={startupId} />
+    </CommandCenterBoundary>
+  );
+}
+
+function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
+  const colors = useThemeColors();
+  const router = useRouter();
+  const now = useNow();
+  const [segment, setSegment] = useState<TodaySegmentId>('overview');
+  const [blockedOpen, setBlockedOpen] = useState(false);
+  // Filter trake opterećenja: `null` = svi, `UNASSIGNED_KEY` = bez izvršioca.
+  const [memberFilter, setMemberFilter] = useState<WorkloadFilter>(null);
+
+  const profile = useQuery(api.profiles.getCurrent, {});
+  const myId = profile?._id ?? null;
+
+  const startupArg = { startupId };
+  const command = useQuery(api.tasks.commandCenter, startupArg);
+  const startup = useQuery(api.startups.get, startupArg);
+  // Članovi su potrebni i traci opterećenja i meniju akcija — jedna pretplata za oba.
+  const members = useQuery(api.startups.listMembers, { startupId, limit: 50 });
+
+  const tasks = command?.tasks;
+  const taskIds = useMemo(() => tasks?.map((task) => task._id) ?? [], [tasks]);
+  const assigneeRows = useQuery(
+    api.taskAssignees.listForTasks,
+    taskIds.length > 0 ? { startupId, taskPageIds: taskIds } : 'skip',
+  );
+
+  const assigneesByTask = useMemo(() => {
+    const map = new Map<Id<'pages'>, NonNullable<typeof assigneeRows>[number]['assignees']>();
+    assigneeRows?.forEach((row) => map.set(row.taskPageId, row.assignees));
+    return map;
+  }, [assigneeRows]);
+  const assigneesOf = (taskId: Id<'pages'>) => assigneesByTask.get(taskId) ?? [];
+
+  const areaById = useMemo(() => {
+    const map = new Map<Id<'startupAreas'>, NonNullable<typeof startup>['areas'][number]>();
+    startup?.areas.forEach((area) => map.set(area._id, area));
+    return map;
+  }, [startup]);
+
+  // „Moji zadaci" = otvoreni zadaci aktivnog startupa gde sam izvršilac.
+  const segmentTasks = useMemo<CommandCenterTask[] | undefined>(() => {
+    if (tasks === undefined) return undefined;
+    if (segment === 'overview') return tasks;
+    if (taskIds.length > 0 && assigneeRows === undefined) return undefined; // čeka izvršioce
+    if (myId === null) return [];
+    return tasks.filter((task) =>
+      assigneesByTask.get(task._id)?.some((a) => a.profileId === myId),
+    );
+  }, [tasks, segment, taskIds, assigneeRows, myId, assigneesByTask]);
+
+  // Opterećenje tima (traka čipova) — računa se iz SVIH otvorenih zadataka, ne iz
+  // filtriranih, da brojači po članu ostanu stabilni dok se filter menja (kao web).
+  const workload = useMemo<WorkloadEntry[]>(() => {
+    if (tasks === undefined || members === undefined) return [];
+    const entries: WorkloadEntry[] = members.map((member) => ({
+      key: member.profile._id,
+      name: member.profile.displayName,
+      avatar: { displayName: member.profile.displayName, avatarUrl: member.profile.avatarUrl },
+      open: 0,
+      overdue: 0,
+      urgent: 0,
+    }));
+    const unassigned: WorkloadEntry = {
+      key: UNASSIGNED_KEY,
+      name: 'Nedodeljeno',
+      avatar: null,
+      open: 0,
+      overdue: 0,
+      urgent: 0,
+    };
+    const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+
+    for (const task of tasks) {
+      // Svi izvršioci su ravnopravni, pa zadatak ulazi u opterećenje svakog od njih;
+      // zbir po članovima je zato veći od broja zadataka.
+      const taskAssignees = assigneesByTask.get(task._id) ?? [];
+      const targets =
+        taskAssignees.length === 0
+          ? [unassigned]
+          : taskAssignees.flatMap((assignee) => {
+              const entry = byKey.get(assignee.profileId);
+              return entry === undefined ? [] : [entry];
+            });
+      const overdue =
+        classifyDeadline({ dueDate: task.dueDate, taskStatus: task.taskStatus, now }).urgency ===
+        'overdue';
+      for (const entry of targets) {
+        entry.open += 1;
+        if (overdue) entry.overdue += 1;
+        if (task.taskPriority === 'urgent') entry.urgent += 1;
+      }
+    }
+
+    return unassigned.open > 0 ? [...entries, unassigned] : entries;
+  }, [tasks, members, assigneesByTask, now]);
+
+  // Filter po članu važi samo u segmentu „Pregled" — u „Mojim zadacima" bi sužavao
+  // listu koja je već svedena na jednog čoveka.
+  const visibleTasks = useMemo<CommandCenterTask[] | undefined>(() => {
+    if (segmentTasks === undefined) return undefined;
+    if (segment !== 'overview' || memberFilter === null) return segmentTasks;
+    if (memberFilter === UNASSIGNED_KEY) {
+      return segmentTasks.filter((task) => (assigneesByTask.get(task._id) ?? []).length === 0);
+    }
+    return segmentTasks.filter((task) =>
+      (assigneesByTask.get(task._id) ?? []).some((a) => a.profileId === memberFilter),
+    );
+  }, [segmentTasks, segment, memberFilter, assigneesByTask]);
+
+  const buckets = useMemo(
+    () => (visibleTasks ? bucketTasksForToday(visibleTasks, now) : undefined),
+    [visibleTasks, now],
+  );
+
+  // Brojači za `DaySummary` — isti skup zadataka koji je i u listi, pa se pozdrav i
+  // lista ne mogu razići (segment „Moji zadaci" sužava oba).
+  const summaryCounts = useMemo<DaySummaryCounts | null>(() => {
+    if (visibleTasks === undefined) return null;
+    let overdue = 0;
+    let urgent = 0;
+    for (const task of visibleTasks) {
+      if (
+        classifyDeadline({ dueDate: task.dueDate, taskStatus: task.taskStatus, now }).urgency ===
+        'overdue'
+      ) {
+        overdue += 1;
+      }
+      if (task.taskPriority === 'urgent') urgent += 1;
+    }
+    return { open: visibleTasks.length, overdue, urgent };
+  }, [visibleTasks, now]);
+
+  // Promena startupa nosi druge članove — roditelj zato montira ovu komponentu sa
+  // `key={startupId}`, pa filter (i sve ostalo stanje) kreće iz početka.
+
+  const firstName = profile?.displayName.trim().split(/\s+/)[0] ?? null;
+  const filteredName =
+    memberFilter === null ? null : (workload.find((e) => e.key === memberFilter)?.name ?? null);
+  const segmentLabel =
+    filteredName ?? (segment === 'mine' ? 'Moji zadaci' : 'Pregled');
+
+  // Meni akcija cilja živi zadatak po id-ju, pa prati realtime izmene / nestanak.
+  const [menuTaskId, setMenuTaskId] = useState<Id<'pages'> | null>(null);
+  const [menuStatusOnly, setMenuStatusOnly] = useState(false);
+  const menuTask = useMemo(
+    () => (menuTaskId ? (tasks?.find((task) => task._id === menuTaskId) ?? null) : null),
+    [menuTaskId, tasks],
+  );
+  useEffect(() => {
+    // Zadatak je napustio otvoreni skup (npr. označen „gotovo") → zatvori meni.
+    if (menuTaskId && menuTask === null) setMenuTaskId(null);
+  }, [menuTaskId, menuTask]);
+
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const updateMetadata = useMutation(api.tasks.updateMetadata);
+  const join = useMutation(api.taskAssignees.join);
+  const leave = useMutation(api.taskAssignees.leave);
+  const setAssignees = useMutation(api.taskAssignees.setAssignees);
+  const createPage = useMutation(api.pages.create);
+
+  const refreshControl = useListRefresh();
+
+  const notifyError = (error: unknown) => {
+    haptics.error();
+    Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+  };
+  const run = (promise: Promise<unknown>, announcement = 'Zadatak je ažuriran.') => {
+    void promise
+      .then(() => {
+        haptics.success();
+        // Isti razlog kao u Odobrenjima: uspeh je bio samo vibracija.
+        AccessibilityInfo.announceForAccessibility(announcement);
+      })
+      .catch(notifyError);
+  };
+
+  const canChangeStatusFor = (task: CommandCenterTask) =>
+    myId !== null &&
+    (task.createdByProfileId === myId || assigneesOf(task._id).some((a) => a.profileId === myId));
+  const canEditAllFor = (task: CommandCenterTask) =>
+    myId !== null && task.createdByProfileId === myId;
+
+  const openMenu = (task: CommandCenterTask, statusOnly: boolean) => {
+    setMenuStatusOnly(statusOnly);
+    setMenuTaskId(task._id);
+  };
+  const closeMenu = () => setMenuTaskId(null);
+
+  const markDone = (task: CommandCenterTask) =>
+    run(updateMetadata({ pageId: task._id, status: 'done' }));
+
+  const applyStatus = (status: TaskStatus) => {
+    if (menuTaskId) run(updateMetadata({ pageId: menuTaskId, status }));
+    closeMenu();
+  };
+  const applyPriority = (priority: TaskPriority) => {
+    if (menuTaskId) run(updateMetadata({ pageId: menuTaskId, priority }));
+    closeMenu();
+  };
+  const applyDue = (dueDate: number | null) => {
+    if (menuTaskId) run(updateMetadata({ pageId: menuTaskId, dueDate }));
+    closeMenu();
+  };
+  const applyJoinLeave = (isSelfAssigned: boolean) => {
+    if (!menuTaskId) return;
+    run(isSelfAssigned ? leave({ taskPageId: menuTaskId }) : join({ taskPageId: menuTaskId }));
+  };
+  const applySetAssignees = (profileIds: Id<'profiles'>[]) => {
+    if (menuTaskId) run(setAssignees({ taskPageId: menuTaskId, profileIds }));
+  };
+
+  const createTask = async (title: string, areaId: Id<'startupAreas'>) => {
+    setCreating(true);
+    try {
+      await createPage({
+        startupId,
+        areaId,
+        parentPageId: null,
+        kind: 'task',
+        title,
+      });
+      setQuickAddOpen(false);
+    } catch (error) {
+      notifyError(error);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const renderTask = (task: CommandCenterTask, index: number) => (
+    <StaggerItem key={task._id} index={index}>
+      <TaskCard
+        task={task}
+        areaLabel={areaById.get(task.areaId)?.label ?? 'Bez oblasti'}
+        assignees={assigneesOf(task._id)}
+        now={now}
+        canDone={canChangeStatusFor(task)}
+        onDone={() => markDone(task)}
+        onOpen={() => router.push({ pathname: '/zadatak/[id]', params: { id: task._id } })}
+        onMenu={() => openMenu(task, false)}
+        onQuickStatus={() => openMenu(task, true)}
+      />
+    </StaggerItem>
+  );
+
+  const loading =
+    command === undefined ||
+    startup === undefined ||
+    visibleTasks === undefined ||
+    buckets === undefined;
+  const allEmpty =
+    buckets !== undefined && TODAY_SECTION_ORDER.every((key) => buckets[key].length === 0);
+  const startupReady = startup !== undefined;
+
+  return (
+    <View style={styles.root}>
+      {/* Segment Pregled/Moji zadaci je prvi red sadržaja: zaglavlje Prostora već
+          nosi segment „Komandni centar | Oblasti". */}
+      <View style={styles.segmentRow}>
+        <SegmentedControl options={TODAY_SEGMENTS} value={segment} onChange={setSegment} />
+      </View>
+      {/* Traka opterećenja je FILTER, pa stoji van skrola liste: kad filter isprazni
+          listu, dugme za gašenje filtera mora ostati na ekranu. */}
+      {segment === 'overview' && startupReady ? (
+        <WorkloadStrip
+          entries={workload}
+          totalOpen={tasks?.length ?? 0}
+          activeKey={memberFilter}
+          onSelect={setMemberFilter}
+          loading={members === undefined || command === undefined}
+        />
+      ) : null}
+
+      {allEmpty && memberFilter !== null ? (
+        <EmptyState
+          icon={<ListTodo size={40} color={colors.mutedForeground} />}
+          title="Za izabranog člana nema otvorenih zadataka."
+          description="Filter je uključen u traci opterećenja iznad."
+          actionLabel="Prikaži sve"
+          onAction={() => setMemberFilter(null)}
+        />
+      ) : allEmpty ? (
+        <EmptyState
+          icon={<ListTodo size={40} color={colors.mutedForeground} />}
+          title="Nema zadataka za danas."
+          description={
+            segment === 'mine'
+              ? 'Kad ti neko dodeli zadatak, pojaviće se ovde.'
+              : 'Otvoreni zadaci tima pojaviće se ovde.'
+          }
+          actionLabel="Novi zadatak"
+          onAction={() => setQuickAddOpen(true)}
+        />
+      ) : (
+        <LoadingSwap loading={loading} skeleton={<LoadingList />}>
+          {buckets === undefined ? null : (
+            <ScrollView
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}>
+              <DaySummary
+                firstName={firstName}
+                counts={summaryCounts}
+                segmentLabel={segmentLabel}
+              />
+              {/* Promena segmenta ili filtera je NOVO punjenje liste — `resetKey`
+                  restartuje stagger da se to i vidi. */}
+              <StaggerGroup resetKey={`${segment}:${memberFilter ?? 'all'}`}>
+                {TODAY_SECTION_ORDER.map((key) => {
+                  const items = buckets[key];
+                  if (items.length === 0) return null;
+                  const isBlocked = key === 'blocked';
+                  const open = !isBlocked || blockedOpen;
+                  const danger = key === 'overdue';
+                  return (
+                    <View key={key} style={styles.section}>
+                      <SectionHeader
+                        label={SECTION_LABEL[key]}
+                        count={items.length}
+                        danger={danger}
+                        collapsible={isBlocked}
+                        open={open}
+                        onToggle={() => {
+                          haptics.select();
+                          setBlockedOpen((value) => !value);
+                        }}
+                        colors={colors}
+                      />
+                      {open ? <View style={styles.cards}>{items.map(renderTask)}</View> : null}
+                    </View>
+                  );
+                })}
+              </StaggerGroup>
+
+              {/* `tasks.commandCenter` seče na 150 zadataka po statusu i to javi
+                  kroz `hasMore`. Web to i prikazuje; mobilni je dosad tiho
+                  odsecao, pa je lista izgledala potpuno a nije bila. */}
+              {command?.hasMore ? (
+                <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
+                  Prikazano je prvih 150 zadataka po statusu. Suzi filter ili
+                  otvori oblast u Prostoru za pun spisak.
+                </Text>
+              ) : null}
+            </ScrollView>
+          )}
+        </LoadingSwap>
+      )}
+
+      {startupReady ? (
+        <QuickAddFab
+          onPress={() => {
+            haptics.tap();
+            setQuickAddOpen(true);
+          }}
+        />
+      ) : null}
+
+      <TaskActionsSheet
+        task={menuTask}
+        statusOnly={menuStatusOnly}
+        now={now}
+        assignees={menuTaskId ? assigneesOf(menuTaskId) : []}
+        members={members}
+        currentProfileId={myId}
+        canChangeStatus={menuTask ? canChangeStatusFor(menuTask) : false}
+        canEditAll={menuTask ? canEditAllFor(menuTask) : false}
+        onStatus={applyStatus}
+        onPriority={applyPriority}
+        onDue={applyDue}
+        onJoinLeave={applyJoinLeave}
+        onSetAssignees={applySetAssignees}
+        onClose={closeMenu}
+      />
+
+      <QuickAddSheet
+        visible={quickAddOpen}
+        areas={startup?.areas ?? []}
+        submitting={creating}
+        onClose={() => setQuickAddOpen(false)}
+        onCreate={createTask}
+      />
+    </View>
+  );
+}
+
+function SectionHeader({
+  label,
+  count,
+  danger,
+  collapsible,
+  open,
+  onToggle,
+  colors,
+}: {
+  label: string;
+  count: number;
+  danger: boolean;
+  collapsible: boolean;
+  open: boolean;
+  onToggle: () => void;
+  colors: ColorTokens;
+}) {
+  const tint = danger ? colors.destructive : colors.foreground;
+  const content = (
+    <>
+      <View style={styles.sectionHeaderLeft}>
+        <Text style={[styles.sectionTitle, { color: tint }]}>{label}</Text>
+        <View
+          style={[
+            styles.countPill,
+            { backgroundColor: danger ? `${colors.destructive}22` : colors.muted },
+          ]}>
+          <Text
+            style={[styles.countText, { color: danger ? colors.destructive : colors.mutedForeground }]}>
+            {count}
+          </Text>
+        </View>
+      </View>
+      {collapsible ? (
+        open ? (
+          <ChevronDown size={20} color={colors.mutedForeground} />
+        ) : (
+          <ChevronRight size={20} color={colors.mutedForeground} />
+        )
+      ) : null}
+    </>
+  );
+
+  if (collapsible) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${label}, ${count}`}
+        onPress={onToggle}
+        style={[styles.sectionHeaderRow, styles.sectionHeaderTappable]}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View accessibilityRole="header" style={styles.sectionHeaderRow}>
+      {content}
+    </View>
+  );
+}
+
+/**
+ * Skeleton u obliku onoga što stiže: pozdrav dana, pa naslov sekcije, pa kartice
+ * zadatka sa istim merama kao `TaskCard` — prelaz je zato čist crossfade.
+ */
+function LoadingList() {
+  return (
+    <View style={styles.listContent}>
+      <View style={styles.skeletonSummary}>
+        <Skeleton width="55%" height={20} />
+        <Skeleton width="35%" height={13} />
+      </View>
+      <Skeleton width="30%" height={13} style={styles.skeletonHeader} />
+      <SkeletonList count={3} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+    </View>
+  );
+}
+
+/** Granica greške samo za ovaj segment — ostatak Prostora radi dalje. */
+class CommandCenterBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <CommandCenterErrorState
+          message={accessErrorMessage(this.state.error, 'Došlo je do greške pri učitavanju zadataka.')}
+          onRetry={() => this.setState({ error: null })}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/** `commandCenter`/`get` bacaju kad korisnik nije član startupa. */
+function CommandCenterErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <EmptyState
+      icon={<CalendarX2 size={40} color={colors.destructive} />}
+      title="Zadaci se ne mogu učitati"
+      description={message || 'Došlo je do greške pri učitavanju zadataka.'}
+      actionLabel="Pokušaj ponovo"
+      onAction={onRetry}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  truncated: {
+    ...text.body,
+    paddingHorizontal: space[4],
+    paddingTop: space[3],
+  },
+  root: {
+    flex: 1,
+  },
+  segmentRow: {
+    paddingHorizontal: space[4],
+    paddingTop: space[2],
+    paddingBottom: space[1],
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    // IZMERENO na emulatoru (E11): sa 96 poslednja kartica na kraju skrola
+    // završava ~47dp ISPOD vrha FAB-a (efektivni razmak ~25dp, ne 96). 160 daje
+    // ≥ 8dp zazora iznad FAB-a (56 + bottom 16). Ne smanjuj bez merenja.
+    paddingBottom: 160,
+    gap: 20,
+  },
+  section: {
+    gap: 10,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 28,
+  },
+  sectionHeaderTappable: {
+    minHeight: 44,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  countPill: {
+    minWidth: 22,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: radius.full,
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 12,
+    fontWeight: fontWeight.semibold,
+  },
+  cards: {
+    gap: 10,
+  },
+  skeletonSummary: {
+    gap: 8,
+  },
+  skeletonHeader: {
+    marginBottom: 4,
+  },
+});

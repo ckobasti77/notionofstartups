@@ -12,7 +12,10 @@ import type { NotificationDestination } from '@/convex/lib/notificationTarget';
  * Svaki `screen` iz `NotificationDestination` sada ima mobilni ekran; ranija
  * privremena grana „sve osim chata pada na Danas" (faze 2–4 nisu bile gotove)
  * više ne postoji. `today` ostaje jedini fallback i to samo kad ga sam backend
- * vrati — za nepoznat ili nedosledan cilj.
+ * vrati — za nepoznat ili nedosledan cilj. `today` znači KOMANDNI CENTAR
+ * startupa, koji od K09 živi u tabu Prostor (P15); tab „Danas" je lični Moj
+ * dan, pa startup cilj ide u Prostor (kao pre — u komandni centar), a lični
+ * fallback na Moj dan.
  *
  * Obrazac je `navigate` na tab + `push` na detalj: tako `stranica`/`razgovor`
  * dobiju dugme „nazad" koje vodi na svoj tab, a ne na ekran sa kog je korisnik
@@ -40,7 +43,7 @@ export function navigateToNotificationDestination(
         router.push({ pathname: '/stranica/[id]', params: { id: dest.entityId } });
         return;
       }
-      router.navigate('/danas');
+      navigateToFallback(router, dest);
       return;
     case 'ideas':
       router.push('/ideje');
@@ -57,6 +60,18 @@ export function navigateToNotificationDestination(
       );
       return;
     default:
-      router.navigate('/danas');
+      navigateToFallback(router, dest);
   }
+}
+
+/** Komandni centar startupa (Prostor) za startup cilj; Moj dan za lični. */
+function navigateToFallback(
+  router: ReturnType<typeof useRouter>,
+  dest: NotificationDestination,
+): void {
+  if (dest.scope === 'personal') {
+    router.navigate('/danas');
+    return;
+  }
+  router.navigate({ pathname: '/prostor', params: { segment: 'komandni-centar' } });
 }

@@ -15,7 +15,7 @@ import {
   Plus,
   TriangleAlert,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -27,11 +27,16 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { AppHeader } from '@/components/app-header';
 import { PageCreateSheet } from '@/components/canvas/page-create-sheet';
+import { SegmentedControl } from '@/components/chat/segmented-control';
 import { DeadlineBadge } from '@/components/danas/deadline-badge';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import { EmptyState } from '@/components/empty-state';
+import { CommandCenter } from '@/components/komandni-centar/command-center';
+import { NoStartupState, useHasNoStartups } from '@/components/no-startup-state';
+import { enterFadeUp, exitFade } from '@/components/motion';
 import { AreaBriefingSection } from '@/components/prostor/area-briefing-section';
 import { AreaContributionsSection } from '@/components/prostor/area-contributions-section';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
@@ -44,15 +49,21 @@ import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Pill } from '@/components/ui/pill';
 import { Row } from '@/components/ui/row';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SkeletonList } from '@/components/ui/skeletons';
+import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
 import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Doc, Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { formatActivityTime, formatDayHeading } from '@/lib/activity';
 import { haptics } from '@/lib/haptics';
 import { startOfLocalDay } from '@/lib/deadline';
+import {
+  readProstorSegment,
+  writeProstorSegment,
+  type ProstorSegmentValue,
+} from '@/lib/device-prefs';
 import {
   pageKindColor,
   pageKindMeta,
@@ -94,6 +105,16 @@ type PageItem = {
  */
 type Frame = { areaId: Id<'startupAreas'>; label: string };
 
+/** Segmenti Prostora (plan K07, E14): Komandni centar startupa je prvi (P15). */
+const PROSTOR_SEGMENTS = [
+  { id: 'komandni-centar', label: 'Komandni centar' },
+  { id: 'oblasti', label: 'Oblasti' },
+] as const satisfies ReadonlyArray<{ id: ProstorSegmentValue; label: string }>;
+
+function isProstorSegment(value: unknown): value is ProstorSegmentValue {
+  return value === 'komandni-centar' || value === 'oblasti';
+}
+
 /** „Danas 14:22" nije potrebno — kratko relativno vreme za sekciju „Nedavno". */
 function formatRecentTime(updatedAt: number, now: number): string {
   const day = startOfLocalDay(updatedAt);
@@ -108,16 +129,28 @@ function formatRecentTime(updatedAt: number, now: number): string {
  * `page-tree`. Prostor ide samo do liste stranica u oblasti; tap na red OTVARA
  * stranicu (beleška/fajl/tabela → ekran stranice, zadatak → ekran zadatka), a
  * podstranice su sekcija u samoj stranici. „Nazad" sa liste vraća na Nivo 1.
+ *
+ * Od K09 Nivo 1 ima dva segmenta (plan K07, E14): „Komandni centar" (bivši tab
+ * Danas — tim, opterećenje, trijaža; P15) i „Oblasti". Prvi put se otvara
+ * Komandni centar, posle se pamti poslednji izbor (`device-prefs`).
  */
 export default function ProstorScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const reduced = useReducedMotion();
   const { activeStartupId } = useActiveStartup();
+  const noStartups = useHasNoStartups();
+  const [segment, setSegmentState] = useState<ProstorSegmentValue>(() => readProstorSegment());
+  const setSegment = useCallback((next: ProstorSegmentValue) => {
+    setSegmentState(next);
+    writeProstorSegment(next);
+  }, []);
   const [frames, setFrames] = useState<Frame[]>([]);
   // Fiksan „sada" po mount-u: rok/relativno vreme se ne reklasifikuju u renderu.
   const [now] = useState(() => Date.now());
   // Ulaz spolja (npr. red oblasti u Pulsu) — otvara tab odmah na toj oblasti.
-  const params = useLocalSearchParams<{ areaId?: string; areaLabel?: string }>();
+  // `segment` dolazi spolja (npr. obaveštenje sa ciljem „komandni centar").
+  const params = useLocalSearchParams<{ areaId?: string; areaLabel?: string; segment?: string }>();
   const [renamingArea, setRenamingArea] = useState(false);
   // FAB „Nova stranica" na Nivou 2 (E13) — isti gest kao „novi zadatak" na Danas.
   const [creatingPage, setCreatingPage] = useState(false);
@@ -134,8 +167,19 @@ export default function ProstorScreen() {
     const areaId = params.areaId;
     if (!areaId) return;
     setFrames([{ areaId: areaId as Id<'startupAreas'>, label: params.areaLabel ?? 'Oblast' }]);
+    // „Nazad" iz oblasti vodi na listu oblasti, ne u Komandni centar.
+    setSegment('oblasti');
     router.setParams({ areaId: undefined, areaLabel: undefined });
-  }, [params.areaId, params.areaLabel, router]);
+  }, [params.areaId, params.areaLabel, router, setSegment]);
+
+  useEffect(() => {
+    const requested = params.segment;
+    if (!isProstorSegment(requested)) return;
+    setFrames([]);
+    // Spoljni ulaz (obaveštenje) ne prepisuje korisnikov zapamćen izbor.
+    setSegmentState(requested);
+    router.setParams({ segment: undefined });
+  }, [params.segment, router]);
 
   const openArea = useCallback((area: Doc<'startupAreas'>) => {
     haptics.tap();
@@ -187,14 +231,45 @@ export default function ProstorScreen() {
 
   const top = frames.length > 0 ? frames[frames.length - 1] : null;
 
+  if (top === null && activeStartupId === null && noStartups) {
+    return (
+      <TabScreen title="Prostor">
+        <NoStartupState />
+      </TabScreen>
+    );
+  }
+
   if (top === null) {
     return (
-      <Level1
-        startupId={activeStartupId}
-        now={now}
-        onOpenArea={openArea}
-        onOpenLeaf={openLeaf}
-      />
+      <TabScreen
+        title="Prostor"
+        // Segment je deo zaglavlja: jedno zaglavlje za oba segmenta (bez treptanja
+        // birača startupa pri promeni).
+        below={
+          <SegmentedControl options={PROSTOR_SEGMENTS} value={segment} onChange={setSegment} />
+        }>
+        {/* Promena segmenta: stari sadržaj se pretopi, novi uđe (plan K07 §4.2). */}
+        <Animated.View
+          key={segment}
+          style={styles.screen}
+          entering={enterFadeUp(0, reduced)}
+          exiting={exitFade(reduced)}>
+          {segment === 'komandni-centar' ? (
+            activeStartupId === null ? (
+              <CommandCenterPending />
+            ) : (
+              <CommandCenter key={activeStartupId} startupId={activeStartupId} />
+            )
+          ) : (
+            <Level1
+              startupId={activeStartupId}
+              now={now}
+              onOpenArea={openArea}
+              onOpenLeaf={openLeaf}
+            />
+          )}
+        </Animated.View>
+      </TabScreen>
     );
   }
 
@@ -323,7 +398,7 @@ function Level1({
   const refreshControl = useListRefresh();
 
   return (
-    <TabScreen title="Prostor">
+    <SegmentBody>
       {!loading && startup.areas.length === 0 ? (
         <EmptyState
           icon={<FolderOpen size={40} color={colors.mutedForeground} />}
@@ -397,7 +472,26 @@ function Level1({
           onClose={() => setCreateAreaOpen(false)}
         />
       ) : null}
-    </TabScreen>
+    </SegmentBody>
+  );
+}
+
+/** Telo segmenta ispod zajedničkog zaglavlja (zaglavlje crta `ProstorScreen`). */
+function SegmentBody({ children }: { children: ReactNode }) {
+  return <View style={styles.screen}>{children}</View>;
+}
+
+/** Dok se aktivan startup ne razreši (prvo otvaranje), oblik onoga što stiže. */
+function CommandCenterPending() {
+  return (
+    <View
+      style={styles.level1Content}
+      accessible
+      accessibilityLiveRegion="polite"
+      accessibilityLabel="Učitavanje komandnog centra">
+      <Skeleton width="100%" height={44} borderRadius={radius.lg} />
+      <SkeletonList count={3} gap={10} item={(index) => <SkeletonTaskCard index={index} />} />
+    </View>
   );
 }
 

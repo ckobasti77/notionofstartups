@@ -1,3 +1,19 @@
+import {
+  DURATION,
+  ENTER_OFFSET_PX,
+  LONG_PRESS_MS,
+  reanimatedSpring,
+  REDUCED_FADE_MS,
+  SCALE,
+  SPRING,
+  STAGGER,
+  STANDARD_EASE_BEZIER,
+  staggerDelayMs,
+  SWIPE,
+  type SpringName,
+} from '@devotion/shared';
+import { Easing, ReduceMotion, type WithSpringConfig, type WithTimingConfig } from 'react-native-reanimated';
+
 /**
  * Motion tokeni — mali rečnik, jer je pokret u ovoj aplikaciji suzdržan.
  *
@@ -42,3 +58,61 @@ export const STAGGER_TRAVEL = 8;
 
 /** Zatamnjenje backdrop-a ispod sheet-a na punom otvaranju. */
 export const BACKDROP_OPACITY = 0.5;
+
+/* ── Rečnik ličnog nivoa (K09) — brojevi ISKLJUČIVO iz `@devotion/shared` ──
+ *
+ * Isti brojevi kao web GSAP (`apps/web/lib/motion/`), samo prevedeni u
+ * Reanimated: spring zadat kao response/dampingRatio postaje
+ * stiffness/damping/mass (`reanimatedSpring`). Postojeći exporti iznad ostaju
+ * netaknuti dok ih K19 ne uskladi — novi kod koristi ovo ispod.
+ */
+
+function toSpring(name: SpringName): WithSpringConfig {
+  return { ...reanimatedSpring(SPRING[name]), overshootClamping: false };
+}
+
+/** Reanimated springovi: `snappy` UI odgovor, `smooth` sheet/prsten, `gentle` prelaz, `bouncy` samo uspeh. */
+export const SPRINGS: Readonly<Record<SpringName, WithSpringConfig>> = {
+  snappy: toSpring('snappy'),
+  smooth: toSpring('smooth'),
+  gentle: toSpring('gentle'),
+  bouncy: toSpring('bouncy'),
+};
+
+/** Isti spring sa početnom brzinom prsta (predaja gesta animaciji, bez šava). */
+export function springWithVelocity(name: SpringName, velocity: number): WithSpringConfig {
+  return { ...SPRINGS[name], velocity };
+}
+
+/**
+ * Spring ili ništa: pri smanjenom pokretu `null` — pozivalac tada radi samo
+ * neprozirnost kroz `REDUCED_FADE` (pravilo: smanjen pokret = samo opacity).
+ */
+export function springFor(name: SpringName, reduced: boolean): WithSpringConfig | null {
+  return reduced ? null : SPRINGS[name];
+}
+
+export const DURATIONS = DURATION;
+export const PRESS_SCALE = SCALE.press;
+export const TAB_BOUNCE_FROM = SCALE.tabBounceFrom;
+export const ENTER = { offsetY: ENTER_OFFSET_PX, scaleFrom: SCALE.enterFrom } as const;
+
+/** Tween put (ease-out) — ista kriva kao web `devotion-standard`. */
+export const STANDARD_EASING = Easing.bezier(...STANDARD_EASE_BEZIER);
+
+/** Tween sa standardnom krivom za trajanje iz rečnika. */
+export function standardTiming(name: keyof typeof DURATION): WithTimingConfig {
+  return { duration: DURATION[name], easing: STANDARD_EASING };
+}
+
+/**
+ * Pretapanje pri smanjenom pokretu. `ReduceMotion.Never` jer Reanimated po
+ * podrazumevanom (System) skače na kraj kad je podešavanje uključeno — a
+ * pravilo traži kratko pretapanje, ne skok.
+ */
+export const REDUCED_FADE: WithTimingConfig = {
+  duration: REDUCED_FADE_MS,
+  reduceMotion: ReduceMotion.Never,
+};
+
+export { LONG_PRESS_MS, REDUCED_FADE_MS, STAGGER as LIST_STAGGER, staggerDelayMs, SWIPE };

@@ -1,11 +1,15 @@
 import { useRouter } from 'expo-router';
 import {
   Bell,
+  CalendarClock,
   Check,
   ChevronLeft,
   Clock,
   Flame,
+  FolderClosed,
   Inbox,
+  Menu,
+  MessageCircle,
   Monitor,
   Moon,
   Plus,
@@ -24,6 +28,24 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { DueChip } from '@/components/me/due-chip';
+import { ElsewhereHint } from '@/components/me/elsewhere-hint';
+import { MeHeader } from '@/components/me/me-header';
+import { STATUS_DENIED_REASON } from '@/components/me/my-day/my-day-model';
+import { StartupChip } from '@/components/me/startup-chip';
+import { TaskRow } from '@/components/me/task-row';
+import { KATALOG_STARTUPS, katalogDueDates, katalogRows } from '@/components/me/__fixtures__';
+import {
+  AnimatedCheck,
+  NumberRoll,
+  PressableScale,
+  ProgressRing,
+  SwipeRow,
+  swipeAccessibilityActions,
+  TabIcon,
+  type SwipeAction,
+} from '@/components/motion';
 
 import {
   Avatar,
@@ -56,6 +78,12 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }
 
 const AVATAR_NAMES = ['Marko Jovanović', 'Ana Anić', 'Petar Petrović', 'Jelena Kovač', 'Nikola Ilić'];
 
+/** Pokret (K09): koraci za brojač i prsten, ikonice tab bara. */
+const ROLL_STEPS = [7, 12, 100] as const;
+const RING_STEPS = [0, 0.43, 1] as const;
+const TAB_DEMO_ICONS: readonly LucideIcon[] = [Sun, FolderClosed, MessageCircle, Inbox, Menu];
+const TAB_DEMO_LABELS = ['Danas', 'Prostor', 'Poruke', 'Inbox', 'Više'] as const;
+
 /**
  * Dev-only katalog dizajn tokena i primitiva. Dostupan iz taba „Više" samo kad je
  * `__DEV__`. Prikazuje sve primitive, varijante i stanja; prekidač teme na vrhu
@@ -68,6 +96,15 @@ export default function DizajnKatalogScreen() {
 
   const [toggleOn, setToggleOn] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  // Pokret (K09)
+  const [demoNow] = useState(() => Date.now());
+  const [checkSmall, setCheckSmall] = useState(false);
+  const [checkLarge, setCheckLarge] = useState(true);
+  const [rollIndex, setRollIndex] = useState(0);
+  const [ringIndex, setRingIndex] = useState(1);
+  const [tabFocus, setTabFocus] = useState(0);
+  const [swipeLog, setSwipeLog] = useState<string | null>(null);
+  const [rowsDone, setRowsDone] = useState<ReadonlySet<string>>(() => new Set(['task:katalog-5']));
 
   if (!__DEV__) {
     return (
@@ -329,9 +366,234 @@ export default function DizajnKatalogScreen() {
         <View style={[styles.fabBox, { borderColor: colors.border }]}>
           <FAB icon={Plus} accessibilityLabel="Primer plutajućeg dugmeta" onPress={noop} />
         </View>
+
+        {/* ── Pokret (K09) — brojevi iz @devotion/shared, svi poštuju „smanji pokret" ── */}
+        <SectionHeader title="Pokret" />
+        <Caption text="PressableScale — utisne se na dodir (0,97), vrati se springom snappy" colors={colors} />
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Primer dugmeta sa pritiskom"
+          haptic="tap"
+          onPress={noop}
+          style={[styles.pressDemo, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[text.body, { color: colors.foreground }]}>Pritisni i drži</Text>
+        </PressableScale>
+
+        <Caption text="AnimatedCheck — 24 · 28 · onemogućena (isprekidan obod)" colors={colors} />
+        <View style={styles.rowWrap}>
+          <AnimatedCheck
+            checked={checkSmall}
+            onToggle={setCheckSmall}
+            accessibilityLabel="Primer kvačice"
+          />
+          <AnimatedCheck
+            size={28}
+            checked={checkLarge}
+            onToggle={setCheckLarge}
+            accessibilityLabel="Primer velike kvačice"
+          />
+          <AnimatedCheck
+            checked={false}
+            onToggle={noop}
+            disabled
+            disabledReason={STATUS_DENIED_REASON}
+            accessibilityLabel="Onemogućena kvačica"
+          />
+        </View>
+
+        <Caption text="NumberRoll — 7 → 12 → 100 (99+)" colors={colors} />
+        <View style={styles.rowWrap}>
+          <View style={[styles.rollBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <NumberRoll
+              value={ROLL_STEPS[rollIndex]}
+              style={[text.title, { color: colors.foreground }]}
+            />
+          </View>
+          <Button
+            label="Sledeći broj"
+            size="sm"
+            variant="secondary"
+            onPress={() => setRollIndex((index) => (index + 1) % ROLL_STEPS.length)}
+          />
+        </View>
+
+        <Caption text="ProgressRing — 0 · 0,43 · 1 (na 100 % kvačica)" colors={colors} />
+        <View style={styles.rowWrap}>
+          {RING_STEPS.map((value) => (
+            <ProgressRing
+              key={value}
+              progress={value}
+              accessibilityLabel="Primer prstena"
+              valueText={`${Math.round(value * 100)} %`}
+            />
+          ))}
+          <ProgressRing
+            progress={RING_STEPS[ringIndex]}
+            size={56}
+            accessibilityLabel="Promenljiv prsten"
+            valueText={`${Math.round(RING_STEPS[ringIndex] * 100)} %`}>
+            <NumberRoll
+              value={Math.round(RING_STEPS[ringIndex] * 100)}
+              style={[text.meta, { color: colors.foreground }]}
+            />
+          </ProgressRing>
+          <Button
+            label="Promeni"
+            size="sm"
+            variant="secondary"
+            onPress={() => setRingIndex((index) => (index + 1) % RING_STEPS.length)}
+          />
+        </View>
+
+        <Caption text="TabIcon — izabrana ikonica odskoči (bouncy)" colors={colors} />
+        <View style={[styles.tabDemo, { borderColor: colors.border, backgroundColor: colors.background }]}>
+          {TAB_DEMO_ICONS.map((Icon, index) => (
+            <Pressable
+              key={TAB_DEMO_LABELS[index]}
+              accessibilityRole="tab"
+              accessibilityLabel={TAB_DEMO_LABELS[index]}
+              accessibilityState={{ selected: tabFocus === index }}
+              onPress={() => setTabFocus(index)}
+              style={styles.tabDemoItem}>
+              <TabIcon
+                icon={Icon}
+                focused={tabFocus === index}
+                color={tabFocus === index ? colors.primaryText : colors.subtle}
+                size={24}
+              />
+              <Text
+                style={[
+                  styles.tabDemoLabel,
+                  { color: tabFocus === index ? colors.primaryText : colors.subtle },
+                ]}>
+                {TAB_DEMO_LABELS[index]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ── Swipe red (K09) ── */}
+        <SectionHeader title="Swipe red" />
+        <Caption
+          text="Prevuci desno (Završi) ili levo (Rok i plan): prag 96 pt, tik na pragu, otpor posle 120 pt"
+          colors={colors}
+        />
+        <KatalogSwipe
+          colors={colors}
+          right={{ label: 'Završi', icon: Check, tone: 'success', onCommit: () => setSwipeLog('Završi') }}
+          left={{
+            label: 'Rok i plan',
+            icon: CalendarClock,
+            tone: 'primary',
+            onCommit: () => setSwipeLog('Rok i plan'),
+          }}
+          title="Prevuci ovaj red"
+          subtitle={swipeLog ? `Poslednja radnja: ${swipeLog}` : 'Još nema radnje'}
+        />
+        <KatalogSwipe
+          colors={colors}
+          right={{
+            label: 'Završi',
+            icon: Check,
+            tone: 'success',
+            allowed: false,
+            onCommit: () => setSwipeLog('Završi'),
+          }}
+          title="Bez dozvole"
+          subtitle="Radnja se vidi, ali potvrda samo upozori i red se vrati"
+        />
+
+        {/* ── Čip startupa (K09) ── */}
+        <SectionHeader title="Čip startupa" />
+        <Caption text={'Ton iz imena — ista boja kao na webu; „Lično" za lične zadatke'} colors={colors} />
+        <View style={styles.rowWrap}>
+          {KATALOG_STARTUPS.map((startup) => (
+            <StartupChip key={startup._id} startup={startup} size="sm" showName />
+          ))}
+          <StartupChip startup={null} size="sm" showName />
+        </View>
+        <Caption text="Pune pločice (solid) · md i lg" colors={colors} />
+        <View style={styles.rowWrap}>
+          {KATALOG_STARTUPS.map((startup) => (
+            <StartupChip key={startup._id} startup={startup} size="md" variant="solid" />
+          ))}
+          <StartupChip startup={KATALOG_STARTUPS[0]} size="lg" />
+          <StartupChip startup={null} size="lg" />
+        </View>
+
+        {/* ── Čip roka (K09) ── */}
+        <SectionHeader title="Čip roka" />
+        <Card style={styles.typeCard}>
+          {katalogDueDates(demoNow).map((entry) => (
+            <View key={entry.label} style={styles.dueRow}>
+              <Text style={[text.meta, styles.dueLabel, { color: colors.subtle }]}>{entry.label}</Text>
+              <DueChip dueDate={entry.dueDate} now={demoNow} showEmpty />
+            </View>
+          ))}
+        </Card>
+
+        {/* ── Red zadatka v1 (K09) ── */}
+        <SectionHeader title="Red zadatka (v1)" />
+        <Caption text="Kvačica završava (haptika), precrt prolazi sleva; četvrti red nema dozvolu" colors={colors} />
+        <Card style={styles.taskRowsCard}>
+          {katalogRows(demoNow).map((row) => (
+            <TaskRow
+              key={row.key}
+              row={{ ...row, done: rowsDone.has(row.key) }}
+              now={demoNow}
+              onToggleDone={(target, done) =>
+                setRowsDone((current) => {
+                  const next = new Set(current);
+                  if (done) next.add(target.key);
+                  else next.delete(target.key);
+                  return next;
+                })
+              }
+              onOpen={row.kind === 'task' ? noop : undefined}
+            />
+          ))}
+        </Card>
+
+        {/* ── Zaglavlje globalnog taba i napomena (K09) ── */}
+        <SectionHeader title="Zaglavlje globalnog taba" />
+        <View style={[styles.headerBox, { borderColor: colors.border }]}>
+          <MeHeader title="Danas" subtitle="subota 25. oktobar" safeArea={false} />
+        </View>
+        <Caption text="Napomena u Porukama/Inboxu dok K14/K16 ne naprave globalne ekrane" colors={colors} />
+        <View style={[styles.headerBox, { borderColor: colors.border }]}>
+          <ElsewhereHint text="Još 4 nepročitane poruke u drugim startupima i ličnim razgovorima." />
+        </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
+  );
+}
+
+/** Swipe red za katalog: kartica sa naslovom i poslednjom radnjom. */
+function KatalogSwipe({
+  colors,
+  right,
+  left,
+  title,
+  subtitle,
+}: {
+  colors: ColorTokens;
+  right?: SwipeAction;
+  left?: SwipeAction;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <SwipeRow rightAction={right} leftAction={left}>
+      <View
+        accessible
+        accessibilityLabel={`${title}. ${subtitle}`}
+        {...swipeAccessibilityActions({ right, left })}
+        style={[styles.swipeDemo, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[text.body, { color: colors.foreground }]}>{title}</Text>
+        <Text style={[text.meta, { color: colors.mutedForeground }]}>{subtitle}</Text>
+      </View>
+    </SwipeRow>
   );
 }
 
@@ -481,5 +743,66 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  pressDemo: {
+    minHeight: MIN_TOUCH_TARGET + 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  rollBox: {
+    minWidth: 72,
+    minHeight: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+  },
+  tabDemo: {
+    flexDirection: 'row',
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  tabDemoItem: {
+    flex: 1,
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  tabDemoLabel: {
+    fontSize: 11,
+    fontWeight: fontWeight.medium,
+  },
+  swipeDemo: {
+    minHeight: 64,
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  dueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 28,
+  },
+  dueLabel: {
+    width: 110,
+  },
+  taskRowsCard: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: 0,
+    gap: 0,
+  },
+  headerBox: {
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    paddingVertical: spacing.sm,
   },
 });
