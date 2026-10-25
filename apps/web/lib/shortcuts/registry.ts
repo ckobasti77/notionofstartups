@@ -207,6 +207,25 @@ export const INBOX_SHORTCUTS = {
   prev: { id: "inbox-prev", key: "k", label: "Prethodno obaveštenje", group: INBOX, allowRepeat: true, helpKeys: [["K"]] },
 } as const satisfies Record<string, ShortcutDef>;
 
+const CHAT = "Poruke" as const;
+
+/**
+ * Prečice Poruka (K15, plan K07 §6.1): `/` pretraga razgovora, `n` nova poruka,
+ * `Esc` vraća razgovor na listu na uskom ekranu (ne dok se kuca u kompozitoru).
+ * Strelice i Enter u listi obrađuje sama lista.
+ */
+export const CHAT_SHORTCUTS = {
+  search: { id: "chat-search", key: "/", label: "Pretraga razgovora", group: CHAT },
+  newMessage: { id: "chat-new-message", key: "n", label: "Nova poruka", group: CHAT },
+  back: { id: "chat-back", key: "Escape", label: "Nazad na razgovore (uzak ekran)", group: CHAT },
+} as const satisfies Record<string, ShortcutDef>;
+
+/** Kretanje kroz listu razgovora — obrađuje ga lista; ovde samo za pomoć. */
+export const CHAT_LIST_HELP: ReadonlyArray<ShortcutDef> = [
+  { id: "chat-list-move", key: "ArrowDown", label: "Sledeći / prethodni razgovor", group: CHAT, displayOnly: true, helpKeys: [["↓"], ["↑"]] },
+  { id: "chat-list-open", key: "Enter", label: "Otvori razgovor", group: CHAT, displayOnly: true },
+];
+
 const PICKER = "Birač datuma" as const;
 
 /** Tasteri birača datuma — obrađuje ih sam birač; ovde su samo za pomoć. */

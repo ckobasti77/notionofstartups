@@ -3,8 +3,8 @@
 import { useId, useMemo, useRef, useState } from "react";
 
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
-import type { StartupMember } from "@/components/workspace/types";
 import { Textarea } from "@/components/ui/textarea";
+import type { ChatMember } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
 type MentionQuery = { start: number; query: string };
@@ -42,7 +42,8 @@ export function MentionTextarea({
 }: {
   value: string;
   onChange: (value: string) => void;
-  members: StartupMember[] | undefined;
+  /** Ko se nudi posle `@` (`mentionCandidates` po opsegu razgovora). */
+  members: ChatMember[] | undefined;
   onSubmit: () => void;
   /** Nalepljen sadržaj (slika iz clipboard-a) — vidi `message-composer.tsx`. */
   onPaste?: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
@@ -71,7 +72,7 @@ export function MentionTextarea({
     setActiveIndex(0);
   }
 
-  function select(member: StartupMember) {
+  function select(member: ChatMember) {
     const textarea = textareaRef.current;
     if (mention === null || textarea === null) return;
     const caret = textarea.selectionStart ?? value.length;

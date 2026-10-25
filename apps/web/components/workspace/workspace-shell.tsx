@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
   Building2,
-  MessageCircle,
   ExternalLink,
   FileText,
   FolderOutput,
@@ -17,7 +16,7 @@ import {
   UserRound,
 } from "lucide-react";
 
-import { ComingSoon } from "@/components/me/coming-soon";
+import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
 import { InboxSkeleton } from "@/components/me/inbox/inbox-skeleton";
 import { MyTasksSkeleton } from "@/components/me/tasks/my-tasks-skeleton";
@@ -162,6 +161,11 @@ const MyTasksContainer = dynamic(
       </div>
     ),
   },
+);
+
+const ChatHubContainer = dynamic(
+  () => import("@/components/me/chat/chat-hub-container").then((module) => module.ChatHubContainer),
+  { loading: () => <ChatHubSkeleton /> },
 );
 
 const InboxContainer = dynamic(
@@ -1190,7 +1194,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           }}
           onQuickAdd={meActive ? openQuickAdd : undefined}
         />
-        <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
+        <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat" || route.kind === "me-chat"}>
           {route.kind === "me-today" ? (
             <WorkspaceErrorBoundary key="me-today" title="Moj dan se ne može učitati" className="m-4 min-h-[20rem]">
               <MyDayContainer
@@ -1230,13 +1234,17 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-chat" ? (
-            <ComingSoon
-              title="Poruke"
-              icon={MessageCircle}
-              description={`Lične poruke i svi kanali tvojih startupa stižu na jedno mesto. Do tada koristi chat startupa ${startup.name}.`}
-              actionLabel="Otvori chat startupa"
-              onAction={() => openInStartup(startup._id, { route: { kind: "chat" } })}
-            />
+            <WorkspaceErrorBoundary key="me-chat" title="Poruke se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <ChatHubContainer
+                today={today}
+                profile={profile}
+                startups={startups}
+                channelId={route.channelId ?? null}
+                onSelectChannel={(channelId) => navigateRoute({ kind: "me-chat", channelId })}
+                onBackToList={() => navigateRoute({ kind: "me-chat" })}
+                onOpenInStartup={openInStartup}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (

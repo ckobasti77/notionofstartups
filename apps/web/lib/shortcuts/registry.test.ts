@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  CHAT_LIST_HELP,
+  CHAT_SHORTCUTS,
   groupShortcuts,
   isTypingTarget,
   matchShortcut,
@@ -115,5 +117,37 @@ describe("prikaz u dijalogu pomoći", () => {
     const groups = groupShortcuts([...DEFS, SHELL_SHORTCUTS.help]);
     expect(groups.map((entry) => entry.group)).toEqual(["Svuda", "Liste zadataka"]);
     expect(groups[0].defs.map((def) => def.id)).toEqual(["help", "quick-add", "search"]);
+  });
+});
+
+describe("Poruke (K15)", () => {
+  const defs = [...Object.values(CHAT_SHORTCUTS), ...CHAT_LIST_HELP];
+
+  test("/ (i sa Shift-om), n (i ćirilično), Esc; strelice i Enter samo u pomoći", () => {
+    expect(matchShortcut(event({ key: "/" }), defs)).toBe("chat-search");
+    expect(matchShortcut(event({ key: "/", shiftKey: true }), defs)).toBe("chat-search");
+    expect(matchShortcut(event({ key: "n" }), defs)).toBe("chat-new-message");
+    expect(matchShortcut(event({ key: "н", code: "KeyN" }), defs)).toBe("chat-new-message");
+    expect(matchShortcut(event({ key: "Escape" }), defs)).toBe("chat-back");
+    expect(matchShortcut(event({ key: "ArrowDown" }), defs)).toBeNull();
+    expect(matchShortcut(event({ key: "Enter" }), defs)).toBeNull();
+  });
+
+  test("ništa dok se kuca (kompozitor, pretraga) ili dok je dijalog otvoren", () => {
+    expect(matchShortcut(event({ key: "Escape", typing: true }), defs)).toBeNull();
+    expect(matchShortcut(event({ key: "n", typing: true }), defs)).toBeNull();
+    expect(matchShortcut(event({ key: "n", dialogOpen: true }), defs)).toBeNull();
+  });
+
+  test("u pomoći je jedna grupa „Poruke“", () => {
+    const groups = groupShortcuts(defs);
+    expect(groups.map((entry) => entry.group)).toEqual(["Poruke"]);
+    expect(groups[0].defs.map((def) => def.id)).toEqual([
+      "chat-search",
+      "chat-new-message",
+      "chat-back",
+      "chat-list-move",
+      "chat-list-open",
+    ]);
   });
 });

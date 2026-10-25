@@ -11,13 +11,11 @@ import {
 } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { ChevronDown, LoaderCircle, MessagesSquare } from "lucide-react";
+import { ENTER_OFFSET_PX } from "@devotion/shared";
 
 import { MessageRow } from "@/components/workspace/chat/message-row";
 import { EmptyState } from "@/components/workspace/workspace-ui";
-import type {
-  ProfileWithAvatar,
-  StartupMember,
-} from "@/components/workspace/types";
+import type { ProfileWithAvatar } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
@@ -26,8 +24,18 @@ import {
   sameDay,
   shouldGroupWithPrevious,
   type ChatChannel,
+  type ChatMember,
   type ChatMessage,
 } from "@/lib/chat";
+import { reducedFade, springTween, standardTween, useTweenSlots } from "@/lib/motion";
+
+/**
+ * Optimistička poruka iz kompozitora ima id iz `crypto.randomUUID()` (sa
+ * crticama); Convex id-jevi crtice nemaju.
+ */
+function isOptimisticMessageId(id: string): boolean {
+  return id.includes("-");
+}
 
 export function MessageList({
   channel,
@@ -36,10 +44,12 @@ export function MessageList({
   onReply,
   onAtBottomChange,
   scrollToBottomSignal = 0,
+  preview,
+  animateArrivals = false,
 }: {
   channel: ChatChannel;
   profile: ProfileWithAvatar;
-  members: StartupMember[] | undefined;
+  members: ChatMember[] | undefined;
   onReply: (message: ChatMessage) => void;
   /**
    * „Korisnik gleda dno" — prijavljuje se samo kad se BOOLEAN promeni, ne na svaki
@@ -52,12 +62,57 @@ export function MessageList({
    * ne vrednost — skok na dno tako ne čeka da poruka obiđe server.
    */
   scrollToBottomSignal?: number;
+  /**
+   * Izlog: statične poruke (najnovija PRVA, kao `chat.messages`) umesto
+   * pretplate. U aplikaciji se ne prosleđuje.
+   */
+  preview?: ChatMessage[];
+  /** Nova poruka na dnu ulazi kratkim springom nagore (Poruke, K15). */
+  animateArrivals?: boolean;
 }) {
-  const { results, status, loadMore } = usePaginatedQuery(
+  const live = usePaginatedQuery(
     api.chat.messages,
-    { channelId: channel._id },
+    preview ? "skip" : { channelId: channel._id },
     { initialNumItems: 30 },
   );
+  const results = preview ?? live.results;
+  const status = preview ? "Exhausted" : live.status;
+  const loadMore = live.loadMore;
+  const logRef = useRef<HTMLDivElement>(null);
+  const arrivalIdRef = useRef<string | null>(null);
+  /** Prva strana je stigla pre ovog rendera (prazan razgovor je „učitan"). */
+  const arrivalLoadedRef = useRef(false);
+  const play = useTweenSlots();
+
+  /**
+   * Ulaz nove poruke (plan K07 §4.2): poslednji red u logu kreće 8 px niže i
+   * providan, pa doputuje (`snappy` + neprozirnost `quick`). Učitavanje starijih
+   * ne menja najnoviju poruku, pa ne okida ništa. Zamena optimističke poruke
+   * serverskom nije nova poruka. Smanjen pokret: samo neprozirnost.
+   */
+  useLayoutEffect(() => {
+    const newest = results[0];
+    const previousId = arrivalIdRef.current;
+    const wasLoaded = arrivalLoadedRef.current;
+    arrivalIdRef.current = newest?._id ?? null;
+    arrivalLoadedRef.current = status !== "LoadingFirstPage";
+    if (!animateArrivals || !newest || newest._id === previousId) return;
+    // Prvo punjenje nije „nova poruka"; prva poruka u praznom razgovoru jeste.
+    if (previousId === null && !wasLoaded) return;
+    if (previousId !== null && !isOptimisticMessageId(newest._id) && isOptimisticMessageId(previousId)) return;
+    const row = logRef.current?.lastElementChild;
+    if (!(row instanceof HTMLElement)) return;
+    // Ključ po poruci: brza druga poruka ne sme da zaustavi ulaz prve na pola puta.
+    play(`arrival:${newest._id}`, ({ gsap, reduced }) => {
+      if (reduced) {
+        return gsap.fromTo(row, { opacity: 0 }, { opacity: 1, ...reducedFade(), clearProps: "opacity" });
+      }
+      return gsap
+        .timeline()
+        .fromTo(row, { opacity: 0 }, { opacity: 1, ...standardTween("quick"), clearProps: "opacity" }, 0)
+        .fromTo(row, { y: ENTER_OFFSET_PX }, { y: 0, ...springTween("snappy"), clearProps: "transform" }, 0);
+    });
+  }, [results, status, animateArrivals, play]);
 
   // Backend vraća najnovije prvo; chat se čita odozdo, pa render obrćemo
   // (najstarije gore, najnovije dole) i „starije" učitavamo skrolom nagore.
@@ -218,6 +273,7 @@ export function MessageList({
           </div>
         ) : (
           <div
+            ref={logRef}
             className="mx-auto flex w-full max-w-3xl flex-col"
             role="log"
             aria-live="polite"

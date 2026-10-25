@@ -9,6 +9,7 @@ import MojDanEkran from "./ekrani/moj-dan";
 import MojiZadaciEkran from "./ekrani/moji-zadaci";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
+import PorukeEkran from "./ekrani/poruke";
 
 export type IzlogEkranProps = {
   /** Izabrana varijanta (prva iz `varijante` kad nije zadata; "" bez varijanti). */
@@ -53,5 +54,11 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K14",
     varijante: ["mesano", "neprocitano", "ceka-tebe", "prazno", "ucitavanje", "greska", "ceka-tebe-ucitavanje", "ceka-tebe-greska"],
     Komponenta: InboxEkran,
+  },
+  poruke: {
+    naslov: "Poruke",
+    korak: "K15",
+    varijante: ["hub", "lista", "startup-kanal", "prazan", "nova-poruka", "nova-grupa", "podesavanja-grupe", "ucitavanje", "greska", "nova-poruka-ucitavanje"],
+    Komponenta: PorukeEkran,
   },
 };

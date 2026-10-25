@@ -21,6 +21,11 @@ export type MotionDialogProps = {
   position?: "center" | "top";
   /** Element koji dobija fokus pri otvaranju (inače prvi fokusabilan). */
   initialFocus?: () => HTMLElement | null;
+  /**
+   * Kuda fokus posle izlaza kad element koji je otvorio dijalog više nije
+   * vidljiv (npr. uzak ekran prešao sa liste na razgovor).
+   */
+  returnFocusFallback?: () => HTMLElement | null;
   showClose?: boolean;
   children: ReactNode;
   footer?: ReactNode;
@@ -44,6 +49,7 @@ export function MotionDialog({
   width = "32rem",
   position = "center",
   initialFocus,
+  returnFocusFallback,
   showClose = true,
   children,
   footer,
@@ -57,6 +63,11 @@ export function MotionDialog({
   const [panel, setPanel] = useState<HTMLDivElement | null>(null);
   const entered = useRef(false);
   const returnFocus = useRef<HTMLElement | null>(null);
+  // Poslednja rezerva iz props-a; čita se tek posle izlaza.
+  const fallbackRef = useRef(returnFocusFallback);
+  useLayoutEffect(() => {
+    fallbackRef.current = returnFocusFallback;
+  });
   const play = useTweenSlots();
 
   useLayoutEffect(() => {
@@ -103,8 +114,15 @@ export function MotionDialog({
     if (present) return;
     const target = returnFocus.current;
     returnFocus.current = null;
+    // Bez zapamćenog elementa dijalog nije ni bio otvoren (prvi render).
+    if (target === null) return;
     const lost = document.activeElement === null || document.activeElement === document.body;
-    if (lost && target?.isConnected) target.focus({ preventScroll: true });
+    if (!lost) return;
+    if (target.isConnected && target.getClientRects().length > 0) {
+      target.focus({ preventScroll: true });
+      return;
+    }
+    fallbackRef.current?.()?.focus({ preventScroll: true });
   }, [present]);
 
   return (
