@@ -3,7 +3,10 @@
  * „Čeka tebe". ČISTO (vitest). Svaki blok ima svoje stanje; blok čiji upit
  * padne ili ne postoji se tiho skriva (`hidden`).
  */
-import type { StartupMini } from "@devotion/shared";
+import { pendingKey, pendingTitle, type StartupMini } from "@devotion/shared";
+
+// Tekst i ključ stavke „Čeka tebe" žive u shared (`inbox.ts`) — dele ih Inbox i telefon.
+export { pendingTitle };
 
 export type SideBlock<T> = { status: "loading" } | { status: "hidden" } | { status: "ready"; data: T };
 
@@ -58,17 +61,10 @@ export type PendingItemLike =
       startup: StartupMini;
     };
 
-/** Tekst stavke „Čeka tebe" (plan K07 §3, Inbox). */
-export function pendingTitle(item: PendingItemLike): string {
-  if (item.kind === "deletion_vote") return `Glasanje o brisanju: „${item.title}“`;
-  const who = item.requesterName ?? "Neko";
-  return `${who} predlaže da „${item.childTitle}“ pređe pod „${item.parentTitle}“`;
-}
-
 export function pendingSummary(pending: { items: ReadonlyArray<PendingItemLike>; truncated: boolean }): SidePending {
   return {
     items: pending.items.map((item) => ({
-      key: item.kind === "deletion_vote" ? `vote:${item.ballotId}` : `${item.kind}:${item.requestId}`,
+      key: pendingKey(item),
       title: pendingTitle(item),
       startup: item.startup,
     })),

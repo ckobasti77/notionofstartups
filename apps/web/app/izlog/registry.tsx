@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 
 import BiracDatumaEkran from "./ekrani/birac-datuma";
 import BrziUnosEkran from "./ekrani/brzi-unos";
+import InboxEkran from "./ekrani/inbox";
 import IsplanirajEkran from "./ekrani/isplaniraj";
 import LjuskaEkran from "./ekrani/ljuska";
 import MojDanEkran from "./ekrani/moj-dan";
@@ -47,4 +48,10 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
   },
   "panel-zadatka": { naslov: "Panel zadatka", korak: "K11", varijante: ["kreator", "clan", "licni", "prebaci"], Komponenta: PanelZadatkaEkran },
   "birac-datuma": { naslov: "Birač datuma", korak: "K11", varijante: ["otvoren", "izabran"], Komponenta: BiracDatumaEkran },
+  inbox: {
+    naslov: "Inbox",
+    korak: "K14",
+    varijante: ["mesano", "neprocitano", "ceka-tebe", "prazno", "ucitavanje", "greska", "ceka-tebe-ucitavanje", "ceka-tebe-greska"],
+    Komponenta: InboxEkran,
+  },
 };

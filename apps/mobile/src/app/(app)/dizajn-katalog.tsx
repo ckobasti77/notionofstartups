@@ -49,9 +49,29 @@ import {
   katalogOverview,
   katalogRows,
 } from '@/components/me/__fixtures__';
-import { buildPlanDay, EMPTY_TASK_FILTERS, type TaskFilters, type TaskRowModel } from '@devotion/shared';
+import {
+  buildPlanDay,
+  EMPTY_TASK_FILTERS,
+  type InboxScope,
+  type InboxSegment,
+  type TaskFilters,
+  type TaskRowModel,
+} from '@devotion/shared';
 import { CircleDot, Flag } from 'lucide-react-native';
 import { MetaChip } from '@/components/me/meta-chip';
+import {
+  katalogInboxCounts,
+  katalogInboxItems,
+  katalogInboxPending,
+  KATALOG_INBOX_STARTUPS,
+} from '@/components/me/inbox/__fixtures__';
+import {
+  InboxRow,
+  InboxView,
+  PendingRow,
+  type InboxFeedState,
+  type InboxItemModel,
+} from '@/components/me/inbox/inbox-view';
 import { TaskFiltersSheet } from '@/components/me/tasks/task-filters-sheet';
 import {
   MoveToStartupStep,
@@ -96,6 +116,28 @@ import { useAppTheme, type ThemePreference } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, spacing, text, type ColorTokens } from '@/theme/tokens';
 
 const noop = () => {};
+
+/** Stanje feed-a Inboxa u katalogu: filtrira fixture po segmentu i opsegu. */
+function katalogInboxFeed(
+  mode: 'ready' | 'loading' | 'empty' | 'error',
+  items: ReadonlyArray<InboxItemModel>,
+  segment: InboxSegment,
+  scope: InboxScope,
+  retry: () => void,
+): InboxFeedState {
+  if (mode === 'loading') return { status: 'loading' };
+  if (mode === 'error') return { status: 'error', retry };
+  const visible =
+    mode === 'empty'
+      ? []
+      : items.filter((entry) => {
+          if (segment === 'unread' && entry.readAt !== null) return false;
+          if (scope.kind === 'personal') return entry.startupId === null;
+          if (scope.kind === 'startup') return entry.startupId === scope.startupId;
+          return true;
+        });
+  return { status: 'ready', items: visible, canLoadMore: false, loadingMore: false, onLoadMore: noop };
+}
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
   { value: 'light', label: 'Svetlo', icon: Sun },
@@ -144,6 +186,12 @@ export default function DizajnKatalogScreen() {
   const [k13Due, setK13Due] = useState<number | null>(null);
   const [k13Move, setK13Move] = useState(false);
   const [k13Log, setK13Log] = useState<string | null>(null);
+  // Inbox (K14)
+  const [k14Segment, setK14Segment] = useState<InboxSegment>('all');
+  const [k14Scope, setK14Scope] = useState<InboxScope>({ kind: 'all' });
+  const [k14Items, setK14Items] = useState<InboxItemModel[]>(() => katalogInboxItems(Date.now()));
+  const [k14Mode, setK14Mode] = useState<'ready' | 'loading' | 'empty' | 'error'>('ready');
+  const [k14Log, setK14Log] = useState<string | null>(null);
   const [sectionCount, setSectionCount] = useState(3);
   const [sectionCollapsed, setSectionCollapsed] = useState(true);
   const [k12Overview] = useState(() => katalogOverview(Date.now()));
@@ -758,6 +806,90 @@ export default function DizajnKatalogScreen() {
         <SectionHeader title="Filteri" />
         <Caption text="Startup (uključujući Lično), status, prioritet, rok i Prikaži završene" colors={colors} />
         <Button label="Otvori filtere" variant="secondary" onPress={() => setK13FiltersOpen(true)} />
+
+        {/* ── Inbox (K14) ── */}
+        <SectionHeader title="Inbox stavka" />
+        <Caption text="Nepročitano · pročitano · lična poruka · ikonica po tipu · swipe udesno = pročitano" colors={colors} />
+        <Card style={styles.taskRowsCard}>
+          {k14Items.slice(0, 5).map((item) => (
+            <InboxRow
+              key={item._id}
+              item={item}
+              now={demoNow}
+              onOpen={(target) => setK14Log(`Otvori: ${target.title}`)}
+              onMarkRead={(target) => {
+                setK14Items((current) =>
+                  current.map((entry) => (entry._id === target._id ? { ...entry, readAt: demoNow } : entry)),
+                );
+                setK14Log(`Pročitano: ${target.title}`);
+              }}
+            />
+          ))}
+        </Card>
+        {k14Log ? <Caption text={k14Log} colors={colors} /> : null}
+
+        <SectionHeader title="Čeka tebe" />
+        <Caption text="Glasanje o brisanju (Glasaj) i predlog premeštanja (Pogledaj)" colors={colors} />
+        <View style={styles.pendingDemo}>
+          {katalogInboxPending(demoNow).map((item) => (
+            <PendingRow
+              key={item.kind === 'deletion_vote' ? item.ballotId : item.requestId}
+              item={item}
+              now={demoNow}
+              onOpen={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}
+            />
+          ))}
+        </View>
+
+        <SectionHeader title="Inbox — ceo ekran" />
+        <Caption text="Segmenti sa brojem, čipovi opsega, grupe po danima, 'Označi sve'. Stanje:" colors={colors} />
+        <View style={styles.modeRow}>
+          {(['ready', 'loading', 'empty', 'error'] as const).map((mode) => (
+            <Button
+              key={mode}
+              label={{ ready: 'Podaci', loading: 'Učitavanje', empty: 'Prazno', error: 'Greška' }[mode]}
+              size="sm"
+              variant={k14Mode === mode ? 'default' : 'secondary'}
+              onPress={() => setK14Mode(mode)}
+            />
+          ))}
+        </View>
+        <View style={[styles.inboxFrame, { borderColor: colors.border }]}>
+          <InboxView
+            now={demoNow}
+            safeArea={false}
+            segment={k14Segment}
+            onSegmentChange={setK14Segment}
+            scope={k14Scope}
+            onScopeChange={setK14Scope}
+            startups={KATALOG_INBOX_STARTUPS}
+            counts={katalogInboxCounts(k14Items)}
+            feed={katalogInboxFeed(k14Mode, k14Items, k14Segment, k14Scope, () => setK14Mode('ready'))}
+            pending={
+              k14Mode === 'loading'
+                ? { status: 'loading' }
+                : k14Mode === 'error'
+                  ? { status: 'error', retry: () => setK14Mode('ready') }
+                  : {
+                      status: 'ready',
+                      items: k14Mode === 'empty' ? [] : katalogInboxPending(demoNow),
+                      truncated: false,
+                    }
+            }
+            onOpen={(target) => setK14Log(`Otvori: ${target.title}`)}
+            onMarkRead={(target) =>
+              setK14Items((current) =>
+                current.map((entry) => (entry._id === target._id ? { ...entry, readAt: demoNow } : entry)),
+              )
+            }
+            onOpenPending={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}
+            onMarkAllRead={() =>
+              setK14Items((current) => current.map((entry) => (entry.readAt === null ? { ...entry, readAt: demoNow } : entry)))
+            }
+            markingAll={false}
+            onOpenSettings={() => setK14Log('Podešavanja obaveštenja')}
+          />
+        </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1088,6 +1220,20 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     paddingHorizontal: 0,
     gap: 0,
+  },
+  pendingDemo: {
+    gap: spacing.sm,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  inboxFrame: {
+    height: 640,
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   headerBox: {
     borderRadius: radius.card,

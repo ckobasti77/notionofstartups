@@ -196,6 +196,17 @@ export const TASK_LIST_SHORTCUTS = {
   search: { id: "list-search", key: "/", label: "Pretraga zadataka", group: LIST },
 } as const satisfies Record<string, ShortcutDef>;
 
+const INBOX = "Inbox" as const;
+
+/** Prečice Inbox-a (K14, plan K07 §6.1): segmenti 1/2/3 i kretanje kroz redove; Enter otvara fokusiran red. */
+export const INBOX_SHORTCUTS = {
+  all: { id: "inbox-all", key: "1", label: "Sve", group: INBOX },
+  unread: { id: "inbox-unread", key: "2", label: "Nepročitano", group: INBOX },
+  pending: { id: "inbox-pending", key: "3", label: "Čeka tebe", group: INBOX },
+  next: { id: "inbox-next", key: "j", label: "Sledeće obaveštenje", group: INBOX, allowRepeat: true, helpKeys: [["J"]] },
+  prev: { id: "inbox-prev", key: "k", label: "Prethodno obaveštenje", group: INBOX, allowRepeat: true, helpKeys: [["K"]] },
+} as const satisfies Record<string, ShortcutDef>;
+
 const PICKER = "Birač datuma" as const;
 
 /** Tasteri birača datuma — obrađuje ih sam birač; ovde su samo za pomoć. */

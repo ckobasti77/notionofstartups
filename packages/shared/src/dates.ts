@@ -380,6 +380,12 @@ function wallParts(ms: number, zone?: string) {
   return { key, year, month, day, weekday: isoWeekday(key) };
 }
 
+/** „09:12" — sat i minut (24 h) u lokalnoj zoni ili zadatoj zoni. */
+export function formatClock(ms: number, zone?: string): string {
+  const { hour, minute } = calendarFor(zone).toWall(ms);
+  return `${pad(hour)}:${pad(minute)}`;
+}
+
 /** „1 dan", „2 dana", „21 dan" — srpska pluralizacija. */
 export function daysWord(count: number): string {
   const absolute = Math.abs(count);

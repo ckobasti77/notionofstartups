@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
   Building2,
-  Inbox,
   MessageCircle,
   ExternalLink,
   FileText,
@@ -20,6 +19,7 @@ import {
 
 import { ComingSoon } from "@/components/me/coming-soon";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
+import { InboxSkeleton } from "@/components/me/inbox/inbox-skeleton";
 import { MyTasksSkeleton } from "@/components/me/tasks/my-tasks-skeleton";
 import { buildMyDay, firstNameOf, openByStartup, openTodayCount } from "@/components/me/my-day/my-day-model";
 import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
@@ -74,7 +74,8 @@ import type {
   ThoughtDropTarget,
   ThoughtSidebarDragRequest,
 } from "@/components/workspace/thought-sharing";
-import type { CreatePageTarget, MeRoute, ProfileWithAvatar, WorkspaceRoute } from "@/components/workspace/types";
+import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, WorkspaceRoute } from "@/components/workspace/types";
+import type { InboxNavigation } from "@/components/me/inbox/inbox-container";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -158,6 +159,17 @@ const MyTasksContainer = dynamic(
     loading: () => (
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
         <MyTasksSkeleton />
+      </div>
+    ),
+  },
+);
+
+const InboxContainer = dynamic(
+  () => import("@/components/me/inbox/inbox-container").then((module) => module.InboxContainer),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
+        <InboxSkeleton />
       </div>
     ),
   },
@@ -822,6 +834,63 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
   useNotificationToasts({ startupId, onOpen: openNotificationTarget });
 
+  /**
+   * Klik na stavku Inbox-a (K14). Startup cilj prebacuje opseg u taj startup i
+   * otvara stranicu/chat/odobrenja/ideje/puls kao `openNotificationTarget`
+   * (isto mapiranje: `notificationDestination`); lični razgovor ostaje u opsegu
+   * „Ja" (`me-chat`).
+   */
+  async function openInboxTarget(target: InboxNavigation) {
+    if (target.kind === "none") return;
+    if (target.kind === "personal-chat") {
+      goToMe(
+        target.channelId === null
+          ? { kind: "me-chat" }
+          : { kind: "me-chat", channelId: target.channelId as Id<"chatChannels"> },
+      );
+      return;
+    }
+    const targetStartupId = target.startupId as Id<"startups">;
+    const { screen, entityId, weekStart } = target.destination;
+    if (screen === "page" && entityId !== null) {
+      try {
+        const value = await convex.query(api.areasV2.resolveRoute, {
+          startupId: targetStartupId,
+          pageId: entityId as Id<"pages">,
+        });
+        const resolved = resolvedAreasRoute(value);
+        if (resolved === null) {
+          toast.error("Sadržaj obaveštenja više ne postoji.");
+          return;
+        }
+        if (resolved.kind === "page") {
+          openInStartup(targetStartupId, { pageId: resolved.pageId });
+          return;
+        }
+        openInStartup(targetStartupId, { route: resolved });
+        toast.info("Sadržaj više nije dostupan; otvorena je njegova oblast.");
+      } catch {
+        toast.error("Sadržaj obaveštenja više ne postoji.");
+      }
+      return;
+    }
+    const route: StartupRoute =
+      screen === "approvals"
+        ? { kind: "approvals" }
+        : screen === "ideas"
+          ? { kind: "ideas" }
+          : screen === "puls"
+            ? weekStart === null
+              ? { kind: "puls" }
+              : { kind: "puls", weekStart }
+            : screen === "chat"
+              ? entityId === null
+                ? { kind: "chat" }
+                : { kind: "chat", channelId: entityId as Id<"chatChannels"> }
+              : { kind: "today" };
+    openInStartup(targetStartupId, { route });
+  }
+
   function resizeDetailCard(preset: ItemSizePreset) {
     if (
       !detailPageId ||
@@ -1152,13 +1221,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-inbox" ? (
-            <ComingSoon
-              title="Inbox"
-              icon={Inbox}
-              description={`Obaveštenja iz svih startupa stižu na jedno mesto. Do tada koristi obaveštenja startupa ${startup.name}.`}
-              actionLabel="Otvori obaveštenja startupa"
-              onAction={() => setNotificationsOpen(true)}
-            />
+            <WorkspaceErrorBoundary key="me-inbox" title="Inbox se ne može učitati" className="m-4 min-h-[20rem]">
+              <InboxContainer
+                today={today}
+                startups={startups}
+                onNavigate={openInboxTarget}
+                onOpenSettings={() => setNotificationSettingsOpen(true)}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "me-chat" ? (
             <ComingSoon
               title="Poruke"
