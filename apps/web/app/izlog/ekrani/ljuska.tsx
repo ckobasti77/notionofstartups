@@ -171,8 +171,12 @@ function ShellPrimer({ initial }: { initial: RailScope }) {
               now={IZLOG_NOW}
               firstName="Jovan"
               state={{ status: "ready", model }}
+              groupMode="time"
+              onGroupModeChange={noop}
+              side={null}
               canOpen={(row) => row.kind === "task"}
-              onOpen={noop}
+              onQuickAdd={noop}
+              onPlanDay={noop}
               onOpenTasks={noop}
             />
           ) : (

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Bell, Search } from "lucide-react";
+import { Bell, Plus, Search } from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -28,13 +28,15 @@ export type MobileScopeHeaderProps = {
     capped: boolean;
     onOpen: () => void;
   };
+  /** Brzi unos (K10): dugme „+" u zaglavlju opsega „Ja" (umesto FAB-a na uskom ekranu). */
+  onQuickAdd?: () => void;
 };
 
 /**
  * Zaglavlje ispod `lg` (PLAN §3.2): meni, identitet opsega (ja: avatar +
  * prikaz; startup: čip + ime), pretraga startupa, zvono i tema.
  */
-export function MobileScopeHeader({ menu, scope, notifications }: MobileScopeHeaderProps) {
+export function MobileScopeHeader({ menu, scope, notifications, onQuickAdd }: MobileScopeHeaderProps) {
   const { count, capped } = notifications;
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden">
@@ -59,6 +61,11 @@ export function MobileScopeHeader({ menu, scope, notifications }: MobileScopeHea
           </Button>
         </>
       )}
+      {onQuickAdd ? (
+        <Button variant="ghost" size="icon" aria-label="Brzi unos" aria-keyshortcuts="Q" onClick={onQuickAdd}>
+          <Plus />
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="icon"

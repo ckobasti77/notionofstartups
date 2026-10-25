@@ -1,0 +1,320 @@
+"use client";
+
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { CornerDownLeft, LoaderCircle } from "lucide-react";
+import {
+  cleanQuickAddTitle,
+  defaultAddToMyDay,
+  DUE_SHORTCUT_LABELS,
+  DUE_SHORTCUTS,
+  dueShortcutValue,
+  formatDateShort,
+  matchDueShortcut,
+  NO_AREA_REASON,
+  QUICK_ADD_TITLE_MAX,
+  resolveArea,
+  resolveDestination,
+  type DueShortcut,
+  type QuickAddDestination,
+  type QuickAddDraft,
+  type QuickAddStartup,
+  type StoredDestination,
+} from "@devotion/shared";
+
+import { MotionDialog } from "@/components/motion/motion-dialog";
+import { Kbd } from "@/components/ui/kbd";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
+
+import { StartupChip } from "../startup-chip";
+
+export type QuickAddStartupOption = QuickAddStartup & { logoUrl: string | null };
+
+export type QuickAddDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  now: number;
+  startups: ReadonlyArray<QuickAddStartupOption>;
+  /** Startup (i oblast) iz koga je brzi unos otvoren — pobeđuje zapamćen izbor. */
+  preset?: { startupId: string; areaId?: string | null } | null;
+  /** Zapamćeno odredište (čita se jednom, pri otvaranju) i oblast po startupu. */
+  readStored?: () => StoredDestination | null;
+  rememberedArea?: (startupId: string) => string | null;
+  /** Napravi zadatak; greška (poruka servera) se prikazuje ispod polja. */
+  onSubmit: (draft: QuickAddDraft) => Promise<void>;
+  /** Izlog: početni nacrt i greška. */
+  initialDraft?: Partial<QuickAddDraft>;
+  initialError?: string | null;
+};
+
+/**
+ * Brzi unos (P8, plan K07 §2): naslov, odredište Lično ili startup + oblast,
+ * čipovi roka i „Dodaj i u Moj dan". Enter dodaje i zatvara, Ctrl/⌘+Enter
+ * dodaje i ostavlja otvoreno, Esc zatvara. Dijalog ulazi iz scale 0,96
+ * (`MotionDialog`, trenutak 4).
+ */
+export function QuickAddDialog({ open, onOpenChange, ...props }: QuickAddDialogProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <MotionDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Brzi unos"
+      description="Enter dodaje, Ctrl+Enter dodaje i ostaje, Esc zatvara."
+      hideTitle
+      width="36rem"
+      position="top"
+      initialFocus={() => inputRef.current}
+      bodyClassName="px-0 py-0"
+    >
+      <QuickAddForm {...props} inputRef={inputRef} onClose={() => onOpenChange(false)} />
+    </MotionDialog>
+  );
+}
+
+function QuickAddForm({
+  now,
+  startups,
+  preset,
+  readStored,
+  rememberedArea,
+  onSubmit,
+  initialDraft,
+  initialError = null,
+  inputRef,
+  onClose,
+}: Omit<QuickAddDialogProps, "open" | "onOpenChange"> & {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState(initialDraft?.title ?? "");
+  const [destination, setDestination] = useState<QuickAddDestination>(
+    () => initialDraft?.destination ?? resolveDestination(readStored?.() ?? null, startups, { preset, rememberedArea }),
+  );
+  // Izbor čipa, ne samo datum: petkom/subotom/nedeljom dve prečice mogu biti isti dan.
+  const [dueChoice, setDueChoice] = useState<DueShortcut | null>(() =>
+    matchDueShortcut(initialDraft?.dueDate ?? null, now),
+  );
+  const dueDate = dueChoice === null ? null : dueShortcutValue(dueChoice, now);
+  // Kvačica prati rok dok je korisnik sam ne promeni.
+  const [addOverride, setAddOverride] = useState<boolean | null>(initialDraft?.addToMyDay ?? null);
+  const [error, setError] = useState<string | null>(initialError);
+  const [busy, setBusy] = useState(false);
+  const errorId = useId();
+  const titleCheck = cleanQuickAddTitle(title);
+  const addToMyDay = addOverride ?? defaultAddToMyDay(dueDate, now);
+  const selectedStartup =
+    destination.kind === "startup" ? startups.find((startup) => startup._id === destination.startupId) : undefined;
+  const missingArea = destination.kind === "startup" && destination.areaId === null;
+  const canSubmit = titleCheck.ok && !missingArea && !busy;
+  const shownError = error ?? (titleCheck.ok ? null : titleCheck.reason);
+
+  const submit = async (stay: boolean) => {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit({ title, destination, dueDate, addToMyDay });
+      setTitle("");
+      if (stay) inputRef.current?.focus();
+      else onClose();
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : "Zadatak nije dodat. Pokušaj ponovo.");
+      inputRef.current?.focus();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    void submit(event.ctrlKey || event.metaKey);
+  };
+
+  const pickStartup = (startupId: string | null) => {
+    setError(null);
+    if (startupId === null) {
+      setDestination({ kind: "personal" });
+      return;
+    }
+    const startup = startups.find((item) => item._id === startupId);
+    if (!startup) return;
+    setDestination({
+      kind: "startup",
+      startupId,
+      areaId: resolveArea(startup, rememberedArea?.(startupId) ?? null),
+    });
+  };
+
+  return (
+    <div className="flex flex-col">
+      <div className="px-5 pb-3 pt-4">
+        <p aria-hidden="true" className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Brzi unos
+        </p>
+        <input
+          ref={inputRef}
+          value={title}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={onKeyDown}
+          maxLength={QUICK_ADD_TITLE_MAX + 1}
+          placeholder="Šta treba uraditi?"
+          aria-label="Naslov zadatka"
+          aria-invalid={shownError ? true : undefined}
+          aria-describedby={shownError ? errorId : undefined}
+          className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+        />
+        {shownError ? (
+          <p id={errorId} role="alert" className="mt-1.5 text-sm text-destructive">
+            {shownError}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-3 px-5 pb-4">
+        <ChipGroup label="Gde">
+          <Chip selected={destination.kind === "personal"} onSelect={() => pickStartup(null)}>
+            <StartupChip startup={null} size="xs" />
+            Lično
+          </Chip>
+          {startups.map((startup) => (
+            <Chip
+              key={startup._id}
+              selected={destination.kind === "startup" && destination.startupId === startup._id}
+              onSelect={() => pickStartup(startup._id)}
+            >
+              <StartupChip startup={startup} size="xs" />
+              <span className="max-w-[9rem] truncate">{startup.name}</span>
+            </Chip>
+          ))}
+        </ChipGroup>
+
+        {selectedStartup ? (
+          selectedStartup.areas.length > 0 ? (
+            <ChipGroup label="Oblast">
+              {selectedStartup.areas.map((area) => (
+                <Chip
+                  key={area._id}
+                  selected={destination.kind === "startup" && destination.areaId === area._id}
+                  onSelect={() =>
+                    setDestination({ kind: "startup", startupId: selectedStartup._id, areaId: area._id })
+                  }
+                >
+                  {area.label}
+                </Chip>
+              ))}
+            </ChipGroup>
+          ) : (
+            <p role="status" className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
+              {NO_AREA_REASON}
+            </p>
+          )
+        ) : null}
+
+        <ChipGroup label="Rok">
+          {DUE_SHORTCUTS.map((shortcut) => {
+            const value = dueShortcutValue(shortcut, now);
+            return (
+              <Chip
+                key={shortcut}
+                selected={dueChoice === shortcut}
+                onSelect={() => setDueChoice(shortcut)}
+                title={formatDateShort(value)}
+              >
+                {DUE_SHORTCUT_LABELS[shortcut]}
+              </Chip>
+            );
+          })}
+          <Chip selected={dueChoice === null} onSelect={() => setDueChoice(null)}>
+            Bez roka
+          </Chip>
+        </ChipGroup>
+
+        <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2 text-sm pointer-coarse:min-h-11">
+          <Checkbox checked={addToMyDay} onCheckedChange={(checked) => setAddOverride(checked)} />
+          Dodaj i u Moj dan
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
+        <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+          <Kbd>Enter</Kbd> dodaje · <Kbd>Ctrl+Enter</Kbd> dodaje i ostaje · <Kbd>Esc</Kbd> zatvara
+        </p>
+        <Button type="button" disabled={!canSubmit} onClick={() => void submit(false)} className="ml-auto">
+          {busy ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <CornerDownLeft aria-hidden="true" />}
+          Dodaj
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Grupa čipova kao `radiogroup`: strelice biraju, jedno Tab mesto. */
+function ChipGroup({ label, children }: { label: string; children: ReactNode }) {
+  const labelId = useId();
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    const radios = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+    const index = radios.findIndex((radio) => radio === document.activeElement);
+    if (index === -1) return;
+    event.preventDefault();
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? radios.length - 1
+          : (index + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1) + radios.length) % radios.length;
+    radios[next].focus();
+    radios[next].click();
+  };
+  return (
+    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
+      <span
+        id={labelId}
+        className="w-14 shrink-0 pt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+      >
+        {label}
+      </span>
+      <div role="radiogroup" aria-labelledby={labelId} onKeyDown={onKeyDown} className="flex min-w-0 flex-wrap gap-1.5">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Chip({
+  selected,
+  onSelect,
+  title,
+  children,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      tabIndex={selected ? 0 : -1}
+      title={title}
+      onClick={onSelect}
+      className={cn(
+        "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+        selected
+          ? "border-primary/60 bg-accent text-accent-foreground"
+          : "border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}

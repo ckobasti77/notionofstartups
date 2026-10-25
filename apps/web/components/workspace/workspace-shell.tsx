@@ -43,6 +43,7 @@ import { AdminDialog } from "@/components/workspace/admin-dialog";
 import { AreaView } from "@/components/workspace/area-view";
 import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
+import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
 import { HomeView } from "@/components/workspace/home-view";
 import { IdeasView } from "@/components/workspace/ideas-view";
@@ -202,6 +203,10 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [createOpen, setCreateOpen] = useState(false);
   const [createTarget, setCreateTarget] = useState<CreatePageTarget | undefined>();
   const [createAreaOpen, setCreateAreaOpen] = useState(false);
+  const [quickAdd, setQuickAdd] = useState<{
+    open: boolean;
+    preset: { startupId: Id<"startups"> } | null;
+  }>({ open: false, preset: null });
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
@@ -503,13 +508,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   useShortcuts([SHELL_SHORTCUTS.search], () => {
     if (startup) setSearchOpen(true);
   });
-  // Brzi unos (`q`): do K10 otvara „Novi zadatak" izabranog startupa; u
-  // opsegu „Ja" prečicu preuzima Brzi unos iz K10.
-  useShortcuts(
-    [SHELL_SHORTCUTS.quickAdd],
-    () => openCreate({ initialKind: "task" }),
-    startup !== undefined && !isMeRoute(route),
-  );
+  // Brzi unos (`q`, K10): svuda isti dijalog; u opsegu startupa je taj
+  // startup unapred izabran (preset), u „Ja" važi zapamćen izbor ili Lično.
+  useShortcuts([SHELL_SHORTCUTS.quickAdd], () => openQuickAdd(), startup !== undefined);
 
   const railScope: RailScope | null = startup
     ? isMeRoute(route)
@@ -938,6 +939,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     setAdminOpen(true);
   }
 
+  /** Brzi unos: iz startupa sa njim unapred izabranim, iz „Ja" bez preseta. */
+  function openQuickAdd() {
+    setQuickAdd({
+      open: true,
+      preset: startup && !isMeRoute(route) ? { startupId: startup._id } : null,
+    });
+  }
+
   function openCreateStartup() {
     setAdminMode("create");
     setAdminOpen(true);
@@ -1099,6 +1108,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             capped: notificationCapped,
             onOpen: () => (meActive ? goToMe({ kind: "me-inbox" }) : setNotificationsOpen(true)),
           }}
+          onQuickAdd={meActive ? openQuickAdd : undefined}
         />
         <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
           {route.kind === "me-today" ? (
@@ -1110,6 +1120,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                   openInStartup(taskStartupId, { pageId })
                 }
                 onOpenTasks={() => goToMe({ kind: "me-tasks" })}
+                onQuickAdd={openQuickAdd}
+                onOpenInbox={() => goToMe({ kind: "me-inbox" })}
+                onOpenChat={() => goToMe({ kind: "me-chat" })}
+                onOpenApprovals={(approvalsStartupId) =>
+                  openInStartup(approvalsStartupId, { route: { kind: "approvals" } })
+                }
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-tasks" ? (
@@ -1404,6 +1420,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       </Dialog>
 
       <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={openPageDetails} />
+      <QuickAddContainer
+        open={quickAdd.open}
+        onOpenChange={(open) => setQuickAdd((current) => ({ ...current, open }))}
+        today={today}
+        profileId={profile._id}
+        startups={startups}
+        preset={quickAdd.preset}
+        onOpenTask={(taskStartupId, pageId) => openInStartup(taskStartupId, { pageId })}
+      />
       <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => navigateRoute({ kind: "area", areaId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
         setSearchOpen(false);
