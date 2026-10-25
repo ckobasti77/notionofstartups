@@ -96,6 +96,8 @@ export function useNotificationTargetNavigation(): void {
       return;
     }
 
+    // Lično obaveštenje (`startupId: null`, poruka iz ličnog razgovora) NE menja
+    // aktivan startup — razgovor se otvara po id-ju, van startupa.
     if (targetStartupId !== null && targetStartupId !== activeStartupId) {
       // Otvori cilj u njegovom kontekstu — ciljni ekran čita `activeStartupId`.
       setActiveStartupId(targetStartupId);
@@ -103,7 +105,7 @@ export function useNotificationTargetNavigation(): void {
 
     navigateToNotificationDestination(
       router,
-      notificationDestination(target.targetType, target.targetId),
+      notificationDestination(target.targetType, target.targetId, target.startupId),
     );
     clearTarget();
   }, [target, status, startups, activeStartupId, setActiveStartupId, clearTarget, router]);

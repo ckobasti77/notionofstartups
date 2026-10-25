@@ -16,6 +16,11 @@ import type { NotificationTargetType } from "./notifications";
  * `targetId` semantika po tipu (postavlja se u `lib/notifications.ts` na mestu
  * događaja): `page` → pageId, `chat` → channelId, `puls` → početak nedelje (ms),
  * `ideas`/`approvals` → null.
+ *
+ * Opseg (`scope`): obaveštenje sa `startupId: null` je LIČNO (poruka iz ličnog
+ * razgovora, van startupa) — klijent ga otvara bez promene aktivnog startupa (web
+ * `view=me-chat`, mobilni `/chat` + `razgovor/[id]`). Odsutan `startupId` (stari
+ * pozivi) znači startup opseg, kao i pre.
  */
 
 export type NotificationScreen =
@@ -26,8 +31,12 @@ export type NotificationScreen =
   | "puls"
   | "today";
 
+export type NotificationScope = "startup" | "personal";
+
 export type NotificationDestination = {
   screen: NotificationScreen;
+  /** `personal` samo kad je `startupId` eksplicitno `null`. */
+  scope: NotificationScope;
   /** channelId za `chat`, pageId za `page` — inače null. */
   entityId: string | null;
   /** `puls`: početak tražene nedelje (ms) ako je poznat, inače null. */
@@ -42,7 +51,16 @@ export type NotificationDestination = {
 export function notificationDestination(
   targetType: NotificationTargetType | string,
   targetId: string | null,
+  startupId?: string | null,
 ): NotificationDestination {
+  const scope: NotificationScope = startupId === null ? "personal" : "startup";
+  return { ...destinationFor(targetType, targetId), scope };
+}
+
+function destinationFor(
+  targetType: NotificationTargetType | string,
+  targetId: string | null,
+): Omit<NotificationDestination, "scope"> {
   switch (targetType) {
     case "chat":
       // Bez channelId chat se otvara na listi razgovora (nije greška).

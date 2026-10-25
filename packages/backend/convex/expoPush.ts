@@ -45,7 +45,8 @@ type ExpoPayload = {
   title: string;
   body: string | null;
   type: NotificationType;
-  startupId: Id<"startups">;
+  /** `null` = lično obaveštenje; `data.startupId: null` ne menja aktivan startup. */
+  startupId: Id<"startups"> | null;
   targetType: string;
   targetId: string | null;
   notificationId: Id<"notifications">;

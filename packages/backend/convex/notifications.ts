@@ -39,7 +39,8 @@ export const notificationItemValidator = v.object({
   _id: v.id("notifications"),
   _creationTime: v.number(),
   recipientProfileId: v.id("profiles"),
-  startupId: v.id("startups"),
+  // `null` samo za lična obaveštenja; upiti po startupu ih nikad ne vraćaju.
+  startupId: v.union(v.id("startups"), v.null()),
   type: notificationTypeValidator,
   title: v.string(),
   body: v.optional(v.string()),

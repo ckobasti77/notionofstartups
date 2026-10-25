@@ -163,7 +163,7 @@ export const myTokensForTest = internalQuery({
 
 /**
  * Badge broj za ikonu: nepročitane notifikacije + nepročitane chat poruke,
- * sabrano kroz aktivne startupe korisnika (sekcija 8). Ograničeno čitanje —
+ * sabrano kroz aktivne startupe korisnika i lični opseg (sekcija 8). Ograničeno čitanje —
  * precizan denormalizovani brojač je naknadno finije rešenje.
  */
 const BADGE_STARTUP_CAP = 50;
@@ -196,6 +196,18 @@ async function computeBadge(
     notifUnread += unread.length;
   }
 
+  // Lična obaveštenja (poruke iz ličnih razgovora) nemaju startup.
+  const personalUnread = await ctx.db
+    .query("notifications")
+    .withIndex("by_recipient_and_startup_and_readAt", (q) =>
+      q
+        .eq("recipientProfileId", profileId)
+        .eq("startupId", null)
+        .eq("readAt", null),
+    )
+    .take(BADGE_PER_STARTUP_CAP);
+  notifUnread += personalUnread.length;
+
   const reads = await ctx.db
     .query("chatReads")
     .withIndex("by_profile", (q) => q.eq("profileId", profileId))
@@ -218,7 +230,8 @@ export const expoPayloadForNotification = internalQuery({
       title: v.string(),
       body: v.union(v.string(), v.null()),
       type: notificationTypeValidator,
-      startupId: v.id("startups"),
+      // `null` = lično obaveštenje (poruka iz ličnog razgovora).
+      startupId: v.union(v.id("startups"), v.null()),
       targetType: v.string(),
       targetId: v.union(v.string(), v.null()),
       notificationId: v.id("notifications"),

@@ -38,27 +38,28 @@ import schema from "./schema";
  * Per-startup prikazi i dalje koriste `notifications.ts` (netaknut).
  *
  * Opseg: stavka iz startupa u kome profil nije AKTIVAN član (napustio ga, uklonjen
- * ili je startup arhiviran) se ne vraća i ne broji. `startup: null` je rezervisano
- * za lične poruke (startupId `null`) — njih uvodi K06.
+ * ili je startup arhiviran) se ne vraća i ne broji. `startup: null` nose lična
+ * obaveštenja (poruke iz ličnih razgovora, `startupId: null`) — vide se uvek, jer
+ * je primalac bio član razgovora kad je obaveštenje nastalo.
  */
 
 /** Stavka feed-a: obaveštenje + mini podaci startupa (`null` za lične poruke). */
 const inboxItemValidator = notificationItemValidator.extend({
-  // Šema još ne dozvoljava `null`; validator je već proširen da K06 ne mora da ga menja.
-  startupId: v.union(v.id("startups"), v.null()),
   startup: v.union(startupMiniValidator, v.null()),
 });
 
+/** Filter opsega: `undefined` = sve, Id = jedan startup, `null` = samo lično. */
+const scopeArgValidator = v.optional(v.union(v.id("startups"), v.null()));
+
 const counterValidator = v.object({ count: v.number(), capped: v.boolean() });
 
-/** Gde se „Označi sve" primenjuje. Lični opseg dodaje K06 (šema još nema `startupId: null`). */
+/** Gde se „Označi sve" primenjuje. */
 const markTargetValidator = v.union(
   v.object({ kind: v.literal("all") }),
   v.object({ kind: v.literal("startup"), startupId: v.id("startups") }),
+  v.object({ kind: v.literal("personal") }),
 );
-type MarkTarget =
-  | { kind: "all" }
-  | { kind: "startup"; startupId: Id<"startups"> };
+type MarkTarget = Infer<typeof markTargetValidator>;
 
 /**
  * Stavka „Čeka tebe". `targetType`/`targetId` su isti rečnik kao kod obaveštenja
@@ -120,7 +121,8 @@ function paginateFeed(
   ctx: QueryCtx,
   options: {
     profileId: Id<"profiles">;
-    startupId: Id<"startups"> | undefined;
+    /** `undefined` = svi opsezi; `null` = samo lična obaveštenja. */
+    startupId: Id<"startups"> | null | undefined;
     unreadOnly: boolean;
     paginationOpts: PaginationOptions;
   },
@@ -164,14 +166,15 @@ function paginateFeed(
 }
 
 /**
- * Feed obaveštenja iz svih mojih aktivnih startupa, najnovije prvo. Stavke iz
- * startupa van opsega se izbacuju POSLE čitanja, pa stranica može biti kraća od
- * `numItems` — klijent koristi „Učitaj još" dok `isDone` nije true.
+ * Feed obaveštenja iz svih mojih aktivnih startupa i ličnih razgovora, najnovije
+ * prvo. Stavke iz startupa van opsega se izbacuju POSLE čitanja, pa stranica može
+ * biti kraća od `numItems` — klijent koristi „Učitaj još" dok `isDone` nije true.
+ * `startupId: null` vraća samo lična obaveštenja (`startup: null`).
  */
 export const feed = query({
   args: {
     paginationOpts: paginationOptsValidator,
-    startupId: v.optional(v.id("startups")),
+    startupId: scopeArgValidator,
     unreadOnly: v.optional(v.boolean()),
   },
   returns: paginationResultValidator(inboxItemValidator),
@@ -187,6 +190,10 @@ export const feed = query({
     if (args.startupId === undefined) {
       profile = await requireProfile(ctx);
       scope = await listMyActiveStartups(ctx, profile._id);
+    } else if (args.startupId === null) {
+      // Samo lično: startup stavke se ni ne čitaju (indeks `startupId = null`).
+      profile = await requireProfile(ctx);
+      scope = new Map();
     } else {
       const member = await requireStartupMember(ctx, args.startupId);
       profile = member.profile;
@@ -292,7 +299,10 @@ async function markBatch(
           .withIndex("by_recipient_and_startup_and_readAt", (q) =>
             q
               .eq("recipientProfileId", profileId)
-              .eq("startupId", target.startupId)
+              .eq(
+                "startupId",
+                target.kind === "personal" ? null : target.startupId,
+              )
               .eq("readAt", null),
           )
           .take(INBOX_MARK_ALL_BATCH);
@@ -305,23 +315,27 @@ async function markBatch(
 }
 
 /**
- * „Označi sve kao pročitano": bez `startupId` svi opsezi, sa njim samo taj startup.
- * Prva serija ide odmah, ostalo kroz scheduler (obrazac `notifications.markAllReadBatch`).
- * Bez `startupId` se pročita i ono iz startupa koji više nisu u opsegu — to su moja
- * obaveštenja i brojač ne sme da ostane zaglavljen na nečemu što se ne vidi.
+ * „Označi sve kao pročitano": bez `startupId` svi opsezi (i lični), sa Id-jem samo
+ * taj startup, sa `null` samo lična obaveštenja. Prva serija ide odmah, ostalo
+ * kroz scheduler (obrazac `notifications.markAllReadBatch`). Bez `startupId` se
+ * pročita i ono iz startupa koji više nisu u opsegu — to su moja obaveštenja i
+ * brojač ne sme da ostane zaglavljen na nečemu što se ne vidi.
  */
 export const markAllRead = mutation({
-  args: { startupId: v.optional(v.id("startups")) },
+  args: { startupId: scopeArgValidator },
   returns: v.object({ marked: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {
+    const startupId = args.startupId;
     const profile =
-      args.startupId === undefined
+      startupId === undefined || startupId === null
         ? await requireProfile(ctx)
-        : (await requireStartupMember(ctx, args.startupId)).profile;
+        : (await requireStartupMember(ctx, startupId)).profile;
     const target: MarkTarget =
-      args.startupId === undefined
+      startupId === undefined
         ? { kind: "all" }
-        : { kind: "startup", startupId: args.startupId };
+        : startupId === null
+          ? { kind: "personal" }
+          : { kind: "startup", startupId };
 
     const marked = await markBatch(ctx, profile._id, target);
     const hasMore = marked === INBOX_MARK_ALL_BATCH;

@@ -137,7 +137,8 @@ export const pushPayloadForNotification = internalQuery({
       title: v.string(),
       body: v.union(v.string(), v.null()),
       type: notificationTypeValidator,
-      startupId: v.id("startups"),
+      // `null` = lično obaveštenje (poruka iz ličnog razgovora).
+      startupId: v.union(v.id("startups"), v.null()),
       targetType: v.string(),
       targetId: v.union(v.string(), v.null()),
       notificationId: v.id("notifications"),

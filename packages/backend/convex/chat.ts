@@ -11,10 +11,12 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
+  requireActiveProfile,
   requireProfile,
   requireProfileInStartup,
   requireStartupMember,
 } from "./lib/auth";
+import { listMyActiveStartups, startupMiniOf } from "./lib/my_scope";
 import { createNotification } from "./lib/notifications";
 import {
   chatAnchorTypeValidator,
@@ -24,6 +26,10 @@ import {
   chatNotificationLevelValidator,
   CHAT_CHANNELS_CAP,
   CHAT_EDIT_WINDOW_MS,
+  CHAT_HUB_CHANNELS_CAP,
+  CHAT_HUB_MEMBERSHIPS_CAP,
+  CHAT_PEOPLE_CAP,
+  CHAT_PERSONAL_MEMBERSHIPS_CAP,
   CHAT_PREVIEW_LENGTH,
   CHAT_RECIPIENTS_CAP,
   CHAT_SEARCH_CAP,
@@ -32,6 +38,7 @@ import {
   MAX_CHAT_CHANNEL_MEMBERS,
   MAX_CHAT_MENTIONS,
   MAX_CHAT_MESSAGE_LENGTH,
+  startupMiniValidator,
 } from "./lib/validators";
 import { CHAT_PRESENCE_TTL_MS } from "./lib/chatPresence";
 import {
@@ -43,6 +50,12 @@ import {
 // Klijent-neutralni chat sloj (web + mobilni troše isti API). Dizajn:
 // docs/mobile/04-CHAT.md. Šema, chat validatori i notifikacioni tipovi već
 // postoje; ovaj fajl je samo funkcijski sloj nad njima.
+//
+// Dva opsega (docs/LICNO-PLAN.md P6, plan K01 §3): kanal sa `startupId` je
+// razgovor u startupu (pristup kroz članstvo u startupu, kao i pre), a kanal sa
+// `startupId: null` je LIČNI razgovor — lični DM (`dm`) ili lična grupa
+// (`custom`), pristup isključivo kroz eksplicitno članstvo u `chatMembers`. U
+// ličnom opsegu nema niti, arhiviranja kanala ni admin-brisanja (D4).
 
 type ReadCtx = QueryCtx | MutationCtx;
 type MessageKind = Doc<"chatMessages">["kind"];
@@ -66,7 +79,8 @@ const chatProfileValidator = v.object({
 const chatChannelSummaryValidator = v.object({
   _id: v.id("chatChannels"),
   _creationTime: v.number(),
-  startupId: v.id("startups"),
+  // `null` = lični razgovor; upiti po startupu ga nikad ne vraćaju.
+  startupId: v.union(v.id("startups"), v.null()),
   kind: chatChannelKindValidator,
   areaId: v.union(v.id("startupAreas"), v.null()),
   anchorType: v.union(chatAnchorTypeValidator, v.null()),
@@ -99,7 +113,7 @@ const chatMessageItemValidator = v.object({
   _id: v.id("chatMessages"),
   _creationTime: v.number(),
   channelId: v.id("chatChannels"),
-  startupId: v.id("startups"),
+  startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
   authorProfileId: v.union(v.id("profiles"), v.null()),
   body: v.string(),
   mentions: v.array(v.id("profiles")),
@@ -209,7 +223,7 @@ async function upsertChatRead(
   args: {
     channelId: Id<"chatChannels">;
     profileId: Id<"profiles">;
-    startupId: Id<"startups">;
+    startupId: Id<"startups"> | null;
     existing: Doc<"chatReads"> | null;
     patch: ChatReadPatch;
   },
@@ -309,6 +323,20 @@ async function requireChannelAccess(
     throw new Error("Razgovor nije pronađen.");
   }
 
+  // Lični razgovor: nema startupa ni implicitnog članstva — samo eksplicitni
+  // članovi. Druga vrsta sa `startupId: null` ne postoji (odbrambeno).
+  if (channel.startupId === null) {
+    if (channel.kind !== "dm" && channel.kind !== "custom") {
+      throw new Error("Razgovor nije pronađen.");
+    }
+    const profile = await requireProfile(ctx);
+    const membership = await activeMembership(ctx, channel._id, profile._id);
+    if (membership === null) {
+      throw new Error("Nemate pristup ovom razgovoru.");
+    }
+    return { channel, profile, membership };
+  }
+
   // Član startupa je osnovni uslov za sve kanale.
   const { profile } = await requireStartupMember(ctx, channel.startupId);
 
@@ -323,16 +351,26 @@ async function requireChannelAccess(
   }
 
   // DM, custom, agent, privatna oblast: mora eksplicitno članstvo.
-  const membership = await ctx.db
-    .query("chatMembers")
-    .withIndex("by_channel_and_profile", (q) =>
-      q.eq("channelId", channelId).eq("profileId", profile._id),
-    )
-    .unique();
-  if (membership === null || membership.leftAt !== null) {
+  const membership = await activeMembership(ctx, channelId, profile._id);
+  if (membership === null) {
     throw new Error("Nemate pristup ovom razgovoru.");
   }
   return { channel, profile, membership };
+}
+
+/** Aktivno (`leftAt === null`) eksplicitno članstvo u kanalu, ili `null`. */
+async function activeMembership(
+  ctx: ReadCtx,
+  channelId: Id<"chatChannels">,
+  profileId: Id<"profiles">,
+): Promise<Doc<"chatMembers"> | null> {
+  const membership = await ctx.db
+    .query("chatMembers")
+    .withIndex("by_channel_and_profile", (q) =>
+      q.eq("channelId", channelId).eq("profileId", profileId),
+    )
+    .unique();
+  return membership === null || membership.leftAt !== null ? null : membership;
 }
 
 async function requireAnchorAccess(
@@ -340,7 +378,12 @@ async function requireAnchorAccess(
   channel: Doc<"chatChannels">,
   profile: Doc<"profiles">,
 ): Promise<void> {
-  if (channel.anchorType === null || channel.anchorId === null) {
+  // Niti postoje samo u startupu (D4).
+  if (
+    channel.startupId === null ||
+    channel.anchorType === null ||
+    channel.anchorId === null
+  ) {
     throw new Error("Diskusija nije pronađena.");
   }
   await requireAnchorAccessById(
@@ -462,11 +505,13 @@ async function channelRecipients(
     channel.kind === "startup" ||
     (channel.kind === "area" && !channel.isPrivate);
 
-  if (implicit) {
+  // Lični razgovori nemaju implicitno članstvo — idu kroz `chatMembers` ispod.
+  const startupId = channel.startupId;
+  if (implicit && startupId !== null) {
     const members = await ctx.db
       .query("startupMembers")
       .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
-        q.eq("startupId", channel.startupId).eq("archivedAt", null),
+        q.eq("startupId", startupId).eq("archivedAt", null),
       )
       .take(CHAT_RECIPIENTS_CAP);
     return members.map((m) => m.profileId);
@@ -573,14 +618,13 @@ async function insertMessage(
         : "chat_message";
 
     // createNotification radi self-notify/membership guard, dedupe i push.
+    // Lični razgovor šalje `startupId: null` — članstvo je već provereno kroz
+    // `chatMembers` (`channelRecipients`), pa guard startupa ne važi.
     await createNotification(ctx, {
       recipientProfileId: recipientId,
       startupId: channel.startupId,
       type,
-      title:
-        channel.kind === "dm"
-          ? authorName ?? "Nova poruka"
-          : `#${channel.name}`,
+      title: notificationTitle(channel, authorName),
       body: buildPreview(fields.body, fields.kind),
       targetType: "chat",
       targetId: channel._id,
@@ -598,6 +642,19 @@ async function insertMessage(
   }
 
   return messageId;
+}
+
+/**
+ * Naslov obaveštenja: DM → ime autora; lična grupa → ime grupe (bez `#`, nije
+ * kanal tima); kanal u startupu → `#ime` (kao i pre).
+ */
+function notificationTitle(
+  channel: Doc<"chatChannels">,
+  authorName: string | null,
+): string {
+  if (channel.kind === "dm") return authorName ?? "Nova poruka";
+  if (channel.startupId === null) return channel.name;
+  return `#${channel.name}`;
 }
 
 async function postSystemMessage(
@@ -623,6 +680,8 @@ async function postAnchorBridge(
   thread: Doc<"chatChannels">,
   actor: Doc<"profiles">,
 ): Promise<void> {
+  // Niti postoje samo u startupu (D4); lični opseg nema kanal oblasti ni opšti.
+  if (thread.startupId === null) return;
   let target: Doc<"chatChannels"> | null = null;
   if (thread.anchorType === "page" && thread.anchorId !== null) {
     const pageId = ctx.db.normalizeId("pages", thread.anchorId);
@@ -951,9 +1010,23 @@ async function resolveAttachment(
   };
 }
 
+/**
+ * Ko sme da se pomene: u startupu aktivan član tog startupa (kao i pre); u
+ * ličnom razgovoru samo aktivan član TOG razgovora koji je i aktivan profil.
+ */
+type MentionScope =
+  | { startupId: Id<"startups"> }
+  | { channelId: Id<"chatChannels"> };
+
+function mentionScopeOf(channel: Doc<"chatChannels">): MentionScope {
+  return channel.startupId === null
+    ? { channelId: channel._id }
+    : { startupId: channel.startupId };
+}
+
 async function validateMentions(
   ctx: ReadCtx,
-  startupId: Id<"startups">,
+  scope: MentionScope,
   mentions: Array<Id<"profiles">> | undefined,
 ): Promise<Array<Id<"profiles">>> {
   if (mentions === undefined || mentions.length === 0) return [];
@@ -962,7 +1035,16 @@ async function validateMentions(
   }
   const unique = [...new Set(mentions)];
   for (const profileId of unique) {
-    await requireProfileInStartup(ctx, startupId, profileId);
+    if ("startupId" in scope) {
+      await requireProfileInStartup(ctx, scope.startupId, profileId);
+      continue;
+    }
+    const membership = await activeMembership(ctx, scope.channelId, profileId);
+    const person =
+      membership === null ? null : await ctx.db.get("profiles", profileId);
+    if (person === null || person.archivedAt !== null) {
+      throw new Error("Možeš da pomeneš samo članove ovog razgovora.");
+    }
   }
   return unique;
 }
@@ -982,51 +1064,214 @@ async function validateReplyTo(
 
 // --- Upiti ----------------------------------------------------------------
 
+/**
+ * Lični razgovori profila (DM i grupe sa `startupId: null`) kroz njegova
+ * aktivna članstva, najsvežiji prvi. Isti oblik povratka kao
+ * `collectStartupChannels`.
+ */
+async function listPersonalChannels(
+  ctx: ReadCtx,
+  profileId: Id<"profiles">,
+  membershipCap: number,
+): Promise<{
+  channels: Array<Doc<"chatChannels">>;
+  membershipsRead: number;
+  membershipsCapped: boolean;
+}> {
+  const memberships =
+    membershipCap <= 0
+      ? []
+      : await ctx.db
+          .query("chatMembers")
+          .withIndex("by_profile_and_startup", (q) =>
+            q
+              .eq("profileId", profileId)
+              .eq("startupId", null)
+              .eq("leftAt", null),
+          )
+          // Preko granice ostaju najnovija članstva (najnoviji razgovori).
+          .order("desc")
+          .take(membershipCap);
+  const channels: Array<Doc<"chatChannels">> = [];
+  for (const membership of memberships) {
+    const channel = await ctx.db.get("chatChannels", membership.channelId);
+    if (
+      channel !== null &&
+      channel.archivedAt === null &&
+      channel.startupId === null &&
+      (channel.kind === "dm" || channel.kind === "custom")
+    ) {
+      channels.push(channel);
+    }
+  }
+  channels.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+  return {
+    channels,
+    membershipsRead: memberships.length,
+    membershipsCapped: memberships.length >= membershipCap,
+  };
+}
+
+/**
+ * Kanali jednog startupa koje profil vidi: opšti, javne oblasti i eksplicitna
+ * članstva (DM, custom, niti, privatne oblasti), najsvežiji prvi. Deli ga
+ * `listChannels` (jedan startup) i `listConversations` (hub svih opsega).
+ * `membershipCap` je granica čitanja članstava; `membershipsRead` je broj
+ * pročitanih, a `membershipsCapped` kaže da je granica dostignuta (moguće je da
+ * postoji još kanala).
+ */
+async function collectStartupChannels(
+  ctx: ReadCtx,
+  startupId: Id<"startups">,
+  profileId: Id<"profiles">,
+  membershipCap: number = CHAT_CHANNELS_CAP,
+): Promise<{
+  channels: Array<Doc<"chatChannels">>;
+  membershipsRead: number;
+  membershipsCapped: boolean;
+}> {
+  const seen = new Map<Id<"chatChannels">, Doc<"chatChannels">>();
+
+  // Javni: opšti kanal + javne oblasti.
+  const general = await startupChannel(ctx, startupId);
+  if (general !== null) seen.set(general._id, general);
+
+  const areaChannels = await ctx.db
+    .query("chatChannels")
+    .withIndex("by_startup_and_kind", (q) =>
+      q.eq("startupId", startupId).eq("kind", "area").eq("archivedAt", null),
+    )
+    .take(CHAT_CHANNELS_CAP);
+  for (const channel of areaChannels) {
+    if (!channel.isPrivate) seen.set(channel._id, channel);
+  }
+
+  // Eksplicitni: DM, custom, thread, privatne oblasti.
+  const memberships =
+    membershipCap <= 0
+      ? []
+      : await ctx.db
+          .query("chatMembers")
+          .withIndex("by_profile_and_startup", (q) =>
+            q
+              .eq("profileId", profileId)
+              .eq("startupId", startupId)
+              .eq("leftAt", null),
+          )
+          .take(membershipCap);
+  for (const membership of memberships) {
+    if (seen.has(membership.channelId)) continue;
+    const channel = await ctx.db.get("chatChannels", membership.channelId);
+    if (channel !== null && channel.archivedAt === null) {
+      seen.set(channel._id, channel);
+    }
+  }
+
+  const channels = [...seen.values()]
+    .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+    .slice(0, CHAT_CHANNELS_CAP);
+  return {
+    channels,
+    membershipsRead: memberships.length,
+    membershipsCapped: memberships.length >= membershipCap,
+  };
+}
+
 export const listChannels = query({
   args: { startupId: v.id("startups") },
   returns: v.array(chatChannelSummaryValidator),
   handler: async (ctx, args) => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
-
-    const seen = new Map<Id<"chatChannels">, Doc<"chatChannels">>();
-
-    // Javni: opšti kanal + javne oblasti.
-    const general = await startupChannel(ctx, args.startupId);
-    if (general !== null) seen.set(general._id, general);
-
-    const areaChannels = await ctx.db
-      .query("chatChannels")
-      .withIndex("by_startup_and_kind", (q) =>
-        q.eq("startupId", args.startupId).eq("kind", "area").eq("archivedAt", null),
-      )
-      .take(CHAT_CHANNELS_CAP);
-    for (const channel of areaChannels) {
-      if (!channel.isPrivate) seen.set(channel._id, channel);
-    }
-
-    // Eksplicitni: DM, custom, thread, privatne oblasti.
-    const memberships = await ctx.db
-      .query("chatMembers")
-      .withIndex("by_profile_and_startup", (q) =>
-        q
-          .eq("profileId", profile._id)
-          .eq("startupId", args.startupId)
-          .eq("leftAt", null),
-      )
-      .take(CHAT_CHANNELS_CAP);
-    for (const membership of memberships) {
-      if (seen.has(membership.channelId)) continue;
-      const channel = await ctx.db.get("chatChannels", membership.channelId);
-      if (channel !== null && channel.archivedAt === null) {
-        seen.set(channel._id, channel);
-      }
-    }
-
-    const channels = [...seen.values()]
-      .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
-      .slice(0, CHAT_CHANNELS_CAP);
-
+    const { channels } = await collectStartupChannels(
+      ctx,
+      args.startupId,
+      profile._id,
+    );
     return await decorateChannels(ctx, channels, profile._id);
+  },
+});
+
+/**
+ * Hub svih razgovora (globalne Poruke): lični DM i grupe + za svaki moj aktivan
+ * startup isto što vraća `listChannels`. Lični su sortirani po poslednjoj
+ * poruci, grupe startupa po najsvežijem kanalu. Preko `CHAT_HUB_CHANNELS_CAP`
+ * ostaju najsvežiji kanali i `capped` je true; isto kad se dostigne budžet
+ * čitanja članstava (`CHAT_HUB_MEMBERSHIPS_CAP`). Startup u kome profil nije
+ * aktivan član (napustio ga, uklonjen, arhiviran) se ne pojavljuje.
+ */
+export const listConversations = query({
+  args: {},
+  returns: v.object({
+    personal: v.array(chatChannelSummaryValidator),
+    startups: v.array(
+      v.object({
+        startup: startupMiniValidator,
+        unreadCount: v.number(),
+        mentionCount: v.number(),
+        channels: v.array(chatChannelSummaryValidator),
+      }),
+    ),
+    capped: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const profile = await requireProfile(ctx);
+    const startups = await listMyActiveStartups(ctx, profile._id);
+    let membershipBudget = CHAT_HUB_MEMBERSHIPS_CAP;
+    let capped = false;
+
+    const personal = await listPersonalChannels(
+      ctx,
+      profile._id,
+      Math.min(CHAT_PERSONAL_MEMBERSHIPS_CAP, membershipBudget),
+    );
+    membershipBudget -= personal.membershipsRead;
+    if (personal.membershipsCapped) capped = true;
+
+    const all: Array<Doc<"chatChannels">> = [...personal.channels];
+    for (const startupId of startups.keys()) {
+      const collected = await collectStartupChannels(
+        ctx,
+        startupId,
+        profile._id,
+        Math.min(CHAT_CHANNELS_CAP, membershipBudget),
+      );
+      membershipBudget -= collected.membershipsRead;
+      if (collected.membershipsCapped) capped = true;
+      all.push(...collected.channels);
+    }
+
+    all.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+    if (all.length > CHAT_HUB_CHANNELS_CAP) capped = true;
+    const kept = all.slice(0, CHAT_HUB_CHANNELS_CAP);
+    const decorated = await decorateChannels(ctx, kept, profile._id);
+
+    const byStartup = new Map<Id<"startups">, typeof decorated>();
+    const personalChannels: typeof decorated = [];
+    for (const channel of decorated) {
+      if (channel.startupId === null) {
+        personalChannels.push(channel);
+        continue;
+      }
+      const list = byStartup.get(channel.startupId) ?? [];
+      list.push(channel);
+      byStartup.set(channel.startupId, list);
+    }
+
+    const groups = [...startups.values()].map((startup) => {
+      const channels = byStartup.get(startup._id) ?? [];
+      return {
+        startup,
+        unreadCount: channels.reduce((sum, c) => sum + c.unreadCount, 0),
+        mentionCount: channels.reduce((sum, c) => sum + c.mentionCount, 0),
+        channels,
+      };
+    });
+    // Grupe po najsvežijem kanalu; startup bez kanala ide na kraj (stabilno).
+    const freshest = (group: (typeof groups)[number]) =>
+      group.channels.length === 0 ? -1 : group.channels[0].lastMessageAt;
+    groups.sort((a, b) => freshest(b) - freshest(a));
+
+    return { personal: personalChannels, startups: groups, capped };
   },
 });
 
@@ -1130,6 +1375,40 @@ export const channelMembers = query({
   },
 });
 
+/**
+ * Jedan razgovor sa startupom i mojom ulogom — za otvaranje ličnog razgovora
+ * (`razgovor/[id]`, `me-chat`) bez liste kanala aktivnog startupa. Pristup je
+ * isti kao za čitanje poruka.
+ */
+export const getChannel = query({
+  args: { channelId: v.id("chatChannels") },
+  returns: chatChannelSummaryValidator.extend({
+    startup: v.union(startupMiniValidator, v.null()),
+    myRole: v.union(chatMemberRoleValidator, v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const { channel, profile, membership } = await requireChannelAccess(
+      ctx,
+      args.channelId,
+    );
+    const [summary] = await decorateChannels(ctx, [channel], profile._id);
+    const startupDoc =
+      channel.startupId === null
+        ? null
+        : await ctx.db.get("startups", channel.startupId);
+    return {
+      ...summary,
+      startup: startupDoc === null ? null : await startupMiniOf(ctx, startupDoc),
+      myRole: membership?.role ?? null,
+    };
+  },
+});
+
+/**
+ * Nepročitano po opsezima (D3): `byStartup` samo za startupe u kojima sam
+ * AKTIVAN član (nikad `null`), `personal` za lične razgovore, a `total` je zbir
+ * ta dva — poruke iz napuštenog startupa se ne broje.
+ */
 export const unreadSummary = query({
   args: {},
   returns: v.object({
@@ -1144,37 +1423,69 @@ export const unreadSummary = query({
         mentionCount: v.number(),
       }),
     ),
+    personal: v.object({
+      unreadCount: v.number(),
+      mentionCount: v.number(),
+    }),
   }),
   handler: async (ctx) => {
     const profile = await requireProfile(ctx);
-    const reads = await ctx.db
-      .query("chatReads")
-      .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
-      .take(CHAT_UNREAD_SUMMARY_CAP);
+    // Lični redovi se čitaju kroz svoj indeks: nastaju lenjo (posle startup
+    // redova), pa bi ih granica nad `by_profile` odsekla prve.
+    const [scope, reads, personalReads] = await Promise.all([
+      listMyActiveStartups(ctx, profile._id),
+      ctx.db
+        .query("chatReads")
+        .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+        .take(CHAT_UNREAD_SUMMARY_CAP),
+      ctx.db
+        .query("chatReads")
+        .withIndex("by_profile_and_startup", (q) =>
+          q.eq("profileId", profile._id).eq("startupId", null),
+        )
+        .take(CHAT_PERSONAL_MEMBERSHIPS_CAP),
+    ]);
 
-    let totalUnread = 0;
-    let totalMention = 0;
+    const personal = { unreadCount: 0, mentionCount: 0 };
+    for (const read of personalReads) {
+      personal.unreadCount += read.unreadCount;
+      personal.mentionCount += read.mentionCount;
+    }
     const byStartup = new Map<
       Id<"startups">,
       { unreadCount: number; mentionCount: number }
     >();
     for (const read of reads) {
-      totalUnread += read.unreadCount;
-      totalMention += read.mentionCount;
+      const startupId = read.startupId;
+      // Lične je već sabrao upit iznad; napušten startup se ne broji (D3).
+      if (startupId === null || !scope.has(startupId)) continue;
       const current =
-        byStartup.get(read.startupId) ?? { unreadCount: 0, mentionCount: 0 };
+        byStartup.get(startupId) ?? { unreadCount: 0, mentionCount: 0 };
       current.unreadCount += read.unreadCount;
       current.mentionCount += read.mentionCount;
-      byStartup.set(read.startupId, current);
+      byStartup.set(startupId, current);
     }
 
-    return {
-      total: { unreadCount: totalUnread, mentionCount: totalMention },
-      byStartup: [...byStartup.entries()].map(([startupId, counts]) => ({
+    const startupEntries = [...byStartup.entries()].map(
+      ([startupId, counts]) => ({
         startupId,
         unreadCount: counts.unreadCount,
         mentionCount: counts.mentionCount,
-      })),
+      }),
+    );
+    return {
+      total: {
+        unreadCount: startupEntries.reduce(
+          (sum, entry) => sum + entry.unreadCount,
+          personal.unreadCount,
+        ),
+        mentionCount: startupEntries.reduce(
+          (sum, entry) => sum + entry.mentionCount,
+          personal.mentionCount,
+        ),
+      },
+      byStartup: startupEntries,
+      personal,
     };
   },
 });
@@ -1241,7 +1552,8 @@ export const listFollowedThreads = query({
 
 export const searchMessages = query({
   args: {
-    startupId: v.id("startups"),
+    // `null` = pretraga ličnih razgovora (post-filter ispod ostavlja samo moje).
+    startupId: v.union(v.id("startups"), v.null()),
     term: v.string(),
     channelId: v.optional(v.id("chatChannels")),
   },
@@ -1249,7 +1561,12 @@ export const searchMessages = query({
   handler: async (ctx, args) => {
     // Poziv je PROVERA PRISTUPA, ne mrtav kod — bez njega pretraga chata postaje
     // javna. Briše se samo destrukturisanje (`profile` se u handleru ne koristi).
-    await requireStartupMember(ctx, args.startupId);
+    // Lični opseg nema startup; pristup po kanalu proverava post-filter.
+    if (args.startupId === null) {
+      await requireProfile(ctx);
+    } else {
+      await requireStartupMember(ctx, args.startupId);
+    }
     const term = args.term.trim();
     if (term.length === 0) return [];
 
@@ -1333,7 +1650,11 @@ export const sendMessage = mutation({
       throw new Error("Sistemske poruke se ne šalju ručno.");
     }
     const body = normalizeMessageBody(args.body, kind);
-    const mentions = await validateMentions(ctx, channel.startupId, args.mentions);
+    const mentions = await validateMentions(
+      ctx,
+      mentionScopeOf(channel),
+      args.mentions,
+    );
     const replyToMessageId = await validateReplyTo(
       ctx,
       channel._id,
@@ -1408,7 +1729,11 @@ export const sendToAnchor = mutation({
     }
 
     const body = cleanRequiredText(args.body, "Poruka", MAX_CHAT_MESSAGE_LENGTH);
-    const mentions = await validateMentions(ctx, args.startupId, args.mentions);
+    const mentions = await validateMentions(
+      ctx,
+      { startupId: args.startupId },
+      args.mentions,
+    );
 
     // Lazy kreiranje: kanal nastaje tek pri prvoj poruci (04-CHAT.md 4).
     let channel = await ctx.db
@@ -1533,6 +1858,11 @@ async function createThreadFromMessage(
     throw new Error("Poruka nije pronađena.");
   }
   const { profile } = await requireChannelAccess(ctx, message.channelId);
+  // Niti postoje samo u startupu (D4).
+  const startupId = message.startupId;
+  if (startupId === null) {
+    throw new Error("Diskusije se otvaraju samo u kanalima startupa.");
+  }
 
   // 1-nivo guard: nema threada nad porukom iz message-threada.
   const sourceChannel = await ctx.db.get("chatChannels", message.channelId);
@@ -1555,7 +1885,7 @@ async function createThreadFromMessage(
 
   const channel = await createThreadForAnchor(
     ctx,
-    message.startupId,
+    startupId,
     "message",
     message._id,
     profile,
@@ -1627,6 +1957,11 @@ export const setChannelMembers = mutation({
     const channel = await ctx.db.get("chatChannels", args.channelId);
     if (channel === null || channel.archivedAt !== null) {
       throw new Error("Razgovor nije pronađen.");
+    }
+    // Lična grupa ima svoja pravila (vlasnik, ne admin) — `updatePersonalGroup`.
+    if (channel.startupId === null) {
+      await requireChannelAccess(ctx, channel._id);
+      throw new Error("Za ličnu grupu koristi podešavanja grupe.");
     }
     // Isti gejt kao `createCustomChannel` i `archiveChannel` — kanale tima drži admin.
     const { profile } = await requireStartupMember(ctx, channel.startupId);
@@ -1832,6 +2167,412 @@ export const openDirectMessage = mutation({
   },
 });
 
+// --- Lični razgovori (van startupa, plan K01 §3.1) ------------------------
+
+/** Nepročitano na nulu — za uklonjenog člana i za onoga ko napušta grupu. */
+async function clearUnread(
+  ctx: MutationCtx,
+  channelId: Id<"chatChannels">,
+  profileId: Id<"profiles">,
+): Promise<void> {
+  const read = await getChatRead(ctx, channelId, profileId);
+  if (read === null || (read.unreadCount === 0 && read.mentionCount === 0)) {
+    return;
+  }
+  await ctx.db.patch("chatReads", read._id, {
+    unreadCount: 0,
+    mentionCount: 0,
+    updatedAt: Date.now(),
+  });
+}
+
+function groupSizeError(memberCount: number): Error | null {
+  if (memberCount < 2) return new Error("Grupi treba bar još jedan član.");
+  if (memberCount > MAX_CHAT_CHANNEL_MEMBERS) {
+    return new Error(
+      `Grupa može imati najviše ${MAX_CHAT_CHANNEL_MEMBERS} članova.`,
+    );
+  }
+  return null;
+}
+
+/** Član lične grupe (`custom` sa `startupId: null`); DM i kanali tima se odbijaju. */
+async function requirePersonalGroupMember(
+  ctx: ReadCtx,
+  channelId: Id<"chatChannels">,
+) {
+  const access = await requireChannelAccess(ctx, channelId);
+  if (access.channel.startupId !== null || access.channel.kind !== "custom") {
+    throw new Error("Ovo nije lična grupa.");
+  }
+  if (access.membership === undefined) {
+    throw new Error("Nemate pristup ovom razgovoru.");
+  }
+  return { ...access, membership: access.membership };
+}
+
+/**
+ * Lični DM sa bilo kojim aktivnim profilom (instanca je jedan tim), van svakog
+ * startupa. Idempotentno: isti par uvek dobija isti kanal, ko god ga prvi
+ * otvori (`by_startup_and_dmKey` sa `startupId = null`; OCC serijalizuje dva
+ * istovremena otvaranja). DM u startupu (`openDirectMessage`) ostaje zaseban.
+ */
+export const openPersonalDm = mutation({
+  args: { otherProfileId: v.id("profiles") },
+  returns: v.id("chatChannels"),
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    if (args.otherProfileId === profile._id) {
+      throw new Error("Ne možeš otvoriti razgovor sa samim sobom.");
+    }
+    await requireActiveProfile(ctx, args.otherProfileId);
+
+    const dmKey = dmKeyFor(profile._id, args.otherProfileId);
+    const existing = await ctx.db
+      .query("chatChannels")
+      .withIndex("by_startup_and_dmKey", (q) =>
+        q.eq("startupId", null).eq("dmKey", dmKey),
+      )
+      .unique();
+    if (existing !== null) return existing._id;
+
+    const now = Date.now();
+    const channelId = await ctx.db.insert("chatChannels", {
+      startupId: null,
+      kind: "dm",
+      areaId: null,
+      anchorType: null,
+      anchorId: null,
+      dmKey,
+      name: "",
+      isPrivate: true,
+      lastMessageAt: now,
+      lastMessagePreview: "",
+      lastMessageAuthorId: null,
+      messageCount: 0,
+      createdByProfileId: profile._id,
+      archivedAt: null,
+      createdAt: now,
+    });
+    for (const participantId of [profile._id, args.otherProfileId]) {
+      await ctx.db.insert("chatMembers", {
+        channelId,
+        profileId: participantId,
+        startupId: null,
+        role: "member",
+        joinedAt: now,
+        leftAt: null,
+      });
+    }
+    return channelId;
+  },
+});
+
+/**
+ * Lična grupa (do `MAX_CHAT_CHANNEL_MEMBERS` članova sa vlasnikom). Pravi je
+ * bilo koji profil, bez admin prava — grupa ne pripada nijednom startupu.
+ */
+export const createPersonalGroup = mutation({
+  args: {
+    name: v.string(),
+    memberProfileIds: v.array(v.id("profiles")),
+  },
+  returns: v.id("chatChannels"),
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    const name = cleanRequiredText(
+      args.name,
+      "Naziv grupe",
+      MAX_CHANNEL_NAME_LENGTH,
+    );
+    const others = [...new Set(args.memberProfileIds)].filter(
+      (id) => id !== profile._id,
+    );
+    const sizeError = groupSizeError(others.length + 1);
+    if (sizeError !== null) throw sizeError;
+    for (const memberId of others) {
+      await requireActiveProfile(ctx, memberId);
+    }
+
+    const now = Date.now();
+    const channelId = await ctx.db.insert("chatChannels", {
+      startupId: null,
+      kind: "custom",
+      areaId: null,
+      anchorType: null,
+      anchorId: null,
+      dmKey: null,
+      name,
+      isPrivate: true,
+      lastMessageAt: now,
+      lastMessagePreview: "",
+      lastMessageAuthorId: null,
+      messageCount: 0,
+      createdByProfileId: profile._id,
+      archivedAt: null,
+      createdAt: now,
+    });
+    await ctx.db.insert("chatMembers", {
+      channelId,
+      profileId: profile._id,
+      startupId: null,
+      role: "owner",
+      joinedAt: now,
+      leftAt: null,
+    });
+    for (const memberId of others) {
+      await ctx.db.insert("chatMembers", {
+        channelId,
+        profileId: memberId,
+        startupId: null,
+        role: "member",
+        joinedAt: now,
+        leftAt: null,
+      });
+    }
+
+    const channel = await ctx.db.get("chatChannels", channelId);
+    if (channel === null) throw new Error("Kreiranje razgovora nije uspelo.");
+    // Sistemska poruka ne pravi nepročitano ni obaveštenje.
+    await postSystemMessage(
+      ctx,
+      channel,
+      `${profile.displayName} je napravio/la grupu`,
+    );
+    return channelId;
+  },
+});
+
+/**
+ * Ime i članovi lične grupe — menja samo vlasnik. Spisak važi kao u
+ * `setChannelMembers`: vlasnik uvek ostaje, ponovno dodavanje oživljava
+ * postojeći red, uklonjenom se nepročitano obara na nulu. Vraća stanje PRE
+ * poziva (ime i aktivne članove), da „Poništi" bude isti poziv sa starim
+ * vrednostima; zato nema ni sistemske poruke.
+ */
+export const updatePersonalGroup = mutation({
+  args: {
+    channelId: v.id("chatChannels"),
+    name: v.optional(v.string()),
+    memberProfileIds: v.optional(v.array(v.id("profiles"))),
+  },
+  returns: v.object({
+    previousName: v.string(),
+    previousProfileIds: v.array(v.id("profiles")),
+    added: v.number(),
+    removed: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { channel, profile, membership } = await requirePersonalGroupMember(
+      ctx,
+      args.channelId,
+    );
+    if (membership.role !== "owner") {
+      throw new Error("Podešavanja grupe menja samo njen vlasnik.");
+    }
+
+    const rows = await ctx.db
+      .query("chatMembers")
+      .withIndex("by_channel", (q) =>
+        q.eq("channelId", channel._id).eq("leftAt", null),
+      )
+      .take(MAX_CHAT_CHANNEL_MEMBERS + 1);
+    const previousProfileIds = rows.map((row) => row.profileId);
+    const previousName = channel.name;
+
+    const name =
+      args.name === undefined
+        ? undefined
+        : cleanRequiredText(args.name, "Naziv grupe", MAX_CHANNEL_NAME_LENGTH);
+
+    let added = 0;
+    let removed = 0;
+    if (args.memberProfileIds !== undefined) {
+      const wanted = new Set(args.memberProfileIds);
+      // Vlasnik (pozivalac) uvek ostaje — inače bi se zaključao van svoje grupe.
+      wanted.add(profile._id);
+      const sizeError = groupSizeError(wanted.size);
+      if (sizeError !== null) throw sizeError;
+
+      // Novi članovi moraju biti aktivni profili; postojeći ostaju i kad su u
+      // međuvremenu arhivirani (inače „Poništi" sa starim spiskom ne bi prošao).
+      const current = new Set(previousProfileIds);
+      for (const profileId of wanted) {
+        if (!current.has(profileId)) await requireActiveProfile(ctx, profileId);
+      }
+
+      const now = Date.now();
+      for (const profileId of wanted) {
+        if (current.has(profileId)) continue;
+        const existing = await ctx.db
+          .query("chatMembers")
+          .withIndex("by_channel_and_profile", (q) =>
+            q.eq("channelId", channel._id).eq("profileId", profileId),
+          )
+          .unique();
+        if (existing === null) {
+          await ctx.db.insert("chatMembers", {
+            channelId: channel._id,
+            profileId,
+            startupId: null,
+            role: "member",
+            joinedAt: now,
+            leftAt: null,
+          });
+        } else {
+          // Oživljen red je uvek običan član (bivši vlasnik ne dobija nazad ulogu),
+          // a pridružuje se SADA — inače bi stari `joinedAt` pri izboru
+          // naslednika vlasništva preskočio one koji su sve vreme ostali.
+          await ctx.db.patch("chatMembers", existing._id, {
+            leftAt: null,
+            role: "member",
+            joinedAt: now,
+          });
+        }
+        added += 1;
+      }
+      for (const row of rows) {
+        if (wanted.has(row.profileId)) continue;
+        await ctx.db.patch("chatMembers", row._id, { leftAt: now });
+        await clearUnread(ctx, channel._id, row.profileId);
+        removed += 1;
+      }
+    }
+
+    if (name !== undefined && name !== channel.name) {
+      await ctx.db.patch("chatChannels", channel._id, { name });
+    }
+
+    return { previousName, previousProfileIds, added, removed };
+  },
+});
+
+/**
+ * Napuštanje lične grupe. Ako odlazi vlasnik, vlasništvo prelazi na najranije
+ * pridruženog aktivnog člana; kad ne ostane niko, grupa se arhivira. Iz ličnog
+ * DM-a se ne izlazi.
+ */
+export const leavePersonalGroup = mutation({
+  args: { channelId: v.id("chatChannels") },
+  returns: v.object({ archived: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { channel, profile, membership } = await requireChannelAccess(
+      ctx,
+      args.channelId,
+    );
+    if (channel.startupId === null && channel.kind === "dm") {
+      throw new Error("Iz ličnog razgovora se ne izlazi.");
+    }
+    if (channel.startupId !== null || channel.kind !== "custom") {
+      throw new Error("Ovo nije lična grupa.");
+    }
+    if (membership === undefined) {
+      throw new Error("Nemate pristup ovom razgovoru.");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch("chatMembers", membership._id, {
+      leftAt: now,
+      // Bez ovoga bi ponovo dodat bivši vlasnik bio drugi vlasnik grupe.
+      role: "member",
+    });
+    await clearUnread(ctx, channel._id, profile._id);
+
+    const remaining = await ctx.db
+      .query("chatMembers")
+      .withIndex("by_channel", (q) =>
+        q.eq("channelId", channel._id).eq("leftAt", null),
+      )
+      .take(MAX_CHAT_CHANNEL_MEMBERS + 1);
+    if (remaining.length === 0) {
+      await ctx.db.patch("chatChannels", channel._id, { archivedAt: now });
+      return { archived: true };
+    }
+
+    if (membership.role === "owner") {
+      const successor = remaining.reduce((earliest, row) =>
+        row.joinedAt < earliest.joinedAt ? row : earliest,
+      );
+      await ctx.db.patch("chatMembers", successor._id, { role: "owner" });
+    }
+    await postSystemMessage(
+      ctx,
+      channel,
+      `${profile.displayName} je napustio/la grupu`,
+    );
+    return { archived: false };
+  },
+});
+
+/**
+ * Ljudi sa kojima mogu da otvorim lični razgovor: aktivni profili osim mene.
+ * Vraća SAMO ime, avatar i imena zajedničkih startupa — bez e-pošte i uloge.
+ */
+export const listPeople = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("profiles"),
+      displayName: v.string(),
+      avatarUrl: v.union(v.string(), v.null()),
+      sharedStartupNames: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx) => {
+    const profile = await requireProfile(ctx);
+    const [admins, members, scope] = await Promise.all([
+      ctx.db
+        .query("profiles")
+        .withIndex("by_role_and_archivedAt", (q) =>
+          q.eq("role", "admin").eq("archivedAt", null),
+        )
+        .take(CHAT_PEOPLE_CAP),
+      ctx.db
+        .query("profiles")
+        .withIndex("by_role_and_archivedAt", (q) =>
+          q.eq("role", "member").eq("archivedAt", null),
+        )
+        .take(CHAT_PEOPLE_CAP),
+      listMyActiveStartups(ctx, profile._id),
+    ]);
+
+    // Zajednički = startupi u kojima smo OBOJE aktivni članovi.
+    const shared = new Map<Id<"profiles">, Array<string>>();
+    for (const startup of scope.values()) {
+      const rows = await ctx.db
+        .query("startupMembers")
+        .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
+          q.eq("startupId", startup._id).eq("archivedAt", null),
+        )
+        .take(CHAT_RECIPIENTS_CAP);
+      for (const row of rows) {
+        const names = shared.get(row.profileId) ?? [];
+        names.push(startup.name);
+        shared.set(row.profileId, names);
+      }
+    }
+
+    const people = await Promise.all(
+      [...admins, ...members]
+        .filter((person) => person._id !== profile._id)
+        .map(async (person) => ({
+          _id: person._id,
+          displayName: person.displayName,
+          avatarUrl:
+            person.avatarStorageId === undefined
+              ? null
+              : await ctx.storage.getUrl(person.avatarStorageId),
+          sharedStartupNames: (shared.get(person._id) ?? []).sort((a, b) =>
+            a.localeCompare(b, "sr-Latn"),
+          ),
+        })),
+    );
+    return people.sort((a, b) =>
+      a.displayName.localeCompare(b.displayName, "sr-Latn"),
+    );
+  },
+});
+
 export const toggleReaction = mutation({
   args: { messageId: v.id("chatMessages"), emoji: v.string() },
   returns: v.object({ reacted: v.boolean() }),
@@ -1926,6 +2667,10 @@ export const deleteMessage = mutation({
     const isAuthor =
       message.authorProfileId !== null &&
       message.authorProfileId === profile._id;
+    // Lični razgovor nije prostor tima: administrator tu nema posebno pravo (D4).
+    if (channel.startupId === null && !isAuthor) {
+      throw new Error("Poruku u ličnom razgovoru briše samo autor.");
+    }
     if (!isAuthor && profile.role !== "admin") {
       throw new Error("Poruku može obrisati samo autor ili administrator.");
     }
@@ -1976,6 +2721,11 @@ export const archiveChannel = mutation({
     const channel = await ctx.db.get("chatChannels", args.channelId);
     if (channel === null || channel.archivedAt !== null) {
       throw new Error("Razgovor nije pronađen.");
+    }
+    // Lični razgovor se ne arhivira (D4); grupa se arhivira sama kad je svi napuste.
+    if (channel.startupId === null) {
+      await requireChannelAccess(ctx, channel._id);
+      throw new Error("Lični razgovor se ne arhivira — napusti grupu.");
     }
     const { profile } = await requireStartupMember(ctx, channel.startupId);
     if (profile.role !== "admin") {

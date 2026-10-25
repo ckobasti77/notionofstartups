@@ -1153,7 +1153,8 @@ export default defineSchema({
 
   notifications: defineTable({
     recipientProfileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    // `null` = lično obaveštenje (poruka iz ličnog razgovora, van startupa).
+    startupId: v.union(v.id("startups"), v.null()),
     type: notificationTypeValidator,
     title: v.string(),
     body: v.optional(v.string()),
@@ -1293,7 +1294,9 @@ export default defineSchema({
   // --- Chat (docs/mobile/04-CHAT.md) --------------------------------------
 
   chatChannels: defineTable({
-    startupId: v.id("startups"),
+    // `null` = lični razgovor (DM ili grupa van startupa); pristup samo kroz
+    // eksplicitno članstvo u `chatMembers` (docs/LICNO-PLAN.md P6).
+    startupId: v.union(v.id("startups"), v.null()),
     kind: chatChannelKindValidator,
     // kind === "area": kanal oblasti.
     areaId: v.union(v.id("startupAreas"), v.null()),
@@ -1330,7 +1333,7 @@ export default defineSchema({
   chatMessages: defineTable({
     channelId: v.id("chatChannels"),
     // Duplirano zbog provere pristupa bez join-a i kao search filterField.
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     authorProfileId: v.union(v.id("profiles"), v.null()), // null = sistemska
     body: v.string(),
     mentions: v.array(v.id("profiles")),
@@ -1363,7 +1366,7 @@ export default defineSchema({
   chatMembers: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     role: chatMemberRoleValidator,
     joinedAt: v.number(),
     leftAt: v.union(v.number(), v.null()),
@@ -1380,7 +1383,7 @@ export default defineSchema({
   chatReads: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     lastReadAt: v.number(),
     lastReadMessageId: v.union(v.id("chatMessages"), v.null()),
     unreadCount: v.number(), // održavano inkrementalno, ne računa se pri čitanju
@@ -1406,7 +1409,7 @@ export default defineSchema({
   chatPresence: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     /** `Date.now() + CHAT_PRESENCE_TTL_MS`; `0` = eksplicitno odjavljen. */
     expiresAt: v.number(),
     updatedAt: v.number(),

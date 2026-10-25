@@ -51,6 +51,9 @@ self.addEventListener("push", (event) => {
  * sa `packages/backend/convex/lib/notificationTarget.ts` (SW je statički fajl i
  * ne može da uveze taj modul, pa ga preslikava) i sa `readWorkspaceRouteCandidate`
  * u `components/workspace/workspace-route.ts` koji ovaj URL čita pri učitavanju.
+ *
+ * Lično obaveštenje (`startupId: null` — poruka iz ličnog razgovora) nema
+ * startup, pa vodi na lične Poruke: `?view=me-chat&channelId=…`, bez `startupId`.
  */
 function targetUrl(data) {
   const params = new URLSearchParams();
@@ -60,7 +63,7 @@ function targetUrl(data) {
     params.set("view", "page");
     params.set("pageId", data.targetId);
   } else if (data.targetType === "chat") {
-    params.set("view", "chat");
+    params.set("view", data.startupId ? "chat" : "me-chat");
     // channelId je opcion — bez njega chat se otvara na listi razgovora.
     if (data.targetId) params.set("channelId", data.targetId);
   } else if (data.targetType === "ideas") {

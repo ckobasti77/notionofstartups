@@ -231,6 +231,19 @@ export const INBOX_PENDING_BALLOT_SCAN_CAP = 100;
 export const INBOX_FEED_PAGE_DEFAULT = 20;
 export const INBOX_FEED_PAGE_MAX = 50;
 
+// --- Globalni chat (`chat.ts`, plan K01 §2.0 / §3) -------------------------
+/** Najviše kanala u `chat.listConversations`; preko toga ostaju najsvežiji i `capped`. */
+export const CHAT_HUB_CHANNELS_CAP = 300;
+/**
+ * Ukupan budžet eksplicitnih članstava (lični + svi startupi) koje hub čita —
+ * da broj startupa ne množi čitanje bez granice.
+ */
+export const CHAT_HUB_MEMBERSHIPS_CAP = 400;
+/** Lična članstva koja hub i brojači čitaju (deo budžeta iznad). */
+export const CHAT_PERSONAL_MEMBERSHIPS_CAP = 200;
+/** `chat.listPeople`: profila po ulozi (admin / member). */
+export const CHAT_PEOPLE_CAP = 100;
+
 export const personalTaskStatusValidator = v.union(
   v.literal("open"),
   v.literal("done"),

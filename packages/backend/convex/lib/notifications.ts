@@ -170,7 +170,11 @@ export const notificationCopy = {
 
 export type CreateNotificationInput = {
   recipientProfileId: Id<"profiles">;
-  startupId: Id<"startups">;
+  /**
+   * `null` = lično obaveštenje (poruka iz ličnog razgovora, van startupa).
+   * Pozivalac je tada već proverio članstvo u razgovoru (`chat.ts`).
+   */
+  startupId: Id<"startups"> | null;
   type: NotificationType;
   title: string;
   body?: string;
@@ -199,16 +203,20 @@ export async function createNotification(
   const recipient = await ctx.db.get("profiles", value.recipientProfileId);
   if (recipient === null || recipient.archivedAt !== null) return null;
 
-  // Uklonjen član ne dobija nova obaveštenja za taj startup.
-  const membership = await ctx.db
-    .query("startupMembers")
-    .withIndex("by_startupId_and_profileId", (q) =>
-      q
-        .eq("startupId", value.startupId)
-        .eq("profileId", value.recipientProfileId),
-    )
-    .unique();
-  if (membership === null || membership.archivedAt !== null) return null;
+  // Uklonjen član ne dobija nova obaveštenja za taj startup. Lično obaveštenje
+  // nema startup — članstvo u razgovoru je proverio pozivalac.
+  const startupId = value.startupId;
+  if (startupId !== null) {
+    const membership = await ctx.db
+      .query("startupMembers")
+      .withIndex("by_startupId_and_profileId", (q) =>
+        q
+          .eq("startupId", startupId)
+          .eq("profileId", value.recipientProfileId),
+      )
+      .unique();
+    if (membership === null || membership.archivedAt !== null) return null;
+  }
 
   if (value.dedupeKey !== undefined) {
     const existing = await ctx.db
