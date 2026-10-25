@@ -71,6 +71,26 @@ export function inboxUnreadFor(
     : { count: 0, capped: counts.total.capped };
 }
 
+/**
+ * Startupi u kojima ima nepročitanog — obaveštenja (`inbox.unreadCounts`) ili
+ * poruka (`chat.unreadSummary`): tačka uz startup (P14). Web traka i telefonski
+ * birač startupa čitaju isti skup; nepoznat brojač (`null`/`undefined`) se
+ * preskače.
+ */
+export function startupsWithUnread(
+  inbox: { byStartup: ReadonlyArray<{ startupId: string; count: number }> } | null | undefined,
+  chat: { byStartup: ReadonlyArray<{ startupId: string; unreadCount: number }> } | null | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of inbox?.byStartup ?? []) {
+    if (entry.count > 0) ids.add(entry.startupId);
+  }
+  for (const entry of chat?.byStartup ?? []) {
+    if (entry.unreadCount > 0) ids.add(entry.startupId);
+  }
+  return ids;
+}
+
 /** „12", a od 100 naviše ili kad je brojač odsečen „99+" (isto kao bedževi). */
 export function inboxCountLabel(count: number, capped = false): string {
   return capped || count > 99 ? "99+" : String(count);

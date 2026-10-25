@@ -17,6 +17,7 @@ import {
   inboxUnreadWord,
   pendingKey,
   pendingTitle,
+  startupsWithUnread,
   type InboxCounts,
   type InboxScope,
   type PendingItemLike,
@@ -308,5 +309,33 @@ describe("tekstovi", () => {
     expect(inboxMarkedMessage({ marked: 200, hasMore: true })).toBe(
       "Označeno je prvih 200, ostalo se označava.",
     );
+  });
+});
+
+describe("startupsWithUnread (tačka startupa, P14)", () => {
+  test("startup ulazi kad ima nepročitano obaveštenje ILI poruku; nula se preskače", () => {
+    const ids = startupsWithUnread(
+      {
+        byStartup: [
+          { startupId: "s1", count: 2 },
+          { startupId: "s2", count: 0 },
+        ],
+      },
+      {
+        byStartup: [
+          { startupId: "s2", unreadCount: 0 },
+          { startupId: "s3", unreadCount: 4 },
+          { startupId: "s1", unreadCount: 1 },
+        ],
+      },
+    );
+    expect([...ids].sort()).toEqual(["s1", "s3"]);
+  });
+
+  test("nepoznat brojač (učitavanje ili greška) se preskače", () => {
+    expect(startupsWithUnread(undefined, null).size).toBe(0);
+    expect([...startupsWithUnread(null, { byStartup: [{ startupId: "s9", unreadCount: 1 }] })]).toEqual([
+      "s9",
+    ]);
   });
 });

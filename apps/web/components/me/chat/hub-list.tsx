@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { DURATION } from "@devotion/shared";
 import {
   ChevronDown,
   Hash,
@@ -389,9 +390,10 @@ function HubGroupSection({
           >
             <ChevronDown
               className={cn(
-                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+                "size-3.5 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
                 group.collapsed && "-rotate-90",
               )}
+              style={{ transitionDuration: `${DURATION.quick}ms` }}
               aria-hidden="true"
             />
             <GroupTitle group={group} />

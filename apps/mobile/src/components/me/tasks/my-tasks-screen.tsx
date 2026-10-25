@@ -337,7 +337,9 @@ function MyTasksContent({ retry }: { retry: () => void }) {
             );
           }
           return (
-            <Animated.View entering={entering(index)} exiting={exitFade(reduced)}>
+            <Animated.View
+              entering={entering(index)}
+              exiting={(model?.visibleCount ?? 0) <= LAYOUT_ANIMATION_MAX_ROWS ? exitFade(reduced) : undefined}>
               <TaskRow
                 row={item.row}
                 now={now}

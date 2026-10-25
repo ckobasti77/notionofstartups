@@ -76,7 +76,8 @@ const chatProfileValidator = v.object({
   avatarUrl: v.union(v.string(), v.null()),
 });
 
-const chatChannelSummaryValidator = v.object({
+// Izvezeno samo za test poklapanja sa šemom (`chat.validator.test.ts`).
+export const chatChannelSummaryValidator = v.object({
   _id: v.id("chatChannels"),
   _creationTime: v.number(),
   // `null` = lični razgovor; upiti po startupu ga nikad ne vraćaju.

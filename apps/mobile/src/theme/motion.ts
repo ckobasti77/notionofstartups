@@ -6,7 +6,6 @@ import {
   REDUCED_FADE_MS,
   SCALE,
   SPRING,
-  STAGGER,
   STANDARD_EASE_BEZIER,
   staggerDelayMs,
   SWIPE,
@@ -82,19 +81,6 @@ export const SPRINGS: Readonly<Record<SpringName, WithSpringConfig>> = {
   bouncy: toSpring('bouncy'),
 };
 
-/** Isti spring sa početnom brzinom prsta (predaja gesta animaciji, bez šava). */
-export function springWithVelocity(name: SpringName, velocity: number): WithSpringConfig {
-  return { ...SPRINGS[name], velocity };
-}
-
-/**
- * Spring ili ništa: pri smanjenom pokretu `null` — pozivalac tada radi samo
- * neprozirnost kroz `REDUCED_FADE` (pravilo: smanjen pokret = samo opacity).
- */
-export function springFor(name: SpringName, reduced: boolean): WithSpringConfig | null {
-  return reduced ? null : SPRINGS[name];
-}
-
 export const DURATIONS = DURATION;
 export const PRESS_SCALE = SCALE.press;
 export const TAB_BOUNCE_FROM = SCALE.tabBounceFrom;
@@ -118,4 +104,4 @@ export const REDUCED_FADE: WithTimingConfig = {
   reduceMotion: ReduceMotion.Never,
 };
 
-export { LONG_PRESS_MS, REDUCED_FADE_MS, STAGGER as LIST_STAGGER, staggerDelayMs, SWIPE };
+export { LONG_PRESS_MS, REDUCED_FADE_MS, staggerDelayMs, SWIPE };

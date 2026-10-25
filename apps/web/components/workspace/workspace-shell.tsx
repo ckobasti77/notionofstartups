@@ -515,8 +515,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     if (isMeRoute(route)) lastMeRouteRef.current = route;
   }, [route]);
 
-  // Promena prikaza ili opsega ume da ukloni element koji je imao fokus (stavka
-  // menija „Ja", dugme „Stiže uskoro"); tada fokus ide na sadržaj, ne na body.
+  // Promena prikaza ili opsega ume da ukloni element koji je imao fokus (npr.
+  // stavka menija „Ja"); tada fokus ide na sadržaj, ne na body.
   const routeFocusArmedRef = useRef(false);
   useEffect(() => {
     // Prvi prikaz ne krade fokus (skip link i čitač ekrana kreću od vrha).

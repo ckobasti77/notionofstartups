@@ -1,5 +1,13 @@
-import { DUE_SHORTCUT_LABELS, formatDateShort, matchDueShortcut } from '@devotion/shared';
+import {
+  DUE_SHORTCUT_LABELS,
+  formatDateShort,
+  matchDueShortcut,
+  TASK_CREATE_DEFAULT_PRIORITY,
+  TASK_CREATE_DEFAULT_STATUS,
+  TASK_CREATE_INSTRUCTIONS_MAX,
+} from '@devotion/shared';
 import { useMutation, useQuery } from 'convex/react';
+import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -49,6 +57,7 @@ import {
   CheckpointDraftList,
   type CheckpointDraft,
 } from '@/components/zadatak/checkpoint-draft-list';
+import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { MAX_PAGE_FILES } from '@/convex/lib/page_files';
@@ -62,6 +71,7 @@ import {
 } from '@/lib/create-draft';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 import {
   isEmptyNoteHtml,
@@ -98,7 +108,6 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
 
 const MAX_TITLE = 200;
-const MAX_INSTRUCTIONS = 20_000;
 /** Ručni unos je za male tabele; masovni sadržaj ide kroz uvoz fajla. */
 const MANUAL_ROWS_CAP = 20;
 
@@ -166,6 +175,8 @@ export function PageCreateSheet({
   onClose: () => void;
 }) {
   const colors = useThemeColors();
+  const router = useRouter();
+  const { activeStartupId, setActiveStartupId } = useActiveStartup();
   const { height: windowHeight } = useWindowDimensions();
   const keyboardInset = useKeyboardInset();
   const create = useMutation(api.areasV2.createPage);
@@ -186,8 +197,9 @@ export function PageCreateSheet({
 
   // Detalji zadatka (iza „Više opcija").
   const [expanded, setExpanded] = useState(false);
-  const [status, setStatus] = useState<TaskStatus>('backlog');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  // Podrazumevane vrednosti su iz shared `task-create.ts` (isto kao web K17).
+  const [status, setStatus] = useState<TaskStatus>(TASK_CREATE_DEFAULT_STATUS);
+  const [priority, setPriority] = useState<TaskPriority>(TASK_CREATE_DEFAULT_PRIORITY);
   const [assigneeIds, setAssigneeIds] = useState<Id<'profiles'>[]>([]);
   /** Rok kao TRENUTAK (ms u lokalno podne), ne broj dana — peti čip daje datum. */
   const [dueAt, setDueAt] = useState<number | null>(null);
@@ -232,8 +244,8 @@ export function PageCreateSheet({
     setTitle('');
     setKind('note');
     setExpanded(false);
-    setStatus('backlog');
-    setPriority('medium');
+    setStatus(TASK_CREATE_DEFAULT_STATUS);
+    setPriority(TASK_CREATE_DEFAULT_PRIORITY);
     setAssigneeIds([]);
     setDueAt(null);
     setInstructions('');
@@ -268,12 +280,16 @@ export function PageCreateSheet({
     setDraftNotice(true);
   };
 
+  // Pre `isDirty`: podrazumevani izvršilac (ja) se poredi sa profilom.
+  const profile = useQuery(api.profiles.getCurrent, open ? {} : 'skip');
   const isDirty = () =>
     title.trim() !== '' ||
     (noteHtmlRef.current !== '' && !isEmptyNoteHtml(noteHtmlRef.current)) ||
     instructions.trim() !== '' ||
     checkpoints.length > 0 ||
-    assigneeIds.length > 0 ||
+    // Podrazumevani izvršilac (ja) nije unos: sam ne pravi nacrt, inače bi svako
+    // otvaranje i zatvaranje ostavilo „Vraćen je nesačuvan nacrt".
+    !(assigneeIds.length === 0 || (assigneeIds.length === 1 && assigneeIds[0] === profile?._id)) ||
     dueAt !== null ||
     tableFile !== null ||
     manualColumns.length > 0 ||
@@ -283,10 +299,9 @@ export function PageCreateSheet({
   // Vraćanje nacrta na otvaranje — samo za ISTO mesto (ključ nosi startup,
   // oblast i roditelja), pa nacrt ne može da iskoči pod tuđim zaglavljem.
   const openedRef = useRef(false);
-  // Podrazumevani izvršilac je ja (shared `defaultTaskDraft`, par web K17): upisuje se
+  // Podrazumevani izvršilac je ja (isto pravilo kao shared `defaultTaskDraft`, par web K17): upisuje se
   // jednom po otvaranju, tek kad profil stigne, i nikad preko vraćenog nacrta.
   const assigneeDefaultedRef = useRef(false);
-  const profile = useQuery(api.profiles.getCurrent, open ? {} : 'skip');
   useEffect(() => {
     if (open && !openedRef.current) {
       openedRef.current = true;
@@ -643,6 +658,21 @@ export function PageCreateSheet({
       pushUndo({
         label: KIND_CREATED_LABEL[kind],
         action: { kind: 'pageCreate', startupId, pageId },
+        // Nov zadatak se ne otvara sam (brzina, par web K17): traka nudi „Otvori",
+        // kao web toast i brzi unos.
+        ...(kind === 'task'
+          ? {
+              secondary: {
+                label: 'Otvori',
+                onPress: () =>
+                  openStartupEntity(router, setActiveStartupId, {
+                    startupId,
+                    href: { pathname: '/zadatak/[id]', params: { id: pageId } },
+                    currentStartupId: activeStartupId,
+                  }),
+              },
+            }
+          : {}),
       });
       if (result.nestingStatus === 'pending') {
         Alert.alert(
@@ -1149,7 +1179,7 @@ export function PageCreateSheet({
                           onChangeText={setInstructions}
                           editable={!busy}
                           multiline
-                          maxLength={MAX_INSTRUCTIONS}
+                          maxLength={TASK_CREATE_INSTRUCTIONS_MAX}
                           placeholder="Šta treba uraditi i koji rezultat se očekuje…"
                           placeholderTextColor={colors.mutedForeground}
                           selectionColor={colors.primary}

@@ -125,6 +125,9 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
   const convertMutation = useMutation(api.ideas.convertToPage);
   const requestNestingMutation = useMutation(api.collaboration.requestNesting);
   const { pushHistory } = useWorkspaceHistory();
+  // Ishod glasa se najavljuje čitaču ekrana (K21, otvoren nalaz K19): red
+  // ostaje u tabeli (fokus ostaje na dugmetu), ali promena broja nije najavljena.
+  const voteLiveRef = useRef<HTMLParagraphElement>(null);
 
   const closeIdeaEditor = () => {
     setCreateDialogOpen(false);
@@ -394,9 +397,26 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
     }
   };
 
-  const handleVote = async (ideaId: Id<"ideaNodes">, voteType: "up" | "down") => {
+  const handleVote = async (
+    ideaId: Id<"ideaNodes">,
+    voteType: "up" | "down",
+    previous: "up" | "down" | null | undefined,
+  ) => {
     try {
       await voteMutation({ startupId: startup._id, ideaId, voteType });
+      const live = voteLiveRef.current;
+      if (live) {
+        const message =
+          previous === voteType
+            ? "Glas je povučen."
+            : voteType === "up"
+              ? "Glas za je sačuvan."
+              : "Glas protiv je sačuvan.";
+        live.textContent = "";
+        requestAnimationFrame(() => {
+          live.textContent = message;
+        });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Greška pri glasanju.");
     }
@@ -404,6 +424,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <p ref={voteLiveRef} role="status" aria-live="polite" className="sr-only" />
       {/* Top Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 bg-background/80 px-6 py-4 backdrop-blur-xl">
         <div className="flex items-center gap-3">
@@ -577,11 +598,12 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => handleVote(node._id, "up")}
+                                  onClick={() => handleVote(node._id, "up", node.userVote)}
+                                  aria-pressed={node.userVote === "up"}
                                   className={cn(
                                     "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
                                     node.userVote === "up"
-                                      ? "border-emerald-500/50 bg-emerald-500/20 text-success"
+                                      ? "border-success/50 bg-success/20 text-success"
                                       : "border-border/60 text-muted-foreground hover:bg-muted",
                                   )}
                                   aria-label={`Glasaj za ideju. Trenutno ${node.upvotes}`}
@@ -591,11 +613,12 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleVote(node._id, "down")}
+                                  onClick={() => handleVote(node._id, "down", node.userVote)}
+                                  aria-pressed={node.userVote === "down"}
                                   className={cn(
                                     "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
                                     node.userVote === "down"
-                                      ? "border-rose-500/50 bg-rose-500/20 text-destructive"
+                                      ? "border-destructive/50 bg-destructive/20 text-destructive"
                                       : "border-border/60 text-muted-foreground hover:bg-muted",
                                   )}
                                   aria-label={`Glasaj protiv ideje. Trenutno ${node.downvotes}`}
@@ -607,11 +630,11 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                             </td>
                             <td className="whitespace-nowrap px-6 py-4">
                               {node.isApproved ? (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-success">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/15 px-2.5 py-0.5 text-xs font-semibold text-success">
                                   <Check className="size-3" /> Odobreno
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-foreground">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/15 px-2.5 py-0.5 text-xs font-medium text-foreground">
                                   U razmatranju
                                 </span>
                               )}

@@ -3,7 +3,6 @@ import { describe, expect, test } from 'vitest';
 import {
   badgeLabel,
   chatBadge,
-  elsewhereCount,
   inboxBadge,
   TAB_ORDER,
   TAB_SCOPE,
@@ -81,8 +80,4 @@ describe('bedževi (P14)', () => {
     expect(unreadMessagesPhrase(12)).toBe('12 nepročitanih poruka');
   });
 
-  test('nepročitano van aktivnog startupa nikad nije negativno', () => {
-    expect(elsewhereCount(12, 3)).toBe(9);
-    expect(elsewhereCount(2, 5)).toBe(0);
-  });
 });

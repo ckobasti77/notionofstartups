@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { createNotification } from "./lib/notifications";
 import { INBOX_MARK_ALL_BATCH } from "./lib/validators";
 import schema from "./schema";
 
@@ -1055,6 +1056,86 @@ describe("lična obaveštenja i push", () => {
     await send(s.asJovan, groupId, "samo aktivni");
     expect(await notificationsFor(s, s.marko.profileId)).toHaveLength(0);
     expect(await notificationsFor(s, s.ana.profileId)).toHaveLength(1);
+  });
+
+  test("bedž ikone prati opseg aplikacije (D3): napušten i arhiviran startup se ne broje", async () => {
+    vi.useFakeTimers();
+    const s = await seed();
+    // Stari tragovi: nepročitano u napuštenom startupu (d) i u startupu koji se
+    // arhivira (b) — aplikacija ih ne prikazuje, pa ni ikona ne sme da ih broji.
+    await s.t.run(async (ctx) => {
+      const stale = [
+        { startupId: s.d.startupId, channelId: s.d.general, unreadCount: 5 },
+        { startupId: s.b.startupId, channelId: s.b.general, unreadCount: 3 },
+      ];
+      for (const entry of stale) {
+        await ctx.db.insert("chatReads", {
+          channelId: entry.channelId,
+          profileId: s.jovan.profileId,
+          startupId: entry.startupId,
+          lastReadAt: BASE,
+          lastReadMessageId: null,
+          unreadCount: entry.unreadCount,
+          mentionCount: 0,
+          updatedAt: BASE,
+        });
+        await ctx.db.insert("notifications", {
+          recipientProfileId: s.jovan.profileId,
+          startupId: entry.startupId,
+          type: "chat_message",
+          title: "#Opšte",
+          targetType: "chat",
+          targetId: entry.channelId,
+          actorProfileId: s.ana.profileId,
+          dedupeKey: null,
+          readAt: null,
+          createdAt: BASE,
+        });
+      }
+      await ctx.db.patch("startups", s.b.startupId, { archivedAt: BASE });
+      await ctx.db.insert("expoPushTokens", {
+        profileId: s.jovan.profileId,
+        token: "ExponentPushToken[jovan]",
+        platform: "android",
+        deviceName: null,
+        appVersion: "1.0.0",
+        channelVersion: 1,
+        lastSeenAt: BASE,
+        failureCount: 0,
+        createdAt: BASE,
+      });
+    });
+
+    const dm = await s.asAna.mutation(api.chat.openPersonalDm, {
+      otherProfileId: s.jovan.profileId,
+    });
+    await send(s.asAna, dm, "Zdravo Jovane");
+    const personal = (await notificationsFor(s, s.jovan.profileId)).filter(
+      (row) => row.startupId === null,
+    );
+    expect(personal).toHaveLength(1);
+    const native = await s.t.query(
+      internal.expoPushTokens.expoPayloadForNotification,
+      { notificationId: personal[0]._id },
+    );
+    // 1 lično obaveštenje + 1 nepročitana lična poruka; d i b se ne broje.
+    expect(native?.badge).toBe(2);
+  });
+
+  test("obaveštenje bez startupa postoji samo za lične poruke", async () => {
+    const s = await seed();
+    await expect(
+      s.t.run((ctx) =>
+        createNotification(ctx, {
+          recipientProfileId: s.ana.profileId,
+          startupId: null,
+          type: "task_assigned",
+          title: "Zadatak",
+          targetType: "page",
+          targetId: null,
+        }),
+      ),
+    ).rejects.toThrow("Obaveštenje bez startupa je samo za lične poruke.");
   });
 });
 

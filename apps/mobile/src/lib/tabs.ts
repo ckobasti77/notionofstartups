@@ -96,11 +96,3 @@ export function chatBadge(summary: ChatSummary | null | undefined): TabBadge {
   };
 }
 
-/**
- * Koliko je nepročitanog VAN onoga što startup lista prikazuje (drugi startupi +
- * lično). Dok K14/K16 ne naprave globalne ekrane, tab Inbox/Poruke prikazuje
- * listu aktivnog startupa, a bedž je globalan — ovaj broj objašnjava razliku.
- */
-export function elsewhereCount(total: number, inActiveStartup: number): number {
-  return Math.max(0, total - inActiveStartup);
-}

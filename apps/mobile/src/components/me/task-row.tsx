@@ -1,6 +1,6 @@
 import { STATUS_LABELS, type TaskRowModel } from '@devotion/shared';
 import { CalendarClock, Check, Lock, RotateCcw } from 'lucide-react-native';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -38,6 +38,10 @@ export type TaskRowProps = {
   showStartup?: boolean;
   /** Oznaka statusa u meta-liniji (Moji zadaci, osim kad se grupiše po statusu) — kao web `showStatus`. */
   showStatus?: boolean;
+  /** Dodatak meta-liniji (Komandni centar: izvršioci), par web `extraMeta`. */
+  extraMeta?: ReactNode;
+  /** Isti podatak za čitač ekrana — telo reda je jedan element, pa se dodatak sam ne čita. */
+  extraMetaLabel?: string;
 };
 
 /**
@@ -64,6 +68,8 @@ export function TaskRow({
   onDenied,
   showStartup = true,
   showStatus = false,
+  extraMeta,
+  extraMetaLabel,
 }: TaskRowProps) {
   const colors = useThemeColors();
   const due = dueChipText(row.dueDate, now, row.done);
@@ -74,6 +80,7 @@ export function TaskRow({
     context || null,
     due.tone === 'none' ? null : due.ariaLabel,
     showStatus ? STATUS_LABELS[row.status] : null,
+    extraMetaLabel ?? null,
     row.planned ? 'u Moj dan' : null,
     row.done ? 'završeno' : null,
   ]
@@ -134,6 +141,7 @@ export function TaskRow({
           </Text>
         ) : null}
         <View style={styles.grow} />
+        {extraMeta}
         <DueChip dueDate={row.dueDate} now={now} done={row.done} accessible={false} />
       </View>
     </>

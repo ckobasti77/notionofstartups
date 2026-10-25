@@ -195,6 +195,12 @@ export async function createNotification(
 ): Promise<Id<"notifications"> | null> {
   const actorProfileId = value.actorProfileId ?? null;
 
+  // Bez startupa postoji samo obaveštenje o poruci iz ličnog razgovora (članstvo
+  // je proverio `chat.ts`). Sve drugo bi tiho zaobišlo proveru članstva ispod.
+  if (value.startupId === null && value.targetType !== "chat") {
+    throw new Error("Obaveštenje bez startupa je samo za lične poruke.");
+  }
+
   // Nikad ne obaveštavamo nekoga o njegovoj sopstvenoj radnji.
   if (actorProfileId !== null && actorProfileId === value.recipientProfileId) {
     return null;

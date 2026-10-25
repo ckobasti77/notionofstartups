@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { inboxUnreadWord } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -133,7 +134,7 @@ export function NotificationsSheet({
           <SheetDescription>
             {unreadCount === 0
               ? "Sve je pročitano."
-              : `${unreadCount}${unread?.capped ? "+" : ""} nepročitanih.`}
+              : `${unreadCount}${unread?.capped ? "+" : ""} ${inboxUnreadWord(unreadCount)}.`}
           </SheetDescription>
         </SheetHeader>
 

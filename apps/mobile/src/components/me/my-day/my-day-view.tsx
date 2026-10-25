@@ -178,7 +178,7 @@ function MyDayList({
         ) : (
           <Animated.View
             entering={arrivals.has(item.key) ? enterFadeUp(0, reduced) : entering(index)}
-            exiting={exitFade(reduced)}>
+            exiting={model.rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? exitFade(reduced) : undefined}>
             <TaskRow
               row={item.row}
               now={now}

@@ -151,8 +151,3 @@ export function useShortcuts(
   }, [context, enabled]);
 }
 
-/** Otvori dijalog pomoći iz koda (npr. dugme „Prečice"). */
-export function useOpenShortcutHelp(): () => void {
-  const context = useContext(ShortcutContext);
-  return useCallback(() => context?.openHelp(), [context]);
-}

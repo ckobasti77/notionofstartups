@@ -32,6 +32,8 @@ export type StartupSwitcherProps = {
   /** Nalog prijavljenog korisnika — prvi red sheeta (ulaz u „Moj profil"). */
   profile?: { displayName: string; avatarUrl: string | null } | null;
   onOpenProfile?: () => void;
+  /** Startupi sa nepročitanim (shared `startupsWithUnread`) — tačka kao na webu (P14). */
+  unreadStartupIds?: ReadonlySet<string>;
 };
 
 /**
@@ -49,6 +51,7 @@ export function StartupSwitcher({
   onLoadMore,
   profile,
   onOpenProfile,
+  unreadStartupIds,
 }: StartupSwitcherProps) {
   const colors = useThemeColors();
 
@@ -92,6 +95,7 @@ export function StartupSwitcher({
         ) : (
           startups.map((startup) => {
             const active = startup._id === activeStartupId;
+            const unread = unreadStartupIds?.has(startup._id) ?? false;
             return (
               <Row
                 key={startup._id}
@@ -103,9 +107,19 @@ export function StartupSwitcher({
                   onClose();
                 }}
                 showChevron={false}
-                value={active ? <Check size={20} color={colors.accentForeground} /> : undefined}
+                value={
+                  active || unread ? (
+                    <View style={styles.marks}>
+                      {unread ? (
+                        <View style={[styles.unreadDot, { backgroundColor: colors.primaryText }]} />
+                      ) : null}
+                      {active ? <Check size={20} color={colors.accentForeground} /> : null}
+                    </View>
+                  ) : undefined
+                }
                 accessibilityLabel={
-                  active ? `${startup.name}, trenutno izabran` : `Prebaci na ${startup.name}`
+                  (active ? `${startup.name}, trenutno izabran` : `Prebaci na ${startup.name}`) +
+                  (unread ? ', ima nepročitanog' : '')
                 }
                 style={[styles.sheetRow, active && { backgroundColor: colors.accent }]}
               />
@@ -161,6 +175,16 @@ const styles = StyleSheet.create({
     ...text.body,
     paddingHorizontal: 12,
     paddingVertical: 16,
+  },
+  marks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: radius.full,
   },
   loadMore: {
     minHeight: 44,

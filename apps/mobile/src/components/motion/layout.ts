@@ -109,6 +109,7 @@ export { FIRST_FILL_WINDOW_MS };
  * `undefined`, pa ulaze kroz `listLayout` bez stagger-a.
  */
 export function useListEntering(reduced: boolean, resetKey?: string | number) {
+  // `resetKey` namerno nije u telu: nova vrednost ključa = novo „prvo punjenje".
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const startedAt = useMemo(() => Date.now(), [resetKey]);
   return useCallback(

@@ -24,9 +24,14 @@ export function accessErrorMessage(error: unknown, fallback: string): string {
   }
 
   const uncaught = error.message.match(/Uncaught (?:ConvexError: )?(.+?)(?:\n|$)/);
-  const text = (uncaught?.[1] ?? error.message).replace(/^\[CONVEX[^\]]*\]\s*/, "").trim();
+  const text = (uncaught?.[1] ?? error.message)
+    .replace(/^\[CONVEX[^\]]*\]\s*/, "")
+    // Razvoj: „Uncaught Error: <poruka>" — skida se samo prefiks, poruka servera
+    // ostaje (produkcija tekst obične greške ionako krije iza „Server Error").
+    .replace(/^Error:\s*/, "")
+    .trim();
   // Tehnički tekst servera (Server Error, Request ID) korisniku ne govori ništa: srpski rezervni tekst.
-  if (!text || /Server Error|Request ID|Called by client|^Error:/i.test(text)) return fallback;
+  if (!text || /Server Error|Request ID|Called by client/i.test(text)) return fallback;
   return text;
 }
 

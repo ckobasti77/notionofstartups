@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
+import { DURATION } from "@devotion/shared";
 
 import { Collapse } from "@/components/motion/collapse";
 import { NumberRoll } from "@/components/motion/number-roll";
@@ -61,6 +62,7 @@ export function TaskSection({
             <ChevronRight
               aria-hidden="true"
               className={cn("size-3.5 transition-transform motion-reduce:transition-none", open && "rotate-90")}
+              style={{ transitionDuration: `${DURATION.quick}ms` }}
             />
             {leading}
             {title}

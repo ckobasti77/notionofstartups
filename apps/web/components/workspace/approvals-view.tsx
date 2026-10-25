@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import {
   ArrowRight,
   Check,
@@ -34,6 +35,38 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useEnter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+
+type ApprovalsData = FunctionReturnType<typeof api.collaboration.overview>;
+type NestingInbox = FunctionReturnType<typeof api.areasV2.listNestingInbox>;
+
+/** Ključevi stavki u listi taba, redom na ekranu (Flip i fokus posle odluke). */
+function approvalKeysForTab(
+  tab: string,
+  data: ApprovalsData,
+  inbox: NestingInbox,
+): string[] {
+  switch (tab) {
+    case "vote":
+      return data.requestsForVote.map((request) => request._id);
+    case "nesting":
+      return [
+        ...inbox.incoming.map((request) => request.requestId),
+        ...data.nestingForMe.map((request) => request._id),
+      ];
+    case "mine":
+      return [
+        ...data.myRequests.deletion.map((request) => request._id),
+        ...inbox.outgoing.map((request) => request.requestId),
+        ...data.myRequests.nesting.map((request) => request._id),
+      ];
+    case "recovered":
+      return data.recovered.map((item) => item._id);
+    case "history":
+      return data.history.map((request) => request._id);
+    default:
+      return [];
+  }
+}
 
 function formatDate(value: number) {
   return new Intl.DateTimeFormat("sr-Latn-RS", {
@@ -111,6 +144,57 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
   const ready = data !== undefined && pageNestingInbox !== undefined;
   useEnter(tabsRef, { key: `${tab}:${ready ? "spremno" : "ucitavanje"}` });
 
+  // Fokus posle odluke (K21, otvoren nalaz K19): stavka nad kojom je korisnik
+  // glasao ili odlučio nestaje kad stigne odgovor servera, pa bi fokus pao na
+  // `body`. Klik na dugme u stavci pamti njeno mesto; kad stavka ode, a fokus je
+  // izgubljen, fokus ide na stavku koja je došla na to mesto (ili na tab kad je
+  // lista prazna), uz najavu čitaču ekrana (`data-decision-message`).
+  const decision = useRef<{
+    id: string;
+    tab: string;
+    index: number;
+    message: string | null;
+  } | null>(null);
+  const liveRef = useRef<HTMLParagraphElement>(null);
+  const listSignature =
+    data === undefined || pageNestingInbox === undefined
+      ? null
+      : approvalKeysForTab(tab, data, pageNestingInbox).join("|");
+  useEffect(() => {
+    const pending = decision.current;
+    if (pending === null || listSignature === null) return;
+    if (pending.tab !== tab) {
+      decision.current = null;
+      return;
+    }
+    const keys = listSignature === "" ? [] : listSignature.split("|");
+    if (keys.includes(pending.id)) return;
+    decision.current = null;
+    const root = tabsRef.current;
+    const active = document.activeElement;
+    if (root && (active === null || active === document.body)) {
+      const items = [
+        ...root.querySelectorAll<HTMLElement>(
+          '[role="tabpanel"][data-state="active"] article[data-flip-id]',
+        ),
+      ];
+      const next = items[Math.min(Math.max(pending.index, 0), items.length - 1)];
+      const target =
+        next?.querySelector<HTMLElement>("button:not([disabled])") ??
+        root.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
+      target?.focus();
+    }
+    const live = liveRef.current;
+    const message = pending.message;
+    if (live && message !== null) {
+      live.textContent = "";
+      requestAnimationFrame(() => {
+        live.textContent =
+          keys.length === 0 ? `${message} Nema više stavki na listi.` : message;
+      });
+    }
+  }, [listSignature, tab]);
+
   if (data === undefined || pageNestingInbox === undefined) {
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-5 sm:p-8">
@@ -170,21 +254,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
   const pendingCount = data.pendingCount + pageNestingInbox.incoming.length;
   // Flip prati samo listu aktivnog taba (ostali nisu montirani): promena u
   // nevidljivom tabu ne snima raspored, a duga istorija ne gasi Flip drugima.
-  const tabKeys: Record<string, string[]> = {
-    vote: data.requestsForVote.map((request) => request._id),
-    nesting: [
-      ...pageNestingInbox.incoming.map((request) => request.requestId),
-      ...data.nestingForMe.map((request) => request._id),
-    ],
-    mine: [
-      ...data.myRequests.deletion.map((request) => request._id),
-      ...pageNestingInbox.outgoing.map((request) => request.requestId),
-      ...data.myRequests.nesting.map((request) => request._id),
-    ],
-    recovered: data.recovered.map((item) => item._id),
-    history: data.history.map((request) => request._id),
-  };
-  const listKeys = tabKeys[tab] ?? [];
+  const listKeys = approvalKeysForTab(tab, data, pageNestingInbox);
   const nestingForMeCount =
     data.nestingForMe.length + pageNestingInbox.incoming.length;
 
@@ -218,7 +288,26 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
         </div>
       </header>
 
-      <Tabs ref={tabsRef} defaultValue="vote" onValueChange={setTab} className="mt-6" data-workspace-enter>
+      <p ref={liveRef} role="status" aria-live="polite" className="sr-only" />
+      <Tabs
+        ref={tabsRef}
+        defaultValue="vote"
+        onValueChange={setTab}
+        className="mt-6"
+        data-workspace-enter
+        onClickCapture={(event) => {
+          const button = (event.target as HTMLElement).closest("button");
+          const article = button?.closest<HTMLElement>("article[data-flip-id]");
+          const id = article?.dataset.flipId;
+          if (!article || id === undefined) return;
+          decision.current = {
+            id,
+            tab,
+            index: listKeys.indexOf(id),
+            message: article.dataset.decisionMessage ?? null,
+          };
+        }}
+      >
         <TabsList className="grid h-auto w-full grid-cols-2 rounded-2xl bg-muted/55 p-1 sm:grid-cols-5">
           <TabsTrigger value="vote" className="min-h-10 rounded-xl text-xs sm:text-sm">
             Za moj glas
@@ -266,6 +355,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                 <article
                   key={request._id}
                   data-flip-id={request._id}
+                  data-decision-message="Glas je sačuvan."
                   data-motion-enter
                   className="rounded-2xl border border-border/70 bg-background/70 p-4"
                 >
@@ -449,6 +539,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                 <article
                   key={request._id}
                   data-flip-id={request._id}
+                  data-decision-message="Odluka je sačuvana."
                   data-motion-enter
                   className="rounded-2xl border border-border/70 bg-background/70 p-4"
                 >
@@ -523,6 +614,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                   <article
                     key={request._id}
                     data-flip-id={request._id}
+                    data-decision-message="Zahtev je povučen."
                     data-motion-enter
                     className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/70 p-4"
                   >
@@ -731,9 +823,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     className={cn(
                       "rounded-full",
                       request.status === "approved" &&
-                        "bg-emerald-500/12 text-success",
+                        "bg-success/12 text-success",
                       request.status === "rejected" &&
-                        "bg-rose-500/12 text-destructive",
+                        "bg-destructive/12 text-destructive",
                     )}
                   >
                     {request.status === "approved"

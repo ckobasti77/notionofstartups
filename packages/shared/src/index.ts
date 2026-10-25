@@ -279,6 +279,7 @@ export {
   inboxTarget,
   inboxUnreadFor,
   inboxUnreadWord,
+  startupsWithUnread,
   pendingKey,
   pendingTitle,
   type InboxCounts,
@@ -365,3 +366,5 @@ export {
   type TaskCreateDraft,
   type TaskCreateFields,
 } from "./task-create";
+
+export { msUntilNextDay, nextToday, TODAY_REFRESH_MS, todayOf, type Today } from "./today";

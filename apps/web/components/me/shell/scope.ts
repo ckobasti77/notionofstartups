@@ -1,6 +1,8 @@
 /**
  * Opseg ljuske (traka i mobilni red opsega) — ČISTO (vitest).
  */
+import { startupsWithUnread } from "@devotion/shared";
+
 import type { Id } from "@/convex/_generated/dataModel";
 
 export type RailStartup = { id: Id<"startups">; name: string; logoUrl: string | null };
@@ -89,12 +91,7 @@ export function railBadges(
   chat: ChatUnread | undefined | null,
 ): RailBadges {
   const startupDots: Record<string, boolean> = {};
-  for (const entry of inbox?.byStartup ?? []) {
-    if (entry.count > 0) startupDots[entry.startupId] = true;
-  }
-  for (const entry of chat?.byStartup ?? []) {
-    if (entry.unreadCount > 0) startupDots[entry.startupId] = true;
-  }
+  for (const startupId of startupsWithUnread(inbox, chat)) startupDots[startupId] = true;
   if (!inbox && !chat) return { me: null, meCapped: false, startupDots };
   return {
     me: (inbox?.total.count ?? 0) + (chat?.total.unreadCount ?? 0),

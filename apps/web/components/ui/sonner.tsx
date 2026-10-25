@@ -5,7 +5,8 @@ import { Toaster as Sonner, type ToasterProps } from "sonner";
 import { DURATION, REDUCED_FADE_MS, SPRING, springDurationMs } from "@devotion/shared";
 
 import { useTheme } from "@/components/theme-provider";
-import { springLinearEasing, standardCubicBezier } from "@/lib/motion";
+// Čist modul, ne `@/lib/motion`: Toaster je u korenu, a barel bi povukao GSAP.
+import { springLinearEasing, standardCubicBezier } from "@/lib/motion/eases";
 
 /** Ton obaveštenja → token: tinta podloge i ivice, tekst ostaje osnovni (AA). */
 function toneVars(kind: "success" | "info" | "warning" | "error", token: string) {
@@ -53,6 +54,8 @@ function Toaster({ style, ...props }: ToasterProps) {
       closeButton
       style={{ ...TOASTER_STYLE, ...style }}
       {...props}
+      // Sonner podrazumeva englesko „Close toast" za čitač ekrana.
+      toastOptions={{ closeButtonAriaLabel: "Zatvori obaveštenje", ...props.toastOptions }}
     />
   );
 }

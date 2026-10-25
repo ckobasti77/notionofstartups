@@ -2,10 +2,11 @@ import { findStartupRow, locateStartupRow, type StartupMini, type TaskRowModel }
 import { useQuery } from 'convex/react';
 import { CalendarX2, ListTodo } from 'lucide-react-native';
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { SegmentedControl } from '@/components/chat/segmented-control';
+import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
 import {
@@ -20,11 +21,10 @@ import { QuickAddSheet } from '@/components/me/quick-add-sheet';
 import { MeSectionHeader } from '@/components/me/section-header';
 import { TaskRow } from '@/components/me/task-row';
 import { useQuickAdd } from '@/components/me/use-quick-add';
-import { exitFade, listLayout } from '@/components/motion';
+import { exitFade, listLayout, useListEntering } from '@/components/motion';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
-import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { UndoBar } from '@/components/undo-bar';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -44,6 +44,10 @@ import { useStartupTaskCommands } from './use-startup-task-commands';
 
 /** Ogledalo `MAX_ASSIGNEE_LOOKUP_PAGES` u `taskAssignees.ts`. */
 const MAX_ASSIGNEE_LOOKUP = 300;
+
+type CommandListItem =
+  | { kind: 'header'; key: string; id: TodaySection; count: number; open: boolean }
+  | { kind: 'row'; key: string; row: TaskRowModel };
 
 const SECTION_LABEL: Record<TodaySection, string> = {
   overdue: 'Prekoračeno',
@@ -277,15 +281,57 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   const layoutPreset = useMemo(() => listLayout(reduced), [reduced]);
   const rowCount = sections ? sectionRowCount(sections) : 0;
   const layout = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? layoutPreset : undefined;
-
-  const renderRow = (row: TaskRowModel, index: number) => (
-    <StaggerItem key={row.key} index={index}>
-      <Animated.View layout={layout} exiting={exitFade(reduced)}>
-        {/* Startup je isti za ceo ekran (zaglavlje Prostora ga nosi), pa bez čipa. */}
-        <TaskRow row={row} now={now} showStartup={false} showStatus {...commands.rowActions} />
-      </Animated.View>
-    </StaggerItem>
+  // Granica E12 važi i za izlaz (kao „Svi zadaci” i Moj dan).
+  const exiting = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? exitFade(reduced) : undefined;
+  // Ulaz iz rečnika (`components/motion`, 24 ms): prvo punjenje i promena
+  // segmenta ili filtera člana su novo punjenje liste.
+  const entering = useListEntering(
+    reduced,
+    `${segment}:${memberFilter ?? 'all'}:${sections === undefined ? 'ucitavanje' : 'spremno'}`,
   );
+  // Spljoštena lista (zaglavlja + redovi) za virtualizaciju: do 150 zadataka po
+  // statusu je do 600 teških redova (swipe, kvačica, layout), pa ne ScrollView.
+  const listItems = useMemo<CommandListItem[]>(() => {
+    if (!sections) return [];
+    return sections.flatMap((section): CommandListItem[] => {
+      if (section.rows.length === 0) return [];
+      const open = section.id !== 'blocked' || blockedOpen;
+      return [
+        { kind: 'header', key: `sekcija:${section.id}`, id: section.id, count: section.rows.length, open },
+        ...(open ? section.rows.map((row): CommandListItem => ({ kind: 'row', key: row.key, row })) : []),
+      ];
+    });
+  }, [sections, blockedOpen]);
+
+  const renderRow = (row: TaskRowModel, index: number) => {
+    // Izvršioci na redu (kao web `AssigneeStack` u `extraMeta` i stara kartica pre
+    // K18); bez unosa u odgovoru (granica od 300 ili učitavanje) — ništa.
+    const assignees = assigneesByTask.get(row.id as Id<'pages'>);
+    return (
+      <Animated.View entering={entering(index)} exiting={exiting}>
+        {/* Startup je isti za ceo ekran (zaglavlje Prostora ga nosi), pa bez čipa. */}
+        <TaskRow
+          row={row}
+          now={now}
+          showStartup={false}
+          showStatus
+          extraMeta={
+            assignees === undefined ? undefined : (
+              <AssigneeStack assignees={assignees} size={20} accessible={false} />
+            )
+          }
+          extraMetaLabel={
+            assignees === undefined
+              ? undefined
+              : assignees.length === 0
+                ? 'nedodeljeno'
+                : `izvršioci: ${assignees.map((a) => a.displayName).join(', ')}`
+          }
+          {...commands.rowActions}
+        />
+      </Animated.View>
+    );
+  };
 
   const loading =
     command === undefined ||
@@ -337,48 +383,49 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
       ) : (
         <LoadingSwap loading={loading} skeleton={<LoadingList />}>
           {sections === undefined ? null : (
-            <ScrollView
-              contentContainerStyle={styles.listContent}
+            <Animated.FlatList
+              data={listItems}
+              keyExtractor={(item) => item.key}
+              itemLayoutAnimation={layout}
+              initialNumToRender={16}
+              contentContainerStyle={styles.flatContent}
               showsVerticalScrollIndicator={false}
-              refreshControl={refreshControl}>
-              <DaySummary
-                firstName={firstName}
-                counts={summaryCounts}
-                segmentLabel={segmentLabel}
-              />
-              {/* Promena segmenta ili filtera je NOVO punjenje liste — `resetKey`
-                  restartuje stagger da se to i vidi. */}
-              <StaggerGroup resetKey={`${segment}:${memberFilter ?? 'all'}`}>
-                {sections.map((section) => {
-                  if (section.rows.length === 0) return null;
-                  const isBlocked = section.id === 'blocked';
-                  const open = !isBlocked || blockedOpen;
-                  return (
-                    <View key={section.id} style={styles.section}>
-                      <MeSectionHeader
-                        title={SECTION_LABEL[section.id]}
-                        count={section.rows.length}
-                        tone={section.id === 'overdue' ? 'danger' : 'default'}
-                        collapsible={isBlocked}
-                        collapsed={!open}
-                        onToggle={isBlocked ? () => setBlockedOpen((value) => !value) : undefined}
-                      />
-                      {open ? <View>{section.rows.map(renderRow)}</View> : null}
-                    </View>
-                  );
-                })}
-              </StaggerGroup>
-
-              {/* `tasks.commandCenter` seče na 150 zadataka po statusu i to javi
-                  kroz `hasMore`. Web to i prikazuje; mobilni je dosad tiho
-                  odsecao, pa je lista izgledala potpuno a nije bila. */}
-              {command?.hasMore ? (
-                <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
-                  Prikazano je prvih 150 zadataka po statusu. Suzi filter ili
-                  otvori oblast u Prostoru za pun spisak.
-                </Text>
-              ) : null}
-            </ScrollView>
+              refreshControl={refreshControl}
+              ListHeaderComponent={
+                <View style={styles.summaryWrap}>
+                  <DaySummary firstName={firstName} counts={summaryCounts} segmentLabel={segmentLabel} />
+                </View>
+              }
+              renderItem={({ item, index }) =>
+                item.kind === 'header' ? (
+                  <Animated.View
+                    entering={entering(index)}
+                    exiting={exiting}
+                    style={index === 0 ? styles.sectionHeaderFirst : styles.sectionHeader}>
+                    <MeSectionHeader
+                      title={SECTION_LABEL[item.id]}
+                      count={item.count}
+                      tone={item.id === 'overdue' ? 'danger' : 'default'}
+                      collapsible={item.id === 'blocked'}
+                      collapsed={!item.open}
+                      onToggle={item.id === 'blocked' ? () => setBlockedOpen((value) => !value) : undefined}
+                    />
+                  </Animated.View>
+                ) : (
+                  renderRow(item.row, index)
+                )
+              }
+              ListFooterComponent={
+                // `tasks.commandCenter` seče na 150 zadataka po statusu i to javi
+                // kroz `hasMore` (isto kao web).
+                command?.hasMore ? (
+                  <Text style={[styles.truncated, styles.truncatedGap, { color: colors.mutedForeground }]}>
+                    Prikazano je prvih 150 zadataka po statusu. Suzi filter ili
+                    otvori oblast u Prostoru za pun spisak.
+                  </Text>
+                ) : null
+              }
+            />
           )}
         </LoadingSwap>
       )}
@@ -484,8 +531,25 @@ const styles = StyleSheet.create({
     paddingBottom: 160,
     gap: 20,
   },
-  section: {
-    gap: 4,
+  // Lista je virtualizovana (`Animated.FlatList`): `gap` bi važio između SVIH
+  // ćelija, pa razmaci idu kroz zaglavlja (20 između sekcija, 4 do redova).
+  flatContent: {
+    paddingHorizontal: 16,
+    // Isti donji prostor kao `listContent` (izmereno iznad FAB-a, E11).
+    paddingBottom: 160,
+  },
+  summaryWrap: {
+    marginBottom: 20,
+  },
+  sectionHeaderFirst: {
+    marginBottom: 4,
+  },
+  sectionHeader: {
+    marginTop: 20,
+    marginBottom: 4,
+  },
+  truncatedGap: {
+    marginTop: 20,
   },
   skeletonSummary: {
     gap: 8,

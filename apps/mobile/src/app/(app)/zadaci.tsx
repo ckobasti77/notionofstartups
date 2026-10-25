@@ -3,7 +3,7 @@ import { usePaginatedQuery, useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { ListTodo, Plus, SlidersHorizontal, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -61,6 +61,11 @@ import { fontWeight, text } from '@/theme/tokens';
  */
 const MAX_ASSIGNEE_LOOKUP = 300;
 
+/** Stavka spljoštene liste „Svi zadaci": zaglavlje sekcije ili red. */
+type ListItem =
+  | { kind: 'header'; key: string; section: StatusSection }
+  | { kind: 'row'; key: string; row: TaskRowModel };
+
 /**
  * Ekran „Svi zadaci" (PARITET A3) — pregled CELOG startupa, ne samo mog dana kao
  * Komandni centar. Od K18 (par web K17 „Moji zadaci u startupu") redovi su isti
@@ -73,11 +78,6 @@ const MAX_ASSIGNEE_LOOKUP = 300;
  * ekran pisao kroz `areasV2.updatePage` (samo kreator) — to je bila razlika od
  * weba, sada ukinuta.
  */
-/** Stavka spljoštene liste „Svi zadaci": zaglavlje sekcije ili red. */
-type ListItem =
-  | { kind: 'header'; key: string; section: StatusSection }
-  | { kind: 'row'; key: string; row: TaskRowModel };
-
 export default function ZadaciScreen() {
   const colors = useThemeColors();
   const router = useRouter();
@@ -263,7 +263,7 @@ export default function ZadaciScreen() {
   const rowCount = sections ? sectionRowCount(sections) : 0;
   // Granica E12: iznad nje nema layout ni izlazne animacije (stotine redova).
   const layout = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? listLayout(reduced) : undefined;
-  const exiting = layout === undefined ? undefined : exitFade(reduced);
+  const exiting = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? exitFade(reduced) : undefined;
   // Ulaz iz rečnika (K19, `components/motion`): prvo punjenje i promena filtera.
   const listReady =
     pageStatus !== 'LoadingFirstPage' && startup !== undefined && sections !== undefined && !waitingForAssignees;
@@ -292,15 +292,13 @@ export default function ZadaciScreen() {
   const renderItem = (item: ListItem, index: number) =>
     item.kind === 'header' ? (
       <Animated.View
-        key={item.key}
         entering={entering(index)}
-        layout={layout}
         exiting={exiting}
         style={index === 0 ? styles.sectionHeaderFirst : styles.sectionHeader}>
         <MeSectionHeader title={TASK_STATUS_META[item.section.id].label} count={item.section.rows.length} />
       </Animated.View>
     ) : (
-      <Animated.View key={item.key} entering={entering(index)} layout={layout} exiting={exiting}>
+      <Animated.View entering={entering(index)} exiting={exiting}>
         {/* Startup je isti za ceo ekran (zaglavlje ga nosi), pa bez čipa. */}
         <TaskRow row={item.row} now={commands.now} showStartup={false} {...commands.rowActions} />
       </Animated.View>
@@ -382,32 +380,37 @@ export default function ZadaciScreen() {
             }}
           />
         ) : (
-          <ScrollView
-            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 160 }]}
+          // Virtualizovana lista (K21): „Učitaj još" nema gornju granicu, a red je
+          // težak (swipe, kvačica, layout) — van prozora se ćelije ne drže.
+          <Animated.FlatList
+            data={listItems}
+            keyExtractor={(item) => item.key}
+            renderItem={({ item, index }) => renderItem(item, index)}
+            itemLayoutAnimation={layout}
+            initialNumToRender={16}
+            contentContainerStyle={[styles.flatContent, { paddingBottom: insets.bottom + 160 }]}
             showsVerticalScrollIndicator={false}
-            refreshControl={refreshControl}>
-            {statusFilter === 'all' ? (
-              <View>{listItems.map(renderItem)}</View>
-            ) : (
-              <View style={styles.section}>
-                <Text style={[styles.summary, { color: colors.mutedForeground }]}>
+            refreshControl={refreshControl}
+            ListHeaderComponent={
+              statusFilter === 'all' ? null : (
+                <Text style={[styles.summary, styles.summaryGap, { color: colors.mutedForeground }]}>
                   {rowCount} {tasksWord(rowCount)}
                 </Text>
-                <View>{listItems.map(renderItem)}</View>
-              </View>
-            )}
-
-            {pageStatus === 'CanLoadMore' ? (
-              <Button
-                label="Učitaj još"
-                variant="ghost"
-                onPress={() => loadMore(50)}
-                style={styles.loadMore}
-              />
-            ) : pageStatus === 'LoadingMore' ? (
-              <ActivityIndicator color={colors.primary} style={styles.loadMore} />
-            ) : null}
-          </ScrollView>
+              )
+            }
+            ListFooterComponent={
+              pageStatus === 'CanLoadMore' ? (
+                <Button
+                  label="Učitaj još"
+                  variant="ghost"
+                  onPress={() => loadMore(50)}
+                  style={styles.loadMore}
+                />
+              ) : pageStatus === 'LoadingMore' ? (
+                <ActivityIndicator color={colors.primary} style={styles.loadMore} />
+              ) : null
+            }
+          />
         )}
       </LoadingSwap>
 
@@ -508,8 +511,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     gap: 20,
   },
-  section: {
-    gap: 4,
+  // FlatList: `gap` na sadržaju bi važio između SVIH ćelija, pa ga ovde nema;
+  // razmaci idu kroz zaglavlja, brojač i podnožje.
+  flatContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  // Razmak između brojača i prvog reda (ranije `gap` omotača sekcije).
+  summaryGap: {
+    marginBottom: 4,
   },
   // Isti ritam kao ranije (20 između sekcija, 4 do redova), sada kao braća u jednoj listi.
   sectionHeaderFirst: {
@@ -526,7 +536,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   loadMore: {
-    marginTop: 4,
+    marginTop: 24,
     alignSelf: 'center',
   },
 });

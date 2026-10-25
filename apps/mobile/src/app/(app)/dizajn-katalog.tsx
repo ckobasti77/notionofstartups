@@ -30,7 +30,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DueChip } from '@/components/me/due-chip';
-import { ElsewhereHint } from '@/components/me/elsewhere-hint';
 import { MeHeader } from '@/components/me/me-header';
 import { buildMyDay, STATUS_DENIED_REASON } from '@/components/me/my-day/my-day-model';
 import { SummaryCard } from '@/components/me/my-day/my-day-view';
@@ -688,14 +687,10 @@ export default function DizajnKatalogScreen() {
           ))}
         </Card>
 
-        {/* ── Zaglavlje globalnog taba i napomena (K09) ── */}
+        {/* ── Zaglavlje globalnog taba (K09) ── */}
         <SectionHeader title="Zaglavlje globalnog taba" />
         <View style={[styles.headerBox, { borderColor: colors.border }]}>
           <MeHeader title="Danas" subtitle="subota 25. oktobar" safeArea={false} />
-        </View>
-        <Caption text="Napomena u Porukama/Inboxu dok K14/K16 ne naprave globalne ekrane" colors={colors} />
-        <View style={[styles.headerBox, { borderColor: colors.border }]}>
-          <ElsewhereHint text="Još 4 nepročitane poruke u drugim startupima i ličnim razgovorima." />
         </View>
 
         {/* ── Moj dan (K12) ── */}
