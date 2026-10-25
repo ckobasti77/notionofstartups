@@ -49,3 +49,13 @@ next-env.d.ts
 *firebase-adminsdk*.json
 **/service-account*.json
 _to_delete/
+
+# nocni run licno (logovi i stanje runnera)
+.nocni-run/licno/logs/
+.nocni-run/licno/tmp/
+.nocni-run/licno/state.json
+.nocni-run/licno/state.json.tmp
+.nocni-run/licno/state.bad.json
+.nocni-run/licno/STOP
+.nocni-run/licno/baseline.txt
+.nocni-run/licno/mcp.json

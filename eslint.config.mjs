@@ -23,6 +23,9 @@ const eslintConfig = defineConfig([
     // The Expo app has its own React Native ESLint setup (`expo lint`);
     // the Next.js ruleset here does not apply to it.
     "apps/mobile/**",
+    // Alati noćnog runa (CommonJS `.cjs` skripte runnera) nisu kod aplikacije;
+    // bez ovoga `npm run check` (i CI) pada na `no-require-imports`.
+    ".nocni-run/**",
   ]),
 ]);
 

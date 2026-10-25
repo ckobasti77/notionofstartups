@@ -7,8 +7,9 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { radius } from '@/theme/tokens';
 
 /**
- * Popover sa članovima startupa pri kucanju `@`. Prikazuje se iznad unosa;
- * `candidates` su već filtrirani po tekućem `@` tokenu u composeru.
+ * Popover sa članovima razgovora pri kucanju `@` (startup: članovi startupa;
+ * lični razgovor: samo njegovi članovi, K16). Prikazuje se iznad unosa;
+ * `candidates` su već filtrirani po opsegu i tekućem `@` tokenu u composeru.
  */
 export function MentionAutocomplete({
   candidates,

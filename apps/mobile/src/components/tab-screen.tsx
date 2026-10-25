@@ -9,6 +9,8 @@ export type TabScreenProps = {
   actions?: React.ReactNode;
   /** Red ispod naslova, unutar istog zaglavlja (npr. segmentna kontrola). */
   below?: React.ReactNode;
+  /** Stack ekran sa istim zaglavljem (npr. „Kanali" iz Prostora): „nazad" levo od naslova. */
+  onBack?: () => void;
   children: React.ReactNode;
 };
 
@@ -16,11 +18,11 @@ export type TabScreenProps = {
  * Okvir taba: JEDNO zaglavlje (`AppHeader` — kontekst startupa, naslov, akcije)
  * i sadržaj ispod. Donji safe-area pokriva tab bar.
  */
-export function TabScreen({ title, actions, below, children }: TabScreenProps) {
+export function TabScreen({ title, actions, below, onBack, children }: TabScreenProps) {
   const colors = useThemeColors();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <AppHeader title={title} actions={actions} below={below} />
+      <AppHeader title={title} actions={actions} below={below} onBack={onBack} />
       <View style={styles.body}>{children}</View>
     </View>
   );

@@ -1,7 +1,17 @@
+import {
+  assigneesChipValue,
+  describeDue,
+  PRIORITY_LABELS,
+  reopenStatus,
+  STATUS_LABELS,
+  taskPermissions,
+  type StartupTaskStatus,
+  type TaskPriorityKey,
+} from '@devotion/shared';
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import {
-  CalendarDays,
+  CalendarClock,
   CircleDot,
   ClipboardX,
   Ellipsis,
@@ -10,57 +20,54 @@ import {
   TriangleAlert,
   Users,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BreadcrumbsEyebrow, PathSheet } from '@/components/breadcrumbs-eyebrow';
-import { AssigneeStack } from '@/components/danas/assignee-stack';
-import { DeadlineBadge } from '@/components/danas/deadline-badge';
-import { PriorityDot } from '@/components/danas/priority-dot';
-import { TaskActionsSheet } from '@/components/danas/task-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { LockedNotice } from '@/components/me/choice-chips';
+import { MetaChip } from '@/components/me/meta-chip';
 import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
 import { PageContributionsSection } from '@/components/stranica/page-contributions-section';
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
+import { TaskMetaSheet, type TaskMetaView } from '@/components/zadatak/task-meta-sheet';
 import { DiscussionLink } from '@/components/chat/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
 import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
-import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonCard, SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { announceWithUndoBar } from '@/lib/announce';
 import { haptics } from '@/lib/haptics';
-import {
-  formatShortDate,
-  statusColor,
-  TASK_PRIORITY_META,
-  TASK_STATUS_META,
-  type TaskPriority,
-  type TaskStatus,
-} from '@/lib/task-meta';
+import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
+import { radius } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /**
  * Detalj zadatka — full-screen, van tabova (docs/mobile/02-EKRANI.md §9.2).
- * Najčešće korišćen ekran, pa je brz: status/prioritet/rok/izvršioci se menjaju
- * kroz deljeni `TaskActionsSheet` (isti kao Danas), checkpointi su optimistički,
- * bez „sačuvaj" dugmadi. Zadatak je `pages` dokument sa `kind: "task"`.
+ * Najčešće korišćen ekran, pa je brz: status, prioritet, rok i izvršioci su čipovi
+ * (K18, par web `MetaChip` iz K17) koji otvaraju `TaskMetaSheet` — rok sa srpskim
+ * čipovima i kalendarom u istom sheet-u; zabranjen metapodatak je isprekidan čip
+ * sa katancem i razlogom (E15), isti kao u panelu zadatka. Dozvole su iz shared
+ * `taskPermissions`, mutacije iste kao panel (`tasks.updateMetadata`,
+ * `taskAssignees.join/leave`). Checkpointi su optimistički, bez „sačuvaj"
+ * dugmadi. Zadatak je `pages` dokument sa `kind: "task"`.
  */
 export default function ZadatakScreen() {
   const colors = useThemeColors();
@@ -70,9 +77,9 @@ export default function ZadatakScreen() {
   const { activeStartupId } = useActiveStartup();
   const insets = useSafeAreaInsets();
   const [now] = useState(() => Date.now());
-  const [sheetOpen, setSheetOpen] = useState(false);
-  // Izvršioci imaju svoj sheet (deljen sa kreiranjem zadatka) — duža lista članova
-  // ne mora da deli prostor sa statusom/prioritetom/rokom.
+  const [metaView, setMetaView] = useState<TaskMetaView | null>(null);
+  // Kreator bira izvršioce u posebnom sheet-u (deljen sa kreiranjem zadatka) — duža
+  // lista članova ne mora da deli prostor sa statusom/prioritetom/rokom.
   const [assigneesOpen, setAssigneesOpen] = useState(false);
   // Zadatak je `pages` dokument kao i stranica, pa deli isti „…" sheet
   // (premesti / ugnjezdi / izdvoji / poveži) — web mu nudi iste akcije.
@@ -87,7 +94,7 @@ export default function ZadatakScreen() {
   const assignees = useQuery(api.taskAssignees.listForTask, { taskPageId: pageId });
   const members = useQuery(
     api.startups.listMembers,
-    activeStartupId ? { startupId: activeStartupId, limit: 50 } : 'skip',
+    page?.startupId ? { startupId: page.startupId, limit: 50 } : 'skip',
   );
 
   const updateMetadata = useMutation(api.tasks.updateMetadata);
@@ -102,6 +109,11 @@ export default function ZadatakScreen() {
   const run = (promise: Promise<unknown>) => {
     void promise.then(() => haptics.success()).catch(notifyError);
   };
+  const assigneeList = useMemo(() => assignees ?? [], [assignees]);
+  const assigneeNames = useMemo(
+    () => new Map(assigneeList.map((person) => [person.profileId as string, person.displayName])),
+    [assigneeList],
+  );
 
   if (page === undefined || profile === undefined) {
     return (
@@ -126,13 +138,18 @@ export default function ZadatakScreen() {
   }
 
   const myId = profile?._id ?? null;
-  const assigneeList = assignees ?? [];
   const canEditAll = page.permissions.canEdit;
   const isAssignee = myId !== null && assigneeList.some((a) => a.profileId === myId);
-  const canChangeStatus = canEditAll || isAssignee;
-  const status = page.taskStatus ?? 'backlog';
+  const isCreator = myId !== null && page.createdByProfileId === myId;
+  const permissions = taskPermissions({ kind: 'task', isCreator: isCreator || canEditAll, isAssignee });
+  const status = (page.taskStatus ?? 'backlog') as StartupTaskStatus;
+  const priority = (page.taskPriority ?? 'medium') as TaskPriorityKey;
+  const due = describeDue(page.dueDate ?? null, now);
+  const denied = (reason: string) => {
+    haptics.warning();
+    Alert.alert('Nije dozvoljeno', reason);
+  };
 
-  const openSheet = () => setSheetOpen(true);
   // Kanvas zadatka je `kind: 'page'` nad ovim zadatkom — jedini kanvas na kom su koraci
   // vidljivi bez poruke `checkpoints`. Bez ovog ulaza je sa telefona nedostupan (K4):
   // `/stranica/[id]` zadatak preusmerava ovamo, pa dugme sa te strane ne pomaže. Ista
@@ -141,20 +158,46 @@ export default function ZadatakScreen() {
     haptics.tap();
     router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'page', id: pageId } });
   };
-  const applyStatus = (next: TaskStatus) => {
-    run(updateMetadata({ pageId, status: next }));
-    setSheetOpen(false);
+  const applyStatus = (next: StartupTaskStatus) => {
+    setMetaView(null);
+    if (next === status) return;
+    void updateMetadata({ pageId, status: next })
+      .then(() => {
+        haptics.success();
+        if (next !== 'done') return;
+        // Završavanje nudi „Poništi" (traka je na ovom ekranu), kao toast na webu.
+        const label = `Završeno: ${page.title}`;
+        announceWithUndoBar(label);
+        pushUndo({ label, action: { kind: 'taskStatus', pageId, status: reopenStatus(status) } });
+      })
+      .catch(notifyError);
   };
-  const applyPriority = (next: TaskPriority) => {
+  const applyPriority = (next: TaskPriorityKey) => {
+    setMetaView(null);
+    if (next === priority) return;
     run(updateMetadata({ pageId, priority: next }));
-    setSheetOpen(false);
   };
   const applyDue = (dueDate: number | null) => {
-    run(updateMetadata({ pageId, dueDate }));
-    setSheetOpen(false);
+    setMetaView(null);
+    if (dueDate === (page.dueDate ?? null)) return;
+    void updateMetadata({ pageId, dueDate })
+      .then(() => {
+        haptics.success();
+        AccessibilityInfo.announceForAccessibility('Rok je promenjen.');
+      })
+      .catch(notifyError);
   };
-  const applyJoinLeave = (isSelfAssigned: boolean) =>
-    run(isSelfAssigned ? leave({ taskPageId: pageId }) : join({ taskPageId: pageId }));
+  const applyJoinLeave = () => {
+    setMetaView(null);
+    void (isAssignee ? leave({ taskPageId: pageId }) : join({ taskPageId: pageId }))
+      .then(() => {
+        haptics.success();
+        AccessibilityInfo.announceForAccessibility(
+          isAssignee ? 'Više nisi na zadatku.' : 'Sad si na zadatku.',
+        );
+      })
+      .catch(notifyError);
+  };
   const applySetAssignees = (profileIds: Id<'profiles'>[]) =>
     run(setAssignees({ taskPageId: pageId, profileIds }));
   const saveInstructions = (text: string | null) =>
@@ -210,82 +253,53 @@ export default function ZadatakScreen() {
             contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Row
-                variant="value"
-                title="Status"
-                onPress={openSheet}
-                accessibilityLabel={`Izmeni status, trenutno ${TASK_STATUS_META[status].label}`}
-                style={styles.metaRow}
-                icon={<CircleDot size={20} color={colors.mutedForeground} />}
+            <View style={styles.chips}>
+              <MetaChip
+                label="Status"
+                value={STATUS_LABELS[status]}
+                icon={CircleDot}
+                perm={permissions.status}
+                onDenied={denied}
+                onPress={() => setMetaView('status')}
+              />
+              <MetaChip
+                label="Prioritet"
+                value={PRIORITY_LABELS[priority]}
+                icon={Flag}
+                perm={permissions.priority}
+                onDenied={denied}
+                onPress={() => setMetaView('priority')}
+              />
+              <MetaChip
+                label="Rok"
+                value={due.label}
+                bare={page.dueDate === null}
+                icon={CalendarClock}
+                perm={permissions.due}
+                accessibilityLabel={due.ariaLabel}
+                onDenied={denied}
+                onPress={() => setMetaView('due')}
+              />
+              <MetaChip
+                label="Izvršioci"
                 value={
-                  <View style={styles.statusValue}>
-                    <View style={[styles.statusDot, { backgroundColor: statusColor(colors, status) }]} />
-                    <Text style={[styles.valueText, { color: colors.foreground }]}>
-                      {TASK_STATUS_META[status].label}
-                    </Text>
-                  </View>
+                  assignees === undefined
+                    ? '…'
+                    : assigneesChipValue(
+                        assigneeList.map((person) => person.profileId),
+                        myId ?? '',
+                        assigneeNames,
+                      )
                 }
-              />
-              <Divider colors={colors} />
-              <Row
-                variant="value"
-                title="Prioritet"
-                onPress={openSheet}
-                accessibilityLabel={`Izmeni prioritet, trenutno ${TASK_PRIORITY_META[page.taskPriority ?? 'medium'].label}`}
-                style={styles.metaRow}
-                icon={<Flag size={20} color={colors.mutedForeground} />}
-                value={<PriorityDot priority={page.taskPriority} showLabel />}
-              />
-              <Divider colors={colors} />
-              <Row
-                variant="value"
-                title="Rok"
-                onPress={openSheet}
-                accessibilityLabel={`Izmeni rok, trenutno ${
-                  page.dueDate === null ? 'bez roka' : formatShortDate(page.dueDate)
-                }`}
-                style={styles.metaRow}
-                icon={<CalendarDays size={20} color={colors.mutedForeground} />}
-                value={
-                  page.dueDate === null ? (
-                    <Text style={[styles.valueText, { color: colors.mutedForeground }]}>Bez roka</Text>
-                  ) : (
-                    <View style={styles.rokValue}>
-                      <Text style={[styles.valueText, { color: colors.foreground }]}>
-                        {formatShortDate(page.dueDate)}
-                      </Text>
-                      <DeadlineBadge dueDate={page.dueDate} taskStatus={page.taskStatus} now={now} />
-                    </View>
-                  )
-                }
-              />
-              <Divider colors={colors} />
-              <Row
-                variant="value"
-                title="Izvršioci"
+                icon={Users}
+                perm={{ allowed: true, reason: null }}
                 // Kreator bira pun spisak (deljeni piker); ko nije kreator dobija
-                // „priključi se / napusti" iz `TaskActionsSheet`.
-                onPress={canEditAll ? () => setAssigneesOpen(true) : openSheet}
-                accessibilityLabel={`Izmeni izvršioce, trenutno ${
-                  assigneeList.length === 0 ? 'bez izvršilaca' : assigneeList.length
-                }`}
-                style={styles.metaRow}
-                icon={<Users size={20} color={colors.mutedForeground} />}
-                // Dok `listForTask` traje, `assigneeList` je prazan — bez ovoga bi
-                // dodeljen zadatak nakratko pokazao „Nedodeljeno" placeholder.
-                // Učitano-prazno stanje kaže rečima: prazan krug liči na spiner (E7).
-                value={
-                  assignees === undefined ? (
-                    <Skeleton width={26} height={26} borderRadius={radius.full} />
-                  ) : assigneeList.length === 0 ? (
-                    <Text style={[styles.valueText, { color: colors.mutedForeground }]}>
-                      Niko nije dodeljen
-                    </Text>
-                  ) : (
-                    <AssigneeStack assignees={assigneeList} max={5} />
-                  )
-                }
+                // „priključi se / napusti".
+                onPress={() => {
+                  if (assignees === undefined) return; // izvršioci još stižu
+                  if (permissions.assignees.selfOnly) setMetaView('assignees');
+                  else setAssigneesOpen(true);
+                }}
               />
             </View>
 
@@ -295,10 +309,16 @@ export default function ZadatakScreen() {
               canEdit={canEditAll}
               onSave={saveInstructions}
             />
+            {permissions.instructions.allowed ? null : (
+              <LockedNotice label="Instrukcije" reason={permissions.instructions.reason ?? ''} />
+            )}
           </View>
 
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TaskCheckpointList taskPageId={pageId} canCreate={canEditAll} />
+            {permissions.checkpoints.allowed ? null : (
+              <LockedNotice label="Koraci" reason={permissions.checkpoints.reason ?? ''} />
+            )}
           </View>
 
           <View style={[styles.card, styles.flush, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -319,20 +339,22 @@ export default function ZadatakScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
 
-        <TaskActionsSheet
-          task={sheetOpen ? page : null}
+        <TaskMetaSheet
+          view={metaView}
+          onViewChange={setMetaView}
+          onClose={() => setMetaView(null)}
           now={now}
+          title={page.title}
+          status={status}
+          priority={priority}
+          dueDate={page.dueDate ?? null}
+          assigneesPerm={permissions.assignees}
           assignees={assigneeList}
-          members={members}
-          currentProfileId={myId}
-          canChangeStatus={canChangeStatus}
-          canEditAll={canEditAll}
+          isAssignee={isAssignee}
           onStatus={applyStatus}
           onPriority={applyPriority}
           onDue={applyDue}
           onJoinLeave={applyJoinLeave}
-          onSetAssignees={applySetAssignees}
-          onClose={() => setSheetOpen(false)}
         />
 
         <AssigneePickerSheet
@@ -364,10 +386,6 @@ export default function ZadatakScreen() {
       </View>
     </View>
   );
-}
-
-function Divider({ colors }: { colors: ColorTokens }) {
-  return <View style={[styles.divider, { backgroundColor: colors.border }]} />;
 }
 
 /**
@@ -404,7 +422,7 @@ function TaskSkeleton() {
  * baca kad korisnik nema pristup — expo-router to hvata ovde umesto pada ekrana.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <TaskErrorState message={error.message} onRetry={retry} />;
+  return <TaskErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function TaskErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -449,33 +467,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     overflow: 'hidden',
   },
-  // Row unutar kartice (padding 12) — bez dodatnog horizontalnog paddinga.
-  metaRow: {
-    paddingHorizontal: 4,
-    borderRadius: radius.control,
-  },
-  valueText: {
-    ...text.body,
-    fontWeight: fontWeight.medium,
-  },
-  statusValue: {
+  // Čipovi metapodataka (status, prioritet, rok, izvršioci) — prelamaju se u redove.
+  chips: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  rokValue: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 1,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginVertical: 2,
+    paddingBottom: 4,
   },
 });

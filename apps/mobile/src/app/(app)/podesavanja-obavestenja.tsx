@@ -48,6 +48,7 @@ import {
   space,
   type ColorTokens,
 } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 /** Podrazumevani prozor tihih sati kad ih korisnik prvi put uključi (22:00–08:00). */
 const DEFAULT_QUIET_START = 22 * 60;
@@ -781,7 +782,7 @@ function PickerColumn({
  * istekne — bez granice ekran pada, a ovo je jedini put do isključivanja zvuka.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <PodesavanjaErrorState message={error.message} onRetry={retry} />;
+  return <PodesavanjaErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function PodesavanjaErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

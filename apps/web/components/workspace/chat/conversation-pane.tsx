@@ -14,9 +14,11 @@ import {
   Hash,
   MessagesSquare,
   MoreVertical,
+  Settings2,
   Upload,
   Users,
 } from "lucide-react";
+import { chatConversationPermissions, personalSubtitle } from "@devotion/shared";
 
 import { ChannelMembersDialog } from "@/components/workspace/chat/channel-members-dialog";
 import { MessageComposer } from "@/components/workspace/chat/message-composer";
@@ -30,7 +32,6 @@ import {
 } from "@/components/workspace/workspace-ui";
 import type {
   ProfileWithAvatar,
-  StartupMember,
   StartupWithAreas,
 } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   channelDisplayName,
   type ChatChannel,
+  type ChatMember,
   type ChatMessage,
 } from "@/lib/chat";
 import type { AreaKey } from "@/lib/workspace";
@@ -65,13 +67,36 @@ export function ConversationPane({
   members,
   onOpenList,
   onOpenPage,
+  splitAt = "lg",
+  contextLabel,
+  onOpenInStartup,
+  onOpenGroupSettings,
+  preview,
+  animateArrivals = false,
 }: {
-  startup: StartupWithAreas;
+  /** Startup kanala; `null` za lični razgovor (ili startup van liste ljuske). */
+  startup: StartupWithAreas | null;
   profile: ProfileWithAvatar;
   channel: ChatChannel;
-  members: StartupMember[] | undefined;
+  /**
+   * Članovi opsega: tim (`startups.listMembers`) za kanal startupa, članovi
+   * razgovora (`chat.channelMembers`) za lični razgovor.
+   */
+  members: ChatMember[] | undefined;
   onOpenList: () => void;
   onOpenPage: (pageId: Id<"pages">) => void;
+  /** Od koje širine lista i razgovor stoje jedno pored drugog (tada se „Nazad“ krije). */
+  splitAt?: "lg" | "xl";
+  /** Ispred podnaslova (globalne Poruke: ime startupa kanala). */
+  contextLabel?: string;
+  /** Stavka menija „Otvori u startupu“ (globalne Poruke, kanal startupa). */
+  onOpenInStartup?: () => void;
+  /** Stavka menija „Podešavanja grupe“ (lična grupa). */
+  onOpenGroupSettings?: () => void;
+  /** Izlog: statične poruke, bez pretplate, čitanja i prisustva. */
+  preview?: ChatMessage[];
+  /** Nova poruka ulazi kratkim springom (globalne Poruke). */
+  animateArrivals?: boolean;
 }) {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   /**
@@ -95,13 +120,15 @@ export function ConversationPane({
 
   // Otvaranje kanala i svaka nova poruka (lastMessageAt) čiste nepročitano —
   // prikaz je u prvom planu dok je montiran (04-CHAT.md §5).
+  const live = preview === undefined;
   useEffect(() => {
+    if (!live) return;
     void markChannelRead({ channelId: channel._id }).catch(() => {
       // Neuspelo označavanje ne sme da blokira čitanje.
     });
-  }, [channel._id, channel.lastMessageAt, markChannelRead]);
+  }, [channel._id, channel.lastMessageAt, markChannelRead, live]);
 
-  useChatPresence(channel._id, atBottom);
+  useChatPresence(channel._id, atBottom && live);
 
   const handleSent = useCallback(() => {
     setReplyTo(null);
@@ -115,10 +142,18 @@ export function ConversationPane({
   });
 
   const name = channelDisplayName(channel);
+  const personal = channel.startupId === null;
   const areaKey =
     channel.kind === "area"
-      ? startup.areas.find((area) => area._id === channel.areaId)?.key
+      ? startup?.areas.find((area) => area._id === channel.areaId)?.key
       : undefined;
+  const baseSubtitle = personal
+    ? personalSubtitle(
+        channel.kind,
+        channel.kind === "custom" ? (members?.length ?? null) : null,
+      )
+    : conversationSubtitle(channel, areaKey, startup);
+  const subtitle = contextLabel ? `${contextLabel} · ${baseSubtitle}` : baseSubtitle;
 
   async function changeLevel(level: "all" | "mentions" | "none") {
     try {
@@ -143,10 +178,16 @@ export function ConversationPane({
     }
   }
 
-  const canArchive = profile.role === "admin" && channel.kind !== "startup";
-  // Ogledalo serverskog gejta iz `chat.setChannelMembers`: samo admin i samo
-  // `custom` kanal — članstvo ostalih vrsta je izvedeno iz pristupa.
-  const canManageMembers = profile.role === "admin" && channel.kind === "custom";
+  // Lični razgovor se ne arhivira i nema admin-članstvo (D4): grupom upravlja
+  // njen vlasnik kroz „Podešavanja grupe“. Admin radnje su ogledalo serverskih
+  // gejtova (`chat.archiveChannel`, `chat.setChannelMembers`: samo admin i samo
+  // `custom` kanal) — isto pravilo koristi i telefon (`@devotion/shared`).
+  const permissions = chatConversationPermissions(profile.role, channel);
+  const canArchive = permissions.canArchive;
+  const canManageMembers = permissions.canManageMembers;
+  const showGroupSettings =
+    permissions.canOpenGroupSettings && onOpenGroupSettings !== undefined;
+  const showOpenInStartup = !personal && onOpenInStartup !== undefined;
 
   /** Ima li drag uopšte fajlove — prevučen tekst ne sme da otvori zonu za slanje. */
   function dragHasFiles(event: React.DragEvent<HTMLDivElement>): boolean {
@@ -185,19 +226,19 @@ export function ConversationPane({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 lg:hidden"
+          className={cn("size-9 shrink-0", splitAt === "xl" ? "xl:hidden" : "lg:hidden")}
           aria-label="Nazad na razgovore"
           onClick={onOpenList}
         >
           <ArrowLeft className="size-4" />
         </Button>
 
-        <ConversationIcon channel={channel} areaKey={areaKey} />
+        <ConversationIcon channel={channel} areaKey={areaKey} personal={personal} />
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{name}</p>
           <p className="truncate text-[0.6875rem] text-muted-foreground">
-            {conversationSubtitle(channel, areaKey, startup)}
+            {subtitle}
           </p>
         </div>
 
@@ -226,6 +267,21 @@ export function ConversationPane({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            {showOpenInStartup || showGroupSettings ? (
+              <>
+                {showOpenInStartup ? (
+                  <DropdownMenuItem onSelect={() => onOpenInStartup?.()}>
+                    <ExternalLink className="size-4" /> Otvori u startupu
+                  </DropdownMenuItem>
+                ) : null}
+                {showGroupSettings ? (
+                  <DropdownMenuItem onSelect={() => onOpenGroupSettings?.()}>
+                    <Settings2 className="size-4" /> Podešavanja grupe
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
             <DropdownMenuLabel>Obaveštenja</DropdownMenuLabel>
             {NOTIFICATION_OPTIONS.map((option) => {
               const active = channel.notificationLevel === option.level;
@@ -273,6 +329,8 @@ export function ConversationPane({
         onReply={setReplyTo}
         onAtBottomChange={setAtBottom}
         scrollToBottomSignal={sentTick}
+        preview={preview}
+        animateArrivals={animateArrivals}
       />
 
       <MessageComposer
@@ -322,10 +380,19 @@ export function ConversationPane({
 function ConversationIcon({
   channel,
   areaKey,
+  personal,
 }: {
   channel: ChatChannel;
   areaKey: string | undefined;
+  personal: boolean;
 }) {
+  if (personal && channel.kind === "custom") {
+    return (
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+        <Users className="size-4" aria-hidden="true" />
+      </span>
+    );
+  }
   if (channel.kind === "dm" && channel.otherParticipant) {
     return (
       <ProfileAvatar
@@ -358,13 +425,13 @@ function ConversationIcon({
 function conversationSubtitle(
   channel: ChatChannel,
   areaKey: string | undefined,
-  startup: StartupWithAreas,
+  startup: StartupWithAreas | null,
 ): string {
   switch (channel.kind) {
     case "startup":
       return "Ceo tim · svi članovi";
     case "area": {
-      const area = startup.areas.find((item) => item.key === areaKey);
+      const area = startup?.areas.find((item) => item.key === areaKey);
       return area ? `Kanal oblasti · ${area.label}` : "Kanal oblasti";
     }
     case "custom":

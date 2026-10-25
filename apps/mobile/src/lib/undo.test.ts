@@ -4,7 +4,9 @@ import type { Id } from '@/convex/_generated/dataModel';
 
 import {
   clearUndo,
+  dropUndo,
   getUndoSnapshotForTest,
+  hasUndo,
   hideUndoBar,
   popUndo,
   pushUndo,
@@ -95,5 +97,52 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     hideUndoBar();
     expect(getUndoSnapshotForTest().bar).toBeNull();
     expect(getUndoSnapshotForTest().stack.length).toBe(1);
+  });
+
+  test('K12 — pushUndo vraća ključ; hasUndo pita pre popUndo da ne skloni tuđu traku', () => {
+    const done = pushUndo({
+      label: 'Završeno: Faktura',
+      action: { kind: 'personalTaskStatus', personalTaskId: 'p1' as Id<'personalTasks'>, status: 'open' },
+    });
+    expect(hasUndo(done)).toBe(true);
+    popUndo(done);
+    expect(hasUndo(done)).toBe(false);
+    push('Druga radnja', 'b');
+    // Već skinuta stavka: pozivalac ne zove popUndo, pa traka druge radnje ostaje.
+    expect(hasUndo(done)).toBe(false);
+    expect(getUndoSnapshotForTest().bar?.label).toBe('Druga radnja');
+  });
+
+  test('K12 — dropUndo skida staru stavku, a traka nove radnje ostaje', () => {
+    const old = pushUndo({
+      label: 'Završeno: Faktura',
+      action: { kind: 'personalTaskStatus', personalTaskId: 'p1' as Id<'personalTasks'>, status: 'open' },
+    });
+    push('Novija radnja', 'n');
+    dropUndo(old);
+    const { stack, bar } = getUndoSnapshotForTest();
+    expect(stack.map((entry) => entry.label)).toEqual(['Novija radnja']);
+    expect(bar?.label).toBe('Novija radnja');
+    // Stavka na traci: dropUndo sklanja i traku; nepostojeći ključ ne radi ništa.
+    const visible = getUndoSnapshotForTest().bar!.key;
+    dropUndo(visible);
+    expect(getUndoSnapshotForTest().bar).toBeNull();
+    dropUndo(9999);
+    expect(getUndoSnapshotForTest().stack).toEqual([]);
+  });
+
+  test('K12 — druga radnja trake („Otvori") ide uz stavku; bez nje polja nema', () => {
+    let opened = 0;
+    pushUndo({
+      label: 'Dodato u Cluck Rush · Marketing.',
+      action: { kind: 'pageCreate', startupId: 's1' as Id<'startups'>, pageId: 'pg1' as Id<'pages'> },
+      secondary: { label: 'Otvori', onPress: () => (opened += 1) },
+    });
+    const bar = getUndoSnapshotForTest().bar;
+    expect(bar?.secondary?.label).toBe('Otvori');
+    bar?.secondary?.onPress();
+    expect(opened).toBe(1);
+    push('Bez druge radnje', 'c');
+    expect('secondary' in (getUndoSnapshotForTest().bar ?? {})).toBe(false);
   });
 });

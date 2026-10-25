@@ -1,23 +1,34 @@
 import { StyleSheet, Text, View, type ViewProps, type TextProps } from 'react-native';
 
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, text } from '@/theme/tokens';
 
-export type CardProps = ViewProps;
+export type CardProps = ViewProps & {
+  /**
+   * Dodirljiva kartica: utisne se na pritisak (`PressableScale`, K19) i dobije
+   * podlogu pritiska; bez `onPress`/`onLongPress` ostaje običan `View`.
+   */
+  onPress?: () => void;
+  onLongPress?: () => void;
+};
 
 /** Osnovna kartica — površina `card` sa suptilnom ivicom, po uzoru na web `Card`. */
-export function Card({ style, ...rest }: CardProps) {
+export function Card({ style, onPress, onLongPress, ...rest }: CardProps) {
   const colors = useThemeColors();
-  return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-        style,
-      ]}
-      {...rest}
-    />
-  );
+  const surface = [styles.card, { backgroundColor: colors.surface, borderColor: colors.border }];
+  if (onPress || onLongPress) {
+    return (
+      <PressableScale
+        accessibilityRole="button"
+        {...rest}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        style={({ pressed }) => [surface, pressed && { backgroundColor: colors.muted }, style]}
+      />
+    );
+  }
+  return <View style={[surface, style]} {...rest} />;
 }
 
 export function CardHeader({ style, ...rest }: ViewProps) {

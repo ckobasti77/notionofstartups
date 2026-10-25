@@ -212,7 +212,7 @@ export function MessageBubble({
                 </>
               )}
 
-              <View style={[styles.meta, { opacity: isOwn ? 0.75 : 1 }]}>
+              <View style={styles.meta}>
                 {message.editedAt && !message.deleted ? (
                   <Text style={[styles.metaText, { color: metaColor }]}>izmenjeno</Text>
                 ) : null}
@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   metaText: {
-    fontSize: 11,
+    fontSize: 13,
     fontVariant: ['tabular-nums'],
   },
   reactions: {

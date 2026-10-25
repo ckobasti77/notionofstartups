@@ -192,22 +192,27 @@ function UnreadIndicator({ channel }: { channel: ChatChannel }) {
   if (channel.mentionCount > 0) {
     return (
       <Badge variant="default" className="tabular-nums">
-        @{channel.mentionCount > 99 ? "99+" : channel.mentionCount}
+        <span aria-hidden="true">@{channel.mentionCount > 99 ? "99+" : channel.mentionCount}</span>
+        <span className="sr-only">
+          {channel.mentionCount > 99 ? "Više od 99" : channel.mentionCount} pominjanja
+        </span>
       </Badge>
     );
   }
   if (channel.unreadCount > 0) {
     if (channel.notificationLevel === "mentions") {
       return (
-        <span
-          aria-label="Nova poruka"
-          className="size-2 shrink-0 rounded-full bg-primary/70"
-        />
+        <span className="size-2 shrink-0 rounded-full bg-primary/70">
+          <span className="sr-only">Nova poruka</span>
+        </span>
       );
     }
     return (
       <Badge variant="default" className="tabular-nums">
-        {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+        <span aria-hidden="true">{channel.unreadCount > 99 ? "99+" : channel.unreadCount}</span>
+        <span className="sr-only">
+          {channel.unreadCount > 99 ? "Više od 99" : channel.unreadCount} nepročitanih
+        </span>
       </Badge>
     );
   }

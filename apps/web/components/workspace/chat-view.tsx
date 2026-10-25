@@ -6,6 +6,8 @@ import { MessagesSquare } from "lucide-react";
 
 import { ChannelList } from "@/components/workspace/chat/channel-list";
 import { ConversationPane } from "@/components/workspace/chat/conversation-pane";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/workspace/workspace-ui";
 import type {
   ProfileWithAvatar,
@@ -79,7 +81,33 @@ export function ChatView({
             members={members}
             onOpenList={onOpenList}
             onOpenPage={onOpenPage}
+            // Ulaz nove poruke i u chatu startupa (K19), isto kao u globalnim Porukama.
+            animateArrivals
           />
+        ) : channelId && channels === undefined ? (
+          <div role="status" aria-busy="true" className="flex h-full flex-col gap-4 p-6">
+            <span className="sr-only">Učitavanje razgovora</span>
+            <Skeleton className="h-6 w-48" />
+            <div className="mt-auto space-y-3">
+              <Skeleton className="h-10 w-2/3" />
+              <Skeleton className="ml-auto h-10 w-1/2" />
+              <Skeleton className="h-10 w-3/5" />
+            </div>
+          </div>
+        ) : channelId ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <EmptyState
+              icon={MessagesSquare}
+              title="Razgovor ne postoji"
+              description="Možda je arhiviran ili nemaš pristup."
+              action={
+                <Button type="button" variant="outline" size="sm" onClick={onOpenList}>
+                  Nazad na razgovore
+                </Button>
+              }
+              className="max-w-md border-none bg-transparent"
+            />
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState

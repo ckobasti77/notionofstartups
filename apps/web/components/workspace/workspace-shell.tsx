@@ -1,30 +1,48 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { toast } from "sonner";
-import { gsap } from "gsap";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
-  Bell,
   Building2,
   ExternalLink,
   FileText,
   FolderOutput,
   LoaderCircle,
   Plus,
-  Search,
   Sparkles,
   UserRound,
 } from "lucide-react";
 
+import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
+import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
+import { InboxSkeleton } from "@/components/me/inbox/inbox-skeleton";
+import { MyTasksSkeleton } from "@/components/me/tasks/my-tasks-skeleton";
+import { buildMyDay, firstNameOf, openByStartup, openTodayCount } from "@/components/me/my-day/my-day-model";
+import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
+import {
+  railBadges,
+  railDirection,
+  railKey,
+  type RailScope,
+} from "@/components/me/shell/scope";
+import { MobileScopeHeader } from "@/components/me/shell/mobile-scope-header";
+import type { ScopeChipsProps } from "@/components/me/shell/scope-chips";
+import { ScopeSwap } from "@/components/me/shell/scope-swap";
+import { MotionStage } from "@/components/motion/motion-stage";
+import { ShortcutProvider, useShortcuts } from "@/components/shortcuts/shortcut-provider";
+import { WorkspaceRail } from "@/components/workspace/workspace-rail";
+import { SHELL_SHORTCUTS } from "@/lib/shortcuts/registry";
+import { useToday } from "@/lib/use-today";
 import { ActivityView } from "@/components/workspace/activity-view";
 import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
 import { AreaView } from "@/components/workspace/area-view";
 import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
+import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
 import { HomeView } from "@/components/workspace/home-view";
 import { IdeasView } from "@/components/workspace/ideas-view";
@@ -43,7 +61,6 @@ import { TasksView } from "@/components/workspace/tasks-view";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
 import {
   ProfileAvatar,
-  StartupLogo,
 } from "@/components/workspace/workspace-ui";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
 import {
@@ -56,7 +73,8 @@ import type {
   ThoughtDropTarget,
   ThoughtSidebarDragRequest,
 } from "@/components/workspace/thought-sharing";
-import type { CreatePageTarget, ProfileWithAvatar, WorkspaceRoute } from "@/components/workspace/types";
+import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, WorkspaceRoute } from "@/components/workspace/types";
+import type { InboxNavigation } from "@/components/me/inbox/inbox-container";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +85,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PageEditorSaveState } from "@/components/workspace/page-editor-view";
@@ -84,6 +101,7 @@ import {
 } from "@/components/workspace/workspace-history";
 import {
   isAreasRouteCandidate,
+  isMeRoute,
   readWorkspaceLocation,
   resolvedAreasRoute,
   workspaceRouteAfterStartupSwitch,
@@ -129,10 +147,51 @@ const ThoughtsCanvasView = dynamic(
   },
 );
 
+const MyDayContainer = dynamic(
+  () => import("@/components/me/my-day/my-day-container").then((module) => module.MyDayContainer),
+  { loading: () => <MyDaySkeleton /> },
+);
+
+const MyTasksContainer = dynamic(
+  () => import("@/components/me/tasks/my-tasks-container").then((module) => module.MyTasksContainer),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
+        <MyTasksSkeleton />
+      </div>
+    ),
+  },
+);
+
+const ChatHubContainer = dynamic(
+  () => import("@/components/me/chat/chat-hub-container").then((module) => module.ChatHubContainer),
+  { loading: () => <ChatHubSkeleton /> },
+);
+
+const InboxContainer = dynamic(
+  () => import("@/components/me/inbox/inbox-container").then((module) => module.InboxContainer),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
+        <InboxSkeleton />
+      </div>
+    ),
+  },
+);
+
+/** Prvi prikaz iz URL-a (ljuska se učitava tek na klijentu, posle prijave). */
+function initialRoute(): WorkspaceRoute {
+  if (typeof window === "undefined") return { kind: "home" };
+  const candidate = readWorkspaceLocation(window.location.search).route;
+  return candidate && !isAreasRouteCandidate(candidate) ? candidate : { kind: "home" };
+}
+
 export function WorkspaceShell(props: { profile: ProfileWithAvatar; onSignOut: () => void }) {
   return (
     <WorkspaceHistoryProvider>
-      <WorkspaceShellContent {...props} />
+      <ShortcutProvider>
+        <WorkspaceShellContent {...props} />
+      </ShortcutProvider>
     </WorkspaceHistoryProvider>
   );
 }
@@ -148,7 +207,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     { initialNumItems: 50 },
   );
   const [selectedStartupId, setSelectedStartupId] = useState<Id<"startups"> | null>(null);
-  const [route, setRoute] = useState<WorkspaceRoute>({ kind: "home" });
+  const [route, setRoute] = useState<WorkspaceRoute>(initialRoute);
+  // Poslednji prikaz ličnog nivoa — „Ja" u traci vraća tamo gde si bio.
+  const lastMeRouteRef = useRef<MeRoute>({ kind: "me-today" });
+  // Smer kretanja kroz traku za smenu menija: postavlja ga rukovalac klika i
+  // važi samo za opseg ka kome je postavljen (Nazad/Napred ide bez smera).
+  const [scopeMotion, setScopeMotion] = useState<{ toKey: string; direction: -1 | 0 | 1 }>({
+    toKey: "",
+    direction: 0,
+  });
   const routeResolutionRequestRef = useRef(0);
   const activeStartupIdRef = useRef<Id<"startups"> | null>(null);
   const resetForStartupIdRef = useRef<Id<"startups"> | null>(null);
@@ -163,6 +230,10 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [createOpen, setCreateOpen] = useState(false);
   const [createTarget, setCreateTarget] = useState<CreatePageTarget | undefined>();
   const [createAreaOpen, setCreateAreaOpen] = useState(false);
+  const [quickAdd, setQuickAdd] = useState<{
+    open: boolean;
+    preset: { startupId: Id<"startups"> } | null;
+  }>({ open: false, preset: null });
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
@@ -209,7 +280,27 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     api.notifications.unreadCount,
     startup ? { startupId: startup._id } : "skip",
   );
-  const chatUnread = useQuery(api.chat.unreadSummary, {});
+  // Tolerantno kao ostali brojači: od K08 hrani i bedž „Ja" i meni.
+  const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
+  // Lični nivo: tolerantno — greška brojača ne sme da obori ljusku; bedž se
+  // tada samo ne prikazuje (plan K01 §5).
+  const today = useToday();
+  const inboxUnread = useQueryTolerant(api.inbox.unreadCounts, {});
+  const myDayOverview = useQueryTolerant(api.myDay.overview, {
+    dayKey: today.dayKey,
+    doneSince: today.doneSince,
+  });
+  const myDayStats = useMemo(
+    () =>
+      myDayOverview
+        ? {
+            counts: buildMyDay(myDayOverview, today.now).counts,
+            openByStartup: openByStartup(myDayOverview, today.now),
+            capped: myDayOverview.capped.tasks,
+          }
+        : null,
+    [myDayOverview, today.now],
+  );
   // Tolerantno: pad `pages.get` obara body dijaloga kroz granicu, a footer se
   // degradira na „Autor nije dostupan" umesto da sruši ceo shell.
   const detailPage = useQueryTolerant(
@@ -310,7 +401,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
     if (!candidate) {
       navigateRoute(
-        { kind: "home" },
+        { kind: "me-today" },
         {
           replace: true,
           bypassGuard: true,
@@ -318,7 +409,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         },
       );
       if (location.hasExplicitView) {
-        toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
+        toast.error("Traženi prikaz nije dostupan. Otvoren je Moj dan.");
       }
       return;
     }
@@ -421,28 +512,112 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   ]);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); if (startup) setSearchOpen(true); }
+    if (isMeRoute(route)) lastMeRouteRef.current = route;
+  }, [route]);
+
+  // Promena prikaza ili opsega ume da ukloni element koji je imao fokus (npr.
+  // stavka menija „Ja"); tada fokus ide na sadržaj, ne na body.
+  const routeFocusArmedRef = useRef(false);
+  useEffect(() => {
+    // Prvi prikaz ne krade fokus (skip link i čitač ekrana kreću od vrha).
+    if (!routeFocusArmedRef.current) {
+      routeFocusArmedRef.current = true;
+      return;
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [startup]);
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      document.getElementById("sadrzaj")?.focus({ preventScroll: true });
+    }
+  }, [route]);
+
+  // Ctrl/⌘+K kroz registar prečica — isto ponašanje kao ranije (radi i u
+  // polju i uz otvoren dijalog).
+  useShortcuts([SHELL_SHORTCUTS.search], () => {
+    if (startup) setSearchOpen(true);
+  });
+  // Brzi unos (`q`, K10): svuda isti dijalog; u opsegu startupa je taj
+  // startup unapred izabran (preset), u „Ja" važi zapamćen izbor ili Lično.
+  useShortcuts([SHELL_SHORTCUTS.quickAdd], () => openQuickAdd(), startup !== undefined);
+
+  const railScope: RailScope | null = startup
+    ? isMeRoute(route)
+      ? { kind: "me" }
+      : { kind: "startup", startupId: startup._id }
+    : null;
+  const startupOrder = (startups ?? []).map((item) => item._id as string);
+
+  function markScopeMotion(next: RailScope) {
+    if (!railScope) return;
+    setScopeMotion({
+      toKey: railKey(next),
+      direction: railDirection(railScope, next, startupOrder),
+    });
+  }
+
+  /** „Ja": poslednji lični prikaz (ili zadati); startup ostaje u pozadini. */
+  function goToMe(next?: MeRoute) {
+    const target = next ?? lastMeRouteRef.current;
+    // Isti prikaz: bez novog unosa u istoriji.
+    if (JSON.stringify(target) === JSON.stringify(route)) return;
+    markScopeMotion({ kind: "me" });
+    navigateRoute(target);
+  }
+
+  /**
+   * Otvori nešto u startupu iz ličnog nivoa (npr. stavku iz Moj dan): isti
+   * mehanizam kao izbor startupa, pa po potrebi detalj stranice.
+   */
+  function openInStartup(
+    targetStartupId: Id<"startups">,
+    target: { pageId: Id<"pages"> } | { route: WorkspaceRoute },
+  ) {
+    const nextRoute: WorkspaceRoute =
+      "route" in target ? target.route : { kind: "today" };
+    markScopeMotion({ kind: "startup", startupId: targetStartupId });
+    if (startup?._id !== targetStartupId) {
+      resetForStartupIdRef.current = targetStartupId;
+      if (!navigateRoute(nextRoute, { targetStartupId })) {
+        resetForStartupIdRef.current = null;
+        return;
+      }
+      setSelectedStartupId(targetStartupId);
+      resetStartupLocalState();
+    } else if (!navigateRoute(nextRoute)) {
+      return;
+    }
+    if ("pageId" in target) openPageDetails(target.pageId);
+  }
 
   function selectStartup(nextStartupId: Id<"startups">) {
-    if (startup?._id !== nextStartupId) {
+    // Iz „Ja" je izbor startupa nov unos u istoriji (Nazad vraća u „Ja");
+    // između startupa ostaje zamena kao ranije.
+    const fromMe = isMeRoute(route);
+    const changesStartup = startup?._id !== nextStartupId;
+    markScopeMotion({ kind: "startup", startupId: nextStartupId });
+    if (changesStartup) {
       const nextRoute = workspaceRouteAfterStartupSwitch(route);
       resetForStartupIdRef.current = nextStartupId;
       if (
         !navigateRoute(nextRoute, {
-          replace: true,
+          replace: !fromMe,
           targetStartupId: nextStartupId,
         })
       ) {
         resetForStartupIdRef.current = null;
         return;
       }
+    } else if (fromMe) {
+      // Startup u pozadini je već izabran: samo prelaz u Komandni centar.
+      if (!navigateRoute({ kind: "today" }, { targetStartupId: nextStartupId })) {
+        return;
+      }
     }
     setSelectedStartupId(nextStartupId);
+    // Stablo oblasti i prevlačenja pripadaju startupu: čiste se samo pri promeni.
+    if (changesStartup) resetStartupLocalState();
+  }
+
+  function resetStartupLocalState() {
     setExpandedAreas({});
     setExpandedPageIds(new Set());
     setTransientExpandedAreaIds(new Set());
@@ -663,6 +838,63 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
   useNotificationToasts({ startupId, onOpen: openNotificationTarget });
 
+  /**
+   * Klik na stavku Inbox-a (K14). Startup cilj prebacuje opseg u taj startup i
+   * otvara stranicu/chat/odobrenja/ideje/puls kao `openNotificationTarget`
+   * (isto mapiranje: `notificationDestination`); lični razgovor ostaje u opsegu
+   * „Ja" (`me-chat`).
+   */
+  async function openInboxTarget(target: InboxNavigation) {
+    if (target.kind === "none") return;
+    if (target.kind === "personal-chat") {
+      goToMe(
+        target.channelId === null
+          ? { kind: "me-chat" }
+          : { kind: "me-chat", channelId: target.channelId as Id<"chatChannels"> },
+      );
+      return;
+    }
+    const targetStartupId = target.startupId as Id<"startups">;
+    const { screen, entityId, weekStart } = target.destination;
+    if (screen === "page" && entityId !== null) {
+      try {
+        const value = await convex.query(api.areasV2.resolveRoute, {
+          startupId: targetStartupId,
+          pageId: entityId as Id<"pages">,
+        });
+        const resolved = resolvedAreasRoute(value);
+        if (resolved === null) {
+          toast.error("Sadržaj obaveštenja više ne postoji.");
+          return;
+        }
+        if (resolved.kind === "page") {
+          openInStartup(targetStartupId, { pageId: resolved.pageId });
+          return;
+        }
+        openInStartup(targetStartupId, { route: resolved });
+        toast.info("Sadržaj više nije dostupan; otvorena je njegova oblast.");
+      } catch {
+        toast.error("Sadržaj obaveštenja više ne postoji.");
+      }
+      return;
+    }
+    const route: StartupRoute =
+      screen === "approvals"
+        ? { kind: "approvals" }
+        : screen === "ideas"
+          ? { kind: "ideas" }
+          : screen === "puls"
+            ? weekStart === null
+              ? { kind: "puls" }
+              : { kind: "puls", weekStart }
+            : screen === "chat"
+              ? entityId === null
+                ? { kind: "chat" }
+                : { kind: "chat", channelId: entityId as Id<"chatChannels"> }
+              : { kind: "today" };
+    openInStartup(targetStartupId, { route });
+  }
+
   function resizeDetailCard(preset: ItemSizePreset) {
     if (
       !detailPageId ||
@@ -791,6 +1023,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     setAdminOpen(true);
   }
 
+  /** Brzi unos: iz startupa sa njim unapred izabranim, iz „Ja" bez preseta. */
+  function openQuickAdd() {
+    setQuickAdd({
+      open: true,
+      preset: startup && !isMeRoute(route) ? { startupId: startup._id } : null,
+    });
+  }
+
   function openCreateStartup() {
     setAdminMode("create");
     setAdminOpen(true);
@@ -801,7 +1041,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 
   const sidebarProps = {
     profile,
-    startups,
     startup,
     route,
     collapsed: sidebarCollapsed,
@@ -814,15 +1053,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onCollapsedChange: setSidebarCollapsed,
     onAreaExpandedChange: setAreaExpanded,
     onPageExpandedChange: setPageExpanded,
-    onStartupChange: selectStartup,
     onRouteChange: navigateRoute,
     onCreate: openCreate,
     onCreateArea: () => setCreateAreaOpen(true),
     onSearch: () => setSearchOpen(true),
     onAdmin: openAdmin,
-    onCreateStartup: openCreateStartup,
-    onLoadMoreStartups: () => loadMoreStartups(50),
-    startupsStatus,
     onProfile: () => setProfileOpen(true),
     onSignOut,
     draggedPageId,
@@ -842,13 +1077,175 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onDropPage: handleDropPage,
   };
   const routeKey = route.kind === "page" ? `page:${route.pageId}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
+  const meActive = isMeRoute(route);
+  const currentScope: RailScope = meActive
+    ? { kind: "me" }
+    : { kind: "startup", startupId: startup._id };
+  const railStartups = startups.map((item) => ({
+    id: item._id,
+    name: item.name,
+    logoUrl: item.logoUrl,
+  }));
+  const badges = railBadges(inboxUnread, chatUnread);
+  const meSidebarProps: MeSidebarProps = {
+    profile,
+    active: meActive ? route.kind : null,
+    counts: {
+      today: myDayStats ? openTodayCount(myDayStats.counts) : null,
+      inbox: inboxUnread?.total.count ?? null,
+      inboxCapped: inboxUnread?.total.capped ?? false,
+      chat: chatUnread?.total.unreadCount ?? null,
+    },
+    startups: railStartups.map((item) => ({
+      ...item,
+      openCount: myDayStats ? (myDayStats.openByStartup[item.id] ?? 0) : null,
+      capped: myDayStats?.capped ?? false,
+    })),
+    onNavigate: (key) => goToMe({ kind: key }),
+    onOpenStartup: selectStartup,
+  };
+  const scopeChipsProps: ScopeChipsProps = {
+    profile,
+    startups: railStartups,
+    active: currentScope,
+    badges,
+    onSelectMe: () => goToMe(),
+    onSelectStartup: selectStartup,
+    onCreateStartup: profile.role === "admin" ? openCreateStartup : undefined,
+  };
+  const meTitle =
+    route.kind === "me-tasks"
+      ? "Moji zadaci"
+      : route.kind === "me-inbox"
+        ? "Inbox"
+        : route.kind === "me-chat"
+          ? "Poruke"
+          : "Moj dan";
+  const notificationCount = meActive
+    ? (inboxUnread?.total.count ?? 0)
+    : (unreadNotifications?.count ?? 0);
+  const notificationCapped = meActive
+    ? (inboxUnread?.total.capped ?? false)
+    : (unreadNotifications?.capped ?? false);
   return (
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
-      <WorkspaceSidebar {...sidebarProps} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl lg:hidden"><MobileWorkspaceMenu {...sidebarProps} /><StartupLogo startup={startup} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{startup.name}</p><p className="truncate text-[0.6875rem] text-muted-foreground">{route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Danas" : route.kind === "chat" ? "Chat" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor"}</p></div><Button variant="ghost" size="icon" aria-label="Pretraži" onClick={() => setSearchOpen(true)}><Search /></Button><Button variant="ghost" size="icon" className="relative" aria-label={`Obaveštenja${(unreadNotifications?.count ?? 0) > 0 ? `, ${unreadNotifications?.count} nepročitano` : ""}`} onClick={() => setNotificationsOpen(true)}><Bell />{(unreadNotifications?.count ?? 0) > 0 ? <span aria-hidden="true" className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[0.625rem] font-bold leading-4 tabular-nums text-primary-foreground">{unreadNotifications?.capped ? "99+" : unreadNotifications?.count}</span> : null}</Button><ThemeToggle /></header>
-        <WorkspaceStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat"}>
-          {route.kind === "home" ? (
+      <a
+        href="#sadrzaj"
+        onClick={(event) => {
+          // Bez promene hash-a: ne pravi `popstate` ni trag u URL-u ljuske.
+          event.preventDefault();
+          document.getElementById("sadrzaj")?.focus();
+        }}
+        className="sr-only z-50 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground focus:not-sr-only focus:absolute focus:left-3 focus:top-3"
+      >
+        Preskoči na sadržaj
+      </a>
+      <WorkspaceRail
+        profile={profile}
+        startups={railStartups}
+        active={currentScope}
+        isAdmin={profile.role === "admin"}
+        badges={badges}
+        onSelectMe={() => goToMe()}
+        onSelectStartup={selectStartup}
+        onCreateStartup={openCreateStartup}
+        onLoadMore={
+          startupsStatus === "CanLoadMore" || startupsStatus === "LoadingMore"
+            ? () => loadMoreStartups(50)
+            : undefined
+        }
+        loadingMore={startupsStatus === "LoadingMore"}
+        onProfile={() => setProfileOpen(true)}
+        onSignOut={onSignOut}
+      />
+      <ScopeSwap
+        scopeKey={railKey(currentScope)}
+        direction={
+          scopeMotion.toKey === railKey(currentScope) ? scopeMotion.direction : 0
+        }
+        className="hidden h-dvh shrink-0 lg:flex"
+      >
+        {meActive ? (
+          <aside className="h-dvh w-[18.5rem] shrink-0 border-r border-sidebar-border bg-sidebar">
+            <MeSidebar {...meSidebarProps} />
+          </aside>
+        ) : (
+          <WorkspaceSidebar {...sidebarProps} />
+        )}
+      </ScopeSwap>
+      <div id="sadrzaj" tabIndex={-1} className="flex min-w-0 flex-1 flex-col outline-none">
+        <MobileScopeHeader
+          menu={<MobileWorkspaceMenu {...sidebarProps} scopeChips={scopeChipsProps} me={meActive ? meSidebarProps : null} />}
+          scope={
+            meActive
+              ? { kind: "me", profile, title: meTitle }
+              : {
+                  kind: "startup",
+                  startup,
+                  subtitle: route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Komandni centar" : route.kind === "chat" ? "Poruke" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor",
+                  onSearch: () => setSearchOpen(true),
+                }
+          }
+          notifications={{
+            label: meActive ? "Inbox" : "Obaveštenja",
+            count: notificationCount,
+            capped: notificationCapped,
+            onOpen: () => (meActive ? goToMe({ kind: "me-inbox" }) : setNotificationsOpen(true)),
+          }}
+          onQuickAdd={meActive ? openQuickAdd : undefined}
+        />
+        <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat" || route.kind === "me-chat"}>
+          {route.kind === "me-today" ? (
+            <WorkspaceErrorBoundary key="me-today" title="Moj dan se ne može učitati" className="m-4 min-h-[20rem]">
+              <MyDayContainer
+                today={today}
+                firstName={firstNameOf(profile.displayName)}
+                profileId={profile._id}
+                startups={startups}
+                onOpenTask={(taskStartupId, pageId) =>
+                  openInStartup(taskStartupId, { pageId })
+                }
+                onOpenTasks={() => goToMe({ kind: "me-tasks" })}
+                onQuickAdd={openQuickAdd}
+                onOpenInbox={() => goToMe({ kind: "me-inbox" })}
+                onOpenChat={() => goToMe({ kind: "me-chat" })}
+                onOpenApprovals={(approvalsStartupId) =>
+                  openInStartup(approvalsStartupId, { route: { kind: "approvals" } })
+                }
+              />
+            </WorkspaceErrorBoundary>
+          ) : route.kind === "me-tasks" ? (
+            <WorkspaceErrorBoundary key="me-tasks" title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <MyTasksContainer
+                today={today}
+                profileId={profile._id}
+                startups={startups}
+                onQuickAdd={openQuickAdd}
+                onOpenInStartup={(taskStartupId, pageId) => openInStartup(taskStartupId, { pageId })}
+              />
+            </WorkspaceErrorBoundary>
+          ) : route.kind === "me-inbox" ? (
+            <WorkspaceErrorBoundary key="me-inbox" title="Inbox se ne može učitati" className="m-4 min-h-[20rem]">
+              <InboxContainer
+                today={today}
+                startups={startups}
+                onNavigate={openInboxTarget}
+                onOpenSettings={() => setNotificationSettingsOpen(true)}
+              />
+            </WorkspaceErrorBoundary>
+          ) : route.kind === "me-chat" ? (
+            <WorkspaceErrorBoundary key="me-chat" title="Poruke se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <ChatHubContainer
+                today={today}
+                profile={profile}
+                startups={startups}
+                channelId={route.channelId ?? null}
+                onSelectChannel={(channelId) => navigateRoute({ kind: "me-chat", channelId })}
+                onBackToList={() => navigateRoute({ kind: "me-chat" })}
+                onOpenInStartup={openInStartup}
+              />
+            </WorkspaceErrorBoundary>
+          ) : route.kind === "home" ? (
             <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
             <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
@@ -861,9 +1258,29 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               }
             />
           ) : route.kind === "today" ? (
-            <CommandCenterView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar se ne može učitati" className="m-4 min-h-[20rem]">
+              <CommandCenterView
+                startup={startup}
+                profile={profile}
+                today={today}
+                startups={startups}
+                onOpenPage={openPageDetails}
+                onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
+                onCreateTask={() => openCreate({ initialKind: "task" })}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "my-tasks" ? (
-            <TasksView startup={startup} profile={profile} onOpenPage={openPageDetails} onCreateTask={() => openCreate({ initialKind: "task" })} />
+            <WorkspaceErrorBoundary key={`my-tasks-${startup._id}`} title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <TasksView
+                startup={startup}
+                profile={profile}
+                today={today}
+                startups={startups}
+                onOpenPage={openPageDetails}
+                onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
+                onCreateTask={() => openCreate({ initialKind: "task" })}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "puls" ? (
             <PulsView
               startup={startup}
@@ -936,7 +1353,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             />
             </WorkspaceErrorBoundary>
           )}
-        </WorkspaceStage>
+        </MotionStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
       <NotificationsSheet
@@ -1115,7 +1532,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         </DialogContent>
       </Dialog>
 
-      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} target={createTarget} onCreated={openPageDetails} />
+      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} profileId={profile._id} now={today.now} target={createTarget} onCreated={openPageDetails} />
+      <QuickAddContainer
+        open={quickAdd.open}
+        onOpenChange={(open) => setQuickAdd((current) => ({ ...current, open }))}
+        today={today}
+        profileId={profile._id}
+        startups={startups}
+        preset={quickAdd.preset}
+        onOpenTask={(taskStartupId, pageId) => openInStartup(taskStartupId, { pageId })}
+      />
       <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => navigateRoute({ kind: "area", areaId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
         setSearchOpen(false);
@@ -1129,22 +1555,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${adminMode}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={adminMode === "create" ? undefined : startup} onStartupCreated={selectStartup} onCreateStartup={openCreateStartup} /> : null}
     </div>
   );
-}
-
-function WorkspaceStage({ children, viewKey, contained = false }: { children: React.ReactNode; viewKey: string; contained?: boolean }) {
-  const ref = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const context = gsap.context(() => {
-      const items = ref.current
-        ? Array.from(ref.current.querySelectorAll<HTMLElement>("[data-workspace-enter]"))
-        : [];
-      if (items.length === 0) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { gsap.set(items, { clearProps: "all" }); return; }
-      gsap.timeline({ defaults: { ease: "power3.out" } }).fromTo(items, { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.42, stagger: 0.055, clearProps: "all" });
-    }, ref);
-    return () => context.revert();
-  }, [viewKey]);
-  return <main ref={ref} className={contained ? "min-h-0 flex-1 overflow-hidden" : "scrollbar-thin min-h-0 flex-1 overflow-y-auto"}>{children}</main>;
 }
 
 function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary" /> Otvaram radni prostor…</div></main></div>; }

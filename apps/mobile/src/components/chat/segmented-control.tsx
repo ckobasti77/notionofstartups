@@ -49,6 +49,8 @@ export function SegmentedControl<T extends string>({
             ]}>
             <Text
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
               style={[
                 styles.label,
                 { color: active ? colors.foreground : colors.mutedForeground },

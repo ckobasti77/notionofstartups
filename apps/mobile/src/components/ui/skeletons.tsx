@@ -102,7 +102,7 @@ export function SkeletonCard({
   );
 }
 
-/** Oblik `danas/task-card.tsx`: naslov + stack izvršilaca, pa red meta-pilula. */
+/** Oblik reda zadatka: naslov + stack izvršilaca, pa red meta-pilula. */
 export function SkeletonTaskCard({ index = 0 }: { index?: number }) {
   return (
     <SkeletonCard style={styles.taskCard}>
@@ -117,6 +117,22 @@ export function SkeletonTaskCard({ index = 0 }: { index?: number }) {
         <Skeleton width={44} height={20} borderRadius={radius.pill} />
       </View>
     </SkeletonCard>
+  );
+}
+
+/**
+ * Oblik reda `me/task-row` (K20): bez kartice i ivice, kvačica 24 + naslov i
+ * jedna linija meta, visina 56 — lista ne skače kad stignu pravi redovi.
+ */
+export function SkeletonTaskRow({ index = 0 }: { index?: number }) {
+  return (
+    <View style={styles.taskRow}>
+      <Skeleton width={24} height={24} borderRadius={radius.pill} />
+      <View style={styles.taskRowBody}>
+        <Skeleton width={titleWidth(index)} height={16} />
+        <Skeleton width={subtitleWidth(index)} height={13} />
+      </View>
+    </View>
   );
 }
 
@@ -186,6 +202,17 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingVertical: 6,
+  },
+  taskRowBody: {
+    flex: 1,
+    gap: 6,
   },
   taskCard: {
     gap: 12,

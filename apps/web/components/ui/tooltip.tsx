@@ -3,20 +3,9 @@
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
+import { usePopEnter } from "@/lib/motion";
+import { TooltipProvider } from "@/components/ui/tooltip-provider";
 import { cn } from "@/lib/utils";
-
-function TooltipProvider({
-  delayDuration = 0,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
-  return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
-  );
-}
 
 function Tooltip(props: React.ComponentProps<typeof TooltipPrimitive.Root>) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
@@ -26,19 +15,26 @@ function TooltipTrigger(props: React.ComponentProps<typeof TooltipPrimitive.Trig
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
+/**
+ * Tooltip. Ulaz animira GSAP (`usePopEnter`: neprozirnost + scale 0,98 → 1,
+ * `quick`, iz tačke okidača), ne `tw-animate-css`; izlaz je odmah.
+ */
 function TooltipContent({
   className,
   sideOffset = 6,
   children,
+  ref,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  const enterRef = usePopEnter<HTMLDivElement>(ref);
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
+        ref={enterRef}
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-fit max-w-64 origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-md data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
+          "z-50 w-fit max-w-64 origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-md",
           className,
         )}
         {...props}

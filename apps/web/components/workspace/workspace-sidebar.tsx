@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -8,10 +14,10 @@ import {
   Activity,
   Bell,
   Brain,
-  CalendarDays,
   CheckSquare2,
   ChevronDown,
   ChevronsUpDown,
+  Gauge,
   GripVertical,
   HeartPulse,
   Home,
@@ -29,8 +35,13 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
+import { DURATION } from "@devotion/shared";
 
 import { AppMark } from "@/components/app-mark";
+import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
+import { StartupChip } from "@/components/me/startup-chip";
+import { ScopeChips, type ScopeChipsProps } from "@/components/me/shell/scope-chips";
+import { Collapse } from "@/components/motion/collapse";
 import { PageTree } from "@/components/workspace/page-tree";
 import type {
   CreatePageTarget,
@@ -43,7 +54,6 @@ import {
   AREA_ICONS,
   getAreaTint,
   ProfileAvatar,
-  StartupLogo,
 } from "@/components/workspace/workspace-ui";
 import { Blocks } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -77,7 +87,6 @@ import type { AreaKey } from "@/lib/workspace";
 
 type WorkspaceSidebarProps = {
   profile: ProfileWithAvatar;
-  startups: Array<StartupWithAreas>;
   startup: StartupWithAreas;
   route: WorkspaceRoute;
   collapsed: boolean;
@@ -90,16 +99,11 @@ type WorkspaceSidebarProps = {
   onCollapsedChange: (collapsed: boolean) => void;
   onAreaExpandedChange: (areaId: Id<"startupAreas">, expanded: boolean) => void;
   onPageExpandedChange: (pageId: Id<"pages">, expanded: boolean) => void;
-  onStartupChange: (startupId: Id<"startups">) => void;
   onRouteChange: (route: WorkspaceRoute) => void;
   onCreate: (target?: CreatePageTarget) => void;
   onCreateArea: () => void;
   onSearch: () => void;
   onAdmin: () => void;
-  onCreateStartup: () => void;
-  onLoadMoreStartups: () => void;
-  startupsStatus:
-    "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
   onProfile: () => void;
   onSignOut: () => void;
   draggedPageId: Id<"pages"> | null;
@@ -124,7 +128,7 @@ type WorkspaceSidebarProps = {
 
 const primaryNav = [
   { kind: "home" as const, label: "Početna", icon: Home },
-  { kind: "chat" as const, label: "Chat", icon: MessageCircle },
+  { kind: "chat" as const, label: "Poruke", icon: MessageCircle },
   {
     kind: "thoughts" as const,
     label: "Moje misli",
@@ -133,7 +137,7 @@ const primaryNav = [
   },
   { kind: "ideas" as const, label: "Ideje", icon: Lightbulb, hint: "Glasanje" },
   { kind: "approvals" as const, label: "Odobrenja", icon: ShieldCheck },
-  { kind: "today" as const, label: "Danas", icon: CalendarDays },
+  { kind: "today" as const, label: "Komandni centar", icon: Gauge },
   { kind: "my-tasks" as const, label: "Moji zadaci", icon: CheckSquare2 },
   { kind: "activity" as const, label: "Aktivnost", icon: Activity },
   { kind: "puls" as const, label: "Puls", icon: HeartPulse, hint: "Nedeljno" },
@@ -223,12 +227,12 @@ function SidebarButton({
       <TooltipContent side="right">
         <span className="block font-medium">{label}</span>
         {badge && badge > 0 ? (
-          <span className="block text-[0.6875rem] text-muted-foreground">
+          <span className="block text-[0.6875rem] text-background/70">
             {badge} za tvoju reakciju
           </span>
         ) : null}
         {hint ? (
-          <span className="block text-[0.6875rem] text-muted-foreground">
+          <span className="block text-[0.6875rem] text-background/70">
             {hint}
           </span>
         ) : null}
@@ -237,91 +241,52 @@ function SidebarButton({
   );
 }
 
-function StartupPicker({
-  startups,
+/**
+ * Identitet izabranog startupa na vrhu menija. Startup se bira u traci
+ * „Ja + startupi" (≥ lg) ili u redu opsega mobilnog menija (PLAN §3.2), pa
+ * ovde više nema padajućeg birača.
+ */
+function StartupIdentity({
   startup,
   collapsed,
-  onChange,
-  onCreate,
-  onLoadMore,
-  startupsStatus,
 }: {
-  startups: Array<StartupWithAreas>;
   startup: StartupWithAreas;
   collapsed: boolean;
-  onChange: (startupId: Id<"startups">) => void;
-  onCreate: () => void;
-  onLoadMore: () => void;
-  startupsStatus:
-    "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Izabrani startup: ${startup.name}. Promeni startup.`}
-          className={cn(
-            "flex min-h-11 w-full items-center gap-3 rounded-xl border border-sidebar-border/80 bg-card/70 px-2.5 text-left shadow-sm transition-colors hover:bg-card",
-            collapsed &&
-              "justify-center border-transparent bg-transparent px-0 shadow-none",
-          )}
-        >
-          <StartupLogo startup={startup} className="shadow-sm" />
-          {collapsed ? null : (
-            <>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Startup
-                </span>
-                <span className="block truncate text-sm font-semibold text-sidebar-foreground">
-                  {startup.name}
-                </span>
-              </span>
-              <ChevronsUpDown className="size-4 text-muted-foreground" />
-            </>
-          )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel>Izaberi startup</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {startups.map((item) => (
-          <DropdownMenuItem key={item._id} onSelect={() => onChange(item._id)}>
-            <StartupLogo startup={item} className="size-7 rounded-md" />
-            <span className="truncate">{item.name}</span>
-          </DropdownMenuItem>
-        ))}
-        {startupsStatus === "CanLoadMore" ||
-        startupsStatus === "LoadingMore" ? (
-          <DropdownMenuItem
-            disabled={startupsStatus === "LoadingMore"}
-            onSelect={onLoadMore}
-          >
-            <ChevronDown
-              className={cn(
-                "size-4",
-                startupsStatus === "LoadingMore" && "animate-bounce",
-              )}
-            />
-            {startupsStatus === "LoadingMore"
-              ? "Učitavam startupove…"
-              : "Učitaj još startupova"}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onCreate}>
-          <Plus className="size-4" /> Dodaj startup
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div
+      title={collapsed ? startup.name : undefined}
+      className={cn(
+        "flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5",
+        collapsed && "justify-center px-0",
+      )}
+    >
+      <StartupChip startup={startup} size="md" variant="solid" className="shadow-sm" />
+      {collapsed ? (
+        <span className="sr-only">{startup.name}</span>
+      ) : (
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Startup
+          </span>
+          <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+            {startup.name}
+          </span>
+        </span>
+      )}
+    </div>
   );
 }
 
-function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
+function SidebarContent(
+  props: WorkspaceSidebarProps & {
+    mobile?: boolean;
+    /** Red opsega (Ja + startupi) ispod zaglavlja u mobilnom meniju. */
+    scopeSlot?: ReactNode;
+  },
+) {
   const {
     profile,
-    startups,
     startup,
     route,
     collapsed,
@@ -434,6 +399,8 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
         className={cn(
           "flex items-center gap-2 p-3",
           compact && "flex-col px-2",
+          // Mesto za X dugme mobilnog Sheet-a (top-4 right-4).
+          mobile && "pr-12",
         )}
       >
         <div
@@ -491,6 +458,8 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
         )}
       </div>
 
+      {props.scopeSlot}
+
       <div ref={panesRef} className="flex min-h-0 flex-1 flex-col">
         <div
           ref={primaryPaneRef}
@@ -504,16 +473,8 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
           }}
         >
           <ScrollArea className="h-full pb-2">
-            <div className={cn("px-3 pb-3", compact && "px-2")}>
-              <StartupPicker
-                startups={startups}
-                startup={startup}
-                collapsed={compact}
-                onChange={props.onStartupChange}
-                onCreate={props.onCreateStartup}
-                onLoadMore={props.onLoadMoreStartups}
-                startupsStatus={props.startupsStatus}
-              />
+            <div className={cn("px-3 pb-3", compact && "px-2", props.scopeSlot && "pt-3")}>
+              <StartupIdentity startup={startup} collapsed={compact} />
             </div>
 
             <div className={cn("space-y-1 px-3", compact && "px-2")}>
@@ -743,6 +704,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                         data-compact="true"
                         className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
                         aria-expanded={expanded}
+                        aria-controls={`${sidebarInstanceId}-oblast-${area._id}`}
                         aria-label={
                           expanded
                             ? `Sakrij ${area.label}`
@@ -757,6 +719,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                             "size-3.5 transition-transform",
                             !expanded && "-rotate-90",
                           )}
+                          style={{ transitionDuration: `${DURATION.quick}ms` }}
                         />
                       </button>
                       {editingAreaId === area._id ? (
@@ -841,7 +804,9 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                         </div>
                       ) : null}
                     </div>
-                    {expanded ? (
+                    {/* Otvaranje/zatvaranje oblasti kroz `Collapse` (K19); stablo se
+                        montira tek kad je oblast otvorena, kao i ranije. */}
+                    <Collapse open={expanded} id={`${sidebarInstanceId}-oblast-${area._id}`} unmountWhenClosed>
                       <PageTree
                         startupId={startup._id}
                         areaId={area._id}
@@ -869,7 +834,7 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
                         onDragPageOver={props.onDragPageOver}
                         onDropPage={props.onDropPage}
                       />
-                    ) : null}
+                    </Collapse>
                   </div>
                 );
               })}
@@ -878,64 +843,67 @@ function SidebarContent(props: WorkspaceSidebarProps & { mobile?: boolean }) {
         </div>
       </div>
 
-      <div
-        className={cn(
-          "border-t border-sidebar-border/80 p-3",
-          compact && "px-2",
-        )}
-      >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                "mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2 text-left hover:bg-sidebar-accent/60",
-                compact && "justify-center px-0",
-              )}
-              aria-label="Meni profila"
-            >
-              <ProfileAvatar profile={profile} className="size-8" />
-              {compact ? null : (
-                <>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">
-                      {profile.displayName}
+      {/* Na desktopu profil, tema i odjava žive u traci „Ja + startupi". */}
+      {mobile ? (
+        <div
+          className={cn(
+            "border-t border-sidebar-border/80 p-3",
+            compact && "px-2",
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2 text-left hover:bg-sidebar-accent/60",
+                  compact && "justify-center px-0",
+                )}
+                aria-label="Meni profila"
+              >
+                <ProfileAvatar profile={profile} className="size-8" />
+                {compact ? null : (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">
+                        {profile.displayName}
+                      </span>
+                      <span className="block truncate text-[0.6875rem] text-muted-foreground">
+                        {profile.role === "admin" ? "Administrator" : "Član tima"}
+                      </span>
                     </span>
-                    <span className="block truncate text-[0.6875rem] text-muted-foreground">
-                      {profile.role === "admin" ? "Administrator" : "Član tima"}
-                    </span>
-                  </span>
-                  <ChevronsUpDown className="size-4 text-muted-foreground" />
-                </>
-              )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-60">
-            <DropdownMenuLabel>
-              <span className="block truncate">{profile.displayName}</span>
-              <span className="block truncate text-xs font-normal text-muted-foreground">
-                {profile.email}
-              </span>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={props.onProfile}>
-              <UserRound /> Moj profil
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(event) => event.preventDefault()}
-              className="p-0"
-            >
-              <ThemeToggle
-                showLabel
-                className="h-9 w-full justify-start border-0 bg-transparent shadow-none"
-              />
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={props.onSignOut} variant="destructive">
-              <LogOut /> Odjavi se
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+                    <ChevronsUpDown className="size-4 text-muted-foreground" />
+                  </>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-60">
+              <DropdownMenuLabel>
+                <span className="block truncate">{profile.displayName}</span>
+                <span className="block truncate text-xs font-normal text-muted-foreground">
+                  {profile.email}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={props.onProfile}>
+                <UserRound /> Moj profil
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => event.preventDefault()}
+                className="p-0"
+              >
+                <ThemeToggle
+                  showLabel
+                  className="h-9 w-full justify-start border-0 bg-transparent shadow-none"
+                />
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={props.onSignOut} variant="destructive">
+                <LogOut /> Odjavi se
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1067,47 +1035,78 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   );
 }
 
-export function MobileWorkspaceMenu(props: WorkspaceSidebarProps) {
-  const [open, setOpen] = useState(false);
+/** Sadržaj mobilnog menija bez Sheet okvira (izlog ga prikazuje u mestu). */
+export type MobileMenuPanelProps = WorkspaceSidebarProps & {
+  scopeChips: ScopeChipsProps;
+  /** Meni opsega „Ja"; `null` = opseg startupa. */
+  me: MeSidebarProps | null;
+};
+
+/**
+ * Meni ispod `lg` (PLAN §3.2): na vrhu red „Ja" + čipovi startupa, ispod meni
+ * aktivnog opsega — „Moj prostor" (`me`) ili postojeći meni startupa.
+ * `onClose` se zove posle svake radnje koja vodi negde.
+ */
+export function MobileMenuPanel({ onClose, ...props }: MobileMenuPanelProps & { onClose: () => void }) {
+  const close = <Args extends unknown[]>(handler: (...args: Args) => void) =>
+    (...args: Args) => {
+      handler(...args);
+      onClose();
+    };
   const mobileProps: WorkspaceSidebarProps = {
     ...props,
-    onStartupChange: (startupId) => {
-      props.onStartupChange(startupId);
-      setOpen(false);
-    },
-    onRouteChange: (route) => {
-      props.onRouteChange(route);
-      setOpen(false);
-    },
-    onCreate: (target) => {
-      props.onCreate(target);
-      setOpen(false);
-    },
-    onCreateArea: () => {
-      props.onCreateArea();
-      setOpen(false);
-    },
-    onSearch: () => {
-      props.onSearch();
-      setOpen(false);
-    },
-    onOpenNotifications: () => {
-      props.onOpenNotifications();
-      setOpen(false);
-    },
-    onAdmin: () => {
-      props.onAdmin();
-      setOpen(false);
-    },
-    onProfile: () => {
-      props.onProfile();
-      setOpen(false);
-    },
+    onRouteChange: close(props.onRouteChange),
+    onCreate: close(props.onCreate),
+    onCreateArea: close(props.onCreateArea),
+    onSearch: close(props.onSearch),
+    onOpenNotifications: close(props.onOpenNotifications),
+    onAdmin: close(props.onAdmin),
+    onProfile: close(props.onProfile),
     onSignOut: () => {
-      setOpen(false);
+      onClose();
       props.onSignOut();
     },
   };
+  const scope = (
+    <ScopeChips
+      {...props.scopeChips}
+      onSelectMe={close(props.scopeChips.onSelectMe)}
+      onSelectStartup={close(props.scopeChips.onSelectStartup)}
+      onCreateStartup={
+        props.scopeChips.onCreateStartup ? close(props.scopeChips.onCreateStartup) : undefined
+      }
+      className="shrink-0 border-b border-sidebar-border/80"
+    />
+  );
+  if (!props.me) {
+    return <SidebarContent {...mobileProps} mobile collapsed={false} scopeSlot={scope} />;
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+      <div className="flex items-center gap-2 p-3 pr-12">
+        <AppMark className="size-8" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold tracking-[-0.02em]">Devotion</p>
+          <p className="truncate text-[0.6875rem] text-muted-foreground">Tim u jednom toku</p>
+        </div>
+      </div>
+      {scope}
+      <MeSidebar
+        {...props.me}
+        className="min-h-0 flex-1"
+        onNavigate={close(props.me.onNavigate)}
+        onOpenStartup={close(props.me.onOpenStartup)}
+        account={{
+          onProfile: mobileProps.onProfile,
+          onSignOut: mobileProps.onSignOut,
+        }}
+      />
+    </div>
+  );
+}
+
+export function MobileWorkspaceMenu(props: MobileMenuPanelProps) {
+  const [open, setOpen] = useState(false);
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -1126,9 +1125,9 @@ export function MobileWorkspaceMenu(props: WorkspaceSidebarProps) {
       >
         <SheetTitle className="sr-only">Navigacija</SheetTitle>
         <SheetDescription className="sr-only">
-          Startup, stranice i podešavanja.
+          Opsezi, meni izabranog opsega i podešavanja.
         </SheetDescription>
-        <SidebarContent {...mobileProps} mobile collapsed={false} />
+        <MobileMenuPanel {...props} onClose={() => setOpen(false)} />
       </SheetContent>
     </Sheet>
   );

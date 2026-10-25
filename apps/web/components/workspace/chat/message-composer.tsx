@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { insertAtTop, useMutation } from "convex/react";
 import { toast } from "sonner";
 import { LoaderCircle, Mic, Paperclip, Reply, Send, Trash2, X } from "lucide-react";
+import { mentionCandidates, mentionScopeFor } from "@devotion/shared";
 
 import { MentionTextarea } from "@/components/workspace/chat/mention-textarea";
-import type { ProfileWithAvatar, StartupMember } from "@/components/workspace/types";
+import type { ProfileWithAvatar } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -14,6 +15,7 @@ import {
   formatVoiceDuration,
   resolveMentions,
   type ChatChannel,
+  type ChatMember,
   type ChatMessage,
 } from "@/lib/chat";
 import { cn } from "@/lib/utils";
@@ -72,7 +74,11 @@ export function MessageComposer({
 }: {
   channel: ChatChannel;
   profile: ProfileWithAvatar;
-  members: StartupMember[] | undefined;
+  /**
+   * Članovi opsega razgovora: tim za kanal startupa, članovi za lični
+   * razgovor. Pominjanje nudi `mentionCandidates` (lični razgovor bez mene).
+   */
+  members: ChatMember[] | undefined;
   replyTo: ChatMessage | null;
   /**
    * Slanje priloga živi u `conversation-pane` (`use-attachment-sender.ts`), jer
@@ -91,6 +97,14 @@ export function MessageComposer({
 }) {
   const [draft, setDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const channelStartupId = channel.startupId;
+  const candidates = useMemo(
+    () =>
+      members === undefined
+        ? undefined
+        : mentionCandidates(mentionScopeFor({ startupId: channelStartupId }, members), profile._id),
+    [members, channelStartupId, profile._id],
+  );
 
   // Optimistički unos samo za tekst — prilog/glas čekaju upload, pa se šalju bez
   // optimizma (poruka se pojavi kad server potvrdi).
@@ -193,7 +207,7 @@ export function MessageComposer({
         <MentionTextarea
           value={draft}
           onChange={setDraft}
-          members={members}
+          members={candidates}
           onSubmit={() => void sendText()}
           onPaste={handlePaste}
           placeholder="Napiši poruku…  (@ za pominjanje)"

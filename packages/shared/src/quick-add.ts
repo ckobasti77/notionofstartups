@@ -1,0 +1,226 @@
+/**
+ * Brzi unos (P8, plan K07 §2 i E16) — pravila odredišta, roka i poziva, isto
+ * na webu i telefonu. ČISTO: skladište (localStorage / device-prefs) čita
+ * klijent, ovde stižu samo vrednosti.
+ *
+ * - Podrazumevano odredište je **Lično**; zapamćen izbor pobeđuje, a izbor
+ *   koji dolazi iz startupa (preset) pobeđuje zapamćen.
+ * - Oblast u startupu: preset → poslednja oblast tog startupa → prva oblast.
+ * - „Dodaj i u Moj dan" je podrazumevano uključeno kad je rok danas.
+ * - Lični zadatak: `personalTasks.create({ addToMyDay })`; startup:
+ *   `pages.create({ kind: "task", taskStatus: "backlog", assigneeProfileIds: [ja] })`
+ *   pa `myDay.plan` ako je čekirano.
+ */
+import { dayDiff, type DayKey, DUE_SHORTCUTS, type DueShortcut, dueShortcutValue } from "./dates";
+import type { TaskPriorityKey } from "./task-sort";
+
+/** Isto kao `MAX_PERSONAL_TASK_TITLE_LENGTH` i naslov stranice na serveru. */
+export const QUICK_ADD_TITLE_MAX = 200;
+
+export const QUICK_ADD_LAST_DESTINATION_KEY = "devotion:quick-add:destination";
+
+/** Ključ skladišta za poslednju oblast po startupu. */
+export function lastAreaKey(startupId: string): string {
+  return `devotion:quick-add:area:${startupId}`;
+}
+
+export type QuickAddStartup = {
+  _id: string;
+  name: string;
+  areas: ReadonlyArray<{ _id: string; label: string }>;
+};
+
+export type QuickAddDestination =
+  | { kind: "personal" }
+  | { kind: "startup"; startupId: string; areaId: string | null };
+
+/** Šta se pamti između otvaranja (bez oblasti — ona se pamti po startupu). */
+export type StoredDestination = { kind: "personal" } | { kind: "startup"; startupId: string };
+
+export function serializeDestination(destination: QuickAddDestination): string {
+  return JSON.stringify(
+    destination.kind === "personal"
+      ? { kind: "personal" }
+      : { kind: "startup", startupId: destination.startupId },
+  );
+}
+
+/** Pokvaren ili stran zapis = ništa zapamćeno. */
+export function parseStoredDestination(raw: string | null | undefined): StoredDestination | null {
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value === null || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    if (record.kind === "personal") return { kind: "personal" };
+    if (record.kind === "startup" && typeof record.startupId === "string" && record.startupId) {
+      return { kind: "startup", startupId: record.startupId };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Oblast u startupu: zadata → zapamćena → prva; `null` kad startup nema oblasti. */
+export function resolveArea(
+  startup: QuickAddStartup,
+  remembered: string | null | undefined,
+  preferred?: string | null,
+): string | null {
+  const has = (id: string | null | undefined) =>
+    id !== null && id !== undefined && startup.areas.some((area) => area._id === id);
+  if (has(preferred)) return preferred as string;
+  if (has(remembered)) return remembered as string;
+  return startup.areas[0]?._id ?? null;
+}
+
+/**
+ * Početno odredište kad se brzi unos otvori. `preset` (npr. iz startupa u
+ * kome si) pobeđuje zapamćen izbor; startup koji više nije u listi pada na
+ * Lično.
+ */
+export function resolveDestination(
+  last: StoredDestination | null,
+  startups: ReadonlyArray<QuickAddStartup>,
+  options: {
+    preset?: { startupId: string; areaId?: string | null } | null;
+    rememberedArea?: (startupId: string) => string | null;
+  } = {},
+): QuickAddDestination {
+  const pick = (startupId: string, preferredArea?: string | null): QuickAddDestination | null => {
+    const startup = startups.find((item) => item._id === startupId);
+    if (!startup) return null;
+    return {
+      kind: "startup",
+      startupId,
+      areaId: resolveArea(startup, options.rememberedArea?.(startupId) ?? null, preferredArea),
+    };
+  };
+  if (options.preset) {
+    const preset = pick(options.preset.startupId, options.preset.areaId);
+    if (preset) return preset;
+  }
+  if (last?.kind === "startup") {
+    const remembered = pick(last.startupId);
+    if (remembered) return remembered;
+  }
+  return { kind: "personal" };
+}
+
+/** „Dodaj i u Moj dan": podrazumevano uključeno kad je rok danas. */
+export function defaultAddToMyDay(dueDate: number | null, now: number, zone?: string): boolean {
+  return dueDate !== null && dayDiff(dueDate, now, zone) === 0;
+}
+
+/** Koji čip roka je izabran (vrednost je lokalno podne tog dana). */
+export function matchDueShortcut(
+  dueDate: number | null,
+  now: number,
+  zone?: string,
+): DueShortcut | null {
+  if (dueDate === null) return null;
+  for (const shortcut of DUE_SHORTCUTS) {
+    if (dueShortcutValue(shortcut, now, zone) === dueDate) return shortcut;
+  }
+  return null;
+}
+
+export type TitleCheck = { ok: true; title: string } | { ok: false; reason: string | null };
+
+/** Prazan naslov = dugme onemogućeno (bez poruke); predug = poruka. */
+export function cleanQuickAddTitle(raw: string): TitleCheck {
+  const title = raw.trim();
+  if (title.length === 0) return { ok: false, reason: null };
+  if (title.length > QUICK_ADD_TITLE_MAX) {
+    return { ok: false, reason: `Naslov može imati najviše ${QUICK_ADD_TITLE_MAX} znakova.` };
+  }
+  return { ok: true, title };
+}
+
+export type QuickAddDraft = {
+  title: string;
+  destination: QuickAddDestination;
+  dueDate: number | null;
+  priority?: TaskPriorityKey | null;
+  addToMyDay: boolean;
+};
+
+export type QuickAddCall =
+  | {
+      fn: "personalTasks.create";
+      args: {
+        title: string;
+        dueDate: number | null;
+        priority?: TaskPriorityKey | null;
+        addToMyDay?: { dayKey: DayKey };
+      };
+    }
+  | {
+      fn: "pages.create";
+      args: {
+        startupId: string;
+        areaId: string;
+        parentPageId: null;
+        kind: "task";
+        title: string;
+        taskStatus: "backlog";
+        taskPriority?: TaskPriorityKey;
+        assigneeProfileIds: string[];
+        dueDate?: number;
+      };
+      /** Posle pravljenja: `myDay.plan` za `dayKey`. */
+      planDayKey: DayKey | null;
+    }
+  | { fn: "invalid"; reason: string | null };
+
+/** Startup bez oblasti (plan K07 §3). */
+export const NO_AREA_REASON = "Ovaj startup još nema oblasti — dodaj ih u startupu.";
+
+/** Koji poziv pravi zadatak iz nacrta (E16). */
+export function quickAddCall(
+  draft: QuickAddDraft,
+  context: { profileId: string; dayKey: DayKey },
+): QuickAddCall {
+  const title = cleanQuickAddTitle(draft.title);
+  if (!title.ok) return { fn: "invalid", reason: title.reason };
+  if (draft.destination.kind === "personal") {
+    return {
+      fn: "personalTasks.create",
+      args: {
+        title: title.title,
+        dueDate: draft.dueDate,
+        ...(draft.priority === undefined ? {} : { priority: draft.priority }),
+        ...(draft.addToMyDay ? { addToMyDay: { dayKey: context.dayKey } } : {}),
+      },
+    };
+  }
+  if (draft.destination.areaId === null) return { fn: "invalid", reason: NO_AREA_REASON };
+  return {
+    fn: "pages.create",
+    args: {
+      startupId: draft.destination.startupId,
+      areaId: draft.destination.areaId,
+      parentPageId: null,
+      kind: "task",
+      title: title.title,
+      taskStatus: "backlog",
+      ...(draft.priority ? { taskPriority: draft.priority } : {}),
+      assigneeProfileIds: [context.profileId],
+      ...(draft.dueDate === null ? {} : { dueDate: draft.dueDate }),
+    },
+    planDayKey: draft.addToMyDay ? context.dayKey : null,
+  };
+}
+
+/** Toast posle uspeha: „Dodato u Lično." / „Dodato u Cluck Rush · Marketing." */
+export function quickAddSuccessMessage(
+  destination: QuickAddDestination,
+  startups: ReadonlyArray<QuickAddStartup>,
+): string {
+  if (destination.kind === "personal") return "Dodato u Lično.";
+  const startup = startups.find((item) => item._id === destination.startupId);
+  const area = startup?.areas.find((item) => item._id === destination.areaId);
+  const name = startup?.name ?? "startup";
+  return area ? `Dodato u ${name} · ${area.label}.` : `Dodato u ${name}.`;
+}

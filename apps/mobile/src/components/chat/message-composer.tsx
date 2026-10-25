@@ -1,3 +1,4 @@
+import { mentionCandidates, mentionScopeFor } from '@devotion/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -221,17 +222,28 @@ export function MessageComposer({
   }, [editing]);
 
   const mention = useMemo(() => findMentionQuery(draft, caret), [draft, caret]);
-  const mentionCandidates = useMemo(() => {
-    if (mention === null || !members) return [];
+  // Ko se nudi posle `@` zavisi od opsega (K16, deljeno sa webom): lični razgovor
+  // nudi SAMO svoje članove bez mene (server odbija druge), kanal startupa nudi
+  // članove startupa kao i pre.
+  const channelStartupId = channel.startupId;
+  const offered = useMemo(
+    () =>
+      members
+        ? mentionCandidates(mentionScopeFor({ startupId: channelStartupId }, members), currentProfile._id)
+        : [],
+    [members, channelStartupId, currentProfile._id],
+  );
+  const mentionOptions = useMemo(() => {
+    if (mention === null) return [];
     const query = mention.query.trim().toLowerCase();
     const list =
       query.length === 0
-        ? members
-        : members.filter((member) =>
+        ? offered
+        : offered.filter((member) =>
             member.profile.displayName.toLowerCase().includes(query),
           );
     return list.slice(0, 6);
-  }, [mention, members]);
+  }, [mention, offered]);
 
   function selectMention(member: ChatMember) {
     if (mention === null) return;
@@ -480,8 +492,8 @@ export function MessageComposer({
           paddingBottom: keyboardUp ? 8 : insets.bottom + 8,
         },
       ]}>
-      {mention !== null && mentionCandidates.length > 0 ? (
-        <MentionAutocomplete candidates={mentionCandidates} onSelect={selectMention} />
+      {mention !== null && mentionOptions.length > 0 ? (
+        <MentionAutocomplete candidates={mentionOptions} onSelect={selectMention} />
       ) : null}
 
       {editing ? (

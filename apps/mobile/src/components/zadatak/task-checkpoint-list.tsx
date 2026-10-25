@@ -12,7 +12,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Input } from '@/components/ui/input';
@@ -42,16 +42,22 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/
  * put koji web `task-checkpoint-list` nudi.
  *
  * Svaki red nosi i nit doprinosa (C13, `CheckpointContributionsSheet`) — prva
- * ikonica u redu akcija, isti redosled kao web. Četiri dugmeta u redu su 36pt +
- * `hitSlop={6}` (48pt efektivno); podizanje sva četiri na 44 bi red na uskom
- * telefonu prelomilo, pa je to svesna odluka o REDU, ne o pojedinoj funkciji.
+ * ikonica u redu akcija, isti redosled kao web. Akcije su u svom redu ispod
+ * naslova, svaka cela 44pt meta (K20) — četiri u istom redu sa tekstom ne
+ * stanu na uskom telefonu.
  */
 export function TaskCheckpointList({
   taskPageId,
   canCreate,
+  onDeleted,
+  onInputFocus,
 }: {
   taskPageId: Id<'pages'>;
   canCreate: boolean;
+  /** Posle direktnog brisanja koraka (traka „Poništi" je nudi) — panel se zatvara da je traka vidljiva. */
+  onDeleted?: () => void;
+  /** Fokus u polju za korak; dobija red sa poljem da ga panel doskrola iznad tastature. */
+  onInputFocus?: (field: View | null) => void;
 }) {
   const colors = useThemeColors();
   const checkpoints = useQuery(api.taskCheckpoints.listForTask, { taskPageId });
@@ -76,6 +82,8 @@ export function TaskCheckpointList({
   const setAllChained = useMutation(api.taskCheckpoints.setAllChained);
   const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
+  const addRowRef = useRef<View>(null);
+  const editRowRef = useRef<View>(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<Id<'taskCheckpoints'> | null>(null);
@@ -111,7 +119,12 @@ export function TaskCheckpointList({
     }
   };
 
+  /** Korak čija je izmena već završena (sačuvana ili odbačena) — Enter i blur ne smeju da je upišu dvaput. */
+  const settledEditRef = useRef<Id<'taskCheckpoints'> | null>(null);
+
   const saveEdit = (item: TaskCheckpoint) => {
+    if (settledEditRef.current === item._id) return;
+    settledEditRef.current = item._id;
     const text = editingText.trim();
     if (!text) {
       setEditingId(null);
@@ -129,7 +142,7 @@ export function TaskCheckpointList({
     // član tima nije imao NIKAKAV put da traži brisanje tuđeg koraka.
     const direct = item.canDeleteDirectly;
     Alert.alert(
-      direct ? 'Obriši checkpoint' : 'Zatraži brisanje checkpointa',
+      direct ? 'Obriši korak' : 'Zatraži brisanje koraka',
       direct
         ? `„${item.text}"`
         : `„${item.text}" — korak nije tvoj, pa se pokreće glasanje tima o brisanju.`,
@@ -139,17 +152,20 @@ export function TaskCheckpointList({
           text: direct ? 'Obriši' : 'Zatraži',
           style: 'destructive',
           onPress: () =>
-            void (direct
-              ? archiveOwn({ checkpointId: item._id }).then((result) => {
-                  // Traka „Poništi" (PARITET A6) — tekst = web toast. Serverski
-                  // rok (`undoUntil`) vodi tajmer trake.
-                  pushUndo({
-                    label: 'Checkpoint je obrisan.',
-                    action: { kind: 'checkpoint', checkpointId: result.checkpointId },
-                    undoUntil: result.undoUntil,
-                  });
-                })
-              : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
+            void (
+              direct
+                ? archiveOwn({ checkpointId: item._id }).then((result) => {
+                    // Traka „Poništi" (PARITET A6) — tekst = web toast. Serverski
+                    // rok (`undoUntil`) vodi tajmer trake.
+                    pushUndo({
+                      label: 'Korak je obrisan.',
+                      action: { kind: 'checkpoint', checkpointId: result.checkpointId },
+                      undoUntil: result.undoUntil,
+                    });
+                    // Panel zadatka (K13) se zatvara da traka ispod njega bude vidljiva.
+                    onDeleted?.();
+                  })
+                : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
             )
               .then(() => haptics.success())
               .catch(notifyError),
@@ -224,7 +240,8 @@ export function TaskCheckpointList({
             styles.chainAll,
             { borderColor: colors.border },
             pressed && { backgroundColor: colors.muted },
-          ]}>
+          ]}
+        >
           {allChained ? (
             <Link2Off size={16} color={colors.mutedForeground} />
           ) : (
@@ -239,33 +256,38 @@ export function TaskCheckpointList({
       {total > 0 ? (
         <View
           accessibilityRole="progressbar"
-          accessibilityLabel="Napredak checkpointa"
+          accessibilityLabel="Napredak koraka"
           accessibilityValue={{ min: 0, max: total, now: completed }}
-          style={[styles.track, { backgroundColor: colors.muted }]}>
+          style={[styles.track, { backgroundColor: colors.muted }]}
+        >
           <View
             style={[
               styles.fill,
-              { backgroundColor: colors.success, width: `${Math.round((completed / total) * 100)}%` },
+              {
+                backgroundColor: colors.success,
+                width: `${Math.round((completed / total) * 100)}%`,
+              },
             ]}
           />
         </View>
       ) : null}
 
       {canCreate ? (
-        <View style={styles.addRow}>
+        <View ref={addRowRef} style={styles.addRow}>
           <Input
             value={draft}
             onChangeText={setDraft}
-            placeholder={atLimit ? 'Dostignut maksimum (100)' : 'Dodaj checkpoint…'}
+            onFocus={() => onInputFocus?.(addRowRef.current)}
+            placeholder={atLimit ? 'Dostignut maksimum (100)' : 'Dodaj korak…'}
             editable={!atLimit}
             returnKeyType="done"
             onSubmitEditing={() => void add()}
             style={styles.addInput}
-            accessibilityLabel="Novi checkpoint"
+            accessibilityLabel="Novi korak"
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Dodaj checkpoint"
+            accessibilityLabel="Dodaj korak"
             disabled={!draft.trim() || atLimit || creating}
             onPress={() => void add()}
             style={({ pressed }) => [
@@ -274,7 +296,8 @@ export function TaskCheckpointList({
                 backgroundColor: colors.secondary,
                 opacity: !draft.trim() || atLimit || creating ? 0.5 : pressed ? 0.85 : 1,
               },
-            ]}>
+            ]}
+          >
             <Plus size={20} color={colors.secondaryForeground} />
           </Pressable>
         </View>
@@ -282,7 +305,7 @@ export function TaskCheckpointList({
 
       {total === 0 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground, borderColor: colors.border }]}>
-          Još nema checkpointa.
+          Još nema koraka.
         </Text>
       ) : (
         <View style={styles.rows}>
@@ -292,6 +315,7 @@ export function TaskCheckpointList({
             return (
               <View
                 key={item._id}
+                ref={isEditing ? editRowRef : undefined}
                 style={[
                   styles.row,
                   {
@@ -306,142 +330,155 @@ export function TaskCheckpointList({
                         ? colors.muted
                         : `${colors.warning}12`,
                   },
-                ]}>
-                <View style={[styles.ordinal, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                  <Text style={[styles.ordinalText, { color: colors.mutedForeground }]}>
-                    {item.ordinal}
-                  </Text>
+                ]}
+              >
+                <View style={styles.rowMain}>
+                  <View
+                    style={[
+                      styles.ordinal,
+                      { borderColor: colors.border, backgroundColor: colors.card },
+                    ]}
+                  >
+                    <Text style={[styles.ordinalText, { color: colors.mutedForeground }]}>
+                      {item.ordinal}
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: item.completed, disabled: toggleDisabled }}
+                    accessibilityLabel={
+                      item.locked
+                        ? `Zaključano dok se ne završi korak ${item.blockedByOrdinal}`
+                        : item.completed
+                          ? `Ponovo otvori: ${item.text}`
+                          : `Završi: ${item.text}`
+                    }
+                    disabled={toggleDisabled}
+                    onPress={() => toggle(item)}
+                    hitSlop={8}
+                    style={styles.check}
+                  >
+                    {item.completed ? (
+                      <Check size={20} color={colors.success} />
+                    ) : item.locked ? (
+                      <Lock size={18} color={colors.mutedForeground} />
+                    ) : (
+                      <Circle size={20} color={colors.warning} />
+                    )}
+                  </Pressable>
+
+                  {isEditing ? (
+                    <Input
+                      value={editingText}
+                      onChangeText={setEditingText}
+                      onFocus={() => onInputFocus?.(editRowRef.current)}
+                      autoFocus
+                      returnKeyType="done"
+                      onSubmitEditing={() => saveEdit(item)}
+                      onBlur={() => saveEdit(item)}
+                      style={styles.editInput}
+                      accessibilityLabel="Izmeni korak"
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.text,
+                        {
+                          color: item.completed ? colors.mutedForeground : colors.foreground,
+                          textDecorationLine: item.completed ? 'line-through' : 'none',
+                        },
+                      ]}
+                    >
+                      {item.text}
+                    </Text>
+                  )}
                 </View>
 
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: item.completed, disabled: toggleDisabled }}
-                  accessibilityLabel={
-                    item.locked
-                      ? `Zaključano dok se ne završi korak ${item.blockedByOrdinal}`
-                      : item.completed
-                        ? `Ponovo otvori: ${item.text}`
-                        : `Završi: ${item.text}`
-                  }
-                  disabled={toggleDisabled}
-                  onPress={() => toggle(item)}
-                  hitSlop={8}
-                  style={styles.check}>
-                  {item.completed ? (
-                    <Check size={20} color={colors.success} />
-                  ) : item.locked ? (
-                    <Lock size={18} color={colors.mutedForeground} />
-                  ) : (
-                    <Circle size={20} color={colors.warning} />
-                  )}
-                </Pressable>
-
-                {isEditing ? (
-                  <Input
-                    value={editingText}
-                    onChangeText={setEditingText}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={() => saveEdit(item)}
-                    onBlur={() => saveEdit(item)}
-                    style={styles.editInput}
-                    accessibilityLabel="Izmeni checkpoint"
-                  />
-                ) : (
-                  <Text
-                    style={[
-                      styles.text,
-                      {
-                        color: item.completed ? colors.mutedForeground : colors.foreground,
-                        textDecorationLine: item.completed ? 'line-through' : 'none',
-                      },
-                    ]}>
-                    {item.text}
-                  </Text>
-                )}
-
-                {/* Doprinosi stoje PRE lanca/olovke/kante — isti redosled kao web
+                <View style={styles.rowActions}>
+                  {/* Doprinosi stoje PRE lanca/olovke/kante — isti redosled kao web
                     `task-checkpoint-list.tsx`. Prikazuju se UVEK: svaki član sme
                     da piše (`addContribution` traži samo članstvo), za razliku od
                     olovke i kante koje zavise od vlasništva. */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Doprinosi: ${item.text}`}
-                  onPress={() => {
-                    haptics.tap();
-                    setThreadFor(item);
-                  }}
-                  hitSlop={6}
-                  style={styles.rowAction}>
-                  <MessageSquareText size={16} color={colors.mutedForeground} />
-                </Pressable>
-
-                {item.canEdit && item.ordinal > 1 ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{ selected: item.chainedToPrevious }}
-                    accessibilityLabel={
-                      item.chainedToPrevious
-                        ? `Razveži od prethodnog koraka: ${item.text}`
-                        : `Veži za prethodni korak: ${item.text}`
-                    }
-                    onPress={() => toggleChain(item)}
-                    hitSlop={6}
-                    style={styles.rowAction}>
-                    {item.chainedToPrevious ? (
-                      <Link2 size={16} color={colors.primaryText} />
-                    ) : (
-                      <Link2Off size={16} color={colors.subtle} />
-                    )}
-                  </Pressable>
-                ) : null}
-
-                {item.canEdit ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={isEditing ? 'Zatvori izmenu' : `Uredi: ${item.text}`}
+                    accessibilityLabel={`Doprinosi: ${item.text}`}
                     onPress={() => {
-                      if (isEditing) {
-                        setEditingId(null);
-                        return;
-                      }
-                      setEditingId(item._id);
-                      setEditingText(item.text);
+                      haptics.tap();
+                      setThreadFor(item);
                     }}
-                    hitSlop={6}
-                    style={styles.rowAction}>
-                    {isEditing ? (
-                      <X size={16} color={colors.mutedForeground} />
-                    ) : (
-                      <Pencil size={16} color={colors.mutedForeground} />
-                    )}
+                    style={styles.rowAction}
+                  >
+                    <MessageSquareText size={16} color={colors.mutedForeground} />
                   </Pressable>
-                ) : null}
 
-                {item.canDeleteDirectly || item.canRequestDeletion ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      item.canDeleteDirectly
-                        ? `Obriši: ${item.text}`
-                        : `Zatraži brisanje: ${item.text}`
-                    }
-                    onPress={() => remove(item)}
-                    hitSlop={6}
-                    style={styles.rowAction}>
-                    <Trash2 size={16} color={colors.destructive} />
-                  </Pressable>
-                ) : null}
+                  {item.canEdit && item.ordinal > 1 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: item.chainedToPrevious }}
+                      accessibilityLabel={
+                        item.chainedToPrevious
+                          ? `Razveži od prethodnog koraka: ${item.text}`
+                          : `Veži za prethodni korak: ${item.text}`
+                      }
+                      onPress={() => toggleChain(item)}
+                      style={styles.rowAction}
+                    >
+                      {item.chainedToPrevious ? (
+                        <Link2 size={16} color={colors.primaryText} />
+                      ) : (
+                        <Link2Off size={16} color={colors.subtle} />
+                      )}
+                    </Pressable>
+                  ) : null}
+
+                  {item.canEdit ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={isEditing ? 'Otkaži izmenu' : `Uredi: ${item.text}`}
+                      onPress={() => {
+                        if (isEditing) {
+                          // Otkazivanje odbacuje izmenu: blur koji sledi ne sme da je sačuva.
+                          settledEditRef.current = item._id;
+                          setEditingId(null);
+                          return;
+                        }
+                        settledEditRef.current = null;
+                        setEditingId(item._id);
+                        setEditingText(item.text);
+                      }}
+                      style={styles.rowAction}
+                    >
+                      {isEditing ? (
+                        <X size={16} color={colors.mutedForeground} />
+                      ) : (
+                        <Pencil size={16} color={colors.mutedForeground} />
+                      )}
+                    </Pressable>
+                  ) : null}
+
+                  {item.canDeleteDirectly || item.canRequestDeletion ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        item.canDeleteDirectly
+                          ? `Obriši: ${item.text}`
+                          : `Zatraži brisanje: ${item.text}`
+                      }
+                      onPress={() => remove(item)}
+                      style={styles.rowAction}
+                    >
+                      <Trash2 size={16} color={colors.destructive} />
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
             );
           })}
         </View>
       )}
 
-      <CheckpointContributionsSheet
-        checkpoint={threadFor}
-        onClose={() => setThreadFor(null)}
-      />
+      <CheckpointContributionsSheet checkpoint={threadFor} onClose={() => setThreadFor(null)} />
     </View>
   );
 }
@@ -458,7 +495,7 @@ function SectionHeader({
   return (
     <View style={styles.header}>
       <ListChecks size={18} color={colors.primary} />
-      <Text style={[styles.headerLabel, { color: colors.foreground }]}>Checkpointi</Text>
+      <Text style={[styles.headerLabel, { color: colors.foreground }]}>Koraci</Text>
       <View style={[styles.countPill, { backgroundColor: colors.muted }]}>
         <Text style={[styles.countText, { color: colors.mutedForeground }]}>
           {completed}/{total}
@@ -546,14 +583,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: 2,
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     minHeight: MIN_TOUCH_TARGET,
+  },
+  rowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
   },
   ordinal: {
     minWidth: 24,
@@ -583,8 +629,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   rowAction: {
-    width: 36,
-    height: 36,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
   },

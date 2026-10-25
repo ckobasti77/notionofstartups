@@ -4,6 +4,7 @@ import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
 
+import { usePopEnter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
@@ -27,17 +28,24 @@ function DropdownMenuSubTrigger({ className, inset, children, ...props }: React.
   );
 }
 
-function DropdownMenuSubContent({ className, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
-  return <DropdownMenuPrimitive.SubContent data-slot="dropdown-menu-sub-content" className={cn("z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0", className)} {...props} />;
+function DropdownMenuSubContent({ className, ref, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+  const enterRef = usePopEnter<HTMLDivElement>(ref);
+  return <DropdownMenuPrimitive.SubContent ref={enterRef} data-slot="dropdown-menu-sub-content" className={cn("z-50 min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg", className)} {...props} />;
 }
 
-function DropdownMenuContent({ sideOffset = 4, className, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+/**
+ * Meni. Ulaz animira GSAP (`usePopEnter`: neprozirnost + scale 0,98 → 1,
+ * `quick`, iz tačke okidača), ne `tw-animate-css`; izlaz je odmah.
+ */
+function DropdownMenuContent({ sideOffset = 4, className, ref, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  const enterRef = usePopEnter<HTMLDivElement>(ref);
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
+        ref={enterRef}
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
-        className={cn("z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0", className)}
+        className={cn("z-50 min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md", className)}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

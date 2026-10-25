@@ -45,9 +45,13 @@ export function ChannelMembersSheet({
     api.chat.channelMembers,
     open ? { channelId: channel._id } : 'skip',
   );
+  // Lični razgovor (`startupId: null`) nema tim startupa — ovaj sheet je za
+  // kanale tima, pa se tim tada ni ne učitava (samo suženje tipa, K06).
   const team = useQuery(
     api.startups.listMembers,
-    open ? { startupId: channel.startupId, limit: MAX_CHAT_CHANNEL_MEMBERS } : 'skip',
+    open && channel.startupId !== null
+      ? { startupId: channel.startupId, limit: MAX_CHAT_CHANNEL_MEMBERS }
+      : 'skip',
   );
   const profile = useQuery(api.profiles.getCurrent, {});
   const setChannelMembers = useMutation(api.chat.setChannelMembers);

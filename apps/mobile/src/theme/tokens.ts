@@ -300,3 +300,18 @@ export const themes: Record<ThemeName, ColorTokens> = {
   light: lightColors,
   dark: darkColors,
 };
+
+/**
+ * Tonovi čipa startupa — potpisni detalj ličnog nivoa (`docs/licno/DIZAJN-DNK.md`).
+ * Indeks dolazi iz `startupTone(name)` (`@devotion/shared`, 0–7), pa isti startup
+ * ima istu boju na webu i telefonu: vrednosti su sRGB prevod web tokena
+ * `--startup-tone-1…8` (`apps/web/app/globals.css`) — menjaj na oba mesta.
+ *
+ * Upotreba: ton kao TEKST/IKONA na 16 % tintu istog tona (svetla ≥ 4.88:1,
+ * tamna ≥ 6.57:1) ili kao PODLOGA sa `colors.background` tekstom (≥ 5.84:1).
+ * Namerno van `ColorTokens`: to je skala po indeksu, ne uloga.
+ */
+export const startupTones: Record<ThemeName, readonly string[]> = {
+  light: ['#0C60A3', '#7241A0', '#A42C71', '#A14206', '#7A5B01', '#286F2F', '#116C63', '#17687D'],
+  dark: ['#80BDFB', '#C9A3F5', '#F197C2', '#F79E75', '#DEB866', '#85CC87', '#6FCABF', '#65C6E4'],
+};

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FLIP_MAX_ITEMS, FlipGroup } from "@/components/motion/flip-group";
 import { EntityDiscussionPanel } from "@/components/workspace/chat/entity-discussion-panel";
 import { IdeasCanvasView } from "@/components/workspace/ideas-canvas-view";
 import { IdeaInlineThread } from "@/components/workspace/idea-discussion-dialog";
@@ -53,6 +54,7 @@ import {
 import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useEnter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 type IdeasViewProps = {
@@ -123,6 +125,9 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
   const convertMutation = useMutation(api.ideas.convertToPage);
   const requestNestingMutation = useMutation(api.collaboration.requestNesting);
   const { pushHistory } = useWorkspaceHistory();
+  // Ishod glasa se najavljuje čitaču ekrana (K21, otvoren nalaz K19): red
+  // ostaje u tabeli (fokus ostaje na dugmetu), ali promena broja nije najavljena.
+  const voteLiveRef = useRef<HTMLParagraphElement>(null);
 
   const closeIdeaEditor = () => {
     setCreateDialogOpen(false);
@@ -185,6 +190,11 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
       return next;
     });
   };
+
+  // Tabela ideja (K19): redovi ulaze sa stagger-om kad se tabela otvori, a
+  // promene (nova ideja, razvijen red, pretraga se ne računa) idu kroz Flip.
+  const tableBodyRef = useRef<HTMLTableSectionElement>(null);
+  useEnter(tableBodyRef, { key: `${viewMode}:${ideasData ? "spremno" : "ucitavanje"}` });
 
   if (!ideasData) {
     return (
@@ -387,9 +397,26 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
     }
   };
 
-  const handleVote = async (ideaId: Id<"ideaNodes">, voteType: "up" | "down") => {
+  const handleVote = async (
+    ideaId: Id<"ideaNodes">,
+    voteType: "up" | "down",
+    previous: "up" | "down" | null | undefined,
+  ) => {
     try {
       await voteMutation({ startupId: startup._id, ideaId, voteType });
+      const live = voteLiveRef.current;
+      if (live) {
+        const message =
+          previous === voteType
+            ? "Glas je povučen."
+            : voteType === "up"
+              ? "Glas za je sačuvan."
+              : "Glas protiv je sačuvan.";
+        live.textContent = "";
+        requestAnimationFrame(() => {
+          live.textContent = message;
+        });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Greška pri glasanju.");
     }
@@ -397,6 +424,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <p ref={voteLiveRef} role="status" aria-live="polite" className="sr-only" />
       {/* Top Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 bg-background/80 px-6 py-4 backdrop-blur-xl">
         <div className="flex items-center gap-3">
@@ -484,8 +512,10 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
           /* Table View */
           <div className="h-full overflow-y-auto p-6">
             <div className="overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-sm">
-              <table className="min-w-[64rem] w-full text-left text-sm">
-                <thead className="bg-muted/40 border-b border-border/60 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              {/* `border-separate` + ivice na ćelijama (K19): kod `border-collapse` ivice crta
+                  tabela, pa bi razdelnici ostajali u mestu dok red putuje Flip-om. Izgled je isti. */}
+              <table className="min-w-[64rem] w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider [&_th]:border-b [&_th]:border-border/60">
                   <tr>
                     <th className="px-6 py-3.5">Ideja</th>
                     <th className="px-6 py-3.5">Autor</th>
@@ -495,7 +525,15 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                     <th className="px-6 py-3.5 text-right">Akcija</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/40">
+                <tbody ref={tableBodyRef} className="[&>tr:not(:last-child)>td]:border-b [&>tr>td]:border-border/40">
+                  <FlipGroup
+                    scope={tableBodyRef}
+                    layoutKey={filteredNodes
+                      .map((node) => (expandedIdeaIds.has(node._id) ? `${node._id}+` : node._id))
+                      .join("|")}
+                    resetKey={searchQuery}
+                    disabled={filteredNodes.length > FLIP_MAX_ITEMS}
+                  >
                   {filteredNodes.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
@@ -507,10 +545,14 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                       const expanded = expandedIdeaIds.has(node._id);
                       return (
                         <Fragment key={node._id}>
-                          <tr className={cn(
-                            "transition-colors hover:bg-muted/20",
-                            expanded && "bg-muted/15",
-                          )}>
+                          <tr
+                            data-flip-id={node._id}
+                            data-motion-enter
+                            className={cn(
+                              "transition-colors hover:bg-muted/20",
+                              expanded && "bg-muted/15",
+                            )}
+                          >
                             <td className="max-w-xs px-6 py-4">
                               <button
                                 type="button"
@@ -556,11 +598,12 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => handleVote(node._id, "up")}
+                                  onClick={() => handleVote(node._id, "up", node.userVote)}
+                                  aria-pressed={node.userVote === "up"}
                                   className={cn(
                                     "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
                                     node.userVote === "up"
-                                      ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-400"
+                                      ? "border-success/50 bg-success/20 text-success"
                                       : "border-border/60 text-muted-foreground hover:bg-muted",
                                   )}
                                   aria-label={`Glasaj za ideju. Trenutno ${node.upvotes}`}
@@ -570,11 +613,12 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleVote(node._id, "down")}
+                                  onClick={() => handleVote(node._id, "down", node.userVote)}
+                                  aria-pressed={node.userVote === "down"}
                                   className={cn(
                                     "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
                                     node.userVote === "down"
-                                      ? "border-rose-500/50 bg-rose-500/20 text-rose-400"
+                                      ? "border-destructive/50 bg-destructive/20 text-destructive"
                                       : "border-border/60 text-muted-foreground hover:bg-muted",
                                   )}
                                   aria-label={`Glasaj protiv ideje. Trenutno ${node.downvotes}`}
@@ -586,11 +630,11 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                             </td>
                             <td className="whitespace-nowrap px-6 py-4">
                               {node.isApproved ? (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/15 px-2.5 py-0.5 text-xs font-semibold text-success">
                                   <Check className="size-3" /> Odobreno
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/15 px-2.5 py-0.5 text-xs font-medium text-foreground">
                                   U razmatranju
                                 </span>
                               )}
@@ -613,7 +657,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                             </td>
                           </tr>
                           {expanded ? (
-                            <tr>
+                            <tr data-flip-id={`${node._id}:detalj`}>
                               <td colSpan={6} className="bg-muted/10 px-6 pb-5 pt-0">
                                 <div className="rounded-2xl border border-border/70 bg-background/75 p-5 shadow-sm">
                                   <div className="flex flex-wrap items-start justify-between gap-4">
@@ -683,6 +727,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                       );
                     })
                   )}
+                  </FlipGroup>
                 </tbody>
               </table>
             </div>
@@ -862,7 +907,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
       <Dialog open={!!convertIdea} onOpenChange={() => setConvertIdea(null)}>
         <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-emerald-500">
+            <DialogTitle className="flex items-center gap-2 text-success">
               <Sparkles className="size-5" />
               <span>Pretvori Ideju u Radnu Stavku</span>
             </DialogTitle>
@@ -874,7 +919,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
           {convertIdea ? (
             <div className="space-y-4 py-2">
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-                <span className="text-xs font-bold text-emerald-400 block mb-1">
+                <span className="text-xs font-bold text-success block mb-1">
                   Odobrena Ideja:
                 </span>
                 <p className="text-sm font-semibold">{convertIdea.title || convertIdea.text}</p>
@@ -889,7 +934,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                     onClick={() => setTargetKind("task")}
                     className="rounded-xl gap-2 justify-start"
                   >
-                    <CheckSquare2 className="size-4 text-emerald-400" />
+                    <CheckSquare2 className="size-4 text-success" />
                     <span>Zadatak (Task)</span>
                   </Button>
                   <Button
@@ -898,7 +943,7 @@ export function IdeasView({ startup, onOpenPage, onOpenChannel }: IdeasViewProps
                     onClick={() => setTargetKind("note")}
                     className="rounded-xl gap-2 justify-start"
                   >
-                    <FileText className="size-4 text-sky-400" />
+                    <FileText className="size-4 text-info" />
                     <span>Beleška (Note)</span>
                   </Button>
                 </div>

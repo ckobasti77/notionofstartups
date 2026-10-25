@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { usePaginatedQuery, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
+import { startupsWithUnread } from '@devotion/shared';
 import { Search } from 'lucide-react-native';
 
 import { api } from '@/convex/_generated/api';
@@ -11,6 +12,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StartupSwitcher, type SwitcherStartup } from '@/components/startup-switcher';
 import { useActiveStartup } from '@/context/active-startup';
+import { useQueryTolerant } from '@/hooks/use-query-tolerant';
 import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET } from '@/theme/tokens';
@@ -39,6 +41,14 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const profile = useQuery(api.profiles.getCurrent, {});
+  // Isti brojači kao bedževi tabova (deljena pretplata): tačka uz startup sa
+  // nepročitanim u biraču, par web trake (P14). Greška brojača ne obara zaglavlje.
+  const inboxCounts = useQueryTolerant(api.inbox.unreadCounts, {});
+  const chatSummary = useQueryTolerant(api.chat.unreadSummary, {});
+  const unreadStartupIds = useMemo(
+    () => startupsWithUnread(inboxCounts, chatSummary),
+    [inboxCounts, chatSummary],
+  );
   const {
     results: startups,
     status,
@@ -127,6 +137,7 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
         onLoadMore={() => loadMore(20)}
         profile={profile ? { displayName: profile.displayName, avatarUrl: profile.avatarUrl } : null}
         onOpenProfile={() => router.push('/profil')}
+        unreadStartupIds={unreadStartupIds}
       />
     </>
   );

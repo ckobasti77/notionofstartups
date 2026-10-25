@@ -16,7 +16,7 @@ import { duration, staggerDelay, STAGGER_TRAVEL } from '@/theme/motion';
  * lista „napunjena" i svaka nova stavka se prosto pojavi: `FlatList` montira redove
  * tek kad doskroluješ do njih, a fade na 40. redu usred skrola izgleda kao kvar.
  */
-const FIRST_FILL_WINDOW_MS = 450;
+export const FIRST_FILL_WINDOW_MS = 450;
 
 const StaggerContext = createContext<{ startedAt: number } | null>(null);
 

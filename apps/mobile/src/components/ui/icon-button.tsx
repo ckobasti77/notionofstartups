@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, type PressableProps } from 'react-native';
+import { StyleSheet, type PressableProps } from 'react-native';
 
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 
@@ -18,8 +19,9 @@ export function IconButton({
   ...rest
 }: IconButtonProps) {
   const colors = useThemeColors();
+  // Pritisak (K19): ikonica-dugme se utisne (`PressableScale`); podloga pritiska ostaje.
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       // `disabled` se sam prevodi u a11y stanje — bez ovoga čitač ekrana najavljuje
       // onemogućeno dugme kao dostupno, pa korisnik ne razume zašto tap ne radi.
@@ -32,7 +34,7 @@ export function IconButton({
       ]}
       {...rest}>
       {children}
-    </Pressable>
+    </PressableScale>
   );
 }
 

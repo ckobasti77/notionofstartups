@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  CalendarClock,
   CheckCircle2,
   CheckSquare2,
   ChevronDown,
@@ -15,9 +16,11 @@ import {
   MessageSquareText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { describeDue, formatDateShort } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,8 +39,6 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   TASK_PRIORITY_META,
   TASK_STATUS_META,
-  toDateInputValue,
-  fromDateInputValue,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/workspace";
@@ -401,12 +402,12 @@ function TaskTableRow({
     }
   }
 
-  async function updateDueDate(newDateStr: string) {
+  /** Rok iz birača datuma (K17): lokalno podne izabranog dana ili `null`. */
+  async function updateDueDate(dueDate: number | null) {
     if (!canEdit) return;
     setUpdating(true);
     try {
-      const parsedDate = newDateStr ? fromDateInputValue(newDateStr) : null;
-      await updateMetadata({ dueDate: parsedDate });
+      await updateMetadata({ dueDate });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Rok nije sačuvan.");
     } finally {
@@ -529,14 +530,17 @@ function TaskTableRow({
         {/* Due Date Input */}
         <div>
           <div className="flex items-center gap-1">
-            <Input
-              type="date"
-              aria-label={`Rok za zadatak ${task.title}`}
-              value={toDateInputValue(task.dueDate)}
-              onChange={(e) => updateDueDate(e.target.value)}
-              disabled={updating || !canEdit}
-              className="h-8 border-border/50 bg-background/60 px-2 py-0 text-xs"
-            />
+            <DatePicker value={task.dueDate} now={now} onChange={(value) => void updateDueDate(value)}>
+              <button
+                type="button"
+                aria-label={`Rok za zadatak ${task.title}: ${describeDue(task.dueDate, now).ariaLabel}`}
+                disabled={updating || !canEdit}
+                className="inline-flex h-8 w-full items-center gap-1.5 rounded-md border border-border/50 bg-background/60 px-2 text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <CalendarClock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="truncate">{task.dueDate === null ? "Bez roka" : formatDateShort(task.dueDate)}</span>
+              </button>
+            </DatePicker>
           </div>
           <DeadlineBadge
             dueDate={task.dueDate}

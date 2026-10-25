@@ -6,7 +6,7 @@ import { ConvexReactClient } from "convex/react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip-provider";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 

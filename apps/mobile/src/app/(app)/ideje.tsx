@@ -6,7 +6,6 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +22,7 @@ import {
 } from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { PressableScale } from '@/components/motion/pressable-scale';
 import { UndoBar } from '@/components/undo-bar';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -231,7 +231,9 @@ export default function IdejeScreen() {
         <EmptyState
           icon={<Lightbulb size={40} color={colors.mutedForeground} />}
           title="Izaberi startup"
-          description="Ideje se prikazuju po startupu. Izaberi ga iz zaglavlja."
+          description="Ideje se prikazuju po startupu. Izaberi ga u Prostoru."
+          actionLabel="Otvori Prostor"
+          onAction={() => router.navigate('/prostor')}
         />
       ) : ideas && ideas.nodes.length === 0 ? (
         <EmptyState
@@ -378,8 +380,9 @@ function IdeaRow({
   // Tap na karticu otvara ekran ideje (detalj + diskusija tima). Glasanje je
   // SEKUNDARNO: kompaktan par dugmadi u podnožju, desno od autora — ne traka
   // preko pola kartice.
+  // Kartica se utisne na dodir (`PressableScale`, K19); podloga pritiska ostaje.
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`Otvori ideju: ${title}`}
       accessibilityHint="Dugi pritisak otvara akcije ideje."
@@ -429,12 +432,12 @@ function IdeaRow({
           onVote={(next) => void cast(next)}
         />
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <IdejeError message={error.message} onRetry={retry} />;
+  return <IdejeError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function IdejeError({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -478,6 +481,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
     marginTop: 4,

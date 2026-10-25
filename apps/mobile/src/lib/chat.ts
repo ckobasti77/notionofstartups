@@ -10,8 +10,14 @@ export type ChatChannelKind = ChatChannel['kind'];
 /** Jedna poruka iz paginirane `api.chat.messages` (isti izvor istine kao web). */
 export type ChatMessage = FunctionReturnType<typeof api.chat.messages>['page'][number];
 export type ChatReaction = ChatMessage['reactions'][number];
-/** Član startupa (za @-pominjanja i imena autora) iz `startups.listMembers`. */
-export type ChatMember = FunctionReturnType<typeof api.startups.listMembers>[number];
+/**
+ * Član razgovora onoliko koliko ga chat čita (@-pominjanja, imena autora,
+ * avatar) — par web `ChatMember` (K15). Član startupa (`startups.listMembers`)
+ * i član ličnog razgovora (`chat.channelMembers`) oba odgovaraju ovom obliku.
+ */
+export type ChatMember = {
+  profile: { _id: Id<'profiles'>; displayName: string; avatarUrl: string | null };
+};
 
 /**
  * Oblast kanala vrste `area`, razrešena iz `channel.areaId` kroz `startups.get`.
@@ -311,4 +317,21 @@ export function formatFileSize(bytes: number | null): string {
 export const OPTIMISTIC_ID_PREFIX = 'optimistic-';
 export function isOptimisticId(id: string): boolean {
   return id.startsWith(OPTIMISTIC_ID_PREFIX);
+}
+
+/**
+ * Da li mehurić ulazi animirano (K16, `enterRise`): samo poruka koja je STIGLA
+ * posle prvog punjenja liste (`baselineCreatedAt` = najnovija poruka pri prvom
+ * punjenju; `null` = lista se još puni) — nikad prvo punjenje ni starije strane.
+ * Sopstvena poruka animira se kao optimistička; pravi red koji je zameni ima
+ * drugi `_id` (nov mount), pa se ne animira ponovo (inače bi trepnula dvaput).
+ */
+export function shouldAnimateArrival(
+  message: Pick<ChatMessage, '_id' | 'createdAt' | 'authorProfileId'>,
+  baselineCreatedAt: number | null,
+  currentProfileId: string,
+): boolean {
+  if (baselineCreatedAt === null || message.createdAt <= baselineCreatedAt) return false;
+  if (isOptimisticId(message._id)) return true;
+  return message.authorProfileId !== currentProfileId;
 }

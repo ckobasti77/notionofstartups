@@ -1,3 +1,4 @@
+import { canDeleteChatMessage } from '@devotion/shared';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Copy, Pencil, Reply, Trash2 } from 'lucide-react-native';
 
@@ -38,7 +39,7 @@ export function MessageActionsSheet({
 }: {
   message: ChatMessage | null;
   currentProfileId: Id<'profiles'>;
-  /** Administrator moderira tuđe poruke (backend to već dozvoljava). */
+  /** Administrator moderira tuđe poruke u kanalima startupa (backend to već dozvoljava). */
   isAdmin: boolean;
   onReact: (emoji: string) => void;
   onCopy: () => void;
@@ -52,7 +53,17 @@ export function MessageActionsSheet({
   const isOwn = message !== null && message.authorProfileId === currentProfileId;
   const canCopy = message !== null && !message.deleted && message.body.trim().length > 0;
   const canEdit = message !== null && isOwn && !message.deleted;
-  const canDelete = message !== null && !message.deleted && (isOwn || isAdmin);
+  // Ogledalo `chat.deleteMessage` (isto pravilo kao web `message-row.tsx`, iz
+  // `@devotion/shared`): admin briše tuđe poruke samo u kanalima startupa; u
+  // ličnom razgovoru (K16) briše samo autor.
+  const canDelete =
+    message !== null &&
+    canDeleteChatMessage({
+      isOwn,
+      isAdmin,
+      startupId: message.startupId,
+      deleted: message.deleted,
+    });
 
   function requestEdit() {
     if (message === null) return;
@@ -163,6 +174,7 @@ function ActionRow({
 const styles = StyleSheet.create({
   reactions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-around',
     paddingVertical: 8,
     paddingHorizontal: 8,

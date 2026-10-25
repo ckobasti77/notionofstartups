@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { inboxUnreadWord } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -52,7 +53,7 @@ export type NotificationItem = {
   actor: { displayName: string; avatarUrl: string | null } | null;
 };
 
-const TYPE_ICON: Record<string, typeof CheckSquare2> = {
+export const TYPE_ICON: Record<string, typeof CheckSquare2> = {
   task_assigned: CheckSquare2,
   task_status_changed: CheckSquare2,
   task_due_soon: CalendarClock,
@@ -71,7 +72,7 @@ const TYPE_ICON: Record<string, typeof CheckSquare2> = {
 };
 
 /** Prekoračen rok je jedini tip koji sme da nosi crvenu. */
-const LOUD_TYPES = new Set(["task_overdue"]);
+export const LOUD_TYPES = new Set(["task_overdue"]);
 
 export function NotificationsSheet({
   open,
@@ -133,7 +134,7 @@ export function NotificationsSheet({
           <SheetDescription>
             {unreadCount === 0
               ? "Sve je pročitano."
-              : `${unreadCount}${unread?.capped ? "+" : ""} nepročitano.`}
+              : `${unreadCount}${unread?.capped ? "+" : ""} ${inboxUnreadWord(unreadCount)}.`}
           </SheetDescription>
         </SheetHeader>
 

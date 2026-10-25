@@ -37,6 +37,7 @@ import {
 } from '@/lib/activity';
 import { useThemeColors } from '@/theme/theme-provider';
 import { radius, space, type ColorTokens } from '@/theme/tokens';
+import { accessErrorMessage } from '@/lib/errors';
 
 const PAGE_SIZE = 30;
 
@@ -179,7 +180,7 @@ function ActivitySkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <AktivnostErrorState message={error.message} onRetry={retry} />;
+  return <AktivnostErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function AktivnostErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {

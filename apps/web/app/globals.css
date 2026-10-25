@@ -36,6 +36,14 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-thread: var(--thread);
+  --color-startup-tone-1: var(--startup-tone-1);
+  --color-startup-tone-2: var(--startup-tone-2);
+  --color-startup-tone-3: var(--startup-tone-3);
+  --color-startup-tone-4: var(--startup-tone-4);
+  --color-startup-tone-5: var(--startup-tone-5);
+  --color-startup-tone-6: var(--startup-tone-6);
+  --color-startup-tone-7: var(--startup-tone-7);
+  --color-startup-tone-8: var(--startup-tone-8);
   --font-sans: var(--font-geist-sans), "Segoe UI", sans-serif;
   --font-mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
   --radius-sm: calc(var(--radius) - 4px);
@@ -80,6 +88,16 @@
   --sidebar-accent-foreground: oklch(0.34 0.12 277);
   --sidebar-border: oklch(0.88 0.017 266);
   --thread: oklch(0.73 0.075 276);
+  /* Tonovi čipa startupa (shared `startupTone`: indeks 0–7 → tone-1…8). Izmereno:
+     tekst tona na 16 % tintu ≥ 4.88:1, tekst --background na punom tonu ≥ 5.84:1. */
+  --startup-tone-1: oklch(0.48 0.13 250);
+  --startup-tone-2: oklch(0.48 0.15 305);
+  --startup-tone-3: oklch(0.5 0.17 350);
+  --startup-tone-4: oklch(0.5 0.14 45);
+  --startup-tone-5: oklch(0.49 0.1 85);
+  --startup-tone-6: oklch(0.48 0.12 145);
+  --startup-tone-7: oklch(0.48 0.08 185);
+  --startup-tone-8: oklch(0.48 0.08 220);
 }
 
 .dark {
@@ -114,6 +132,16 @@
   --sidebar-accent-foreground: oklch(0.88 0.06 276);
   --sidebar-border: oklch(0.33 0.025 267 / 65%);
   --thread: oklch(0.57 0.09 277);
+  /* Tonovi čipa startupa. Izmereno: tekst tona na 16 % tintu ≥ 6.57:1,
+     tekst --background na punom tonu ≥ 9.25:1. */
+  --startup-tone-1: oklch(0.78 0.11 250);
+  --startup-tone-2: oklch(0.78 0.12 305);
+  --startup-tone-3: oklch(0.78 0.12 350);
+  --startup-tone-4: oklch(0.78 0.12 45);
+  --startup-tone-5: oklch(0.8 0.11 85);
+  --startup-tone-6: oklch(0.78 0.12 145);
+  --startup-tone-7: oklch(0.78 0.09 185);
+  --startup-tone-8: oklch(0.78 0.1 220);
 }
 
 @layer base {
@@ -548,5 +576,109 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Sloj koji odlazi (ui/dialog, ui/sheet — `useLayerMotion`, K19) ne hvata klikove
+   dok nestaje; atribut postavlja GSAP kod, pa ga React ne prepisuje. */
+[data-layer-exiting] {
+  pointer-events: none !important;
+}
+
+/* Toastovi (sonner, K19) — van slojeva, jer sonner ubacuje svoj CSS bez sloja.
+   Brojeve pokreta i boje zadaje `components/ui/sonner.tsx` kao promenljive na
+   traci (`--toast-*`, `--normal-*`, `--success-*`…). Toast animira samo sonner
+   (CSS prelazi), GSAP se na njega ne kači. */
+[data-sonner-toaster][data-sonner-theme] {
+  font-family: inherit;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:not([data-swiping="true"]) {
+  transition-property: transform, opacity, height, box-shadow;
+  transition-duration: var(--toast-move-duration), var(--toast-fade-duration), var(--toast-move-duration),
+    var(--toast-fade-duration);
+  transition-timing-function: var(--toast-move-ease), var(--toast-fade-ease), var(--toast-move-ease),
+    var(--toast-fade-ease);
+}
+
+/* Zadnji toast koji odlazi iz skupljenog niza (sonner ima posebno pravilo). */
+[data-sonner-toaster]
+  [data-sonner-toast][data-removed="true"][data-front="false"][data-swipe-out="false"][data-expanded="false"] {
+  transition-duration: var(--toast-move-duration), var(--toast-fade-duration);
+  transition-timing-function: var(--toast-move-ease), var(--toast-fade-ease);
+}
+
+[data-sonner-toaster] [data-sonner-toast] > * {
+  transition: opacity var(--toast-fade-duration) var(--toast-fade-ease);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  gap: 0.625rem;
+  font-size: 0.875rem;
+  box-shadow: var(--shadow-desk);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:focus-visible {
+  box-shadow: var(--shadow-desk), 0 0 0 2px var(--ring);
+}
+
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"] [data-description] {
+  color: var(--muted-foreground);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--success);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--info);
+}
+
+/* Čista `--warning` na svetloj tinti je ispod 3:1 (WCAG 1.4.11), pa se ikonica tamni ka tekstu. */
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: color-mix(in oklab, var(--warning) 60%, var(--foreground));
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--destructive);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  height: 1.75rem;
+  padding-inline: 0.625rem;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button]:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"] button[data-cancel] {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+/* Dugme za zatvaranje nasleđuje podlogu i ivicu svog toasta (i u tonovima). */
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  background: inherit;
+  border-color: inherit;
+  color: var(--muted-foreground);
+}
+
+[data-sonner-toaster][data-sonner-theme] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover {
+  background: var(--accent);
+  border-color: var(--border);
+  color: var(--accent-foreground);
+}
+
+/* Smanjen pokret: bez pomeranja — toast se samo pretopi (120 ms). */
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster] [data-sonner-toast],
+  [data-sonner-toaster] [data-sonner-toast] > * {
+    transition: opacity var(--toast-reduced-duration) var(--toast-fade-ease) !important;
   }
 }

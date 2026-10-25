@@ -3,6 +3,7 @@ import {
   paginationOptsValidator,
   paginationResultValidator,
 } from "convex/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import { notifyTaskStakeholders } from "./lib/notifications";
@@ -11,6 +12,14 @@ import {
   requireProfileInStartup,
   requireStartupMember,
 } from "./lib/auth";
+import {
+  type AreaMini,
+  listMyActiveStartups,
+  type StartupMini,
+  startupMiniOf,
+  type TaskItem,
+  toTaskItem,
+} from "./lib/my_scope";
 import { workspaceCanvasPreview } from "./lib/page_creation";
 import {
   nextCompletedAt,
@@ -36,6 +45,10 @@ import {
   pageSummaryValidator,
   startupAreaDocumentValidator,
   startupDocumentValidator,
+  TASKS_EVERYWHERE_DONE_IN_ALL,
+  TASKS_EVERYWHERE_MAX,
+  TASKS_EVERYWHERE_STATUS_CAP,
+  taskItemValidator,
   taskPriorityValidator,
   taskStatusValidator,
   validateTaskDueDate,
@@ -233,6 +246,126 @@ export const listMine = query({
       if (result.length === limit) break;
     }
     return result;
+  },
+});
+
+/**
+ * „Moji zadaci" ličnog nivoa: moji dodeljeni zadaci iz SVIH startupa u kojima
+ * sam aktivan član (ili samo iz `startupId`), sa mini podacima startupa i
+ * oblasti. `open` je po roku (kao `listMine`), `done` po trenutku završetka,
+ * `all` = otvoreni + do 50 poslednjih završenih. `listMine` ostaje za
+ * postojeće ekrane.
+ */
+export const listEverywhere = query({
+  args: {
+    scope: v.union(v.literal("open"), v.literal("done"), v.literal("all")),
+    startupId: v.optional(v.id("startups")),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({ items: v.array(taskItemValidator), capped: v.boolean() }),
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    const limit = boundedLimit(args.limit, 100, TASKS_EVERYWHERE_MAX);
+    const startupId = args.startupId;
+    let startups: Map<Id<"startups">, StartupMini>;
+    if (startupId === undefined) {
+      startups = await listMyActiveStartups(ctx, profile._id);
+    } else {
+      const { startup } = await requireStartupMember(ctx, startupId);
+      startups = new Map([[startup._id, await startupMiniOf(ctx, startup)]]);
+    }
+    const areaCache = new Map<Id<"startupAreas">, AreaMini | null>();
+    const hydrate = async (row: Doc<"taskAssignees">) => {
+      if (!startups.has(row.startupId)) return null;
+      return await toTaskItem(ctx, await ctx.db.get("pages", row.taskPageId), {
+        profileId: profile._id,
+        startups,
+        areaCache,
+        isAssignee: true,
+      });
+    };
+
+    const items: TaskItem[] = [];
+    let capped = false;
+
+    if (args.scope === "open" || args.scope === "all") {
+      const rows: Doc<"taskAssignees">[] = [];
+      for (const status of OPEN_TASK_STATUSES) {
+        const statusRows =
+          startupId === undefined
+            ? await ctx.db
+                .query("taskAssignees")
+                .withIndex("by_profile_status_active_sort", (q) =>
+                  q
+                    .eq("profileId", profile._id)
+                    .eq("taskStatus", status)
+                    .eq("archivedAt", null),
+                )
+                .order("asc")
+                .take(TASKS_EVERYWHERE_STATUS_CAP)
+            : await ctx.db
+                .query("taskAssignees")
+                .withIndex("by_startup_profile_status_active_sort", (q) =>
+                  q
+                    .eq("startupId", startupId)
+                    .eq("profileId", profile._id)
+                    .eq("taskStatus", status)
+                    .eq("archivedAt", null),
+                )
+                .order("asc")
+                .take(TASKS_EVERYWHERE_STATUS_CAP);
+        if (statusRows.length === TASKS_EVERYWHERE_STATUS_CAP) capped = true;
+        rows.push(...statusRows);
+      }
+      rows.sort(
+        (a, b) => a.taskSortAt - b.taskSortAt || a._creationTime - b._creationTime,
+      );
+      const seen = new Set<Id<"pages">>();
+      let index = 0;
+      for (; index < rows.length && items.length < limit; index += 1) {
+        const row = rows[index];
+        if (seen.has(row.taskPageId)) continue;
+        seen.add(row.taskPageId);
+        const item = await hydrate(row);
+        if (item !== null) items.push(item);
+      }
+      if (index < rows.length) capped = true;
+    }
+
+    if (args.scope === "done" || args.scope === "all") {
+      const doneLimit =
+        args.scope === "all" ? Math.min(TASKS_EVERYWHERE_DONE_IN_ALL, limit) : limit;
+      // Indeks završenih je po profilu (bez startupa), pa se uz filter startupa
+      // čita širi prozor i filtrira posle čitanja.
+      const scan =
+        startupId === undefined
+          ? doneLimit
+          : Math.min(doneLimit * 2, TASKS_EVERYWHERE_MAX);
+      const doneRows = await ctx.db
+        .query("taskAssignees")
+        .withIndex("by_profile_status_active_updated", (q) =>
+          q
+            .eq("profileId", profile._id)
+            .eq("taskStatus", "done")
+            .eq("archivedAt", null),
+        )
+        .order("desc")
+        .take(scan);
+      if (doneRows.length === scan) capped = true;
+      const done: TaskItem[] = [];
+      const seen = new Set<Id<"pages">>();
+      for (const row of doneRows) {
+        if (seen.has(row.taskPageId)) continue;
+        seen.add(row.taskPageId);
+        const item = await hydrate(row);
+        if (item !== null && item.taskStatus === "done") done.push(item);
+      }
+      done.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
+      if (done.length > doneLimit) capped = true;
+      items.push(...done.slice(0, doneLimit));
+    }
+
+    return { items, capped };
   },
 });
 

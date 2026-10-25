@@ -474,7 +474,7 @@ function AdminStartupSkeleton() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <AdminStartupError message={error.message} onRetry={retry} />;
+  return <AdminStartupError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function AdminStartupError({ message, onRetry }: { message: string; onRetry: () => void }) {

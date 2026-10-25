@@ -70,6 +70,7 @@ export function TaskCheckpointDraftList({
     <div className="space-y-3">
       <div className="flex gap-2">
         <Input
+          aria-label="Novi korak"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -118,9 +119,9 @@ export function TaskCheckpointDraftList({
                 }
               >
                 {item.completed ? (
-                  <Check className="size-4 text-emerald-600" />
+                  <Check className="size-4 text-success" />
                 ) : (
-                  <Circle className="size-4 text-orange-600" />
+                  <Circle className="size-4 text-muted-foreground" />
                 )}
               </button>
               {editingId === item.id ? (
@@ -522,11 +523,11 @@ export function TaskCheckpointList({
                   {pendingId === checkpoint._id ? (
                     <LoaderCircle className="size-4 animate-spin" />
                   ) : checkpoint.completed ? (
-                    <Check className="size-4 text-emerald-600" />
+                    <Check className="size-4 text-success" />
                   ) : checkpoint.locked ? (
                     <Lock className="size-4 text-muted-foreground" />
                   ) : (
-                    <Circle className="size-4 text-orange-600" />
+                    <Circle className="size-4 text-muted-foreground" />
                   )}
                 </button>
                 {editingId === checkpoint._id ? (
@@ -652,7 +653,7 @@ export function TaskCheckpointList({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-11 text-rose-600"
+                    className="size-11 text-destructive"
                     aria-label={
                       checkpoint.canDeleteDirectly
                         ? `Obriši checkpoint: ${checkpoint.text}`

@@ -657,7 +657,7 @@ function ApprovalCard({
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <OdobrenjaError message={error.message} onRetry={retry} />;
+  return <OdobrenjaError message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
 }
 
 function OdobrenjaError({ message, onRetry }: { message: string; onRetry: () => void }) {

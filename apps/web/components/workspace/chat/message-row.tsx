@@ -4,10 +4,11 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { CornerUpLeft, FileText, Pencil, Reply, Trash2 } from "lucide-react";
+import { canDeleteChatMessage } from "@devotion/shared";
 
 import { ReactionPicker } from "@/components/workspace/chat/reaction-picker";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
-import type { ProfileWithAvatar, StartupMember } from "@/components/workspace/types";
+import type { ProfileWithAvatar } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
@@ -18,6 +19,7 @@ import {
   formatMessageTime,
   splitMentions,
   formatVoiceDuration,
+  type ChatMember,
   type ChatMessage,
 } from "@/lib/chat";
 import { formatFileSize } from "@/lib/page-kinds";
@@ -34,7 +36,7 @@ export function MessageRow({
   message: ChatMessage;
   grouped: boolean;
   profile: ProfileWithAvatar;
-  members: StartupMember[] | undefined;
+  members: ChatMember[] | undefined;
   repliedTo?: ChatMessage | null;
   onReply: (message: ChatMessage) => void;
 }) {
@@ -58,7 +60,14 @@ export function MessageRow({
   // Prozor izmene (15 min) proverava se pri kliku, ne tokom rendera — backend
   // je konačni čuvar; ovde je samo prijateljska poruka ako je prošlo.
   const canEdit = isOwn && !message.deleted;
-  const canDelete = (isOwn || isAdmin) && !message.deleted;
+  // Ogledalo `chat.deleteMessage`: admin briše tuđe poruke samo u kanalima
+  // startupa; u ličnom razgovoru (`startupId === null`) briše samo autor.
+  const canDelete = canDeleteChatMessage({
+    isOwn,
+    isAdmin,
+    startupId: message.startupId,
+    deleted: message.deleted,
+  });
 
   function beginEdit() {
     if (Date.now() - message.createdAt >= CHAT_EDIT_WINDOW_MS) {
@@ -234,6 +243,7 @@ export function MessageRow({
                         : "border-border bg-card text-muted-foreground hover:bg-accent",
                     )}
                     aria-pressed={reaction.mine}
+                    aria-label={`Reakcija ${reaction.emoji}, ${reaction.count}${reaction.mine ? ", tvoja" : ""}`}
                   >
                     <span className="text-sm leading-none">{reaction.emoji}</span>
                     {reaction.count}

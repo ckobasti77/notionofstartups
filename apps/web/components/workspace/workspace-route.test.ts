@@ -1,20 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isMeRoute,
   pageArchiveFallbackRoute,
   pageBackRoute,
   readAreasRouteCandidate,
   readWorkspaceLocation,
   readWorkspaceRouteCandidate,
   readWorkspaceStartupId,
+  routeScope,
   workspaceRouteAfterStartupSwitch,
   workspaceRouteHref,
 } from "./workspace-route";
 import type { WorkspaceRoute } from "./types";
 
 describe("workspace URL route contract", () => {
-  it("reads Home, Ideas and Thoughts as distinct routes while bare URLs open the command center", () => {
-    expect(readWorkspaceRouteCandidate("")).toEqual({ kind: "today" });
+  it("reads Home, Ideas and Thoughts as distinct routes while bare URLs open Moj dan", () => {
+    // P1 (LICNO K08): bez `view` se otvara lični Moj dan, ne komandni centar.
+    expect(readWorkspaceRouteCandidate("")).toEqual({ kind: "me-today" });
     expect(readWorkspaceRouteCandidate("?view=home")).toEqual({
       kind: "home",
     });
@@ -58,7 +61,7 @@ describe("workspace URL route contract", () => {
       hasExplicitView: true,
     });
     expect(readWorkspaceLocation("?invite=abc")).toEqual({
-      route: { kind: "today" },
+      route: { kind: "me-today" },
       startupId: null,
       hasExplicitView: false,
     });
@@ -190,5 +193,120 @@ describe("workspace URL route contract", () => {
         parentPageId: null,
       }),
     ).toEqual({ kind: "area", areaId: "area-1" });
+  });
+
+  describe("lični nivo Ja (P1, plan K01 §5)", () => {
+    it("čita me-* prikaze; me-chat sa i bez channelId", () => {
+      expect(readWorkspaceRouteCandidate("?view=me-today")).toEqual({ kind: "me-today" });
+      expect(readWorkspaceRouteCandidate("?view=me-tasks")).toEqual({ kind: "me-tasks" });
+      expect(readWorkspaceRouteCandidate("?view=me-inbox")).toEqual({ kind: "me-inbox" });
+      expect(readWorkspaceRouteCandidate("?view=me-chat")).toEqual({ kind: "me-chat" });
+      expect(readWorkspaceRouteCandidate("?view=me-chat&channelId=ch-1")).toEqual({
+        kind: "me-chat",
+        channelId: "ch-1",
+      });
+      expect(readWorkspaceRouteCandidate("?view=me-chat&channelId=%20")).toEqual({
+        kind: "me-chat",
+      });
+      expect(readWorkspaceRouteCandidate("?view=me-nesto")).toBeNull();
+    });
+
+    it("razlikuje opseg: me-* je lični, sve ostalo startup", () => {
+      for (const kind of ["me-today", "me-tasks", "me-inbox", "me-chat"] as const) {
+        expect(isMeRoute({ kind })).toBe(true);
+        expect(routeScope({ kind })).toBe("me");
+      }
+      for (const route of [
+        { kind: "today" },
+        { kind: "my-tasks" },
+        { kind: "chat" },
+        { kind: "home" },
+      ] satisfies WorkspaceRoute[]) {
+        expect(isMeRoute(route)).toBe(false);
+        expect(routeScope(route)).toBe("startup");
+      }
+    });
+
+    it("me href nikad ne nosi startupId, ni kad je prosleđen", () => {
+      expect(
+        workspaceRouteHref(
+          { kind: "me-today" },
+          "https://example.test/?view=today&startupId=startup-1",
+          "startup-1" as never,
+        ),
+      ).toBe("/?view=me-today");
+      expect(
+        workspaceRouteHref({ kind: "me-tasks" }, "https://example.test/?invite=abc#w"),
+      ).toBe("/?invite=abc&view=me-tasks#w");
+      expect(
+        workspaceRouteHref(
+          { kind: "me-chat", channelId: "ch-9" as never },
+          "https://example.test/?view=chat&channelId=ch-1&startupId=startup-2",
+          "startup-2" as never,
+        ),
+      ).toBe("/?view=me-chat&channelId=ch-9");
+      expect(
+        readWorkspaceLocation("?view=me-inbox"),
+      ).toEqual({ route: { kind: "me-inbox" }, startupId: null, hasExplicitView: true });
+    });
+
+    it("stari linkovi sa startupId rade kao pre", () => {
+      expect(readWorkspaceLocation("?view=today&startupId=startup-7")).toEqual({
+        route: { kind: "today" },
+        startupId: "startup-7",
+        hasExplicitView: true,
+      });
+      expect(
+        readWorkspaceLocation("?view=page&pageId=page-3&startupId=startup-7"),
+      ).toEqual({
+        route: { kind: "page", pageId: "page-3" },
+        startupId: "startup-7",
+        hasExplicitView: true,
+      });
+      expect(
+        workspaceRouteHref(
+          { kind: "today" },
+          "https://example.test/?view=me-today",
+          "startup-7" as never,
+        ),
+      ).toBe("/?view=today&startupId=startup-7");
+    });
+
+    it("startup → Ja → startup daje tri različita istorijska unosa", () => {
+      const steps: Array<{ route: WorkspaceRoute; startupId?: string }> = [
+        { route: { kind: "today" }, startupId: "startup-1" },
+        { route: { kind: "me-today" }, startupId: "startup-1" },
+        { route: { kind: "today" }, startupId: "startup-2" },
+      ];
+      const history = steps.reduce<string[]>((entries, step) => {
+        const current = new URL(entries.at(-1) ?? "/", "https://example.test").href;
+        return [
+          ...entries,
+          workspaceRouteHref(step.route, current, step.startupId as never),
+        ];
+      }, []);
+      expect(history).toEqual([
+        "/?view=today&startupId=startup-1",
+        "/?view=me-today",
+        "/?view=today&startupId=startup-2",
+      ]);
+      expect(new Set(history).size).toBe(3);
+      expect(
+        history.map(
+          (href) => readWorkspaceLocation(new URL(href, "https://example.test").search).startupId,
+        ),
+      ).toEqual(["startup-1", null, "startup-2"]);
+    });
+
+    it("iz ličnog nivoa se u startup ulazi kroz Komandni centar", () => {
+      for (const route of [
+        { kind: "me-today" },
+        { kind: "me-tasks" },
+        { kind: "me-inbox" },
+        { kind: "me-chat", channelId: "ch-1" as never },
+      ] satisfies WorkspaceRoute[]) {
+        expect(workspaceRouteAfterStartupSwitch(route)).toEqual({ kind: "today" });
+      }
+    });
   });
 });

@@ -14,10 +14,13 @@ import {
 import { usePaginatedQuery, useMutation } from 'convex/react';
 import * as Clipboard from 'expo-clipboard';
 import { ChevronDown, MessageSquare } from 'lucide-react-native';
+import Animated from 'react-native-reanimated';
 
 import { MessageBubble } from '@/components/chat/message-bubble';
 import { MessageActionsSheet } from '@/components/chat/message-actions-sheet';
 import { EmptyState } from '@/components/empty-state';
+import { enterRise } from '@/components/motion';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { SkeletonList, SkeletonMessage } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
@@ -26,6 +29,7 @@ import { haptics } from '@/lib/haptics';
 import {
   formatDaySeparator,
   sameDay,
+  shouldAnimateArrival,
   shouldGroupWithPrevious,
   type ChatMember,
   type ChatMessage,
@@ -52,6 +56,7 @@ export function MessageList({
   onEdit,
   onAtBottomChange,
   scrollToBottomSignal = 0,
+  animateArrivals = false,
 }: {
   channelId: Id<'chatChannels'>;
   currentProfileId: Id<'profiles'>;
@@ -71,8 +76,15 @@ export function MessageList({
    * trenutan — ne čeka da poruka obiđe server i vrati se kroz pretplatu.
    */
   scrollToBottomSignal?: number;
+  /**
+   * Pristigla poruka ulazi podizanjem (`enterRise`, K16) — par web
+   * `animateArrivals`. Samo poruke posle prvog punjenja (`shouldAnimateArrival`);
+   * prvo punjenje i starije strane se prosto pojave.
+   */
+  animateArrivals?: boolean;
 }) {
   const colors = useThemeColors();
+  const reduced = useReducedMotion();
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [showJump, setShowJump] = useState(false);
@@ -90,6 +102,18 @@ export function MessageList({
 
   const toggleReaction = useMutation(api.chat.toggleReaction);
   const deleteMessage = useMutation(api.chat.deleteMessage);
+
+  /**
+   * Najnovija poruka pri PRVOM punjenju — granica za ulaz pristiglih poruka.
+   * Postavlja se jednom, u renderu (bez efekta i kaskadnog rendera); prazan
+   * razgovor daje 0, pa i prva poruka u njemu ulazi animirano.
+   */
+  const [arrivalBaseline, setArrivalBaseline] = useState<number | null>(null);
+  /** Poruke koje su već ušle animirano (ref: ne menja render, samo pamti). */
+  const arrivedIdsRef = useRef(new Set<string>());
+  if (animateArrivals && arrivalBaseline === null && status !== 'LoadingFirstPage') {
+    setArrivalBaseline(results[0]?.createdAt ?? 0);
+  }
 
   // Razrešavanje citirane poruke i imena pomenutih iz već učitanog prozora.
   const byId = useMemo(
@@ -254,23 +278,52 @@ export function MessageList({
         ? byId.get(item.replyToMessageId) ?? null
         : null;
 
+      const bubble = (
+        <MessageBubble
+          message={item}
+          grouped={grouped}
+          currentProfileId={currentProfileId}
+          mentionNames={mentionNames}
+          repliedTo={repliedTo}
+          onReply={onReplyTo}
+          onLongPress={setActionsFor}
+          onToggleReaction={handleToggleReaction}
+        />
+      );
+      // Jednom po poruci: FlatList ćeliju daleko od ekrana demontira, pa bi se
+      // pri povratku skrolom ulaz ponovio.
+      const arrived =
+        animateArrivals &&
+        !arrivedIdsRef.current.has(item._id) &&
+        shouldAnimateArrival(item, arrivalBaseline, currentProfileId);
+      if (arrived) arrivedIdsRef.current.add(item._id);
+
       return (
         <>
           {showDay ? <DaySeparator ts={item.createdAt} colors={colors} /> : null}
-          <MessageBubble
-            message={item}
-            grouped={grouped}
-            currentProfileId={currentProfileId}
-            mentionNames={mentionNames}
-            repliedTo={repliedTo}
-            onReply={onReplyTo}
-            onLongPress={setActionsFor}
-            onToggleReaction={handleToggleReaction}
-          />
+          {/* Omotač je stalan (ista struktura pri svakom renderu ćelije, pa se
+              mehurić ne remontira kad se npr. promeni reakcija); `entering` važi
+              samo pri montiranju. */}
+          {animateArrivals ? (
+            <Animated.View entering={arrived ? enterRise(reduced) : undefined}>{bubble}</Animated.View>
+          ) : (
+            bubble
+          )}
         </>
       );
     },
-    [results, byId, memberNameById, colors, currentProfileId, onReplyTo, handleToggleReaction],
+    [
+      results,
+      byId,
+      memberNameById,
+      colors,
+      currentProfileId,
+      onReplyTo,
+      handleToggleReaction,
+      animateArrivals,
+      arrivalBaseline,
+      reduced,
+    ],
   );
 
   const loading = status === 'LoadingFirstPage';

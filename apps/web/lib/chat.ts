@@ -10,6 +10,15 @@ export type ChatChannelKind = ChatChannel["kind"];
 export type ChatReaction = ChatMessage["reactions"][number];
 
 /**
+ * Član razgovora onoliko koliko ga chat komponente čitaju (pominjanja, imena
+ * u porukama, avatar). Član startupa (`startups.listMembers`) i član ličnog
+ * razgovora (`chat.channelMembers`) oba odgovaraju ovom obliku.
+ */
+export type ChatMember = {
+  profile: { _id: Id<"profiles">; displayName: string; avatarUrl: string | null };
+};
+
+/**
  * Segmenti liste razgovora u traženom redosledu: Opšte → kanali oblasti/custom
  * → diskusije (threadovi) → direktne poruke. Unutar segmenta backend već sortira
  * po `lastMessageAt` opadajuće.

@@ -520,7 +520,68 @@ export default defineSchema({
       "taskStatus",
       "archivedAt",
       "taskSortAt",
+    ])
+    // „Završeno od" za lični nivo (Moj dan, Moji zadaci svuda). `updatedAt` se
+    // osvežava pri svakoj promeni statusa kroz `syncTaskAssigneeMirrors`.
+    .index("by_profile_status_active_updated", [
+      "profileId",
+      "taskStatus",
+      "archivedAt",
+      "updatedAt",
     ]),
+
+  // --- Lični nivo „Ja" (docs/LICNO-PLAN.md §4.1–4.2) -----------------------
+  //
+  // Privatne obaveze van startupa: vidi ih i menja ISKLJUČIVO vlasnik. Brisanje
+  // je arhiva (`archivedAt`), da bi „Poništi" mogao da vrati zadatak.
+  personalTasks: defineTable({
+    profileId: v.id("profiles"),
+    title: v.string(),
+    // Odsutno = bez beleške (prazna beleška se ne čuva).
+    notes: v.optional(v.string()),
+    status: v.union(v.literal("open"), v.literal("done")),
+    priority: v.union(taskPriorityValidator, v.null()),
+    // Lokalno podne (ms), kao rok startup zadatka.
+    dueDate: v.union(v.number(), v.null()),
+    // Rok, ili za zadatak bez roka `8e15 − createdAt` (najnoviji prvi posle
+    // zadataka sa rokom). `createdAt`, ne `updatedAt`, da redosled bude stabilan.
+    sortAt: v.number(),
+    completedAt: v.union(v.number(), v.null()),
+    archivedAt: v.union(v.number(), v.null()),
+    // Trag posle `moveToStartup`: zadatak je postao ova stranica.
+    movedToPageId: v.optional(v.id("pages")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_profile_status_archived_sort", [
+      "profileId",
+      "status",
+      "archivedAt",
+      "sortAt",
+    ])
+    .index("by_profile_status_archived_completed", [
+      "profileId",
+      "status",
+      "archivedAt",
+      "completedAt",
+    ]),
+
+  // Plan dana: stavka je referenca na startup zadatak ILI lični zadatak, za
+  // lokalni dan uređaja (`dayKey` = "YYYY-MM-DD"). Isti `refKey` najviše jednom
+  // po danu; cilj koji više nije dostupan se tiho preskače pri čitanju.
+  myDayEntries: defineTable({
+    profileId: v.id("profiles"),
+    dayKey: v.string(),
+    refKind: v.union(v.literal("task"), v.literal("personal")),
+    taskPageId: v.union(v.id("pages"), v.null()),
+    personalTaskId: v.union(v.id("personalTasks"), v.null()),
+    // "task:<id>" | "personal:<id>"
+    refKey: v.string(),
+    position: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_profile_day_position", ["profileId", "dayKey", "position"])
+    .index("by_profile_ref", ["profileId", "refKey", "dayKey"]),
 
   taskCheckpointCanvasPlacements: defineTable({
     startupId: v.id("startups"),
@@ -1092,7 +1153,8 @@ export default defineSchema({
 
   notifications: defineTable({
     recipientProfileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    // `null` = lično obaveštenje (poruka iz ličnog razgovora, van startupa).
+    startupId: v.union(v.id("startups"), v.null()),
     type: notificationTypeValidator,
     title: v.string(),
     body: v.optional(v.string()),
@@ -1115,6 +1177,10 @@ export default defineSchema({
       "startupId",
       "createdAt",
     ])
+    // Globalni Inbox (`inbox.ts`): feed i brojači iz svih startupa bez
+    // nabrajanja startupa jedan po jedan.
+    .index("by_recipient_and_createdAt", ["recipientProfileId", "createdAt"])
+    .index("by_recipient_and_readAt", ["recipientProfileId", "readAt"])
     .index("by_dedupeKey", ["dedupeKey"]),
 
   pushSubscriptions: defineTable({
@@ -1228,7 +1294,9 @@ export default defineSchema({
   // --- Chat (docs/mobile/04-CHAT.md) --------------------------------------
 
   chatChannels: defineTable({
-    startupId: v.id("startups"),
+    // `null` = lični razgovor (DM ili grupa van startupa); pristup samo kroz
+    // eksplicitno članstvo u `chatMembers` (docs/LICNO-PLAN.md P6).
+    startupId: v.union(v.id("startups"), v.null()),
     kind: chatChannelKindValidator,
     // kind === "area": kanal oblasti.
     areaId: v.union(v.id("startupAreas"), v.null()),
@@ -1265,7 +1333,7 @@ export default defineSchema({
   chatMessages: defineTable({
     channelId: v.id("chatChannels"),
     // Duplirano zbog provere pristupa bez join-a i kao search filterField.
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     authorProfileId: v.union(v.id("profiles"), v.null()), // null = sistemska
     body: v.string(),
     mentions: v.array(v.id("profiles")),
@@ -1298,7 +1366,7 @@ export default defineSchema({
   chatMembers: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     role: chatMemberRoleValidator,
     joinedAt: v.number(),
     leftAt: v.union(v.number(), v.null()),
@@ -1315,7 +1383,7 @@ export default defineSchema({
   chatReads: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     lastReadAt: v.number(),
     lastReadMessageId: v.union(v.id("chatMessages"), v.null()),
     unreadCount: v.number(), // održavano inkrementalno, ne računa se pri čitanju
@@ -1341,7 +1409,7 @@ export default defineSchema({
   chatPresence: defineTable({
     channelId: v.id("chatChannels"),
     profileId: v.id("profiles"),
-    startupId: v.id("startups"),
+    startupId: v.union(v.id("startups"), v.null()), // `null` = lični razgovor
     /** `Date.now() + CHAT_PRESENCE_TTL_MS`; `0` = eksplicitno odjavljen. */
     expiresAt: v.number(),
     updatedAt: v.number(),

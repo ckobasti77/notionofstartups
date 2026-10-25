@@ -28,7 +28,8 @@ type PushPayload = {
   title: string;
   body: string | null;
   type: NotificationType;
-  startupId: Id<"startups">;
+  /** `null` = lično obaveštenje; JSON nosi `null`, a `sw.js` vodi na `me-chat`. */
+  startupId: Id<"startups"> | null;
   targetType: string;
   targetId: string | null;
   notificationId: Id<"notifications">;

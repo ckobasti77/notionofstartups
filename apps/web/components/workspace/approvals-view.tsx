@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import {
   ArrowRight,
   Check,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FLIP_MAX_ITEMS, FlipGroup } from "@/components/motion/flip-group";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +33,40 @@ import type { StartupWithAreas } from "@/components/workspace/types";
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useEnter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+
+type ApprovalsData = FunctionReturnType<typeof api.collaboration.overview>;
+type NestingInbox = FunctionReturnType<typeof api.areasV2.listNestingInbox>;
+
+/** Ključevi stavki u listi taba, redom na ekranu (Flip i fokus posle odluke). */
+function approvalKeysForTab(
+  tab: string,
+  data: ApprovalsData,
+  inbox: NestingInbox,
+): string[] {
+  switch (tab) {
+    case "vote":
+      return data.requestsForVote.map((request) => request._id);
+    case "nesting":
+      return [
+        ...inbox.incoming.map((request) => request.requestId),
+        ...data.nestingForMe.map((request) => request._id),
+      ];
+    case "mine":
+      return [
+        ...data.myRequests.deletion.map((request) => request._id),
+        ...inbox.outgoing.map((request) => request.requestId),
+        ...data.myRequests.nesting.map((request) => request._id),
+      ];
+    case "recovered":
+      return data.recovered.map((item) => item._id);
+    case "history":
+      return data.history.map((request) => request._id);
+    default:
+      return [];
+  }
+}
 
 function formatDate(value: number) {
   return new Intl.DateTimeFormat("sr-Latn-RS", {
@@ -102,6 +137,63 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
     requestId: Id<"pageNestingRequests">;
     action: "approve" | "reject" | "withdraw";
   } | null>(null);
+  // Liste odobrenja (K19): stavke ulaze sa stagger-om na prvo punjenje i na
+  // promenu taba, a promene (glas, odluka, nov zahtev) idu kroz Flip.
+  const [tab, setTab] = useState("vote");
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const ready = data !== undefined && pageNestingInbox !== undefined;
+  useEnter(tabsRef, { key: `${tab}:${ready ? "spremno" : "ucitavanje"}` });
+
+  // Fokus posle odluke (K21, otvoren nalaz K19): stavka nad kojom je korisnik
+  // glasao ili odlučio nestaje kad stigne odgovor servera, pa bi fokus pao na
+  // `body`. Klik na dugme u stavci pamti njeno mesto; kad stavka ode, a fokus je
+  // izgubljen, fokus ide na stavku koja je došla na to mesto (ili na tab kad je
+  // lista prazna), uz najavu čitaču ekrana (`data-decision-message`).
+  const decision = useRef<{
+    id: string;
+    tab: string;
+    index: number;
+    message: string | null;
+  } | null>(null);
+  const liveRef = useRef<HTMLParagraphElement>(null);
+  const listSignature =
+    data === undefined || pageNestingInbox === undefined
+      ? null
+      : approvalKeysForTab(tab, data, pageNestingInbox).join("|");
+  useEffect(() => {
+    const pending = decision.current;
+    if (pending === null || listSignature === null) return;
+    if (pending.tab !== tab) {
+      decision.current = null;
+      return;
+    }
+    const keys = listSignature === "" ? [] : listSignature.split("|");
+    if (keys.includes(pending.id)) return;
+    decision.current = null;
+    const root = tabsRef.current;
+    const active = document.activeElement;
+    if (root && (active === null || active === document.body)) {
+      const items = [
+        ...root.querySelectorAll<HTMLElement>(
+          '[role="tabpanel"][data-state="active"] article[data-flip-id]',
+        ),
+      ];
+      const next = items[Math.min(Math.max(pending.index, 0), items.length - 1)];
+      const target =
+        next?.querySelector<HTMLElement>("button:not([disabled])") ??
+        root.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
+      target?.focus();
+    }
+    const live = liveRef.current;
+    const message = pending.message;
+    if (live && message !== null) {
+      live.textContent = "";
+      requestAnimationFrame(() => {
+        live.textContent =
+          keys.length === 0 ? `${message} Nema više stavki na listi.` : message;
+      });
+    }
+  }, [listSignature, tab]);
 
   if (data === undefined || pageNestingInbox === undefined) {
     return (
@@ -160,6 +252,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
   }
 
   const pendingCount = data.pendingCount + pageNestingInbox.incoming.length;
+  // Flip prati samo listu aktivnog taba (ostali nisu montirani): promena u
+  // nevidljivom tabu ne snima raspored, a duga istorija ne gasi Flip drugima.
+  const listKeys = approvalKeysForTab(tab, data, pageNestingInbox);
   const nestingForMeCount =
     data.nestingForMe.length + pageNestingInbox.incoming.length;
 
@@ -193,7 +288,26 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
         </div>
       </header>
 
-      <Tabs defaultValue="vote" className="mt-6" data-workspace-enter>
+      <p ref={liveRef} role="status" aria-live="polite" className="sr-only" />
+      <Tabs
+        ref={tabsRef}
+        defaultValue="vote"
+        onValueChange={setTab}
+        className="mt-6"
+        data-workspace-enter
+        onClickCapture={(event) => {
+          const button = (event.target as HTMLElement).closest("button");
+          const article = button?.closest<HTMLElement>("article[data-flip-id]");
+          const id = article?.dataset.flipId;
+          if (!article || id === undefined) return;
+          decision.current = {
+            id,
+            tab,
+            index: listKeys.indexOf(id),
+            message: article.dataset.decisionMessage ?? null,
+          };
+        }}
+      >
         <TabsList className="grid h-auto w-full grid-cols-2 rounded-2xl bg-muted/55 p-1 sm:grid-cols-5">
           <TabsTrigger value="vote" className="min-h-10 rounded-xl text-xs sm:text-sm">
             Za moj glas
@@ -222,6 +336,12 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
           </TabsTrigger>
         </TabsList>
 
+        <FlipGroup
+          scope={tabsRef}
+          layoutKey={listKeys.join("|")}
+          resetKey={tab}
+          disabled={listKeys.length > FLIP_MAX_ITEMS}
+        >
         <TabsContent value="vote" className="mt-5">
           <Surface
             icon={Inbox}
@@ -234,6 +354,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
               data.requestsForVote.map((request) => (
                 <article
                   key={request._id}
+                  data-flip-id={request._id}
+                  data-decision-message="Glas je sačuvan."
+                  data-motion-enter
                   className="rounded-2xl border border-border/70 bg-background/70 p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-4">
@@ -250,7 +373,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
-                        className="rounded-xl text-rose-600"
+                        className="rounded-xl text-destructive"
                         onClick={() =>
                           void vote({
                             requestId: request._id,
@@ -308,6 +431,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                 return (
                   <article
                     key={request.requestId}
+                    data-flip-id={request.requestId}
+                    data-motion-enter
                     className="rounded-2xl border border-border/70 bg-background/70 p-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-4">
@@ -413,6 +538,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
               data.nestingForMe.map((request) => (
                 <article
                   key={request._id}
+                  data-flip-id={request._id}
+                  data-decision-message="Odluka je sačuvana."
+                  data-motion-enter
                   className="rounded-2xl border border-border/70 bg-background/70 p-4"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">
@@ -485,6 +613,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                 {data.myRequests.deletion.map((request) => (
                   <article
                     key={request._id}
+                    data-flip-id={request._id}
+                    data-decision-message="Zahtev je povučen."
+                    data-motion-enter
                     className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/70 p-4"
                   >
                     <div>
@@ -519,6 +650,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                   return (
                     <article
                       key={request.requestId}
+                      data-flip-id={request.requestId}
+                      data-motion-enter
                       className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/70 p-4"
                     >
                       <div className="min-w-0">
@@ -569,6 +702,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                 {data.myRequests.nesting.map((request) => (
                   <article
                     key={request._id}
+                    data-flip-id={request._id}
+                    data-motion-enter
                     className="rounded-2xl border border-border/70 bg-background/70 p-4"
                   >
                     <h3 className="font-semibold">Zahtev za ugnježđavanje</h3>
@@ -596,6 +731,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
               data.recovered.map((item) => (
                 <article
                   key={item._id}
+                  data-flip-id={item._id}
+                  data-motion-enter
                   className="rounded-2xl border border-border/70 bg-background/70 p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -669,6 +806,8 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
               data.history.map((request) => (
                 <article
                   key={request._id}
+                  data-flip-id={request._id}
+                  data-motion-enter
                   className="flex items-center justify-between gap-4 rounded-2xl border border-border/70 bg-background/70 p-4"
                 >
                   <div className="min-w-0">
@@ -684,9 +823,9 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
                     className={cn(
                       "rounded-full",
                       request.status === "approved" &&
-                        "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+                        "bg-success/12 text-success",
                       request.status === "rejected" &&
-                        "bg-rose-500/12 text-rose-700 dark:text-rose-300",
+                        "bg-destructive/12 text-destructive",
                     )}
                   >
                     {request.status === "approved"
@@ -702,6 +841,7 @@ export function ApprovalsView({ startup }: { startup: StartupWithAreas }) {
             )}
           </Surface>
         </TabsContent>
+        </FlipGroup>
       </Tabs>
     </div>
   );

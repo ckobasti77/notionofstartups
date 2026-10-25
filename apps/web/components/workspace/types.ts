@@ -20,7 +20,15 @@ export type MyTask = Doc<"pages"> & {
   area: Doc<"startupAreas"> | null;
 };
 
-export type WorkspaceRoute =
+/** Lični nivo „Ja" (P1): URL nikad ne nosi `startupId` (plan K01, D10). */
+export type MeRoute =
+  | { kind: "me-today" }
+  | { kind: "me-tasks" }
+  | { kind: "me-inbox" }
+  | { kind: "me-chat"; channelId?: Id<"chatChannels"> };
+
+/** Svet jednog startupa — postojeća unija, bez izmena. */
+export type StartupRoute =
   | { kind: "home" }
   | { kind: "thoughts" }
   | { kind: "ideas" }
@@ -32,6 +40,11 @@ export type WorkspaceRoute =
   | { kind: "puls"; weekStart?: number }
   | { kind: "area"; areaId: Id<"startupAreas"> }
   | { kind: "page"; pageId: Id<"pages"> };
+
+export type WorkspaceRoute = MeRoute | StartupRoute;
+
+/** Opseg prikaza: lični nivo ili izabrani startup. */
+export type WorkspaceScope = "me" | "startup";
 
 export type CreatePageTarget = {
   areaId?: Id<"startupAreas">;

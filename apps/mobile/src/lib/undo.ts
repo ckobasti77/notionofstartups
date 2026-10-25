@@ -256,7 +256,52 @@ export type UndoAction =
    * `areasV2.archivePage` (kreator sme direktno): arhiva čisti placement/ivice
    * kanvasa, a eventualna deca se podižu nivo gore (`archivePageWithV2Sidecars`).
    */
-  | { kind: 'pageCreate'; startupId: Id<'startups'>; pageId: Id<'pages'> };
+  | { kind: 'pageCreate'; startupId: Id<'startups'>; pageId: Id<'pages'> }
+  /**
+   * Završen (ili vraćen) zadatak u startupu iz Moj dan (K12). Inverzan upis, ne
+   * vraćanje arhiviranog: `status` je status OD PRE radnje (npr. „U toku"), pa je
+   * poništavanje isti `tasks.updateMetadata` poziv — isto što web radi kroz
+   * „Poništi" u toastu (`use-completion-queue.ts`).
+   */
+  | {
+      kind: 'taskStatus';
+      pageId: Id<'pages'>;
+      status: 'backlog' | 'next' | 'in_progress' | 'blocked' | 'done';
+    }
+  /** Završen (ili vraćen) lični zadatak (K12) — inverz je `personalTasks.setStatus`. */
+  | { kind: 'personalTaskStatus'; personalTaskId: Id<'personalTasks'>; status: 'open' | 'done' }
+  /**
+   * Uklonjena stavka plana dana (K12). `myDay.unplan` vraća dan, referencu i
+   * poziciju, pa je inverz `myDay.plan` na ISTO mesto (web „Poništi" isto).
+   */
+  | {
+      kind: 'myDayUnplan';
+      dayKey: string;
+      ref:
+        | { kind: 'task'; taskPageId: Id<'pages'> }
+        | { kind: 'personal'; personalTaskId: Id<'personalTasks'> };
+      position: number;
+    }
+  /** Obrisan (arhiviran) lični zadatak — inverz je `personalTasks.restore` (panel, K13). */
+  | { kind: 'personalTaskArchive'; personalTaskId: Id<'personalTasks'> }
+  /**
+   * Napravljen lični zadatak iz brzog unosa (K12). Inverz je `personalTasks.archive`
+   * (web E16 isto); stavka plana na arhiviranom zadatku se pri čitanju preskače.
+   * Zadatak u startupu iz brzog unosa koristi postojeći `pageCreate`.
+   */
+  | { kind: 'personalTaskCreate'; personalTaskId: Id<'personalTasks'> }
+  /**
+   * Izmena lične grupe iz „Podešavanja grupe" (K16). Kao `channelMembers` — inverzan
+   * upis, ne vraćanje arhiviranog: `chat.updatePersonalGroup` vraća ime i aktivne
+   * članove OD PRE izmene, pa je poništavanje isti poziv sa tim vrednostima (web
+   * „Poništi" u toastu radi isto).
+   */
+  | {
+      kind: 'personalGroup';
+      channelId: Id<'chatChannels'>;
+      name: string;
+      profileIds: Id<'profiles'>[];
+    };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */
@@ -271,6 +316,12 @@ export type UndoEntry = {
   key: number;
   /** Kad je radnja izvršena — za vreme u „Istoriji radnji" (`app/(app)/istorija.tsx`). */
   createdAt: number;
+  /**
+   * Opciona druga radnja na traci (K12), npr. „Otvori" posle brzog unosa
+   * zadatka u startupu — par web toasta sa „Poništi" + „Otvori". Samo traka je
+   * nudi; „Istorija radnji" je ne prikazuje.
+   */
+  secondary?: { label: string; onPress: () => void };
 };
 
 /**
@@ -339,14 +390,30 @@ function scheduleExpiry(): void {
   }, delay);
 }
 
-/** Nova stavka na vrh steka. Potpis je NEPROMENJEN — 32 postojeća pozivaoca ne dodiruju se. */
-export function pushUndo(input: { label: string; action: UndoAction; undoUntil?: number }): void {
+/**
+ * Nova stavka na vrh steka. Argumenti su NEPROMENJENI — postojeći pozivaoci se ne
+ * dodiruju. Vraća `key` stavke (K12): Moj dan njime skida traku „Završeno: …"
+ * kad korisnik isti zadatak vrati drugim dodirom na kvačicu (`popUndo`).
+ */
+export function pushUndo(input: {
+  label: string;
+  action: UndoAction;
+  undoUntil?: number;
+  secondary?: UndoEntry['secondary'];
+}): number {
   const now = Date.now();
   pruneExpired(now);
   counter += 1;
   entries = [
     ...entries,
-    { label: input.label, action: input.action, undoUntil: input.undoUntil, key: counter, createdAt: now },
+    {
+      label: input.label,
+      action: input.action,
+      undoUntil: input.undoUntil,
+      key: counter,
+      createdAt: now,
+      ...(input.secondary ? { secondary: input.secondary } : {}),
+    },
   ];
   if (entries.length > MAX_UNDO_ENTRIES) {
     entries = entries.slice(entries.length - MAX_UNDO_ENTRIES); // baci najstarije
@@ -354,6 +421,7 @@ export function pushUndo(input: { label: string; action: UndoAction; undoUntil?:
   visibleKey = counter;
   publish();
   scheduleExpiry();
+  return counter;
 }
 
 /**
@@ -370,6 +438,28 @@ export function popUndo(key: number, opts?: { advertiseNext?: boolean }): void {
     opts?.advertiseNext === true && entries.length > 0 ? entries[entries.length - 1].key : null;
   publish();
   scheduleExpiry();
+}
+
+/**
+ * Skida JEDNU stavku bez diranja trake koja nudi NEKU DRUGU radnju (K12): Moj
+ * dan njime skida „Završeno: …" kad isti zadatak vrati dodirom. Za razliku od
+ * `popUndo`, traka se sklanja samo ako je baš ova stavka bila na njoj.
+ */
+export function dropUndo(key: number): void {
+  const index = entries.findIndex((e) => e.key === key);
+  if (index === -1) return;
+  entries = entries.slice(0, index).concat(entries.slice(index + 1));
+  if (visibleKey === key) visibleKey = null;
+  publish();
+  scheduleExpiry();
+}
+
+/**
+ * Da li je stavka još u steku (K12). `popUndo` nad nepostojećim ključem bi
+ * sklonio traku koja trenutno nudi NEKU DRUGU radnju — pozivalac prvo pita.
+ */
+export function hasUndo(key: number): boolean {
+  return entries.some((e) => e.key === key);
 }
 
 /** Sklanja traku bez brisanja steka (npr. ✕, ili istek tajmera trake). */

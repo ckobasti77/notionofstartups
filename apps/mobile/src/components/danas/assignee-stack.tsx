@@ -25,14 +25,26 @@ export type StackAssignee = {
 export function AssigneeStack({
   assignees,
   max = 3,
+  size = AVATAR,
+  accessible = true,
 }: {
   assignees: StackAssignee[];
   max?: number;
+  size?: number;
+  /** `false` kad roditelj sam čita izvršioce (npr. telo reda zadatka). */
+  accessible?: boolean;
 }) {
   const colors = useThemeColors();
 
   if (assignees.length === 0) {
-    return <Avatar empty size={AVATAR} accessibilityLabel="Nedodeljeno" />;
+    const empty = <Avatar empty size={size} accessibilityLabel="Nedodeljeno" />;
+    return accessible ? (
+      empty
+    ) : (
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        {empty}
+      </View>
+    );
   }
 
   const shown = assignees.slice(0, max);
@@ -41,7 +53,9 @@ export function AssigneeStack({
   return (
     <View
       style={styles.row}
-      accessible
+      accessible={accessible}
+      accessibilityElementsHidden={!accessible}
+      importantForAccessibility={accessible ? 'auto' : 'no-hide-descendants'}
       accessibilityLabel={`Izvršioci: ${assignees.map((a) => a.displayName).join(', ')}`}>
       {shown.map((assignee, index) => (
         <View
@@ -53,7 +67,7 @@ export function AssigneeStack({
           <Avatar
             name={assignee.displayName}
             uri={assignee.avatarUrl}
-            size={AVATAR}
+            size={size}
             style={{ borderColor: colors.card, borderWidth: 2 }}
           />
         </View>
@@ -62,7 +76,13 @@ export function AssigneeStack({
         <View
           style={[
             styles.more,
-            { backgroundColor: colors.muted, borderColor: colors.card, marginLeft: -8 },
+            {
+              width: size,
+              height: size,
+              backgroundColor: colors.muted,
+              borderColor: colors.card,
+              marginLeft: -8,
+            },
           ]}>
           <Text style={[styles.moreText, { color: colors.mutedForeground }]}>+{overflow}</Text>
         </View>
@@ -80,8 +100,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   more: {
-    width: AVATAR,
-    height: AVATAR,
     borderRadius: radius.full,
     borderWidth: 2,
     alignItems: 'center',

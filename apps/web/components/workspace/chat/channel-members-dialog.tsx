@@ -6,10 +6,7 @@ import { toast } from "sonner";
 import { LoaderCircle } from "lucide-react";
 
 import { ProfileAvatar } from "@/components/workspace/workspace-ui";
-import type {
-  ProfileWithAvatar,
-  StartupMember,
-} from "@/components/workspace/types";
+import type { ProfileWithAvatar } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -23,7 +20,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { ChatChannel } from "@/lib/chat";
+import type { ChatChannel, ChatMember } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,7 +46,7 @@ export function ChannelMembersDialog({
   onOpenChange: (open: boolean) => void;
   channel: ChatChannel;
   profile: ProfileWithAvatar;
-  members: StartupMember[] | undefined;
+  members: ChatMember[] | undefined;
 }) {
   const current = useQuery(
     api.chat.channelMembers,
