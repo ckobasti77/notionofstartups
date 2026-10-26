@@ -320,3 +320,6 @@ Polazno stanje: grana `prostor-run` pravi se iz `main` posle merge-a LICNO runa 
 - „Poništi” mora da šalje `expectedRevision` (obavezan): iz `bulkReschedule.updated[].revision`, a za sledeće ulančano poništavanje iz `bulkRestoreSchedule.revisions[]`. Preskočeno (`izmenjen`) znači da je neko drugi u međuvremenu menjao zadatak — UI treba da to kaže, ne da ćuti.
 - Recenzija (Sonnet radnik, samo čitanje): 2 nalaza u `bulkRestoreSchedule` (ulančano poništavanje i izgubljena stavka u zbiru), oba popravljena i pokrivena testom; pristup, računanje `updated/skipped/unchanged`, `completedAt`/`taskSortAt`, granica 14/15 dana, spisak radnji i upiti oblasti — bez nalaza.
 - Šema je proširena samo na DEV; produkcija nije dirana. Migracija nije potrebna.
+
+## K07 - Plan ekrana, navigacije i smirivanja, web i telefon (plan)   (2026-10-26 20:17)
+**Plan korak.** Plan je upisan u `docs/prostor/planovi/K07.md`. Kod nije menjan.
