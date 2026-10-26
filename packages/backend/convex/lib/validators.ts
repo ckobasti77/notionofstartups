@@ -41,6 +41,25 @@ export const trashStateValidator = v.union(
   v.literal("descendant"),
 );
 
+/**
+ * Sačuvana faza ideje (PROSTOR P6). Odsutno polje = `predlog`; „Postalo
+ * zadatak" se ne čuva — izvodi se iz `convertedPageId` (`lib/idea_stages.ts`).
+ */
+export const ideaStageValidator = v.union(
+  v.literal("predlog"),
+  v.literal("razmatra_se"),
+  v.literal("odobreno"),
+  v.literal("odbijeno"),
+);
+
+/** „Čeka tebe" (`inbox.pending`, `idea_vote`): ideja čeka moj glas. */
+export const inboxPendingIncludeValidator = v.literal("idea_vote");
+/**
+ * Glasova po ideji koje „Čeka tebe" broji (tim ima 10–15 ljudi, jedan glas po
+ * profilu); preko granice broj staje.
+ */
+export const INBOX_IDEA_VOTE_COUNT_CAP = 200;
+
 export const taskStatusValidator = v.union(
   v.literal("backlog"),
   v.literal("next"),

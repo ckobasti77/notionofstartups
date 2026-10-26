@@ -18,7 +18,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 're
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
-import type { Doc } from '@/convex/_generated/dataModel';
+import type { Doc, Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { THOUGHT_SWATCH } from '@/lib/thought-colors';
@@ -68,7 +68,8 @@ export function ThoughtActionsSheet({
 }: {
   open: boolean;
   node: Doc<'thoughtNodes'> | null;
-  startupId: Doc<'thoughtNodes'>['startupId'];
+  /** Mapa misli postoji samo po startupu (lične beleške nemaju Mapu, PROSTOR P7). */
+  startupId: Id<'startups'>;
   /** Korak na kom se sheet otvara — „Poveži sa misli…" sa detalja preskače meni. */
   initialView?: ThoughtActionsView;
   onClose: () => void;

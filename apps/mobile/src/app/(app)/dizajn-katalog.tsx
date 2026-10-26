@@ -53,6 +53,7 @@ import {
   buildPlanDay,
   EMPTY_TASK_FILTERS,
   hubGroups,
+  pendingKey,
   type HubChannel,
   type InboxScope,
   type InboxSegment,
@@ -901,7 +902,7 @@ export default function DizajnKatalogScreen() {
         <View style={styles.pendingDemo}>
           {katalogInboxPending(demoNow).map((item) => (
             <PendingRow
-              key={item.kind === 'deletion_vote' ? item.ballotId : item.requestId}
+              key={pendingKey(item)}
               item={item}
               now={demoNow}
               onOpen={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}

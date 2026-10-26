@@ -37,6 +37,7 @@ import type * as lib_collaboration from "../lib/collaboration.js";
 import type * as lib_comments from "../lib/comments.js";
 import type * as lib_day_key from "../lib/day_key.js";
 import type * as lib_history from "../lib/history.js";
+import type * as lib_idea_stages from "../lib/idea_stages.js";
 import type * as lib_my_day from "../lib/my_day.js";
 import type * as lib_my_scope from "../lib/my_scope.js";
 import type * as lib_notificationChannels from "../lib/notificationChannels.js";
@@ -119,6 +120,7 @@ declare const fullApi: ApiFromModules<{
   "lib/comments": typeof lib_comments;
   "lib/day_key": typeof lib_day_key;
   "lib/history": typeof lib_history;
+  "lib/idea_stages": typeof lib_idea_stages;
   "lib/my_day": typeof lib_my_day;
   "lib/my_scope": typeof lib_my_scope;
   "lib/notificationChannels": typeof lib_notificationChannels;

@@ -9,6 +9,7 @@ import {
   GitMerge,
   Hourglass,
   Inbox,
+  Lightbulb,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
@@ -24,6 +25,7 @@ import {
   inboxScopeKey,
   inboxUnreadFor,
   inboxUnreadWord,
+  pendingIsVote,
   pendingKey,
   pendingTitle,
   type InboxCounts,
@@ -556,8 +558,9 @@ function PendingRow({
   now: number;
   onOpen: (item: InboxPendingModel) => void;
 }) {
-  const vote = item.kind === "deletion_vote";
-  const Icon = vote ? ShieldCheck : GitMerge;
+  // PROSTOR P22: ideja čeka glas („Glasaj"); stari tipovi ostaju prepoznati.
+  const vote = pendingIsVote(item);
+  const Icon = item.kind === "idea_vote" ? Lightbulb : vote ? ShieldCheck : GitMerge;
   const title = pendingTitle(item);
   return (
     <div

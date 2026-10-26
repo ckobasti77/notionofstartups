@@ -23,9 +23,12 @@ import {
 import {
   INBOX_FEED_PAGE_DEFAULT,
   INBOX_FEED_PAGE_MAX,
+  INBOX_IDEA_VOTE_COUNT_CAP,
   INBOX_MARK_ALL_BATCH,
+  INBOX_PENDING_CAP,
   INBOX_UNREAD_SCAN_CAP,
   boundedLimit,
+  inboxPendingIncludeValidator,
   startupMiniValidator,
 } from "./lib/validators";
 import { notificationItemValidator, withActors } from "./notifications";
@@ -72,6 +75,21 @@ const pendingBase = {
 };
 
 const pendingItemValidator = v.union(
+  // PROSTOR P22: ideja u fazi „Razmatra se" čeka moj glas.
+  v.object({
+    kind: v.literal("idea_vote"),
+    ideaId: v.id("ideaNodes"),
+    title: v.string(),
+    authorName: v.union(v.string(), v.null()),
+    upvotes: v.number(),
+    downvotes: v.number(),
+    startup: startupMiniValidator,
+    /** `stageChangedAt ?? createdAt` ideje. */
+    createdAt: v.number(),
+    targetType: v.literal("ideas"),
+    targetId: v.string(),
+  }),
+  // Ugašeni izvori (P4) — ne emituju se, ostaju zbog starih klijenata (P25).
   v.object({
     kind: v.literal("deletion_vote"),
     ballotId: v.id("deletionBallots"),
@@ -357,21 +375,126 @@ export const markAllReadBatch = internalMutation({
   },
 });
 
+/** Prvih N kandidata po startupu (+1 da se zna da li ih ima još). */
+const IDEA_VOTE_SCAN_PER_STARTUP = INBOX_PENDING_CAP + 1;
+
 /**
- * „Čeka tebe". Glasanja o brisanju i zahtevi za ugnežđavanje su ugašeni
- * (PROSTOR P4, P22): stari otvoreni zahtevi se više ne čitaju ni ne nude kao
- * radnje. Oblik i stare varijante ostaju u validatoru zbog starih klijenata
- * (P25); nove stavke (`idea_vote`) dodaje K05.
+ * Ideje u fazi „Razmatra se" jednog startupa za koje profil još nije glasao
+ * (P22). Najnovije promene faze prvo; čita najviše `IDEA_VOTE_SCAN_PER_STARTUP`
+ * ideja, pa `full` kaže da ih ima možda još (i ispod granice, jer se moje
+ * izglasane preskaču posle čitanja).
+ */
+async function ideaVoteCandidates(
+  ctx: QueryCtx,
+  startupId: Id<"startups">,
+  profileId: Id<"profiles">,
+) {
+  const rows = await ctx.db
+    .query("ideaNodes")
+    .withIndex("by_startupId_and_stage_and_archivedAt_and_stageChangedAt", (q) =>
+      q
+        .eq("startupId", startupId)
+        .eq("stage", "razmatra_se")
+        .eq("archivedAt", null),
+    )
+    .order("desc")
+    .take(IDEA_VOTE_SCAN_PER_STARTUP);
+  const ideas: Doc<"ideaNodes">[] = [];
+  for (const idea of rows) {
+    if (idea.convertedPageId !== null) continue;
+    const myVote = await ctx.db
+      .query("ideaVotes")
+      .withIndex("by_ideaId_and_profileId", (q) =>
+        q.eq("ideaId", idea._id).eq("profileId", profileId),
+      )
+      .first();
+    if (myVote === null) ideas.push(idea);
+  }
+  return { ideas, full: rows.length === IDEA_VOTE_SCAN_PER_STARTUP };
+}
+
+async function ideaVoteItem(
+  ctx: QueryCtx,
+  idea: Doc<"ideaNodes">,
+  startup: StartupMini,
+): Promise<PendingItem> {
+  const [author, votes] = await Promise.all([
+    ctx.db.get("profiles", idea.authorProfileId),
+    ctx.db
+      .query("ideaVotes")
+      .withIndex("by_ideaId", (q) => q.eq("ideaId", idea._id))
+      .take(INBOX_IDEA_VOTE_COUNT_CAP),
+  ]);
+  return {
+    kind: "idea_vote",
+    ideaId: idea._id,
+    title: idea.title ?? idea.text.slice(0, 80),
+    authorName: author?.displayName ?? null,
+    upvotes: votes.filter((vote) => vote.voteType === "up").length,
+    downvotes: votes.filter((vote) => vote.voteType === "down").length,
+    startup,
+    createdAt: pendingIdeaAt(idea),
+    targetType: "ideas",
+    targetId: idea._id,
+  };
+}
+
+function pendingIdeaAt(idea: Doc<"ideaNodes">) {
+  return idea.stageChangedAt ?? idea.createdAt;
+}
+
+/**
+ * „Čeka tebe" (PROSTOR P22): ideje u fazi „Razmatra se" za koje nisam glasao,
+ * iz svih mojih aktivnih startupa ili iz jednog (`startupId`). Glasanja o
+ * brisanju i zahtevi za ugnežđavanje su ugašeni (P4) i više se ne emituju;
+ * njihove varijante ostaju u validatoru zbog starih klijenata (P25).
+ *
+ * `idea_vote` se vraća SAMO uz `include: ["idea_vote"]` (K01 D16): stari
+ * buildovi nepoznatu vrstu prikazuju kao ugnežđavanje, pa bez `include` lista
+ * ostaje prazna. Najviše `INBOX_PENDING_CAP` stavki, najnovije prvo; `truncated`
+ * kad ih ima (možda) još.
  */
 export const pending = query({
-  args: {},
+  args: {
+    startupId: v.optional(v.id("startups")),
+    include: v.optional(v.array(inboxPendingIncludeValidator)),
+  },
   returns: v.object({
     items: v.array(pendingItemValidator),
     truncated: v.boolean(),
   }),
-  handler: async (ctx) => {
-    await requireProfile(ctx);
+  handler: async (ctx, args) => {
+    const member =
+      args.startupId === undefined
+        ? null
+        : await requireStartupMember(ctx, args.startupId);
+    const profile = member?.profile ?? (await requireProfile(ctx));
+    if (args.include?.includes("idea_vote") !== true) {
+      return { items: [], truncated: false };
+    }
+    const scope: Map<Id<"startups">, StartupMini> =
+      member === null
+        ? await listMyActiveStartups(ctx, profile._id)
+        : new Map([[member.startup._id, await startupMiniOf(ctx, member.startup)]]);
+
+    const candidates: Array<{ idea: Doc<"ideaNodes">; startup: StartupMini }> = [];
+    let truncated = false;
+    for (const [startupId, startup] of scope) {
+      const found = await ideaVoteCandidates(ctx, startupId, profile._id);
+      if (found.full) truncated = true;
+      for (const idea of found.ideas) candidates.push({ idea, startup });
+    }
+    candidates.sort(
+      (first, second) =>
+        pendingIdeaAt(second.idea) - pendingIdeaAt(first.idea) ||
+        second.idea._creationTime - first.idea._creationTime,
+    );
+    if (candidates.length > INBOX_PENDING_CAP) truncated = true;
+
     const items: PendingItem[] = [];
-    return { items, truncated: false };
+    for (const { idea, startup } of candidates.slice(0, INBOX_PENDING_CAP)) {
+      items.push(await ideaVoteItem(ctx, idea, startup));
+    }
+    return { items, truncated };
   },
 });

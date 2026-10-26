@@ -231,22 +231,37 @@ describe("obaveštenja o idejama", () => {
     return { ...context, ideaId: ideaId as Id<"ideaNodes"> };
   }
 
+  // PROSTOR P6: ideju pretvara autor, vlasnik startupa ili admin, i to u fazi
+  // „Odobreno" — zato je ovde autor član, a pretvara je vlasnik startupa.
   test("konverzija ideje obaveštava autora i vodi na rezultat", async () => {
-    const { startup, area, owner, ideaId, asMember, notificationsFor } =
-      await seedIdea();
+    const { startup, area, member, asMember, asOwner, notificationsFor } =
+      await seedNotificationWorkspace();
+    const ideaId = await asMember.mutation(api.ideas.create, {
+      startupId: startup,
+      title: "Nova ideja",
+      text: "Opis ideje",
+      color: "violet",
+      x: 0,
+      y: 0,
+    });
+    await asOwner.mutation(api.ideas.setStage, {
+      startupId: startup,
+      ideaId,
+      stage: "odobreno",
+    });
 
-    const pageId = await asMember.mutation(api.ideas.convertToPage, {
+    const pageId = await asOwner.mutation(api.ideas.convertToPage, {
       startupId: startup,
       ideaId,
       areaId: area,
       kind: "task",
     });
 
-    const rows = await notificationsFor(owner.profileId);
+    const rows = await notificationsFor(member.profileId);
     const converted = rows.find((row) => row.type === "idea_converted");
     expect(converted).toMatchObject({ targetType: "page", targetId: pageId });
     expect(converted?.title).toContain("pretvorena u zadatak");
-    expect(converted?.body).toBe("Pretvorio/la: Member");
+    expect(converted?.body).toBe("Pretvorio/la: Owner");
   });
 
   test("autor koji glasa za svoju ideju ne dobija obaveštenje", async () => {

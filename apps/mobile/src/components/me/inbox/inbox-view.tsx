@@ -7,6 +7,7 @@ import {
   inboxScopeKey,
   inboxUnreadFor,
   inboxUnreadWord,
+  pendingIsVote,
   pendingKey,
   pendingTitle,
   type InboxCounts,
@@ -708,8 +709,9 @@ export function PendingRow({
   onOpen: (item: InboxPendingModel) => void;
 }) {
   const colors = useThemeColors();
-  const vote = item.kind === 'deletion_vote';
-  const Icon = vote ? ShieldCheck : GitMerge;
+  // PROSTOR P22: ideja čeka glas („Glasaj"); stari tipovi ostaju prepoznati.
+  const vote = pendingIsVote(item);
+  const Icon = item.kind === 'idea_vote' ? Lightbulb : vote ? ShieldCheck : GitMerge;
   const title = pendingTitle(item);
   const action = vote ? 'Glasaj' : 'Pogledaj';
   const time = formatInboxTime(item.createdAt, now);
@@ -717,7 +719,7 @@ export function PendingRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${action}: ${title}. ${item.startup.name}. ${time}`}
-      accessibilityHint="Otvara odobrenja tog startupa"
+      accessibilityHint={item.kind === 'idea_vote' ? 'Otvara ideju' : 'Otvara odobrenja tog startupa'}
       onPress={() => {
         haptics.tap();
         onOpen(item);

@@ -8,6 +8,7 @@ import {
   chatMessageKindValidator,
   chatNotificationLevelValidator,
   checkpointItemValidator,
+  ideaStageValidator,
   notificationTargetTypeValidator,
   notificationTypeValidator,
   pageFileCategoryValidator,
@@ -132,7 +133,9 @@ export default defineSchema({
   ]),
 
   thoughtNodes: defineTable({
-    startupId: v.id("startups"),
+    // PROSTOR P7: `null` = lična beleška van startupa (vidi je samo vlasnik,
+    // nema Mapu). Mapa (`thoughtCanvases`) postoji samo po startupu.
+    startupId: v.union(v.id("startups"), v.null()),
     ownerProfileId: v.id("profiles"),
     title: v.union(v.string(), v.null()),
     text: v.string(),
@@ -162,6 +165,12 @@ export default defineSchema({
       "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
       ["ownerProfileId", "startupId", "archivedAt", "updatedAt"],
     )
+    // Beleške u „Ja" (PROSTOR P7): moje beleške kroz sve startupe i lične.
+    .index("by_ownerProfileId_and_archivedAt_and_updatedAt", [
+      "ownerProfileId",
+      "archivedAt",
+      "updatedAt",
+    ])
     .index("by_parentThoughtId_and_archivedAt", [
       "parentThoughtId",
       "archivedAt",
@@ -176,7 +185,8 @@ export default defineSchema({
     }),
 
   thoughtEdges: defineTable({
-    startupId: v.id("startups"),
+    // PROSTOR P7: isti `startupId` kao njene dve beleške (`null` = lične).
+    startupId: v.union(v.id("startups"), v.null()),
     ownerProfileId: v.id("profiles"),
     nodeAId: v.id("thoughtNodes"),
     nodeBId: v.id("thoughtNodes"),
@@ -711,6 +721,11 @@ export default defineSchema({
     // Korpa (PROSTOR P3): obrisana ideja je uvek `root`.
     archivedByProfileId: v.optional(v.id("profiles")),
     trashState: v.optional(trashStateValidator),
+    // Faza (PROSTOR P6): odsutno = `predlog`; menjaju je autor, vlasnik
+    // startupa i admin (`ideas.setStage`).
+    stage: v.optional(ideaStageValidator),
+    stageChangedAt: v.optional(v.number()),
+    stageChangedByProfileId: v.optional(v.id("profiles")),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -724,6 +739,13 @@ export default defineSchema({
       "startupId",
       "trashState",
       "archivedAt",
+    ])
+    // „Čeka tebe" (PROSTOR P22): ideje u fazi „Razmatra se", najnovije prvo.
+    .index("by_startupId_and_stage_and_archivedAt_and_stageChangedAt", [
+      "startupId",
+      "stage",
+      "archivedAt",
+      "stageChangedAt",
     ])
     .index("by_parentIdeaId_and_archivedAt", [
       "parentIdeaId",
@@ -1324,6 +1346,8 @@ export default defineSchema({
       v.literal("idea_restored"),
       // PROSTOR (K04): komentar (`title` = naslov stavke, `detail` = isečak).
       v.literal("comment_created"),
+      // PROSTOR (K05): faza ideje (`title` = naslov ideje, `detail` = naziv faze).
+      v.literal("idea_stage_changed"),
     ),
     targetType: v.union(
       v.literal("startup"),

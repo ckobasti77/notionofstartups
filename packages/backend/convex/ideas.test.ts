@@ -103,11 +103,13 @@ async function seedIdeasConversionWorkspace() {
       createdAt: now,
     });
 
+    // PROSTOR P6: „odobrena" ideja je u fazi „Odobreno" (glasovi su samo
+    // signal); `actor` je vlasnik startupa, pa sme da je pretvori.
     const createApprovedIdea = async (
       title: string,
       text: string,
     ) => {
-      const ideaId = await ctx.db.insert("ideaNodes", {
+      return await ctx.db.insert("ideaNodes", {
         startupId: startup,
         authorProfileId: author.profileId,
         title,
@@ -118,18 +120,13 @@ async function seedIdeasConversionWorkspace() {
         color: "violet",
         convertedPageId: null,
         convertedAt: null,
+        stage: "odobreno",
+        stageChangedAt: now,
+        stageChangedByProfileId: actor.profileId,
         archivedAt: null,
         createdAt: now,
         updatedAt: now,
       });
-      await ctx.db.insert("ideaVotes", {
-        startupId: startup,
-        ideaId,
-        profileId: actor.profileId,
-        voteType: "up",
-        createdAt: now,
-      });
-      return ideaId;
     };
 
     const taskIdea = await createApprovedIdea(

@@ -49,8 +49,17 @@ export function chatSummary(
   };
 }
 
-/** Strukturni oblik stavke `inbox.pending`. */
+/** Strukturni oblik stavke `inbox.pending` (PROSTOR P22: `idea_vote`; stare vrste se više ne emituju). */
 export type PendingItemLike =
+  | {
+      kind: "idea_vote";
+      ideaId: string;
+      title: string;
+      authorName: string | null;
+      upvotes: number;
+      downvotes: number;
+      startup: StartupMini;
+    }
   | { kind: "deletion_vote"; ballotId: string; title: string; startup: StartupMini }
   | {
       kind: "page_nesting" | "idea_nesting";

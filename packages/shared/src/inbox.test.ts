@@ -15,6 +15,7 @@ import {
   inboxTarget,
   inboxUnreadFor,
   inboxUnreadWord,
+  pendingIsVote,
   pendingKey,
   pendingTitle,
   startupsWithUnread,
@@ -267,6 +268,25 @@ describe("Čeka tebe", () => {
     requesterName: "Ana Ilić",
     startup: { _id: "s2" },
   };
+  const idea: PendingItemLike = {
+    kind: "idea_vote",
+    ideaId: "i1",
+    title: "Novi meni",
+    authorName: "Ana Ilić",
+    upvotes: 2,
+    downvotes: 1,
+    startup: { _id: "s1" },
+  };
+
+  test("idea_vote (PROSTOR P22): naslov, ključ i glasanje", () => {
+    expect(pendingTitle(idea)).toBe("Glasaj o ideji „Novi meni“");
+    expect(pendingKey(idea)).toBe("idea_vote:i1");
+    expect(pendingIsVote(idea)).toBe(true);
+    expect(pendingIsVote(vote)).toBe(true);
+    expect(pendingIsVote(nesting)).toBe(false);
+    expect(inboxPendingFor([idea, nesting], { kind: "startup", startupId: "s1" })).toEqual([idea]);
+    expect(inboxPendingFor([idea], { kind: "personal" })).toEqual([]);
+  });
 
   test("naslovi i ključevi", () => {
     expect(pendingTitle(vote)).toBe("Glasanje o brisanju: „Stari logo“");
@@ -294,6 +314,7 @@ describe("tekstovi", () => {
     expect(inboxEmptyCopy("all", all).title).toBe("Inbox je prazan");
     expect(inboxEmptyCopy("unread", all).title).toBe("Sve je pročitano");
     expect(inboxEmptyCopy("pending", all).title).toBe("Niko ne čeka tvoju odluku");
+    expect(inboxEmptyCopy("pending", all).description).toBe("Ideje koje tim razmatra stižu ovde.");
   });
 
   test("prazno stanje sa čipom kaže da je prazan taj opseg", () => {
