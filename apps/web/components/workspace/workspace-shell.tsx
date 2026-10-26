@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
   Building2,
@@ -37,14 +36,12 @@ import { WorkspaceRail } from "@/components/workspace/workspace-rail";
 import { SHELL_SHORTCUTS } from "@/lib/shortcuts/registry";
 import { useToday } from "@/lib/use-today";
 import { ActivityView } from "@/components/workspace/activity-view";
-import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
 import { AreaView } from "@/components/workspace/area-view";
 import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
-import { HomeView } from "@/components/workspace/home-view";
 import { IdeasView } from "@/components/workspace/ideas-view";
 import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
@@ -52,12 +49,12 @@ import { NotificationSettingsDialog } from "@/components/workspace/notification-
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { CommandCenterView } from "@/components/workspace/command-center-view";
 import {
-  NotificationsSheet,
   useNotificationToasts,
   type NotificationItem,
 } from "@/components/workspace/notifications-panel";
 import { PulsView } from "@/components/workspace/puls-view";
-import { TasksView } from "@/components/workspace/tasks-view";
+import { TasksView, type TasksFilterValue } from "@/components/workspace/tasks-view";
+import { TrashContainer } from "@/components/workspace/trash/trash-container";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
 import {
   ProfileAvatar,
@@ -73,7 +70,7 @@ import type {
   ThoughtDropTarget,
   ThoughtSidebarDragRequest,
 } from "@/components/workspace/thought-sharing";
-import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, WorkspaceRoute } from "@/components/workspace/types";
+import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, TrashSegment, WorkspaceRoute } from "@/components/workspace/types";
 import type { InboxNavigation } from "@/components/me/inbox/inbox-container";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
@@ -181,9 +178,46 @@ const InboxContainer = dynamic(
 
 /** Prvi prikaz iz URL-a (ljuska se učitava tek na klijentu, posle prijave). */
 function initialRoute(): WorkspaceRoute {
-  if (typeof window === "undefined") return { kind: "home" };
+  if (typeof window === "undefined") return { kind: "today" };
   const candidate = readWorkspaceLocation(window.location.search).route;
-  return candidate && !isAreasRouteCandidate(candidate) ? candidate : { kind: "home" };
+  return candidate && !isAreasRouteCandidate(candidate) ? candidate : { kind: "today" };
+}
+
+/** Naslov ispod `lg` (podnaslov uz ime startupa) — plan K07 §2.3. */
+function startupRouteTitle(route: StartupRoute): string {
+  switch (route.kind) {
+    case "today":
+      return "Komandni centar";
+    case "tasks":
+      return "Zadaci";
+    case "ideas":
+      return "Ideje";
+    case "chat":
+      return "Poruke";
+    case "trash":
+      return "Korpa";
+    case "activity":
+      return "Aktivnost";
+    case "puls":
+      return "Puls";
+    case "thoughts":
+      return "Beleške";
+    case "area":
+      return "Dokumenti";
+    case "page":
+      return "Stranica";
+  }
+}
+
+/** Filter Zadataka iz rute (osoba ima prednost). */
+function tasksFilterOf(route: Extract<StartupRoute, { kind: "tasks" }>): TasksFilterValue {
+  return route.profileId ?? route.filter ?? "svi";
+}
+
+function tasksRouteOf(filter: TasksFilterValue): StartupRoute {
+  if (filter === "svi") return { kind: "tasks" };
+  if (filter === "moji") return { kind: "tasks", filter: "moji" };
+  return { kind: "tasks", profileId: filter };
 }
 
 export function WorkspaceShell(props: { profile: ProfileWithAvatar; onSignOut: () => void }) {
@@ -248,7 +282,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   const markNotificationRead = useMutation(api.notifications.markRead);
   const movePage = useMutation(api.areasV2.movePage);
@@ -268,18 +301,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       : undefined) ??
     startups?.[0];
   const startupId = startup?._id;
-  const approvalsOverview = useQuery(
-    api.collaboration.overview,
-    startup ? { startupId: startup._id } : "skip",
-  );
-  const pageNestingInbox = useQuery(
-    api.areasV2.listNestingInbox,
-    startup ? { startupId: startup._id } : "skip",
-  );
-  const unreadNotifications = useQuery(
-    api.notifications.unreadCount,
-    startup ? { startupId: startup._id } : "skip",
-  );
   // Tolerantno kao ostali brojači: od K08 hrani i bedž „Ja" i meni.
   const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
   // Lični nivo: tolerantno — greška brojača ne sme da obori ljusku; bedž se
@@ -450,14 +471,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     }
 
     navigateRoute(
-      { kind: "home" },
+      { kind: "today" },
       {
         replace: true,
         bypassGuard: true,
         targetStartupId: currentStartupId,
       },
     );
-    toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
+    toast.error("Traženi prikaz nije dostupan. Otvoren je Komandni centar.");
   }, [convex, navigateRoute]);
 
   useEffect(() => {
@@ -472,12 +493,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         resetForStartupIdRef.current = null;
         void resolveLocationRoute(startupId);
       } else {
-        navigateRoute({ kind: "home" }, { replace: true });
+        navigateRoute({ kind: "today" }, { replace: true });
       }
     }
 
     function onPopState() {
-      if (!canLeaveActivePage({ kind: "home" })) {
+      if (!canLeaveActivePage({ kind: "today" })) {
         window.history.pushState(
           null,
           "",
@@ -776,13 +797,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
    */
   async function openNotificationTarget(item: NotificationItem) {
     {
-      setNotificationsOpen(false);
       void markNotificationRead({ notificationId: item._id }).catch(() => {
         // Neuspelo označavanje ne sme da blokira navigaciju.
       });
 
+      // Odobrenja više ne postoje (PROSTOR P3/P11): stari cilj vodi u Korpu.
       if (item.targetType === "approvals") {
-        navigateRoute({ kind: "approvals" });
+        navigateRoute({ kind: "trash" });
         return;
       }
       if (item.targetType === "ideas") {
@@ -886,7 +907,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     }
     const route: StartupRoute =
       screen === "approvals"
-        ? { kind: "approvals" }
+        ? { kind: "trash" }
         : screen === "ideas"
           ? { kind: "ideas" }
           : screen === "puls"
@@ -1063,20 +1084,17 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onCreate: openCreate,
     onCreateArea: () => setCreateAreaOpen(true),
     onSearch: () => setSearchOpen(true),
-    onAdmin: openAdmin,
+    // Do K20 „Podešavanja startupa" otvaraju postojeći dijalog (samo admin).
+    onOpenSettings: profile.role === "admin" ? openAdmin : null,
+    onOpenNotificationSettings: () => setNotificationSettingsOpen(true),
     onProfile: () => setProfileOpen(true),
     onSignOut,
     draggedPageId,
     activeDropPageId,
     activeDropAreaId,
-    pendingApprovals:
-      (approvalsOverview?.pendingCount ?? 0) +
-      (pageNestingInbox?.incoming.length ?? 0),
-    unreadNotifications: unreadNotifications?.count ?? 0,
     chatUnread:
       chatUnread?.byStartup.find((entry) => entry.startupId === startup._id)
         ?.unreadCount ?? 0,
-    onOpenNotifications: () => setNotificationsOpen(true),
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
     onDragPageOver: handleDragPageOver,
@@ -1127,12 +1145,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         : route.kind === "me-chat"
           ? "Poruke"
           : "Moj dan";
-  const notificationCount = meActive
-    ? (inboxUnread?.total.count ?? 0)
-    : (unreadNotifications?.count ?? 0);
-  const notificationCapped = meActive
-    ? (inboxUnread?.total.capped ?? false)
-    : (unreadNotifications?.capped ?? false);
+  // Zvono startupa je ugašeno (P11, K07 E7): Inbox u „Ja" nosi sva obaveštenja.
+  const notificationCount = inboxUnread?.total.count ?? 0;
+  const notificationCapped = inboxUnread?.total.capped ?? false;
   return (
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
       <a
@@ -1162,6 +1177,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         }
         loadingMore={startupsStatus === "LoadingMore"}
         onProfile={() => setProfileOpen(true)}
+        onNotificationSettings={() => setNotificationSettingsOpen(true)}
         onSignOut={onSignOut}
       />
       <ScopeSwap
@@ -1188,15 +1204,15 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               : {
                   kind: "startup",
                   startup,
-                  subtitle: route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Komandni centar" : route.kind === "chat" ? "Poruke" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor",
+                  subtitle: startupRouteTitle(route),
                   onSearch: () => setSearchOpen(true),
                 }
           }
           notifications={{
-            label: meActive ? "Inbox" : "Obaveštenja",
+            label: "Inbox",
             count: notificationCount,
             capped: notificationCapped,
-            onOpen: () => (meActive ? goToMe({ kind: "me-inbox" }) : setNotificationsOpen(true)),
+            onOpen: () => goToMe({ kind: "me-inbox" }),
           }}
           onQuickAdd={meActive ? openQuickAdd : undefined}
         />
@@ -1216,7 +1232,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenInbox={() => goToMe({ kind: "me-inbox" })}
                 onOpenChat={() => goToMe({ kind: "me-chat" })}
                 onOpenApprovals={(approvalsStartupId) =>
-                  openInStartup(approvalsStartupId, { route: { kind: "approvals" } })
+                  openInStartup(approvalsStartupId, { route: { kind: "trash" } })
                 }
               />
             </WorkspaceErrorBoundary>
@@ -1251,8 +1267,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenInStartup={openInStartup}
               />
             </WorkspaceErrorBoundary>
-          ) : route.kind === "home" ? (
-            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
           ) : route.kind === "thoughts" ? (
             <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
@@ -1273,15 +1287,22 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenPage={openPageDetails}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
+                links={[
+                  { label: "Puls nedelje", onSelect: () => navigateRoute({ kind: "puls" }) },
+                  { label: "Aktivnost", onSelect: () => navigateRoute({ kind: "activity" }) },
+                  { label: "Moje misli", onSelect: () => navigateRoute({ kind: "thoughts" }) },
+                ]}
               />
             </WorkspaceErrorBoundary>
-          ) : route.kind === "my-tasks" ? (
-            <WorkspaceErrorBoundary key={`my-tasks-${startup._id}`} title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+          ) : route.kind === "tasks" ? (
+            <WorkspaceErrorBoundary key={`tasks-${startup._id}`} title="Zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
               <TasksView
                 startup={startup}
                 profile={profile}
                 today={today}
                 startups={startups}
+                filter={tasksFilterOf(route)}
+                onFilterChange={(filter) => navigateRoute(tasksRouteOf(filter), { replace: true })}
                 onOpenPage={openPageDetails}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
@@ -1296,8 +1317,19 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             />
           ) : route.kind === "activity" ? (
             <ActivityView startup={startup} />
-          ) : route.kind === "approvals" ? (
-            <ApprovalsView startup={startup} />
+          ) : route.kind === "trash" ? (
+            <TrashContainer
+              key={`trash-${startup._id}`}
+              startupId={startup._id}
+              segment={route.segment ?? "page"}
+              onSegmentChange={(segment: TrashSegment) =>
+                navigateRoute(segment === "page" ? { kind: "trash" } : { kind: "trash", segment }, { replace: true })
+              }
+              now={today.now}
+              onOpen={(target) =>
+                target.kind === "page" ? openPageDetails(target.pageId) : navigateRoute({ kind: "ideas" })
+              }
+            />
           ) : route.kind === "chat" ? (
             <ChatView
               startup={startup}
@@ -1362,18 +1394,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         </MotionStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
-      <NotificationsSheet
-        open={notificationsOpen}
-        onOpenChange={setNotificationsOpen}
-        startupId={startup._id}
-        onOpenNotification={openNotificationTarget}
-        onOpenSettings={() => {
-          // Zatvori panel pa otvori dijalog — samo jedan modal aktivan u datom
-          // trenutku (izbegava dupli overlay i nestovane Radix modale).
-          setNotificationsOpen(false);
-          setNotificationSettingsOpen(true);
-        }}
-      />
       <NotificationSettingsDialog
         open={notificationSettingsOpen}
         onOpenChange={setNotificationSettingsOpen}
@@ -1566,5 +1586,5 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
 function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary" /> Otvaram radni prostor…</div></main></div>; }
 
 function EmptyWorkspace({ profile, onAdmin, onSignOut, adminOpen, setAdminOpen, onStartupCreated }: { profile: ProfileWithAvatar; onAdmin: () => void; onSignOut: () => void; adminOpen: boolean; setAdminOpen: (open: boolean) => void; onStartupCreated: (startupId: Id<"startups">) => void }) {
-  return <div className="app-canvas flex h-dvh overflow-hidden"><StartupEmptyRail profile={profile} onAdmin={onAdmin} onSignOut={onSignOut} /><main className="flex flex-1 items-center justify-center p-5"><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="desk-surface max-w-lg rounded-3xl border bg-card p-7 text-center sm:p-10"><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><Building2 className="size-6" /></span><p className="mt-6 text-[0.6875rem] font-bold uppercase tracking-[0.15em] text-primary">Privatan timski prostor</p><h1 className="mt-2 text-2xl font-bold tracking-[-0.04em]">Prvi startup počinje ovde</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Kreiraj prostor, a mi ćemo automatski dodati Dev, Marketing, Sales i Ostalo oblasti.</p>{profile.role === "admin" ? <Button className="mt-6" onClick={onAdmin}><Sparkles /> Kreiraj startup</Button> : <p className="mt-6 rounded-xl bg-muted px-4 py-3 text-sm">Administrator još nije dodelio startup ovom profilu.</p>}</motion.div></main>{profile.role === "admin" ? <AdminDialog key={`${adminOpen}-empty`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={onStartupCreated} /> : null}</div>;
+  return <div className="app-canvas flex h-dvh overflow-hidden"><StartupEmptyRail profile={profile} onAdmin={onAdmin} onSignOut={onSignOut} /><main className="flex flex-1 items-center justify-center p-5"><div className="max-w-md rounded-xl border bg-card p-7 text-center"><Building2 className="mx-auto size-5 text-muted-foreground" aria-hidden="true" /><h1 className="mt-4 text-xl font-semibold tracking-[-0.02em]">Još nema startupa</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{profile.role === "admin" ? "Napravi prvi startup. Dobija oblasti Razvoj, Marketing, Prodaja i Ostalo." : "Administrator ti još nije dodelio startup."}</p>{profile.role === "admin" ? <Button className="mt-5" onClick={onAdmin}><Sparkles /> Napravi startup</Button> : null}</div></main>{profile.role === "admin" ? <AdminDialog key={`${adminOpen}-empty`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={onStartupCreated} /> : null}</div>;
 }

@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import type { MeRoute, WorkspaceRoute, WorkspaceScope } from "./types";
+import type { MeRoute, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
 
 /** Prikazi ličnog nivoa „Ja" (P1). */
 export const ME_ROUTE_KINDS = [
@@ -58,13 +58,25 @@ export function readWorkspaceRouteCandidate(
       ? { kind: "me-chat", channelId: channelId as Id<"chatChannels"> }
       : { kind: "me-chat" };
   }
-  if (view === "home") return { kind: "home" };
+  // PROSTOR P11 (K08): stari prikazi žive samo kao preusmerenja — linkovi,
+  // obaveštenja i service worker (`public/sw.js`) i dalje šalju ova imena.
+  if (view === "home") return { kind: "today" };
+  if (view === "my-tasks") return { kind: "tasks", filter: "moji" };
+  if (view === "approvals") return { kind: "trash" };
   if (view === "thoughts") return { kind: "thoughts" };
   if (view === "ideas") return { kind: "ideas" };
   if (view === "today") return { kind: "today" };
-  if (view === "my-tasks") return { kind: "my-tasks" };
   if (view === "activity") return { kind: "activity" };
-  if (view === "approvals") return { kind: "approvals" };
+  if (view === "tasks") {
+    // `osoba` ima prednost nad `filter`; nepoznat filter = „Svi".
+    const profileId = params.get("osoba")?.trim();
+    if (profileId) return { kind: "tasks", profileId: profileId as Id<"profiles"> };
+    return params.get("filter") === "moji" ? { kind: "tasks", filter: "moji" } : { kind: "tasks" };
+  }
+  if (view === "trash") {
+    const segment = params.get("vrsta");
+    return isTrashSegment(segment) ? { kind: "trash", segment } : { kind: "trash" };
+  }
   if (view === "chat") {
     // `channelId` je opcion — bez njega chat se otvara na listi razgovora.
     // Nevalidan id prikaz gracefully svede na listu (kao `puls` sa `week`).
@@ -90,6 +102,12 @@ export function readWorkspaceRouteCandidate(
     return pageId ? { kind: "page", pageId } : null;
   }
   return null;
+}
+
+const TRASH_SEGMENT_KEYS: ReadonlyArray<TrashSegment> = ["page", "idea", "file", "recovered"];
+
+function isTrashSegment(value: string | null): value is TrashSegment {
+  return value !== null && (TRASH_SEGMENT_KEYS as ReadonlyArray<string>).includes(value);
 }
 
 export function isAreasRouteCandidate(
@@ -138,6 +156,9 @@ export function workspaceRouteHref(
   url.searchParams.delete("pageId");
   url.searchParams.delete("channelId");
   url.searchParams.delete("week");
+  url.searchParams.delete("filter");
+  url.searchParams.delete("osoba");
+  url.searchParams.delete("vrsta");
   url.searchParams.delete("startupId");
   url.searchParams.set("view", route.kind);
 
@@ -152,6 +173,11 @@ export function workspaceRouteHref(
     url.searchParams.set("channelId", route.channelId);
   } else if (route.kind === "puls" && route.weekStart !== undefined) {
     url.searchParams.set("week", String(route.weekStart));
+  } else if (route.kind === "tasks") {
+    if (route.profileId) url.searchParams.set("osoba", route.profileId);
+    else if (route.filter === "moji") url.searchParams.set("filter", "moji");
+  } else if (route.kind === "trash" && route.segment && route.segment !== "page") {
+    url.searchParams.set("vrsta", route.segment);
   }
   // Lični nivo ne pripada startupu: `startupId` se ne upisuje ni kad je
   // prosleđen (startup „u pozadini" se drži u memoriji ljuske, D10).
@@ -169,10 +195,14 @@ export function workspaceRouteAfterStartupSwitch(
   if (isMeRoute(currentRoute)) return { kind: "today" };
   // Kanali su per-startup: ostani u chatu, ali otpusti izabrani kanal.
   if (currentRoute.kind === "chat") return { kind: "chat" };
-  return currentRoute.kind === "home" ||
-    currentRoute.kind === "ideas" ||
+  // Član drugog startupa nije član ovog: filter osobe se ne prenosi.
+  if (currentRoute.kind === "tasks") {
+    return currentRoute.filter === "moji" ? { kind: "tasks", filter: "moji" } : { kind: "tasks" };
+  }
+  return currentRoute.kind === "ideas" ||
     currentRoute.kind === "thoughts" ||
-    currentRoute.kind === "today"
+    currentRoute.kind === "today" ||
+    currentRoute.kind === "trash"
     ? currentRoute
     : { kind: "today" };
 }

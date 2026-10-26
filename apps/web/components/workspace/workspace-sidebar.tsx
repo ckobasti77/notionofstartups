@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Component,
   useId,
   useRef,
   useState,
@@ -9,18 +10,13 @@ import {
 } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
 import {
-  Activity,
   Bell,
-  Brain,
   CheckSquare2,
   ChevronDown,
   ChevronsUpDown,
   Gauge,
   GripVertical,
-  HeartPulse,
-  Home,
   Lightbulb,
   LogOut,
   MessageCircle,
@@ -30,9 +26,9 @@ import {
   Pencil,
   Plus,
   Search,
-  ShieldCheck,
-  SlidersHorizontal,
+  Settings,
   Sparkles,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { DURATION } from "@devotion/shared";
@@ -85,7 +81,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import type { AreaKey } from "@/lib/workspace";
 
-type WorkspaceSidebarProps = {
+export type WorkspaceSidebarProps = {
   profile: ProfileWithAvatar;
   startup: StartupWithAreas;
   route: WorkspaceRoute;
@@ -103,16 +99,24 @@ type WorkspaceSidebarProps = {
   onCreate: (target?: CreatePageTarget) => void;
   onCreateArea: () => void;
   onSearch: () => void;
-  onAdmin: () => void;
+  /**
+   * „Podešavanja startupa" (P11). Do K20 otvara postojeći dijalog upravljanja
+   * timom, koji postoji samo za admina — zato je `null` za ostale članove.
+   */
+  onOpenSettings: (() => void) | null;
+  /** „Obaveštenja i zvuci" u meniju profila (mobilni meni; na desktopu traka). */
+  onOpenNotificationSettings: () => void;
   onProfile: () => void;
   onSignOut: () => void;
   draggedPageId: Id<"pages"> | null;
   activeDropPageId: Id<"pages"> | null;
   activeDropAreaId: Id<"startupAreas"> | null;
-  pendingApprovals: number;
-  unreadNotifications: number;
   chatUnread: number;
-  onOpenNotifications: () => void;
+  /**
+   * Izlog: stablo oblasti iz fixture-a umesto `PageTree` (koji čita Convex).
+   * Ljuska ga ne prosleđuje.
+   */
+  renderAreaTree?: (areaId: Id<"startupAreas">) => ReactNode;
   onDragPageStart: (pageId: Id<"pages">) => void;
   onDragPageEnd: () => void;
   onDragPageOver: (
@@ -126,27 +130,20 @@ type WorkspaceSidebarProps = {
   ) => void;
 };
 
+/**
+ * Meni startupa (PROSTOR P11, plan K07 §2.1): četiri stvari koje tim stvarno
+ * koristi, pa Dokumenti (stablo oblasti i stranica), a dole Korpa i
+ * Podešavanja startupa. Početna, Moje misli, Odobrenja, Aktivnost, Puls i
+ * Obaveštenja više nisu u meniju (Inbox je u „Ja", Aktivnost i Puls se
+ * otvaraju iz Komandnog centra).
+ */
 const primaryNav = [
-  { kind: "home" as const, label: "Početna", icon: Home },
-  { kind: "chat" as const, label: "Poruke", icon: MessageCircle },
-  {
-    kind: "thoughts" as const,
-    label: "Moje misli",
-    icon: Brain,
-    hint: "Samo ti",
-  },
-  { kind: "ideas" as const, label: "Ideje", icon: Lightbulb, hint: "Glasanje" },
-  { kind: "approvals" as const, label: "Odobrenja", icon: ShieldCheck },
   { kind: "today" as const, label: "Komandni centar", icon: Gauge },
-  { kind: "my-tasks" as const, label: "Moji zadaci", icon: CheckSquare2 },
-  { kind: "activity" as const, label: "Aktivnost", icon: Activity },
-  { kind: "puls" as const, label: "Puls", icon: HeartPulse, hint: "Nedeljno" },
+  { kind: "tasks" as const, label: "Zadaci", icon: CheckSquare2 },
+  { kind: "ideas" as const, label: "Ideje", icon: Lightbulb },
+  { kind: "chat" as const, label: "Poruke", icon: MessageCircle },
 ];
 
-const DEFAULT_PRIMARY_PANE_HEIGHT = 412;
-const MIN_PRIMARY_PANE_HEIGHT = 96;
-const MIN_AREAS_PANE_HEIGHT = 128;
-const SIDEBAR_RESIZE_HANDLE_HEIGHT = 9;
 const DEFAULT_SIDEBAR_WIDTH = 296;
 const MIN_SIDEBAR_WIDTH = DEFAULT_SIDEBAR_WIDTH;
 const SIDEBAR_WIDTH_STEP = 24;
@@ -169,24 +166,24 @@ function SidebarButton({
   icon: Icon,
   active,
   collapsed,
-  hint,
   badge,
+  shortcut,
   onClick,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   collapsed: boolean;
-  hint?: string;
   badge?: number;
+  /** `aria-keyshortcuts` (npr. pretraga). */
+  shortcut?: string;
   onClick: () => void;
 }) {
   const button = (
-    <motion.button
+    <button
       type="button"
-      whileTap={{ scale: 0.97 }}
       className={cn(
-        "relative flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors",
+        "relative flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors active:scale-[0.98] motion-reduce:active:scale-100",
         collapsed && "justify-center px-0",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -194,30 +191,28 @@ function SidebarButton({
       )}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      aria-label={label}
+      aria-label={badge && badge > 0 ? `${label}, ${badge > 99 ? "99+" : badge} nepročitano` : label}
+      aria-keyshortcuts={shortcut}
     >
+      {/* Aktivna stavka: statička traka (bez ukrasnog pokreta, PROSTOR P17). */}
       {active ? (
-        <motion.span
-          layoutId={collapsed ? "rail-active" : "sidebar-active"}
-          className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary"
-        />
+        <span aria-hidden="true" className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />
       ) : null}
-      <Icon className="size-[1.05rem] shrink-0" />
+      <Icon className="size-4 shrink-0" />
       {collapsed ? null : (
         <>
           <span className="min-w-0 flex-1 truncate text-left">{label}</span>
           {badge && badge > 0 ? (
-            <span className="grid min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1.5 py-0.5 text-[0.625rem] font-bold text-primary-foreground">
+            <span
+              aria-hidden="true"
+              className="grid min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1.5 py-0.5 font-mono text-[0.625rem] font-bold tabular-nums text-primary-foreground"
+            >
               {badge > 99 ? "99+" : badge}
-            </span>
-          ) : hint ? (
-            <span className="shrink-0 rounded-md border border-primary/15 bg-primary/8 px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase tracking-[0.08em] text-primary">
-              {hint}
             </span>
           ) : null}
         </>
       )}
-    </motion.button>
+    </button>
   );
 
   if (!collapsed) return button;
@@ -226,25 +221,15 @@ function SidebarButton({
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent side="right">
         <span className="block font-medium">{label}</span>
-        {badge && badge > 0 ? (
-          <span className="block text-[0.6875rem] text-background/70">
-            {badge} za tvoju reakciju
-          </span>
-        ) : null}
-        {hint ? (
-          <span className="block text-[0.6875rem] text-background/70">
-            {hint}
-          </span>
-        ) : null}
       </TooltipContent>
     </Tooltip>
   );
 }
 
 /**
- * Identitet izabranog startupa na vrhu menija. Startup se bira u traci
- * „Ja + startupi" (≥ lg) ili u redu opsega mobilnog menija (PLAN §3.2), pa
- * ovde više nema padajućeg birača.
+ * Identitet izabranog startupa na vrhu menija (čip + ime, bez nadnaslova).
+ * Startup se bira u traci „Ja + startupi" (≥ lg) ili u redu opsega mobilnog
+ * menija, pa ovde nema padajućeg birača.
  */
 function StartupIdentity({
   startup,
@@ -257,21 +242,16 @@ function StartupIdentity({
     <div
       title={collapsed ? startup.name : undefined}
       className={cn(
-        "flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5",
-        collapsed && "justify-center px-0",
+        "flex min-h-10 min-w-0 flex-1 items-center gap-2.5",
+        collapsed && "flex-none justify-center",
       )}
     >
-      <StartupChip startup={startup} size="md" variant="solid" className="shadow-sm" />
+      <StartupChip startup={startup} size="md" variant="solid" />
       {collapsed ? (
         <span className="sr-only">{startup.name}</span>
       ) : (
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Startup
-          </span>
-          <span className="block truncate text-sm font-semibold text-sidebar-foreground">
-            {startup.name}
-          </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground">
+          {startup.name}
         </span>
       )}
     </div>
@@ -295,23 +275,12 @@ function SidebarContent(
   const compact = collapsed && !props.temporarilyExpanded && !mobile;
   const selectedPageId = route.kind === "page" ? route.pageId : undefined;
   const sidebarInstanceId = useId();
-  const primaryPaneId = `${sidebarInstanceId}-primary-navigation`;
-  const areasPaneId = `${sidebarInstanceId}-areas-navigation`;
-  const panesRef = useRef<HTMLDivElement>(null);
-  const primaryPaneRef = useRef<HTMLDivElement>(null);
-  const resizeStartRef = useRef<{
-    pointerId: number;
-    pointerY: number;
-    paneHeight: number;
-  } | null>(null);
+  const canManage =
+    profile.role === "admin" || startup.createdByProfileId === profile._id;
 
   const updateArea = useMutation(api.startups.updateArea);
   const reorderAreas = useMutation(api.startups.reorderAreas);
 
-  const [primaryPaneHeight, setPrimaryPaneHeight] = useState(
-    DEFAULT_PRIMARY_PANE_HEIGHT,
-  );
-  const [isResizingPanes, setIsResizingPanes] = useState(false);
   const [editingAreaId, setEditingAreaId] = useState<Id<"startupAreas"> | null>(
     null,
   );
@@ -368,32 +337,10 @@ function SidebarContent(
     }
   }
 
-  function getPrimaryPaneBounds() {
-    const panesHeight = panesRef.current?.getBoundingClientRect().height ?? 0;
-    return {
-      min: MIN_PRIMARY_PANE_HEIGHT,
-      max: Math.max(
-        MIN_PRIMARY_PANE_HEIGHT,
-        panesHeight - MIN_AREAS_PANE_HEIGHT - SIDEBAR_RESIZE_HANDLE_HEIGHT,
-      ),
-    };
-  }
-
-  function setClampedPrimaryPaneHeight(nextHeight: number) {
-    const bounds = getPrimaryPaneBounds();
-    setPrimaryPaneHeight(
-      Math.min(bounds.max, Math.max(bounds.min, nextHeight)),
-    );
-  }
-
   return (
     <div
       data-thought-sidebar-root
-      data-sidebar-panes-resizing={isResizingPanes || undefined}
-      className={cn(
-        "flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground",
-        isResizingPanes && "select-none",
-      )}
+      className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground"
     >
       <div
         className={cn(
@@ -403,51 +350,14 @@ function SidebarContent(
           mobile && "pr-12",
         )}
       >
-        <div
-          className={cn(
-            "flex min-w-0 flex-1 items-center gap-2",
-            compact && "flex-none",
-          )}
-        >
-          <AppMark className="size-8" />
-          {compact ? null : (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold tracking-[-0.02em]">
-                Devotion
-              </p>
-              <p className="truncate text-[0.6875rem] text-muted-foreground">
-                Tim u jednom toku
-              </p>
-            </div>
-          )}
-        </div>
-        {profile.role === "admin" ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                data-compact="true"
-                className="size-8"
-                aria-label="Upravljanje timom"
-                onClick={props.onAdmin}
-              >
-                <SlidersHorizontal />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side={compact ? "right" : "bottom"}>
-              Upravljanje timom
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
+        <StartupIdentity startup={startup} collapsed={compact} />
         {mobile ? null : (
           <Button
             type="button"
             variant="ghost"
             size="icon"
             data-compact="true"
-            className="size-8"
+            className="size-8 shrink-0"
             aria-label={
               collapsed ? "Proširi bočnu navigaciju" : "Sakrij bočnu navigaciju"
             }
@@ -460,145 +370,49 @@ function SidebarContent(
 
       {props.scopeSlot}
 
-      <div ref={panesRef} className="flex min-h-0 flex-1 flex-col">
-        <div
-          ref={primaryPaneRef}
-          id={primaryPaneId}
-          data-sidebar-primary-pane
-          className="min-h-0 shrink-0 overflow-hidden"
-          style={{
-            height: primaryPaneHeight,
-            minHeight: MIN_PRIMARY_PANE_HEIGHT,
-            maxHeight: `calc(100% - ${MIN_AREAS_PANE_HEIGHT + SIDEBAR_RESIZE_HANDLE_HEIGHT}px)`,
-          }}
+      {/* Jedan skrol (P11): glavne stavke i Dokumenti se pomeraju zajedno. */}
+      <ScrollArea data-thought-sidebar-scroll className="min-h-0 flex-1">
+        <nav
+          aria-label="Meni startupa"
+          className={cn("space-y-0.5 px-3 pb-3", compact && "px-2", props.scopeSlot && "pt-3")}
         >
-          <ScrollArea className="h-full pb-2">
-            <div className={cn("px-3 pb-3", compact && "px-2", props.scopeSlot && "pt-3")}>
-              <StartupIdentity startup={startup} collapsed={compact} />
-            </div>
-
-            <div className={cn("space-y-1 px-3", compact && "px-2")}>
-              <SidebarButton
-                label="Pretraži"
-                icon={Search}
-                active={false}
-                collapsed={compact}
-                onClick={props.onSearch}
-              />
-              <SidebarButton
-                label="Obaveštenja"
-                icon={Bell}
-                badge={props.unreadNotifications}
-                active={false}
-                collapsed={compact}
-                onClick={props.onOpenNotifications}
-              />
-              {primaryNav.map((item) => (
-                <SidebarButton
-                  key={item.kind}
-                  label={item.label}
-                  icon={item.icon}
-                  hint={item.hint}
-                  badge={
-                    item.kind === "approvals"
-                      ? props.pendingApprovals
-                      : item.kind === "chat"
-                        ? props.chatUnread
-                        : undefined
-                  }
-                  active={route.kind === item.kind}
-                  collapsed={compact}
-                  onClick={() => props.onRouteChange({ kind: item.kind })}
-                />
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-
-        <div
-          role="separator"
-          tabIndex={0}
-          aria-label="Promeni visinu glavne navigacije i oblasti"
-          aria-orientation="horizontal"
-          aria-controls={`${primaryPaneId} ${areasPaneId}`}
-          aria-valuemin={MIN_PRIMARY_PANE_HEIGHT}
-          aria-valuemax={720}
-          aria-valuenow={Math.round(primaryPaneHeight)}
-          aria-valuetext={`${Math.round(primaryPaneHeight)} piksela za glavnu navigaciju`}
-          data-sidebar-pane-resizer
-          data-resizing={isResizingPanes || undefined}
-          className="group relative flex h-[9px] shrink-0 touch-none cursor-row-resize items-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-          title="Prevuci gore ili dole da promeniš visinu"
-          onDoubleClick={() =>
-            setClampedPrimaryPaneHeight(DEFAULT_PRIMARY_PANE_HEIGHT)
-          }
-          onKeyDown={(event) => {
-            const currentHeight =
-              primaryPaneRef.current?.getBoundingClientRect().height ??
-              primaryPaneHeight;
-            if (event.key === "ArrowUp") {
-              event.preventDefault();
-              setClampedPrimaryPaneHeight(currentHeight - 24);
-            } else if (event.key === "ArrowDown") {
-              event.preventDefault();
-              setClampedPrimaryPaneHeight(currentHeight + 24);
-            } else if (event.key === "Home") {
-              event.preventDefault();
-              setClampedPrimaryPaneHeight(MIN_PRIMARY_PANE_HEIGHT);
-            } else if (event.key === "End") {
-              event.preventDefault();
-              setClampedPrimaryPaneHeight(getPrimaryPaneBounds().max);
-            }
-          }}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            const paneHeight =
-              primaryPaneRef.current?.getBoundingClientRect().height;
-            if (paneHeight === undefined) return;
-            event.currentTarget.setPointerCapture(event.pointerId);
-            resizeStartRef.current = {
-              pointerId: event.pointerId,
-              pointerY: event.clientY,
-              paneHeight,
-            };
-            setIsResizingPanes(true);
-          }}
-          onPointerMove={(event) => {
-            const resizeStart = resizeStartRef.current;
-            if (!resizeStart || resizeStart.pointerId !== event.pointerId)
-              return;
-            setClampedPrimaryPaneHeight(
-              resizeStart.paneHeight + event.clientY - resizeStart.pointerY,
-            );
-          }}
-          onPointerUp={(event) => {
-            if (resizeStartRef.current?.pointerId !== event.pointerId) return;
-            resizeStartRef.current = null;
-            setIsResizingPanes(false);
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }}
-          onPointerCancel={(event) => {
-            if (resizeStartRef.current?.pointerId !== event.pointerId) return;
-            resizeStartRef.current = null;
-            setIsResizingPanes(false);
-          }}
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "mx-3 h-px w-full bg-sidebar-border/80 transition-[height,background-color]",
-              "group-hover:h-0.5 group-hover:bg-primary/55 group-focus-visible:h-0.5 group-focus-visible:bg-primary/70",
-              isResizingPanes && "h-0.5 bg-primary/75",
-            )}
+          <SidebarButton
+            label="Pretraži"
+            icon={Search}
+            active={false}
+            collapsed={compact}
+            shortcut="Control+K Meta+K"
+            onClick={props.onSearch}
           />
-        </div>
+          {primaryNav.map((item) => (
+            <SidebarButton
+              key={item.kind}
+              label={item.label}
+              icon={item.icon}
+              badge={item.kind === "chat" ? props.chatUnread : undefined}
+              active={route.kind === item.kind}
+              collapsed={compact}
+              onClick={() => props.onRouteChange({ kind: item.kind })}
+            />
+          ))}
+        </nav>
 
-        <div id={areasPaneId} className="flex min-h-0 flex-1 flex-col">
-          {compact ? null : (
-            <div className="flex items-center justify-between px-4 pb-1 pt-1">
-              <p className="text-[0.6875rem] font-bold uppercase tracking-[0.13em] text-muted-foreground">
-                Oblasti
-              </p>
+        <section
+          aria-labelledby={`${sidebarInstanceId}-dokumenti`}
+          className={cn("px-3 pb-3", compact && "px-2")}
+        >
+          {compact ? (
+            <h2 id={`${sidebarInstanceId}-dokumenti`} className="sr-only">
+              Dokumenti
+            </h2>
+          ) : (
+            <div className="flex items-center justify-between px-3 pb-1 pt-2">
+              <h2
+                id={`${sidebarInstanceId}-dokumenti`}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Dokumenti
+              </h2>
               <Button
                 type="button"
                 variant="ghost"
@@ -613,268 +427,280 @@ function SidebarContent(
             </div>
           )}
 
-          <ScrollArea
-            data-thought-sidebar-scroll
-            className="min-h-0 flex-1 px-3 pb-3"
-          >
-            <div className={cn("space-y-1", compact && "px-0")}>
-              {startup.areas.map((area) => {
-                const Icon = AREA_ICONS[area.key as AreaKey] || Blocks;
-                const tintClass = getAreaTint(area.key);
-                const expanded =
-                  (props.expandedAreas[area._id] ??
-                    (route.kind === "area" && route.areaId === area._id)) ||
-                  props.transientExpandedAreaIds.has(area._id);
-                if (compact) {
-                  return (
-                    <SidebarButton
-                      key={area._id}
-                      label={area.label}
-                      icon={Icon}
-                      active={
-                        route.kind === "area" && route.areaId === area._id
-                      }
-                      collapsed
-                      onClick={() =>
-                        props.onRouteChange({ kind: "area", areaId: area._id })
-                      }
-                    />
-                  );
-                }
+          <div className="space-y-0.5">
+            {startup.areas.map((area) => {
+              const Icon = AREA_ICONS[area.key as AreaKey] || Blocks;
+              const tintClass = getAreaTint(area.key);
+              const expanded =
+                (props.expandedAreas[area._id] ??
+                  (route.kind === "area" && route.areaId === area._id)) ||
+                props.transientExpandedAreaIds.has(area._id);
+              if (compact) {
                 return (
-                  <div
+                  <SidebarButton
                     key={area._id}
-                    draggable={!editingAreaId}
-                    onDragStart={(e) => {
-                      if (!props.draggedPageId) {
-                        e.stopPropagation();
-                        setDraggedAreaId(area._id);
-                      }
-                    }}
-                    onDragEnd={() => {
-                      setDraggedAreaId(null);
-                      setActiveDropAreaTargetId(null);
-                    }}
-                    onDragOver={(e) => {
-                      if (draggedAreaId && draggedAreaId !== area._id) {
-                        e.preventDefault();
-                        setActiveDropAreaTargetId(area._id);
-                      } else if (props.draggedPageId) {
-                        e.preventDefault();
-                        props.onDragPageOver(null, area._id);
-                      }
-                    }}
-                    onDrop={(e) => {
+                    label={area.label}
+                    icon={Icon}
+                    active={
+                      route.kind === "area" && route.areaId === area._id
+                    }
+                    collapsed
+                    onClick={() =>
+                      props.onRouteChange({ kind: "area", areaId: area._id })
+                    }
+                  />
+                );
+              }
+              return (
+                <div
+                  key={area._id}
+                  draggable={!editingAreaId}
+                  onDragStart={(e) => {
+                    if (!props.draggedPageId) {
+                      e.stopPropagation();
+                      setDraggedAreaId(area._id);
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedAreaId(null);
+                    setActiveDropAreaTargetId(null);
+                  }}
+                  onDragOver={(e) => {
+                    if (draggedAreaId && draggedAreaId !== area._id) {
                       e.preventDefault();
-                      if (draggedAreaId && draggedAreaId !== area._id) {
-                        handleDropArea(area._id);
-                      } else if (props.draggedPageId) {
-                        props.onDropPage(props.draggedPageId, null, area._id);
-                      }
-                    }}
+                      setActiveDropAreaTargetId(area._id);
+                    } else if (props.draggedPageId) {
+                      e.preventDefault();
+                      props.onDragPageOver(null, area._id);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggedAreaId && draggedAreaId !== area._id) {
+                      handleDropArea(area._id);
+                    } else if (props.draggedPageId) {
+                      props.onDropPage(props.draggedPageId, null, area._id);
+                    }
+                  }}
+                >
+                  <div
+                    data-thought-drop-target="area"
+                    data-thought-area-id={area._id}
+                    data-thought-drop-label={area.label}
+                    className={cn(
+                      "group flex min-h-10 items-center rounded-lg transition-[background-color,box-shadow]",
+                      route.kind === "area" && route.areaId === area._id
+                        ? "bg-sidebar-accent/70"
+                        : "hover:bg-sidebar-accent/45",
+                      (props.activeThoughtDropTarget?.kind === "area" &&
+                        props.activeThoughtDropTarget.areaId === area._id) ||
+                        (props.activeDropAreaId === area._id &&
+                          !props.activeDropPageId) ||
+                        activeDropAreaTargetId === area._id
+                        ? "bg-primary/12 ring-2 ring-inset ring-primary/55"
+                        : "",
+                      draggedAreaId === area._id && "opacity-50",
+                    )}
                   >
-                    <div
-                      data-thought-drop-target="area"
-                      data-thought-area-id={area._id}
-                      data-thought-drop-label={area.label}
-                      className={cn(
-                        "group flex min-h-10 items-center rounded-xl transition-[background-color,box-shadow]",
-                        route.kind === "area" && route.areaId === area._id
-                          ? "bg-sidebar-accent/70"
-                          : "hover:bg-sidebar-accent/45",
-                        (props.activeThoughtDropTarget?.kind === "area" &&
-                          props.activeThoughtDropTarget.areaId === area._id) ||
-                          (props.activeDropAreaId === area._id &&
-                            !props.activeDropPageId) ||
-                          activeDropAreaTargetId === area._id
-                          ? "bg-primary/12 ring-2 ring-inset ring-primary/55"
-                          : "",
-                        draggedAreaId === area._id && "opacity-50",
-                      )}
+                    <span
+                      className="ml-1 cursor-grab opacity-0 group-hover:opacity-60 hover:!opacity-100 active:cursor-grabbing"
+                      title="Prevuci da promeniš redosled oblasti"
                     >
-                      <span
-                        className="ml-1 cursor-grab opacity-0 group-hover:opacity-60 hover:!opacity-100 active:cursor-grabbing"
-                        title="Prevuci da promeniš redosled oblasti"
-                      >
-                        <GripVertical className="size-3.5 text-muted-foreground" />
-                      </span>
+                      <GripVertical className="size-3.5 text-muted-foreground" />
+                    </span>
 
+                    <button
+                      type="button"
+                      data-compact="true"
+                      className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
+                      aria-expanded={expanded}
+                      aria-controls={`${sidebarInstanceId}-oblast-${area._id}`}
+                      aria-label={
+                        expanded
+                          ? `Sakrij ${area.label}`
+                          : `Prikaži ${area.label}`
+                      }
+                      onClick={() =>
+                        props.onAreaExpandedChange(area._id, !expanded)
+                      }
+                    >
+                      <ChevronDown
+                        className={cn(
+                          "size-3.5 transition-transform",
+                          !expanded && "-rotate-90",
+                        )}
+                        style={{ transitionDuration: `${DURATION.quick}ms` }}
+                      />
+                    </button>
+                    {editingAreaId === area._id ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
+                        <Input
+                          value={editingAreaLabel}
+                          onChange={(e) =>
+                            setEditingAreaLabel(e.target.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleSaveAreaLabel(area._id, area.label);
+                            } else if (e.key === "Escape") {
+                              setEditingAreaId(null);
+                            }
+                          }}
+                          onBlur={() =>
+                            handleSaveAreaLabel(area._id, area.label)
+                          }
+                          autoFocus
+                          aria-label={`Naziv oblasti ${area.label}`}
+                          className="h-7 px-2 text-xs font-semibold"
+                        />
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        data-compact="true"
-                        className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-card/60"
-                        aria-expanded={expanded}
-                        aria-controls={`${sidebarInstanceId}-oblast-${area._id}`}
-                        aria-label={
-                          expanded
-                            ? `Sakrij ${area.label}`
-                            : `Prikaži ${area.label}`
+                        aria-current={
+                          route.kind === "area" && route.areaId === area._id
+                            ? "page"
+                            : undefined
                         }
+                        className="flex min-h-10 min-w-0 flex-1 items-center gap-2 pr-1 text-left text-sm font-medium"
                         onClick={() =>
-                          props.onAreaExpandedChange(area._id, !expanded)
+                          props.onRouteChange({
+                            kind: "area",
+                            areaId: area._id,
+                          })
                         }
                       >
-                        <ChevronDown
-                          className={cn(
-                            "size-3.5 transition-transform",
-                            !expanded && "-rotate-90",
-                          )}
-                          style={{ transitionDuration: `${DURATION.quick}ms` }}
-                        />
+                        <Icon className={cn("size-4 shrink-0", tintClass)} />
+                        <span className="truncate">{area.label}</span>
                       </button>
-                      {editingAreaId === area._id ? (
-                        <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
-                          <Input
-                            value={editingAreaLabel}
-                            onChange={(e) =>
-                              setEditingAreaLabel(e.target.value)
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleSaveAreaLabel(area._id, area.label);
-                              } else if (e.key === "Escape") {
-                                setEditingAreaId(null);
-                              }
-                            }}
-                            onBlur={() =>
-                              handleSaveAreaLabel(area._id, area.label)
-                            }
-                            autoFocus
-                            className="h-7 px-2 text-xs font-semibold"
-                          />
-                        </div>
-                      ) : (
-                        <button
+                    )}
+
+                    {editingAreaId !== area._id ? (
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                        <Button
                           type="button"
-                          className="flex min-h-10 min-w-0 flex-1 items-center gap-2 pr-1 text-left text-sm font-medium"
+                          variant="ghost"
+                          size="icon"
+                          data-compact="true"
+                          className="size-7"
+                          aria-label={`Izmeni naziv ${area.label}`}
+                          title="Izmeni naziv oblasti"
+                          onClick={() => {
+                            setEditingAreaId(area._id);
+                            setEditingAreaLabel(area.label);
+                          }}
+                        >
+                          <Pencil className="size-3.5 text-muted-foreground" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          data-compact="true"
+                          className="mr-1 size-7"
+                          aria-label={`Dodaj stranicu u ${area.label}`}
+                          title="Dodaj novu stranicu"
                           onClick={() =>
-                            props.onRouteChange({
-                              kind: "area",
+                            props.onCreate({
                               areaId: area._id,
+                              parentPageId: null,
                             })
                           }
                         >
-                          <span
-                            className={cn(
-                              "grid size-6 shrink-0 place-items-center rounded-md",
-                              tintClass,
-                            )}
-                          >
-                            <Icon className="size-3.5" />
-                          </span>
-                          <span className="truncate">{area.label}</span>
-                        </button>
-                      )}
-
-                      {editingAreaId !== area._id ? (
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            data-compact="true"
-                            className="size-7"
-                            aria-label={`Izmeni naziv ${area.label}`}
-                            title="Izmeni naziv oblasti"
-                            onClick={() => {
-                              setEditingAreaId(area._id);
-                              setEditingAreaLabel(area.label);
-                            }}
-                          >
-                            <Pencil className="size-3.5 text-muted-foreground" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            data-compact="true"
-                            className="mr-1 size-7"
-                            aria-label={`Dodaj stranicu u ${area.label}`}
-                            title="Dodaj novu stranicu"
-                            onClick={() =>
-                              props.onCreate({
-                                areaId: area._id,
-                                parentPageId: null,
-                              })
-                            }
-                          >
-                            <Plus className="size-3.5" />
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                    {/* Otvaranje/zatvaranje oblasti kroz `Collapse` (K19); stablo se
-                        montira tek kad je oblast otvorena, kao i ranije. */}
-                    <Collapse open={expanded} id={`${sidebarInstanceId}-oblast-${area._id}`} unmountWhenClosed>
-                      <PageTree
-                        startupId={startup._id}
-                        areaId={area._id}
-                        currentProfileId={profile._id}
-                        selectedPageId={selectedPageId}
-                        expandedPageIds={props.expandedPageIds}
-                        transientExpandedPageIds={
-                          props.transientExpandedPageIds
-                        }
-                        activeDropPageId={
-                          props.activeDropPageId ||
-                          (props.activeThoughtDropTarget?.kind === "page"
-                            ? (props.activeThoughtDropTarget.pageId ??
-                              undefined)
-                            : undefined)
-                        }
-                        onPageExpandedChange={props.onPageExpandedChange}
-                        onOpenPage={(pageId) =>
-                          props.onRouteChange({ kind: "page", pageId })
-                        }
-                        onCreate={props.onCreate}
-                        draggedPageId={props.draggedPageId}
-                        onDragPageStart={props.onDragPageStart}
-                        onDragPageEnd={props.onDragPageEnd}
-                        onDragPageOver={props.onDragPageOver}
-                        onDropPage={props.onDropPage}
-                      />
-                    </Collapse>
+                          <Plus className="size-3.5" />
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </div>
-      </div>
+                  {/* Otvaranje/zatvaranje oblasti kroz `Collapse` (K19); stablo se
+                      montira tek kad je oblast otvorena, kao i ranije. */}
+                  <Collapse open={expanded} id={`${sidebarInstanceId}-oblast-${area._id}`} unmountWhenClosed>
+                    {props.renderAreaTree ? props.renderAreaTree(area._id) : <TreeBoundary><PageTree
+                      startupId={startup._id}
+                      areaId={area._id}
+                      currentProfileId={profile._id}
+                      canManage={canManage}
+                      selectedPageId={selectedPageId}
+                      expandedPageIds={props.expandedPageIds}
+                      transientExpandedPageIds={
+                        props.transientExpandedPageIds
+                      }
+                      activeDropPageId={
+                        props.activeDropPageId ||
+                        (props.activeThoughtDropTarget?.kind === "page"
+                          ? (props.activeThoughtDropTarget.pageId ??
+                            undefined)
+                          : undefined)
+                      }
+                      onPageExpandedChange={props.onPageExpandedChange}
+                      onOpenPage={(pageId) =>
+                        props.onRouteChange({ kind: "page", pageId })
+                      }
+                      onShowMore={(parentPageId) =>
+                        props.onRouteChange(
+                          parentPageId === null
+                            ? { kind: "area", areaId: area._id }
+                            : { kind: "page", pageId: parentPageId },
+                        )
+                      }
+                      onCreate={props.onCreate}
+                      draggedPageId={props.draggedPageId}
+                      onDragPageStart={props.onDragPageStart}
+                      onDragPageEnd={props.onDragPageEnd}
+                      onDragPageOver={props.onDragPageOver}
+                      onDropPage={props.onDropPage}
+                    /></TreeBoundary>}
+                  </Collapse>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </ScrollArea>
 
-      {/* Na desktopu profil, tema i odjava žive u traci „Ja + startupi". */}
-      {mobile ? (
-        <div
-          className={cn(
-            "border-t border-sidebar-border/80 p-3",
-            compact && "px-2",
-          )}
-        >
+      <div
+        className={cn(
+          "space-y-0.5 border-t border-sidebar-border/80 p-3",
+          compact && "px-2",
+        )}
+      >
+        <SidebarButton
+          label="Korpa"
+          icon={Trash2}
+          active={route.kind === "trash"}
+          collapsed={compact}
+          onClick={() => props.onRouteChange({ kind: "trash" })}
+        />
+        {props.onOpenSettings ? (
+          <SidebarButton
+            label="Podešavanja startupa"
+            icon={Settings}
+            active={false}
+            collapsed={compact}
+            onClick={props.onOpenSettings}
+          />
+        ) : null}
+
+        {/* Na desktopu profil, tema i odjava žive u traci „Ja + startupi". */}
+        {mobile ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className={cn(
-                  "mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2 text-left hover:bg-sidebar-accent/60",
-                  compact && "justify-center px-0",
-                )}
+                className="mt-2 flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2 text-left hover:bg-sidebar-accent/60"
                 aria-label="Meni profila"
               >
                 <ProfileAvatar profile={profile} className="size-8" />
-                {compact ? null : (
-                  <>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">
-                        {profile.displayName}
-                      </span>
-                      <span className="block truncate text-[0.6875rem] text-muted-foreground">
-                        {profile.role === "admin" ? "Administrator" : "Član tima"}
-                      </span>
-                    </span>
-                    <ChevronsUpDown className="size-4 text-muted-foreground" />
-                  </>
-                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">
+                    {profile.displayName}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {profile.role === "admin" ? "Administrator" : "Član tima"}
+                  </span>
+                </span>
+                <ChevronsUpDown className="size-4 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-60">
@@ -887,6 +713,9 @@ function SidebarContent(
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={props.onProfile}>
                 <UserRound /> Moj profil
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={props.onOpenNotificationSettings}>
+                <Bell /> Obaveštenja i zvuci
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={(event) => event.preventDefault()}
@@ -902,10 +731,38 @@ function SidebarContent(
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
+}
+
+/**
+ * Pad upita stabla jedne oblasti ostaje u toj oblasti (DIZAJN-SMIRENJE §5.5):
+ * meni i ostatak ljuske rade; „Pokušaj ponovo" ponovo montira stablo.
+ */
+class TreeBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-x-2 px-3 py-1.5 text-xs text-muted-foreground">
+        <span>Stranice nisu učitane.</span>
+        <button
+          type="button"
+          className="rounded-md font-medium text-foreground underline-offset-2 hover:underline"
+          onClick={() => this.setState({ failed: false })}
+        >
+          Pokušaj ponovo
+        </button>
+      </div>
+    );
+  }
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
@@ -1059,8 +916,8 @@ export function MobileMenuPanel({ onClose, ...props }: MobileMenuPanelProps & { 
     onCreate: close(props.onCreate),
     onCreateArea: close(props.onCreateArea),
     onSearch: close(props.onSearch),
-    onOpenNotifications: close(props.onOpenNotifications),
-    onAdmin: close(props.onAdmin),
+    onOpenSettings: props.onOpenSettings ? close(props.onOpenSettings) : null,
+    onOpenNotificationSettings: close(props.onOpenNotificationSettings),
     onProfile: close(props.onProfile),
     onSignOut: () => {
       onClose();
@@ -1085,10 +942,7 @@ export function MobileMenuPanel({ onClose, ...props }: MobileMenuPanelProps & { 
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex items-center gap-2 p-3 pr-12">
         <AppMark className="size-8" />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold tracking-[-0.02em]">Devotion</p>
-          <p className="truncate text-[0.6875rem] text-muted-foreground">Tim u jednom toku</p>
-        </div>
+        <p className="min-w-0 truncate text-sm font-semibold">Devotion</p>
       </div>
       {scope}
       <MeSidebar
@@ -1146,10 +1000,7 @@ export function StartupEmptyRail({
     <aside className="hidden h-dvh w-[18.5rem] shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4 lg:flex">
       <div className="flex items-center gap-2.5">
         <AppMark />
-        <div>
-          <p className="text-sm font-bold">Devotion</p>
-          <p className="text-xs text-muted-foreground">Tim u jednom toku</p>
-        </div>
+        <p className="text-sm font-semibold">Devotion</p>
       </div>
       <div className="mt-auto space-y-2">
         {profile.role === "admin" ? (

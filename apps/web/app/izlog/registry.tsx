@@ -4,7 +4,9 @@ import BiracDatumaEkran from "./ekrani/birac-datuma";
 import BrziUnosEkran from "./ekrani/brzi-unos";
 import InboxEkran from "./ekrani/inbox";
 import IsplanirajEkran from "./ekrani/isplaniraj";
+import KorpaEkran from "./ekrani/korpa";
 import LjuskaEkran from "./ekrani/ljuska";
+import LjuskaStartupEkran from "./ekrani/ljuska-startup";
 import MojDanEkran from "./ekrani/moj-dan";
 import MojiZadaciEkran from "./ekrani/moji-zadaci";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
@@ -67,5 +69,17 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K17",
     varijante: ["komandni-centar", "tabla", "brzo-pravljenje", "detalj", "prazan", "ucitavanje"],
     Komponenta: ZadaciStartupEkran,
+  },
+  "ljuska-startup": {
+    naslov: "Ljuska startupa — meni (PROSTOR)",
+    korak: "K08",
+    varijante: ["meni", "clan", "mobilni-meni"],
+    Komponenta: LjuskaStartupEkran,
+  },
+  korpa: {
+    naslov: "Korpa",
+    korak: "K08",
+    varijante: ["stranice", "ideje", "prilozi", "oporavljeno", "prazna", "ucitavanje", "greska"],
+    Komponenta: KorpaEkran,
   },
 };

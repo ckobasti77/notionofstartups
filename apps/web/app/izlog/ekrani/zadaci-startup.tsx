@@ -36,7 +36,7 @@ import { STARTUP_FLIP_MAX_ROWS } from "@/components/workspace/startup-tasks/cons
 import { TaskContentLocks, TaskMetaChips } from "@/components/workspace/startup-tasks/task-meta-chips";
 import { TaskQuickCreate } from "@/components/workspace/startup-tasks/task-quick-create";
 import { useMoveFocus } from "@/components/workspace/startup-tasks/use-move-focus";
-import { buildTaskSections, TasksBody, tasksListName, type TasksMode } from "@/components/workspace/tasks-view";
+import { buildTaskSections, TasksBody, tasksListName, useBoardAllowed, type TasksMode } from "@/components/workspace/tasks-view";
 import type { WorkloadEntry, WorkloadFilter } from "@/components/workspace/workload-strip";
 import { useFlip } from "@/lib/motion";
 import { useTaskListShortcuts } from "@/lib/shortcuts/use-task-list-shortcuts";
@@ -253,7 +253,9 @@ function IzlogKomandniCentar({ initial = IZLOG_ST_TASKS, loading = false }: { in
 function IzlogTabla() {
   const [tasks, setTasks] = useState<StartupTaskLike[]>(IZLOG_ST_MY_TASKS);
   const [planned, setPlanned] = useState(IZLOG_ST_PLANNED);
-  const [mode, setMode] = useState<TasksMode>("board");
+  const [chosenMode, setMode] = useState<TasksMode>("board");
+  // Kao kontejner: ispod `md` Zadaci su lista (K07 §5.3).
+  const mode: TasksMode = useBoardAllowed() ? chosenMode : "list";
   const [panel, setPanel] = useState<PanelState | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const scopeRef = useRef<HTMLDivElement>(null);
@@ -321,7 +323,7 @@ function IzlogTabla() {
   return (
     <div className="desk-surface overflow-hidden rounded-2xl border bg-background">
       <TasksBody
-        startupName={IZLOG_ST_STARTUP.name}
+        filter={{ value: "moji", members: [], onChange: noop }}
         now={IZLOG_NOW}
         loading={false}
         count={rows.length}

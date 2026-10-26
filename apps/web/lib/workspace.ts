@@ -18,10 +18,11 @@ export const TASK_STATUS_META = {
 export type TaskStatus = keyof typeof TASK_STATUS_META;
 
 export const TASK_PRIORITY_META = {
-  low: { label: "Nizak", dotClass: "bg-slate-400" },
-  medium: { label: "Srednji", dotClass: "bg-blue-500" },
-  high: { label: "Visok", dotClass: "bg-amber-500" },
-  urgent: { label: "Hitno", dotClass: "bg-rose-500" },
+  // Samo tokeni (PROSTOR P17): boja nosi hitnost, ne ukras.
+  low: { label: "Nizak", dotClass: "bg-muted-foreground/40" },
+  medium: { label: "Srednji", dotClass: "bg-muted-foreground" },
+  high: { label: "Visok", dotClass: "bg-warning" },
+  urgent: { label: "Hitno", dotClass: "bg-destructive" },
 } as const;
 
 export type TaskPriority = keyof typeof TASK_PRIORITY_META;

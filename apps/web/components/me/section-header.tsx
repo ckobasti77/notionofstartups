@@ -23,9 +23,10 @@ export type TaskSectionProps = {
 };
 
 /**
- * Sekcija liste zadataka (plan K07 §5): overline naslov + broj koji se
+ * Sekcija liste zadataka (plan K07 §5): naslov sekcije + broj koji se
  * kotrlja (`NumberRoll`). Sklopiva sekcija ide kroz `Collapse` i nosi
- * `aria-expanded`. Naslov je h2 (overline je stil, ne element).
+ * `aria-expanded`. Naslov je h2, normalnim slovima (PROSTOR P17,
+ * `docs/prostor/DIZAJN-SMIRENJE.md` §1.2).
  */
 export function TaskSection({
   title,
@@ -41,8 +42,8 @@ export function TaskSection({
   const listId = useId();
   const [open, setOpen] = useState(!(collapsible && defaultCollapsed));
   const label = cn(
-    "text-[0.6875rem] font-bold uppercase tracking-[0.12em]",
-    tone === "danger" ? "text-destructive" : "text-muted-foreground",
+    "text-sm font-semibold",
+    tone === "danger" ? "text-destructive" : "text-foreground",
   );
 
   return (
@@ -66,14 +67,14 @@ export function TaskSection({
             />
             {leading}
             {title}
-            <NumberRoll value={count} className="font-mono" />
+            <NumberRoll value={count} className="font-normal tabular-nums text-muted-foreground" />
           </button>
         </h2>
       ) : (
         <h2 id={headingId} className={cn("mb-1 flex min-h-8 items-center gap-2 px-2", label)}>
           {leading}
           <span className="min-w-0 truncate">{title}</span>
-          <NumberRoll value={count} className="font-mono" />
+          <NumberRoll value={count} className="font-normal tabular-nums text-muted-foreground" />
         </h2>
       )}
       {collapsible ? (

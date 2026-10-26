@@ -29,6 +29,11 @@ const TONE_SOLID = [
   "bg-startup-tone-8 text-background",
 ] as const;
 
+/** Pun ton startupa za veće pločice bez loga (npr. `StartupLogo`). */
+export function startupSolidToneClass(name: string): string {
+  return TONE_SOLID[startupTone(name)];
+}
+
 const SIZE = {
   xs: "size-4 text-[0.5rem]",
   sm: "size-5 text-[0.5625rem]",

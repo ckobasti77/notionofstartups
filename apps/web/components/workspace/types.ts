@@ -27,15 +27,30 @@ export type MeRoute =
   | { kind: "me-inbox" }
   | { kind: "me-chat"; channelId?: Id<"chatChannels"> };
 
-/** Svet jednog startupa — postojeća unija, bez izmena. */
+/** Filter Zadataka startupa (PROSTOR P11): Svi (podrazumevano) · Moji · osoba. */
+export type TasksFilter = "svi" | "moji";
+
+/** Segment Korpe (PROSTOR P3) — isti ključevi kao `trash.list`. */
+export type TrashSegment = "page" | "idea" | "file" | "recovered";
+
+/**
+ * Svet jednog startupa. PROSTOR P11 (K08): `home` → `today`, `my-tasks` →
+ * `tasks` (Moji) i `approvals` → `trash` žive samo kao preusmerenja u
+ * `readWorkspaceRouteCandidate` — nisu više prikazi.
+ */
 export type StartupRoute =
-  | { kind: "home" }
   | { kind: "thoughts" }
   | { kind: "ideas" }
   | { kind: "today" }
-  | { kind: "my-tasks" }
+  | {
+      kind: "tasks";
+      /** Odsutno = „Svi". */
+      filter?: TasksFilter;
+      /** Zadaci jednog člana (ima prednost nad `filter`). */
+      profileId?: Id<"profiles">;
+    }
+  | { kind: "trash"; segment?: TrashSegment }
   | { kind: "activity" }
-  | { kind: "approvals" }
   | { kind: "chat"; channelId?: Id<"chatChannels"> }
   | { kind: "puls"; weekStart?: number }
   | { kind: "area"; areaId: Id<"startupAreas"> }

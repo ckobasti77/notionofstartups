@@ -7,6 +7,7 @@ import {
   ShoppingBag,
 } from "lucide-react";
 
+import { startupSolidToneClass } from "@/components/me/startup-chip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -28,15 +29,21 @@ export const AREA_ICONS: Record<AreaKey, ComponentType<{ className?: string }>> 
   other: MoreHorizontal,
 };
 
+/**
+ * Oblasti nemaju boju (PROSTOR P17): boja u chrome-u je samo indigo za radnju i
+ * ton startupa kao identitet. Ključevi ostaju zbog postojećih poziva.
+ */
+const AREA_NEUTRAL = "text-muted-foreground";
+
 export const AREA_TINTS: Record<AreaKey, string> = {
-  dev: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300",
-  marketing: "bg-violet-500/10 text-violet-600 dark:text-violet-300",
-  sales: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  other: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dev: AREA_NEUTRAL,
+  marketing: AREA_NEUTRAL,
+  sales: AREA_NEUTRAL,
+  other: AREA_NEUTRAL,
 };
 
 export function getAreaTint(key: string): string {
-  return AREA_TINTS[key as AreaKey] || "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+  return AREA_TINTS[key as AreaKey] || AREA_NEUTRAL;
 }
 
 export function getAreaDescription(key: string): string {
@@ -72,10 +79,7 @@ export function ProfileAvatar({
   );
 }
 
-/**
- * Kvadratna značka vrste stranice. Beleška zadržava organski oblak; ostale
- * vrste su zaobljeni kvadrat, isto kao na kanvasu.
- */
+/** Značka vrste stranice: ista mirna pločica za svaku vrstu (PROSTOR P17). */
 export function PageKindBadge({
   kind,
   className,
@@ -88,10 +92,7 @@ export function PageKindBadge({
   return (
     <span
       className={cn(
-        "grid size-9 shrink-0 place-items-center bg-muted/70",
-        meta.shape === "organic"
-          ? "rounded-[42%_58%_52%_48%/46%_44%_56%_54%]"
-          : "rounded-xl",
+        "grid size-7 shrink-0 place-items-center rounded-md bg-muted/70",
         meta.textClass,
         className,
       )}
@@ -120,7 +121,7 @@ export function StartupLogo({
       {startup.logoUrl ? (
         <AvatarImage src={startup.logoUrl} alt={`Logo startupa ${startup.name}`} />
       ) : null}
-      <AvatarFallback className="bg-primary text-primary-foreground">
+      <AvatarFallback className={startupSolidToneClass(startup.name)}>
         {startup.name.slice(0, 1).toUpperCase()}
       </AvatarFallback>
     </Avatar>
@@ -168,35 +169,116 @@ export function TaskPriorityBadge({ priority }: { priority: TaskPriority }) {
   );
 }
 
+/**
+ * Prazno stanje (`docs/prostor/DIZAJN-SMIRENJE.md` §1.5): jedna rečenica i
+ * jedna radnja, bez ilustracije. `screen` = ceo prikaz je prazan (isprekidan
+ * okvir); `section` = prazna sekcija (jedan red, bez okvira).
+ */
 export function EmptyState({
   icon: Icon = Blocks,
   title,
   description,
   action,
   className,
+  size = "screen",
   headingAs: Heading = "h3",
 }: {
   icon?: ComponentType<{ className?: string }>;
   title: string;
-  description: string;
+  description?: string;
   action?: React.ReactNode;
   className?: string;
+  size?: "screen" | "section";
   /** Nivo naslova: „h2" kad je prazno stanje odmah ispod h1 prikaza (bez preskoka nivoa). */
   headingAs?: "h2" | "h3";
 }) {
+  if (size === "section") {
+    return (
+      <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 text-sm", className)}>
+        <p className="text-muted-foreground">
+          {title}
+          {description ? ` ${description}` : null}
+        </p>
+        {action}
+      </div>
+    );
+  }
   return (
     <div
       className={cn(
-        "flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-card/45 px-6 py-10 text-center",
+        "flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-8 text-center",
         className,
       )}
     >
-      <span className="mb-4 grid size-11 place-items-center rounded-xl bg-accent text-accent-foreground">
-        <Icon className="size-5" />
-      </span>
+      <Icon className="mb-3 size-5 text-muted-foreground" aria-hidden="true" />
       <Heading className="text-sm font-semibold">{title}</Heading>
-      <p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{description}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
+      {description ? (
+        <p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{description}</p>
+      ) : null}
+      {action ? <div className="mt-4">{action}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * Zaglavlje ekrana (DIZAJN-SMIRENJE §1.5): jedan `h1` + meta u istom redu,
+ * radnje desno, opcioni red kartica ili filtera ispod. Bez nadnaslova i bez
+ * podnaslova-rečenice.
+ */
+export function ScreenHeader({
+  title,
+  meta,
+  actions,
+  below,
+  className,
+}: {
+  title: React.ReactNode;
+  meta?: React.ReactNode;
+  actions?: React.ReactNode;
+  below?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <header data-workspace-enter className={cn("mb-5", className)}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="flex min-w-0 items-baseline gap-2.5">
+          <h1 className="min-w-0 truncate text-xl font-semibold tracking-[-0.02em] lg:text-2xl">{title}</h1>
+          {meta !== undefined && meta !== null ? (
+            <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{meta}</span>
+          ) : null}
+        </div>
+        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      </div>
+      {below ? <div className="mt-4">{below}</div> : null}
+    </header>
+  );
+}
+
+/** Naslov sekcije (DIZAJN-SMIRENJE §1.2): `text-sm font-semibold`, normalna slova, broj kao meta. */
+export function SectionHeading({
+  id,
+  title,
+  count,
+  action,
+  as: Heading = "h2",
+  className,
+}: {
+  id?: string;
+  title: React.ReactNode;
+  count?: React.ReactNode;
+  action?: React.ReactNode;
+  as?: "h2" | "h3";
+  className?: string;
+}) {
+  return (
+    <div className={cn("mb-2 flex min-h-8 items-center justify-between gap-3", className)}>
+      <Heading id={id} className="flex min-w-0 items-baseline gap-2 text-sm font-semibold text-foreground">
+        <span className="min-w-0 truncate">{title}</span>
+        {count !== undefined && count !== null ? (
+          <span className="shrink-0 font-normal tabular-nums text-muted-foreground">{count}</span>
+        ) : null}
+      </Heading>
+      {action ? <div className="flex shrink-0 items-center gap-1">{action}</div> : null}
     </div>
   );
 }

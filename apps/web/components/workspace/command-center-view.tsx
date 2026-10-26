@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CheckSquare2,
   ChevronDown,
+  MoreHorizontal,
   CircleDashed,
   Flame,
   Plus,
@@ -26,6 +27,12 @@ import type { TaskPanelProps } from "@/components/me/task-panel/task-panel";
 import { Collapse } from "@/components/motion/collapse";
 import { NumberRoll } from "@/components/motion/number-roll";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AssigneeStack } from "@/components/workspace/assignee-stack";
 import { PulseBar, type PulseSegment } from "@/components/workspace/pulse-bar";
@@ -46,7 +53,7 @@ import {
   type WorkloadFilter,
 } from "@/components/workspace/workload-strip";
 import type { ProfileWithAvatar, StartupWithAreas } from "@/components/workspace/types";
-import { EmptyState } from "@/components/workspace/workspace-ui";
+import { EmptyState, ScreenHeader } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TriageZone } from "@/lib/deadline";
@@ -137,6 +144,7 @@ export function CommandCenterView({
   onOpenPage,
   onOpenFull,
   onCreateTask,
+  links,
 }: {
   startup: StartupWithAreas;
   profile: ProfileWithAvatar;
@@ -148,6 +156,8 @@ export function CommandCenterView({
   /** „Puni prikaz" iz panela. */
   onOpenFull: (pageId: Id<"pages">) => void;
   onCreateTask: () => void;
+  /** Privremeni ulazi (Puls, Aktivnost, Moje misli) dok ih K18/K19 ne smeste u blokove. */
+  links?: ReadonlyArray<CommandCenterLink>;
 }) {
   const overview = useQuery(api.tasks.commandCenter, { startupId: startup._id });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
@@ -264,11 +274,14 @@ export function CommandCenterView({
         onListFocus={commands.onListFocus}
         announcement={commands.announcement}
         onCreateTask={onCreateTask}
+        links={links}
       />
       {commands.panel}
     </>
   );
 }
+
+export type CommandCenterLink = { label: string; onSelect: () => void };
 
 export type CommandCenterBodyProps = {
   startupName: string;
@@ -292,6 +305,11 @@ export type CommandCenterBodyProps = {
   onListFocus: (event: FocusEvent<HTMLElement>) => void;
   announcement: string;
   onCreateTask: () => void;
+  /**
+   * PROSTOR K08: Puls, Aktivnost i Moje misli više nisu u meniju startupa
+   * (P11). Do Komandnog centra 2.0 (K19) i Beleški (K18) ulaz je ovde.
+   */
+  links?: ReadonlyArray<CommandCenterLink>;
 };
 
 /**
@@ -321,6 +339,7 @@ export function CommandCenterBody({
   onListFocus,
   announcement,
   onCreateTask,
+  links,
 }: CommandCenterBodyProps) {
   const prefersReducedMotion = useReducedMotion();
   // Ulaz redova samo na prvo punjenje i promenu filtera člana (plan K07 §4.1 #8).
@@ -345,29 +364,41 @@ export function CommandCenterBody({
   );
 
   return (
-    <div className="mx-auto w-full max-w-[96rem] px-4 pb-20 pt-5 sm:px-7 lg:px-10 lg:pt-8">
-      <header data-workspace-enter className="mb-5">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="max-w-2xl">
-            <p className="mb-2 text-[0.6875rem] font-bold uppercase tracking-[0.16em] text-primary">{startupName}</p>
-            <h1 className="text-2xl font-bold tracking-[-0.035em] sm:text-3xl">Komandni centar</h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Trijaža za danas: šta gori, šta je na redu i ko je preopterećen.
-            </p>
-          </div>
-          <Button onClick={onCreateTask}>
-            <Plus /> Novi zadatak
-          </Button>
-        </div>
-
-        <div className="mt-5">
-          {loading ? (
+    <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-4 sm:px-6 lg:px-8 lg:pt-6">
+      {/* Zaglavlje bez nadnaslova i podnaslova-rečenice (PROSTOR P17, K08); blokovi 2.0 su K19. */}
+      <ScreenHeader
+        title="Komandni centar"
+        actions={
+          <>
+            {links && links.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline">
+                    <MoreHorizontal /> Više
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {links.map((link) => (
+                    <DropdownMenuItem key={link.label} onSelect={link.onSelect}>
+                      {link.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <Button onClick={onCreateTask}>
+              <Plus /> Novi zadatak
+            </Button>
+          </>
+        }
+        below={
+          loading ? (
             <Skeleton className="h-2.5 w-full rounded-sm" />
           ) : (
             <PulseBar segments={pulseSegments} label={`Sastav dana: ${filteredTotal} ${tasksWord(filteredTotal)}`} />
-          )}
-        </div>
-      </header>
+          )
+        }
+      />
 
       {loading ? (
         <CommandCenterSkeleton />
@@ -487,7 +518,7 @@ function TriageZoneSection({
       {/* Zaglavlje zone ulazi u istom stagger-u kao redovi (`useEnter`). */}
       <header data-motion-enter className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 sm:px-4">
         <Icon className={cn("size-4 shrink-0", meta.accentClass)} aria-hidden="true" />
-        <h2 id={`zona-${zone.id}-naslov`} className="text-sm font-bold uppercase tracking-[0.08em]">
+        <h2 id={`zona-${zone.id}-naslov`} className="text-sm font-semibold">
           {meta.label}
         </h2>
         <span

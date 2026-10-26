@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Bell, Plus, Search } from "lucide-react";
+import { Inbox, Plus, Search } from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ export type MobileScopeHeaderProps = {
         onSearch: () => void;
       };
   notifications: {
-    /** „Inbox" u opsegu „Ja", „Obaveštenja" u startupu. */
+    /** „Inbox" — od PROSTOR K08 isti ulaz u oba opsega (zvono startupa je ugašeno). */
     label: string;
     count: number;
     capped: boolean;
@@ -34,7 +34,7 @@ export type MobileScopeHeaderProps = {
 
 /**
  * Zaglavlje ispod `lg` (PLAN §3.2): meni, identitet opsega (ja: avatar +
- * prikaz; startup: čip + ime), pretraga startupa, zvono i tema.
+ * prikaz; startup: čip + ime), pretraga startupa, Inbox i tema.
  */
 export function MobileScopeHeader({ menu, scope, notifications, onQuickAdd }: MobileScopeHeaderProps) {
   const { count, capped } = notifications;
@@ -46,7 +46,7 @@ export function MobileScopeHeader({ menu, scope, notifications, onQuickAdd }: Mo
           <ProfileAvatar profile={scope.profile} className="size-8" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{scope.title}</p>
-            <p className="truncate text-[0.6875rem] text-muted-foreground">Moj prostor</p>
+            <p className="truncate text-xs text-muted-foreground">Moj prostor</p>
           </div>
         </>
       ) : (
@@ -54,7 +54,7 @@ export function MobileScopeHeader({ menu, scope, notifications, onQuickAdd }: Mo
           <StartupChip startup={scope.startup} size="md" variant="solid" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{scope.startup.name}</p>
-            <p className="truncate text-[0.6875rem] text-muted-foreground">{scope.subtitle}</p>
+            <p className="truncate text-xs text-muted-foreground">{scope.subtitle}</p>
           </div>
           <Button variant="ghost" size="icon" aria-label="Pretraži" onClick={scope.onSearch}>
             <Search />
@@ -73,7 +73,7 @@ export function MobileScopeHeader({ menu, scope, notifications, onQuickAdd }: Mo
         aria-label={count > 0 ? `${notifications.label}, ${unreadPhrase(count, capped)}` : notifications.label}
         onClick={notifications.onOpen}
       >
-        <Bell />
+        <Inbox />
         {count > 0 ? (
           <span
             aria-hidden="true"
