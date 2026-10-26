@@ -15,15 +15,8 @@ crons.interval(
   {},
 );
 
-/**
- * Ponedeljak, 05:00 UTC = 06/07h po Beogradu zavisno od letnjeg vremena. Za
- * „ponedeljak ujutru” je oba tačno, pa DST ne traži posebnu obradu.
- */
-crons.cron(
-  "nedeljni puls",
-  "0 5 * * 1",
-  internal.puls.sendWeeklyPulsNotifications,
-  {},
-);
+// PROSTOR P9: nema cron-a za nedeljni Puls. Puls je kartica u Komandnom centru,
+// a obaveštenje koje niko ne otvara je buka. `puls.sendWeeklyPulsNotifications`
+// ostaje u kodu, ali ga niko ne poziva.
 
 export default crons;

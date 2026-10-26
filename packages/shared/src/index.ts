@@ -400,6 +400,21 @@ export {
 } from "./mentions";
 
 export {
+  ACTIVITY_ACTIONS,
+  activityTarget,
+  formatActivity,
+  UNKNOWN_ACTIVITY_ACTOR,
+  type ActivityFormat,
+  type ActivityIcon,
+  type ActivityItemLike,
+  type ActivityTarget,
+  type ActivityTone,
+  type KnownActivityAction,
+} from "./activity-format";
+
+export { isStale, isStaleTask, splitStale, STALE_AFTER_DAYS } from "./stale";
+
+export {
   groupIdeasByStage,
   IDEA_BOARD_COLUMNS,
   IDEA_CONVERT_REASON,

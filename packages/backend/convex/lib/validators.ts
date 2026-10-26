@@ -267,6 +267,11 @@ export const MY_SCOPE_STARTUP_CAP = 20;
 /** Gornja granica `tasks.listEverywhere`; podrazumevano 100. */
 export const TASKS_EVERYWHERE_MAX = 200;
 export const TASKS_EVERYWHERE_STATUS_CAP = 60;
+/** „Sredi rokove”: najviše zadataka u jednoj mutaciji (PROSTOR P10). */
+export const BULK_RESCHEDULE_MAX = 50;
+/** „Nedavne izmene u oblasti” (`pages.recentForArea`): podrazumevano i najviše. */
+export const RECENT_AREA_PAGES_DEFAULT = 10;
+export const RECENT_AREA_PAGES_MAX = 20;
 /** Koliko završenih `listEverywhere({ scope: "all" })` dodaje uz otvorene. */
 export const TASKS_EVERYWHERE_DONE_IN_ALL = 50;
 
@@ -504,10 +509,10 @@ export const startupAreaDocumentValidator = v.object({
 });
 
 export const AREA_DEFINITIONS = [
-  { key: "dev", label: "Dev notes", position: 0 },
-  { key: "marketing", label: "Marketing notes", position: 1 },
-  { key: "sales", label: "Sales notes", position: 2 },
-  { key: "other", label: "Other notes", position: 3 },
+  { key: "dev", label: "Razvoj", position: 0 },
+  { key: "marketing", label: "Marketing", position: 1 },
+  { key: "sales", label: "Prodaja", position: 2 },
+  { key: "other", label: "Ostalo", position: 3 },
 ] as const;
 
 export function boundedLimit(value: number | undefined, fallback: number, max: number) {

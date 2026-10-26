@@ -46,6 +46,8 @@ import {
   pageDocumentValidator,
   pageKindValidator,
   pageSummaryValidator,
+  RECENT_AREA_PAGES_DEFAULT,
+  RECENT_AREA_PAGES_MAX,
   roleValidator,
   taskPriorityValidator,
   taskStatusValidator,
@@ -334,6 +336,67 @@ export const recentForStartup = query({
       .order("desc")
       .take(limit);
     return rows.map(summarizePage);
+  },
+});
+
+/**
+ * „Nedavne izmene u oblasti” (PROSTOR D19): poslednje izmenjene stranice oblasti
+ * svih vrsta, sa osobom koja je izmenila. Četiri vrste × `limit` redova kroz isti
+ * indeks, spojeno po `updatedAt` — bez novog polja u `activities`.
+ */
+export const recentForArea = query({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    pageSummaryValidator.extend({
+      updatedBy: v.union(profileSummaryDisplayValidator, v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    await requirePageArea(ctx, args.startupId, args.areaId);
+    const limit = boundedLimit(
+      args.limit,
+      RECENT_AREA_PAGES_DEFAULT,
+      RECENT_AREA_PAGES_MAX,
+    );
+    const perKind = await Promise.all(
+      (["note", "task", "file", "table"] as const).map((kind) =>
+        ctx.db
+          .query("pages")
+          .withIndex("by_startup_area_kind_active_updated", (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("kind", kind)
+              .eq("archivedAt", null),
+          )
+          .order("desc")
+          .take(limit),
+      ),
+    );
+    const rows = perKind
+      .flat()
+      .sort(
+        (a, b) =>
+          b.updatedAt - a.updatedAt || b._creationTime - a._creationTime,
+      )
+      .slice(0, limit);
+    const editors = new Map(
+      await Promise.all(
+        [...new Set(rows.map((row) => row.updatedByProfileId))].map(
+          async (profileId) =>
+            [profileId, await getProfileSummary(ctx, profileId)] as const,
+        ),
+      ),
+    );
+    return rows.map((row) => ({
+      ...summarizePage(row),
+      updatedBy: editors.get(row.updatedByProfileId) ?? null,
+    }));
   },
 });
 

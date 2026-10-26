@@ -1348,6 +1348,8 @@ export default defineSchema({
       v.literal("comment_created"),
       // PROSTOR (K05): faza ideje (`title` = naslov ideje, `detail` = naziv faze).
       v.literal("idea_stage_changed"),
+      // PROSTOR (K06): „Sredi rokove” (`detail` = „N zadataka → oznaka”).
+      v.literal("tasks_rescheduled"),
     ),
     targetType: v.union(
       v.literal("startup"),
