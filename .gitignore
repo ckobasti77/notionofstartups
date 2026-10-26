@@ -59,3 +59,13 @@ _to_delete/
 .nocni-run/licno/STOP
 .nocni-run/licno/baseline.txt
 .nocni-run/licno/mcp.json
+
+# nocni run prostor (logovi i stanje runnera)
+.nocni-run/prostor/logs/
+.nocni-run/prostor/tmp/
+.nocni-run/prostor/state.json
+.nocni-run/prostor/state.json.tmp
+.nocni-run/prostor/state.bad.json
+.nocni-run/prostor/STOP
+.nocni-run/prostor/baseline.txt
+.nocni-run/prostor/mcp.json
