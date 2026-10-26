@@ -815,6 +815,11 @@ export default defineSchema({
       ),
     ),
     archivedAt: v.union(v.number(), v.null()),
+    // PROSTOR (K04): komentar. Pomenuti aktivni članovi (≤ 20, bez autora i
+    // duplikata — server filtrira) i trenutak poslednje izmene TEKSTA (odsutno =
+    // nikad menjan; `updatedAt` se pomera i pri moderaciji i vraćanju).
+    mentionProfileIds: v.optional(v.array(v.id("profiles"))),
+    editedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1317,6 +1322,8 @@ export default defineSchema({
       v.literal("page_restored"),
       v.literal("idea_archived"),
       v.literal("idea_restored"),
+      // PROSTOR (K04): komentar (`title` = naslov stavke, `detail` = isečak).
+      v.literal("comment_created"),
     ),
     targetType: v.union(
       v.literal("startup"),

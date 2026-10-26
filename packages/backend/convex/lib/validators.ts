@@ -71,16 +71,35 @@ export const notificationTypeValidator = v.union(
   v.literal("chat_message"),
   v.literal("chat_mention"),
   v.literal("chat_dm"),
+  // Komentari (PROSTOR P5, K04): mapirani na postojeće kanale `mention` i `channel`.
+  v.literal("comment_mention"),
+  v.literal("comment_added"),
 );
 
-/** Kuda vodi klik na obaveštenje. `chat` vodi na kanal (targetId je channelId). */
+/**
+ * Kuda vodi klik na obaveštenje. `chat` vodi na kanal (targetId je channelId),
+ * `area` na oblast (targetId je areaId; do ekrana oblasti klijenti padaju na
+ * Komandni centar), `ideas` na ideju kad nosi ideaId.
+ */
 export const notificationTargetTypeValidator = v.union(
   v.literal("page"),
   v.literal("ideas"),
   v.literal("approvals"),
   v.literal("puls"),
   v.literal("chat"),
+  v.literal("area"),
 );
+
+/** Komentari: najviše pominjanja po komentaru (shared `MAX_COMMENT_MENTIONS`). */
+export const MAX_COMMENT_MENTIONS = 20;
+/** Komentari: najduži tekst jednog komentara. */
+export const COMMENT_MAX_LENGTH = 20_000;
+/** Komentari: broj u listama se seče ovde („20+"). */
+export const COMMENT_COUNT_CAP = 20;
+/** Komentari: najviše ciljeva u jednom `comments.countFor` pozivu. */
+export const COMMENT_COUNT_TARGETS_MAX = 100;
+/** Komentari: koliko traje „Poništi" posle uklanjanja. */
+export const COMMENT_UNDO_MS = 8_000;
 
 // --- Chat (docs/mobile/04-CHAT.md) ---------------------------------------
 

@@ -8,12 +8,20 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
-import { contributionTargetKey, insertContribution } from "./lib/collaboration";
-import { cleanPageContent } from "./lib/page_creation";
+import { contributionTargetKey } from "./lib/collaboration";
+import {
+  addComment,
+  isCommentVisible,
+  removeComment,
+  restoreComment,
+  updateComment,
+} from "./lib/comments";
 import {
   LEGACY_DELETION_VOTE_MESSAGE,
   LEGACY_NESTING_MESSAGE,
+  commentPermissions,
   permissionError,
+  type Actor,
 } from "./lib/permissions";
 import {
   archiveTargetForLegacyRequest,
@@ -99,6 +107,8 @@ const presentedContributionValidator = v.object({
   sourceKind: v.optional(contributionSourceKindValidator),
   sourceId: v.optional(v.string()),
   moderationStatus: contributionModerationStatusValidator,
+  mentionProfileIds: v.optional(v.array(v.id("profiles"))),
+  editedAt: v.optional(v.number()),
   archivedAt: v.union(v.number(), v.null()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -111,15 +121,6 @@ const presentedContributionValidator = v.object({
 
 type ReadCtx = QueryCtx | MutationCtx;
 type DeletionTarget = LegacyDeletionTarget;
-
-function cleanContribution(value: string) {
-  const content = cleanPageContent(value);
-  if (!content.trim()) throw new Error("Tekst ne može biti prazan.");
-  if (content.length > 20_000) {
-    throw new Error("Tekst može imati najviše 20.000 znakova.");
-  }
-  return content;
-}
 
 async function getProfileSummary(ctx: ReadCtx, profileId: Id<"profiles">) {
   const profile = await ctx.db.get("profiles", profileId);
@@ -218,21 +219,13 @@ async function requireContributionTarget(
   };
 }
 
-function contributionIsVisible(
-  row: Doc<"contentContributions">,
-  profileId: Id<"profiles">,
-  ownerProfileId: Id<"profiles">,
-) {
-  if (row.moderationStatus !== "rejected") return true;
-  return row.authorProfileId === profileId || ownerProfileId === profileId;
-}
-
 async function presentContribution(
   ctx: ReadCtx,
   row: Doc<"contentContributions">,
-  profileId: Id<"profiles">,
+  actor: Actor,
   ownerProfileId: Id<"profiles">,
 ) {
+  const permissions = commentPermissions(actor, row);
   return {
     ...row,
     moderationStatus: row.moderationStatus ?? "approved",
@@ -240,12 +233,14 @@ async function presentContribution(
       row.authorProfileId === undefined
         ? null
         : await getProfileSummary(ctx, row.authorProfileId),
-    canEdit: row.authorProfileId === profileId,
-    canDeleteDirectly: row.authorProfileId === profileId,
-    canRequestDeletion:
-      row.authorProfileId !== profileId && ownerProfileId !== profileId,
+    // PROSTOR P5: izmena je autorova (R13), uklanja autor ili menadžer (R14);
+    // glasanje o brisanju ne postoji, `canRequestDeletion` ostaje za stare klijente.
+    canEdit: permissions.canEdit,
+    canDeleteDirectly: permissions.canRemove,
+    canRequestDeletion: false,
     canModerate:
-      ownerProfileId === profileId && row.authorProfileId !== profileId,
+      ownerProfileId === actor.profile._id &&
+      row.authorProfileId !== actor.profile._id,
   };
 }
 
@@ -365,7 +360,7 @@ export const listContributions = query({
   returns: v.array(presentedContributionValidator),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
-    const { profile } = await requireStartupMember(ctx, resolved.startupId);
+    const actor = await requireStartupMember(ctx, resolved.startupId);
     const rows = await ctx.db
       .query("contentContributions")
       .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
@@ -380,19 +375,11 @@ export const listContributions = query({
       .take(200);
     return await Promise.all(
       rows
-        .filter(
-          (row) =>
-            !(args.target.kind === "idea" && row.sourceKind === "idea_original") &&
-            !(args.target.kind === "page" && row.sourceKind === "page_body") &&
-            contributionIsVisible(row, profile._id, resolved.ownerProfileId),
+        .filter((row) =>
+          isCommentVisible(row, actor.profile._id, resolved.ownerProfileId),
         )
         .map((row) =>
-          presentContribution(
-            ctx,
-            row,
-            profile._id,
-            resolved.ownerProfileId,
-          ),
+          presentContribution(ctx, row, actor, resolved.ownerProfileId),
         ),
     );
   },
@@ -406,7 +393,7 @@ export const listContributionsPaginated = query({
   returns: paginationResultValidator(presentedContributionValidator),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
-    const { profile } = await requireStartupMember(ctx, resolved.startupId);
+    const actor = await requireStartupMember(ctx, resolved.startupId);
     const result = await ctx.db
       .query("contentContributions")
       .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
@@ -419,22 +406,14 @@ export const listContributionsPaginated = query({
       )
       .order("asc")
       .paginate(args.paginationOpts);
-    const visibleRows = result.page.filter(
-      (row) =>
-        !(args.target.kind === "idea" && row.sourceKind === "idea_original") &&
-        !(args.target.kind === "page" && row.sourceKind === "page_body") &&
-        contributionIsVisible(row, profile._id, resolved.ownerProfileId),
+    const visibleRows = result.page.filter((row) =>
+      isCommentVisible(row, actor.profile._id, resolved.ownerProfileId),
     );
     return {
       ...result,
       page: await Promise.all(
         visibleRows.map((row) =>
-          presentContribution(
-            ctx,
-            row,
-            profile._id,
-            resolved.ownerProfileId,
-          ),
+          presentContribution(ctx, row, actor, resolved.ownerProfileId),
         ),
       ),
     };
@@ -445,29 +424,17 @@ export const addContribution = mutation({
   args: {
     target: contributionTargetValidator,
     content: v.string(),
+    mentionProfileIds: v.optional(v.array(v.id("profiles"))),
   },
   returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
-    const resolved = await requireContributionTarget(ctx, args.target);
-    const { profile } = await requireStartupMember(ctx, resolved.startupId);
-    const contributionId = await insertContribution(ctx, {
-      startupId: resolved.startupId,
-      targetKind: args.target.kind,
-      targetId: resolved.targetId,
-      authorProfileId: profile._id,
-      content: cleanContribution(args.content),
-      moderationStatus:
-        args.target.kind === "idea" ? "pending" : "approved",
+    // PROSTOR P5: komentar je odmah vidljiv (bez moderacije); isti tok kao
+    // `comments.add`, pa i obaveštenja i aktivnost `comment_created`.
+    return await addComment(ctx, {
+      target: args.target,
+      content: args.content,
+      mentionProfileIds: args.mentionProfileIds,
     });
-    await recordActivity(ctx, {
-      startupId: resolved.startupId,
-      actorProfileId: profile._id,
-      action: "contribution_created",
-      targetType: "contribution",
-      targetId: contributionId,
-      title: "Dodat je novi tekst",
-    });
-    return contributionId;
   },
 });
 
@@ -475,58 +442,16 @@ export const updateContribution = mutation({
   args: {
     contributionId: v.id("contentContributions"),
     content: v.string(),
+    mentionProfileIds: v.optional(v.array(v.id("profiles"))),
   },
   returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
-    const contribution = await ctx.db.get(
-      "contentContributions",
-      args.contributionId,
-    );
-    if (contribution === null || contribution.archivedAt !== null) {
-      throw new Error("Tekst nije pronađen.");
-    }
-    const { profile } = await requireStartupMember(
-      ctx,
-      contribution.startupId,
-    );
-    if (contribution.authorProfileId !== profile._id) {
-      throw new Error("Možete urediti samo svoj tekst.");
-    }
-    await ctx.db.patch("contentContributions", contribution._id, {
-      content: cleanContribution(args.content),
-      moderationStatus:
-        contribution.targetKind === "idea" &&
-        contribution.sourceKind !== "idea_original"
-          ? "pending"
-          : contribution.moderationStatus,
-      updatedAt: Date.now(),
+    // Izmena ne vraća komentar na ideji u „na čekanju" (P5).
+    return await updateComment(ctx, {
+      commentId: args.contributionId,
+      content: args.content,
+      mentionProfileIds: args.mentionProfileIds,
     });
-    if (
-      contribution.sourceKind === "page_entry" &&
-      contribution.sourceId !== undefined
-    ) {
-      const entryId = ctx.db.normalizeId(
-        "pageEntries",
-        contribution.sourceId,
-      );
-      const entry =
-        entryId === null ? null : await ctx.db.get("pageEntries", entryId);
-      if (entry !== null && entry.authorProfileId === profile._id) {
-        await ctx.db.patch("pageEntries", entry._id, {
-          content: cleanContribution(args.content),
-          updatedAt: Date.now(),
-        });
-      }
-    }
-    await recordActivity(ctx, {
-      startupId: contribution.startupId,
-      actorProfileId: profile._id,
-      action: "contribution_updated",
-      targetType: "contribution",
-      targetId: contribution._id,
-      title: "Tekst je izmenjen",
-    });
-    return contribution._id;
   },
 });
 
@@ -592,26 +517,9 @@ export const deleteOwnContribution = mutation({
     undoUntil: v.number(),
   }),
   handler: async (ctx, args) => {
-    const contribution = await ctx.db.get(
-      "contentContributions",
-      args.contributionId,
-    );
-    if (contribution === null || contribution.archivedAt !== null) {
-      throw new Error("Tekst nije pronađen.");
-    }
-    const { profile } = await requireStartupMember(
-      ctx,
-      contribution.startupId,
-    );
-    if (contribution.authorProfileId !== profile._id) {
-      throw new Error("Tuđa izmena se uklanja samo jednoglasnim glasanjem.");
-    }
-    const now = Date.now();
-    await ctx.db.patch("contentContributions", contribution._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
-    return { contributionId: contribution._id, undoUntil: now + 8_000 };
+    // R14: autor svoj, vlasnik startupa i admin tuđi; red se arhivira (8 s „Poništi").
+    const result = await removeComment(ctx, args.contributionId);
+    return { contributionId: result.commentId, undoUntil: result.undoUntil };
   },
 });
 
@@ -619,28 +527,7 @@ export const restoreOwnContribution = mutation({
   args: { contributionId: v.id("contentContributions") },
   returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
-    const contribution = await ctx.db.get(
-      "contentContributions",
-      args.contributionId,
-    );
-    if (contribution === null || contribution.archivedAt === null) {
-      throw new Error("Tekst nije pronađen.");
-    }
-    const { profile } = await requireStartupMember(
-      ctx,
-      contribution.startupId,
-    );
-    if (contribution.authorProfileId !== profile._id) {
-      throw new Error("Možete vratiti samo svoj tekst.");
-    }
-    if (Date.now() - contribution.archivedAt > 8_000) {
-      throw new Error("Vreme za Undo je isteklo.");
-    }
-    await ctx.db.patch("contentContributions", contribution._id, {
-      archivedAt: null,
-      updatedAt: Date.now(),
-    });
-    return contribution._id;
+    return await restoreComment(ctx, args.contributionId);
   },
 });
 

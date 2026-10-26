@@ -68,7 +68,7 @@ export type ChannelDefinition = {
 };
 
 /**
- * Sedam kanala za trinaest tipova (sekcija 3). Namerno manje kanala nego tipova
+ * Sedam kanala za petnaest tipova (sekcija 3). Namerno manje kanala nego tipova
  * — sedam zvukova je granica onoga što se pamti po zvuku.
  */
 export const NOTIFICATION_CHANNELS: Record<ChannelBase, ChannelDefinition> = {
@@ -157,6 +157,10 @@ export const TYPE_TO_CHANNEL: Record<NotificationType, ChannelBase> = {
   idea_voted: "quiet",
   idea_converted: "quiet",
   puls_ready: "quiet",
+  // PROSTOR P5: komentari koriste POSTOJEĆE kanale i zvukove (bez novih ID-jeva):
+  // pominjanje zvoni kao @ u chatu (probija tihe sate), komentar kao poruka u kanalu.
+  comment_mention: "mention",
+  comment_added: "channel",
 };
 
 /**

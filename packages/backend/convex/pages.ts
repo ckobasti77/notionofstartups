@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
   movePageAcrossAreasWithSidecars,
@@ -7,7 +9,7 @@ import {
 } from "./areasV2";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
-import { insertContribution } from "./lib/collaboration";
+import { addComment, removeComment, updateComment } from "./lib/comments";
 import { writePageContent } from "./lib/page_content";
 import {
   assertCanChangeChildren,
@@ -626,15 +628,11 @@ export const addEntry = mutation({
       updatedAt: now,
     });
 
-    await insertContribution(ctx, {
-      startupId: page.startupId,
-      targetKind: "page",
-      targetId: page._id,
-      authorProfileId: profile._id,
+    // PROSTOR P5: unos je komentar — odmah vidljiv, sa aktivnošću i obaveštenjima.
+    await addComment(ctx, {
+      target: { kind: "page", id: page._id },
       content: cleaned,
-      sourceKind: "page_entry",
-      sourceId: entryId,
-      createdAt: now,
+      source: { kind: "page_entry", id: entryId },
     });
 
     await ctx.db.patch("pages", page._id, {
@@ -645,6 +643,18 @@ export const addEntry = mutation({
     return entryId;
   },
 });
+
+async function contributionOfEntry(
+  ctx: MutationCtx,
+  entryId: Id<"pageEntries">,
+) {
+  return await ctx.db
+    .query("contentContributions")
+    .withIndex("by_sourceKind_and_sourceId", (q) =>
+      q.eq("sourceKind", "page_entry").eq("sourceId", entryId),
+    )
+    .unique();
+}
 
 export const updateEntry = mutation({
   args: {
@@ -664,18 +674,17 @@ export const updateEntry = mutation({
     }
     const content = cleanPageContent(args.content);
     if (!content.trim()) throw new Error("Tekst ne može biti prazan.");
-    const now = Date.now();
-    await ctx.db.patch("pageEntries", entry._id, { content, updatedAt: now });
-    const contribution = await ctx.db
-      .query("contentContributions")
-      .withIndex("by_sourceKind_and_sourceId", (q) =>
-        q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
-      )
-      .unique();
+    const contribution = await contributionOfEntry(ctx, entry._id);
     if (contribution !== null) {
-      await ctx.db.patch("contentContributions", contribution._id, {
+      // Isto pravilo kao za svaki komentar (R13); usput ogleda i sam unos.
+      await updateComment(ctx, {
+        commentId: contribution._id,
         content,
-        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch("pageEntries", entry._id, {
+        content,
+        updatedAt: Date.now(),
       });
     }
     return entry._id;
@@ -689,26 +698,14 @@ export const deleteEntry = mutation({
   },
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    await requireStartupMember(ctx, page.startupId);
     const entry = await ctx.db.get("pageEntries", args.entryId);
     if (entry && entry.pageId === page._id) {
-      if (entry.authorProfileId !== profile._id) {
-        throw new Error(
-          "Tuđa izmena se uklanja samo jednoglasnim glasanjem.",
-        );
-      }
-      await ctx.db.delete("pageEntries", args.entryId);
-      const contribution = await ctx.db
-        .query("contentContributions")
-        .withIndex("by_sourceKind_and_sourceId", (q) =>
-          q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
-        )
-        .unique();
-      if (contribution !== null) {
-        await ctx.db.patch("contentContributions", contribution._id, {
-          archivedAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+      // PROSTOR P5/R14: autor svoj, vlasnik startupa i admin tuđi. Red unosa se
+      // NE briše — komentar se arhivira (vraća se u roku od 8 s).
+      const contribution = await contributionOfEntry(ctx, entry._id);
+      if (contribution !== null && contribution.archivedAt === null) {
+        await removeComment(ctx, contribution._id);
       }
     }
   },

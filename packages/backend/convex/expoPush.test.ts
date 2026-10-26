@@ -525,6 +525,77 @@ describe("expoPush.deliver", () => {
     expect(sent[0].channelId).toBeUndefined();
   });
 
+  test("komentari: pominjanje zvoni kao @ i probija tihe sate, komentar kao poruka u kanalu i ne probija", async () => {
+    // PROSTOR P5: novi tipovi koriste POSTOJEĆE kanale i zvukove (bez novih ID-jeva).
+    const { t, member, startup } = await seed();
+    const sent: Array<Array<Record<string, unknown>>> = [];
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      sent.push(JSON.parse(init.body as string));
+      return jsonResponse({ data: [{ status: "ok", id: "r1" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const nowMinute = belgradeMinutesOfDay(Date.now());
+    await insertToken(t, member.profileId, { token: "tok", platform: "ios" });
+    await setSettings(t, member.profileId, {
+      quietHoursStart: (nowMinute + 1439) % 1440,
+      quietHoursEnd: (nowMinute + 2) % 1440,
+    });
+
+    const added = await t.action(internal.expoPush.deliver, {
+      notificationId: await insertNotification(t, {
+        recipientProfileId: member.profileId,
+        startupId: startup,
+        type: "comment_added",
+      }),
+    });
+    expect(added.sent).toBe(0); // tihi sati
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const mention = await t.action(internal.expoPush.deliver, {
+      notificationId: await insertNotification(t, {
+        recipientProfileId: member.profileId,
+        startupId: startup,
+        type: "comment_mention",
+      }),
+    });
+    expect(mention.sent).toBe(1);
+    expect(sent[0][0].sound).toBe("mention.wav");
+    expect(sent[0][0].interruptionLevel).toBe("timeSensitive");
+
+    expect(resolveChannel("comment_added", CHANNEL_VERSION)).toMatchObject({
+      channelId: `channel_v${CHANNEL_VERSION}`,
+      soundBase: "channel",
+      breaksQuietHours: false,
+    });
+    expect(resolveChannel("comment_mention", CHANNEL_VERSION)).toMatchObject({
+      channelId: `mention_v${CHANNEL_VERSION}`,
+      soundBase: "mention",
+      breaksQuietHours: true,
+    });
+  });
+
+  test("komentari: utišan tip se preskače bez mrežnog poziva", async () => {
+    const { t, member, startup } = await seed();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await insertToken(t, member.profileId, { token: "tok" });
+    await setSettings(t, member.profileId, {
+      mutedTypes: ["comment_added", "comment_mention"],
+    });
+    for (const type of ["comment_added", "comment_mention"] as const) {
+      const result = await t.action(internal.expoPush.deliver, {
+        notificationId: await insertNotification(t, {
+          recipientProfileId: member.profileId,
+          startupId: startup,
+          type,
+        }),
+      });
+      expect(result.skipped).toBe("utišan tip");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("request_resolved i task_due_soon ne probijaju tihe sate", async () => {
     const { t, member, startup } = await seed();
     const fetchMock = vi.fn(async () =>

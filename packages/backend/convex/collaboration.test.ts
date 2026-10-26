@@ -86,7 +86,11 @@ describe("demokratske Canvas dozvole", () => {
     ).rejects.toThrow("Naslov misli");
   });
 
-  test("izmene članova prolaze pending, reject, ponovno slanje i approve bez dupliranja osnove", async () => {
+  test("komentar člana na ideji je odmah vidljiv, a stara moderacija radi samo za stare klijente", async () => {
+    // PROSTOR P5 (namerna promena pravila): komentar na ideji više ne čeka
+    // odobrenje i izmena ga ne vraća u „na čekanju". `moderateContribution`
+    // ostaje za stare klijente: autor ideje i dalje može da odbije, a "odbijen"
+    // vide samo autor komentara i autor ideje.
     const { startupId, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
@@ -115,7 +119,7 @@ describe("demokratske Canvas dozvole", () => {
     ).toEqual([
       expect.objectContaining({
         _id: textId,
-        moderationStatus: "pending",
+        moderationStatus: "approved",
         content: "Predlog člana",
       }),
     ]);
@@ -146,18 +150,19 @@ describe("demokratske Canvas dozvole", () => {
       }),
     ]);
 
+    // Izmena odbijenog komentara ga ne vraća u „na čekanju".
     await asMember.mutation(api.collaboration.updateContribution, {
       contributionId: textId,
       content: "Dorađen predlog člana",
     });
     expect(
-      await asAdmin.query(api.collaboration.listContributions, {
+      await asMember.query(api.collaboration.listContributions, {
         target: { kind: "idea", id: ideaId },
       }),
     ).toEqual([
       expect.objectContaining({
         _id: textId,
-        moderationStatus: "pending",
+        moderationStatus: "rejected",
         content: "Dorađen predlog člana",
       }),
     ]);

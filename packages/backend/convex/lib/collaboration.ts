@@ -25,6 +25,8 @@ export async function insertContribution(
     sourceKind?: "idea_original" | "page_entry" | "page_body";
     sourceId?: string;
     moderationStatus?: "pending" | "approved" | "rejected";
+    /** Komentar: pomenuti aktivni članovi (već filtrirani, ≤ 20). */
+    mentionProfileIds?: Array<Id<"profiles">>;
     createdAt?: number;
   },
 ) {
@@ -40,6 +42,11 @@ export async function insertContribution(
     sourceKind: value.sourceKind,
     sourceId: value.sourceId,
     moderationStatus: value.moderationStatus,
+    mentionProfileIds:
+      value.mentionProfileIds === undefined ||
+      value.mentionProfileIds.length === 0
+        ? undefined
+        : value.mentionProfileIds,
     archivedAt: null,
     createdAt: value.createdAt ?? now,
     updatedAt: now,

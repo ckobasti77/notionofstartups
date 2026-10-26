@@ -46,6 +46,11 @@ export function navigateToNotificationDestination(
       navigateToFallback(router, dest);
       return;
     case 'ideas':
+      // Komentar i glas na ideji nose ideaId → detalj ideje; bez id-ja lista ideja.
+      if (dest.entityId) {
+        router.push({ pathname: '/ideja/[id]', params: { id: dest.entityId } });
+        return;
+      }
       router.push('/ideje');
       return;
     case 'approvals':
@@ -60,6 +65,8 @@ export function navigateToNotificationDestination(
       );
       return;
     default:
+      // Uključuje `area` (komentar na opisu oblasti): ekran oblasti dolazi sa
+      // K14, do tada Komandni centar startupa.
       navigateToFallback(router, dest);
   }
 }

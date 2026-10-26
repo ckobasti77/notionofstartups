@@ -27,6 +27,20 @@ describe("notificationDestination", () => {
       screen: "ideas",
       entityId: null,
     });
+    // Ideja nosi ideaId (komentar, glas); bez id-ja ostaje lista ideja.
+    expect(notificationDestination("ideas", "i1", "s1")).toMatchObject({
+      screen: "ideas",
+      entityId: "i1",
+    });
+    // Oblast (komentar na opisu) nosi areaId; bez id-ja je nedosledan cilj.
+    expect(notificationDestination("area", "a1", "s1")).toMatchObject({
+      screen: "area",
+      entityId: "a1",
+    });
+    expect(notificationDestination("area", null, "s1")).toMatchObject({
+      screen: "today",
+      entityId: null,
+    });
     expect(notificationDestination("approvals", "r1", "s1")).toMatchObject({
       screen: "approvals",
       entityId: null,

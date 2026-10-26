@@ -39,7 +39,8 @@ export type NotificationTargetType =
   | "ideas"
   | "approvals"
   | "puls"
-  | "chat";
+  | "chat"
+  | "area";
 
 export type NotificationItem = {
   _id: Id<"notifications">;

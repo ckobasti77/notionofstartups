@@ -808,6 +808,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         );
         return;
       }
+      if (item.targetType === "area") {
+        // Komentar na opisu oblasti: targetId je areaId, ne pageId. Ekran oblasti
+        // dolazi sa K13; do tada Komandni centar (kao `notificationDestination`).
+        navigateRoute({ kind: "today" });
+        return;
+      }
       if (item.targetId === null) {
         navigateRoute({ kind: "today" });
         return;

@@ -42,7 +42,7 @@ export type SettingsGroup = {
 };
 
 /**
- * Tri grupe, devet redova, trinaest tipova (sekcija 7). Dugme za probu stoji uz
+ * Tri grupe, jedanaest redova, petnaest tipova (sekcija 7). Dugme za probu stoji uz
  * šest redova — po jedan za svaki od šest zvukova (dm, mention, channel, task,
  * deadline, vote); `quiet` kanal i deljeni `task` red idu bez dugmeta.
  */
@@ -107,6 +107,22 @@ export const NOTIFICATION_SETTINGS_GROUPS: SettingsGroup[] = [
         label: "Glasanja i odobrenja",
         types: ["vote_requested", "request_resolved"],
         previewSound: "vote",
+      },
+      {
+        key: "team_comment_mentions",
+        label: "Pominjanja u komentarima",
+        description: "Probijaju tihe sate, kao @ u chatu.",
+        types: ["comment_mention"],
+        // Deli `mention.wav` sa „Pominjanja" u Chatu — bez zasebnog dugmeta za probu.
+        previewSound: null,
+      },
+      {
+        key: "team_comments",
+        label: "Komentari",
+        description: "Na tvoje stavke i zadatke.",
+        types: ["comment_added"],
+        // Deli `channel.wav` sa „Poruke u kanalima" — bez zasebnog dugmeta za probu.
+        previewSound: null,
       },
       {
         key: "team_ideas",

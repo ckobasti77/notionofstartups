@@ -387,3 +387,13 @@ export {
   trashMetaLabel,
   type TrashKind,
 } from "./trash";
+
+export {
+  insertMention,
+  MAX_COMMENT_MENTIONS,
+  mentionQueryAt,
+  parseCommentSegments,
+  serializeComment,
+  type CommentSegment,
+  type MentionCandidate,
+} from "./mentions";
