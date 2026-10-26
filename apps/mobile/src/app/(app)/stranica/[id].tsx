@@ -75,22 +75,22 @@ export default function StranicaScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         // Beleška ima IZMENJIV naslov u editoru — isto ime i u zaglavlju je bio
-        // bag E9; zaglavlje zato nosi vrstu („Beleška"), a eyebrow putanju (E12).
+        // bag E9; zaglavlje zato nosi vrstu („Beleška"), a meta red ispod naslova putanju (E12).
         // Tabela/prilog telo ne ponavljaju naslov, pa on ostaje u zaglavlju.
         title={page.kind === 'note' ? pageKindLabel(page.kind) : page.title}
         titleNumberOfLines={2}
-        eyebrow={
+        subtitle={
           <BreadcrumbsEyebrow
             pageId={page._id}
             startupId={page.startupId}
             areaId={page.areaId}
           />
         }
-        onEyebrowPress={() => {
+        onSubtitlePress={() => {
           haptics.tap();
           setPathOpen(true);
         }}
-        eyebrowAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
+        subtitleAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
         onBack={() => router.back()}
         actions={
           <>

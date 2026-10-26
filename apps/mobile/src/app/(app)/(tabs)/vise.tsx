@@ -1,27 +1,19 @@
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useQuery } from 'convex/react';
 import {
-  Activity,
   Bell,
-  Brain,
-  ChartColumn,
-  CheckSquare2,
   FlaskConical,
   History,
   KeyRound,
-  Lightbulb,
-  ListTodo,
   Mail,
   Monitor,
   Moon,
   Palette,
   Settings,
-  ShieldCheck,
   Sun,
+  TriangleAlert,
   UserRound,
   Users,
-  TriangleAlert,
-  Vote,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
@@ -29,17 +21,16 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { TabScreen } from '@/components/tab-screen';
-import { Badge } from '@/components/ui/badge';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Row } from '@/components/ui/row';
-import { useActiveStartup } from '@/context/active-startup';
+import { SectionHeader } from '@/components/ui/section-header';
 import { api } from '@/convex/_generated/api';
+import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { useUndoStack } from '@/lib/undo';
 import { useAppTheme, useThemeColors, type ThemePreference } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
-import { accessErrorMessage } from '@/lib/errors';
+import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 /** Tipizovana ruta expo-routera (isti tip koji `router.push` prima). */
 type AppRoute = Parameters<ReturnType<typeof useRouter>['push']>[0];
@@ -47,38 +38,22 @@ type AppRoute = Parameters<ReturnType<typeof useRouter>['push']>[0];
 type MenuItem = {
   icon: LucideIcon;
   label: string;
-  badge?: string;
-  /** Ruta na tap; bez nje je stavka još placeholder (faze 2–4). */
-  route?: AppRoute;
+  route: AppRoute;
   /** Vidljiva samo administratorima (`profile.role === 'admin'`). */
   adminOnly?: boolean;
-  /** Još nema ekran — prikazuje se prigušeno i nedodirljivo, sa oznakom „uskoro". */
-  soon?: boolean;
 };
 
-const MENU: MenuItem[][] = [
-  [
-    { icon: Vote, label: 'Odobrenja', route: '/odobrenja' },
-    { icon: CheckSquare2, label: 'Moji zadaci', route: '/moji-zadaci' },
-    { icon: ListTodo, label: 'Svi zadaci', route: '/zadaci' },
-    { icon: ChartColumn, label: 'Puls', route: '/puls' },
-    { icon: Lightbulb, label: 'Ideje', route: '/ideje' },
-    { icon: Brain, label: 'Misli', route: '/misli' },
-    { icon: Activity, label: 'Aktivnost', route: '/aktivnost' },
-    { icon: History, label: 'Istorija radnji', route: '/istorija' },
-  ],
-  [
-    { icon: UserRound, label: 'Moj profil', route: '/profil' },
-    // NIJE `adminOnly`: web „Tim" prikazuje svakom članu (`home-view.tsx:134-143`),
-    // a `startups.listMembers` je iza `requireStartupMember`, ne `requireAdmin`
-    // (`startups.ts:411`). Admin-RADNJE su gejtovane unutar ekrana (P7/D19).
-    { icon: Users, label: 'Članovi tima', route: '/clanovi' },
-    { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
-    { icon: ShieldCheck, label: 'Administracija startupa', route: '/admin-startup', adminOnly: true },
-    { icon: KeyRound, label: 'Lozinke', route: '/lozinke', adminOnly: true },
-    { icon: Settings, label: 'Podešavanja', soon: true },
-    { icon: Bell, label: 'Obaveštenja i zvuci', route: '/podesavanja-obavestenja' },
-  ],
+/**
+ * Grupa „Tim" (PROSTOR P18, plan K07 §4.3). „Podešavanja startupa" je do K20
+ * samo za admina: ekran (`admin-startup`) i njegove mutacije traže admina.
+ * „Članovi tima" NIJE `adminOnly`: `startups.listMembers` je iza
+ * `requireStartupMember`, a admin-RADNJE su gejtovane unutar ekrana (P7/D19).
+ */
+const TEAM_MENU: MenuItem[] = [
+  { icon: Settings, label: 'Podešavanja startupa', route: '/admin-startup', adminOnly: true },
+  { icon: Users, label: 'Članovi tima', route: '/clanovi' },
+  { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
+  { icon: KeyRound, label: 'Lozinke', route: '/lozinke', adminOnly: true },
 ];
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
@@ -88,147 +63,113 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }
 ];
 
 /**
- * Tab „Više" — sporedne rute i podešavanja (docs/mobile/02-EKRANI.md, sekcija 8).
- * Ovde je i prekidač teme (svetlo/tamno/sistemsko) koji vozi `useAppTheme`.
+ * Tab „Više" — SAMO nalog i administracija (PROSTOR P18, plan K07 §4.3):
+ * grupa „Nalog" (Moj profil · Obaveštenja i zvuci · Tema), grupa „Tim"
+ * (Podešavanja startupa · Članovi tima · Pozivnice · Lozinke), grupa „Ostalo"
+ * (Istorija radnji) i „Odjavi se". Sadržaj startupa (Zadaci, Ideje, Puls,
+ * Aktivnost, Korpa) je u Prostoru, Moji zadaci i Beleške u zaglavlju Danas —
+ * tabela „staro → novo" je u `docs/PROSTOR-PROGRESS.md` (K09).
+ * Grupe su naslov sekcije + redovi, ne kartice (DIZAJN-SMIRENJE U4).
  */
 export default function ViseScreen() {
   const { colors, preference, setPreference } = useAppTheme();
   const { signOut } = useAuthActions();
   const router = useRouter();
-  const { activeStartupId } = useActiveStartup();
 
-  // Živi badge za „Odobrenja": glasanja o brisanju + ugnježdavanje ideja
-  // (`overview.pendingCount`) + ugnježdavanje stranica (`listNestingInbox`).
-  const arg = activeStartupId ? { startupId: activeStartupId } : 'skip';
-  const overview = useQuery(api.collaboration.overview, arg);
-  const nestingInbox = useQuery(api.areasV2.listNestingInbox, arg);
-  const approvalsCount = (overview?.pendingCount ?? 0) + (nestingInbox?.incoming.length ?? 0);
-
-  // Admin stavke (Pozivnice, Administracija, Lozinke) se skrivaju ako korisnik
-  // nije admin. „Članovi tima" od P7 NIJE među njima — vidi komentar u `MENU`.
+  // Admin stavke (Podešavanja startupa, Pozivnice, Lozinke) se skrivaju ako
+  // korisnik nije admin.
   const profile = useQuery(api.profiles.getCurrent, {});
   const isAdmin = profile?.role === 'admin';
-  const visibleMenu = MENU.map((group) =>
-    group.filter((item) => !item.adminOnly || isAdmin),
-  ).filter((group) => group.length > 0);
-
-  const badgeFor = (item: MenuItem): string | undefined => {
-    if (item.label === 'Odobrenja') {
-      return approvalsCount > 0 ? String(approvalsCount) : undefined;
-    }
-    return item.badge;
-  };
+  const teamItems = TEAM_MENU.filter((item) => !item.adminOnly || isAdmin);
 
   // Broj stavki u steku „Poništi" (PARITET-REVIZIJA C12) — desna VREDNOST reda kao
-  // prigušen tekst, ne `Badge`: crveno „na čekanju" bi lagalo, ovo nije posao koji
-  // čeka odgovor.
+  // prigušen tekst, ne `Badge`: ovo nije posao koji čeka odgovor.
   const undoCount = useUndoStack().length;
+
+  const open = (route: AppRoute) => {
+    haptics.tap();
+    router.push(route);
+  };
+
+  const menuRow = (item: MenuItem) => {
+    const Icon = item.icon;
+    return (
+      <Row
+        key={item.label}
+        icon={<Icon size={20} color={colors.mutedForeground} />}
+        title={item.label}
+        onPress={() => open(item.route)}
+        style={styles.row}
+      />
+    );
+  };
 
   return (
     <TabScreen title="Više">
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Prekidač teme */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Tema</Text>
-          <View style={[styles.segmented, { backgroundColor: colors.muted }]}>
-            {THEME_OPTIONS.map((option) => {
-              const active = preference === option.value;
-              const Icon = option.icon;
-              return (
-                <Pressable
-                  key={option.value}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  onPress={() => {
-                    if (!active) haptics.select();
-                    setPreference(option.value);
-                  }}
-                  style={[
-                    styles.segment,
-                    active && { backgroundColor: colors.card, borderColor: colors.border },
-                  ]}>
-                  <Icon
-                    size={18}
-                    color={active ? colors.foreground : colors.mutedForeground}
-                  />
-                  <Text
+        <View>
+          <SectionHeader title="Nalog" />
+          {menuRow({ icon: UserRound, label: 'Moj profil', route: '/profil' })}
+          {menuRow({ icon: Bell, label: 'Obaveštenja i zvuci', route: '/podesavanja-obavestenja' })}
+          <View style={styles.themeBlock}>
+            <Text style={[styles.themeLabel, { color: colors.foreground }]}>Tema</Text>
+            <View
+              accessibilityRole="radiogroup"
+              accessibilityLabel="Tema"
+              style={[styles.segmented, { backgroundColor: colors.muted }]}>
+              {THEME_OPTIONS.map((option) => {
+                const active = preference === option.value;
+                const Icon = option.icon;
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active, checked: active }}
+                    accessibilityLabel={option.label}
+                    onPress={() => {
+                      if (!active) haptics.select();
+                      setPreference(option.value);
+                    }}
                     style={[
-                      styles.segmentLabel,
-                      { color: active ? colors.foreground : colors.mutedForeground },
+                      styles.segment,
+                      active && { backgroundColor: colors.card, borderColor: colors.border },
                     ]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <Icon size={18} color={active ? colors.foreground : colors.mutedForeground} />
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                      style={[
+                        styles.segmentLabel,
+                        { color: active ? colors.foreground : colors.mutedForeground },
+                      ]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </View>
 
-        {/* Menu grupe */}
-        {visibleMenu.map((group, groupIndex) => (
-          <Card key={groupIndex} style={styles.menuCard}>
-            {group.map((item, itemIndex) => {
-              const Icon = item.icon;
-              const badge = badgeFor(item);
-              const topBorder =
-                itemIndex > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border };
+        <View>
+          <SectionHeader title="Tim" />
+          {teamItems.map(menuRow)}
+        </View>
 
-              // Stavka bez ekrana: `disabled` Row — prigušen, bez chevron-a, bez
-              // pressed efekta, sa oznakom „uskoro" (rn-review: mrtva stavka u meniju).
-              if (item.soon) {
-                return (
-                  <Row
-                    key={item.label}
-                    disabled
-                    icon={<Icon size={20} color={colors.mutedForeground} />}
-                    title={item.label}
-                    value={
-                      <View style={[styles.soonPill, { backgroundColor: colors.muted }]}>
-                        <Text style={[styles.soonText, { color: colors.mutedForeground }]}>uskoro</Text>
-                      </View>
-                    }
-                    accessibilityLabel={`${item.label} — uskoro, nedostupno`}
-                    style={topBorder || undefined}
-                  />
-                );
-              }
-
-              const isHistory = item.label === 'Istorija radnji';
-              const historyValue = isHistory && undoCount > 0 ? String(undoCount) : undefined;
-
-              return (
-                <Row
-                  key={item.label}
-                  icon={<Icon size={20} color={colors.foreground} />}
-                  title={item.label}
-                  value={
-                    isHistory
-                      ? historyValue
-                      : badge
-                        ? <Badge label={badge} />
-                        : undefined
-                  }
-                  onPress={() => {
-                    if (item.route) {
-                      haptics.tap();
-                      router.push(item.route);
-                    }
-                  }}
-                  accessibilityLabel={
-                    isHistory
-                      ? historyValue
-                        ? `${item.label}, ${historyValue} za poništavanje`
-                        : item.label
-                      : badge
-                        ? `${item.label}, ${badge} na čekanju`
-                        : item.label
-                  }
-                  style={topBorder || undefined}
-                />
-              );
-            })}
-          </Card>
-        ))}
+        <View>
+          <SectionHeader title="Ostalo" />
+          <Row
+            icon={<History size={20} color={colors.mutedForeground} />}
+            title="Istorija radnji"
+            value={undoCount > 0 ? String(undoCount) : undefined}
+            accessibilityLabel={
+              undoCount > 0 ? `Istorija radnji, ${undoCount} za poništavanje` : 'Istorija radnji'
+            }
+            onPress={() => open('/istorija')}
+            style={styles.row}
+          />
+        </View>
 
         {/* TODO(Faza 3, §5.1): privremeni ulaz u merni prototip editora.
             Samo u dev buildu — isti tretman kao dizajn katalog ispod; dev alat u
@@ -291,10 +232,11 @@ export default function ViseScreen() {
 }
 
 /**
- * Tri upita ovog taba (`collaboration.overview`, `areasV2.listNestingInbox`,
- * `profiles.getCurrent`) prolaze kroz `requireStartupMember` i bacaju kad je
- * `activeStartupId` zastareo ili je korisnik uklonjen iz tima. Bez granice ekran
- * bi pao bez puta nazad — a „Više" je jedini ulaz u odjavu.
+ * Upit ovog taba (`profiles.getCurrent`) i zaglavlje sa startupom mogu da bace
+ * kad je `activeStartupId` zastareo ili je korisnik uklonjen iz tima. Bez
+ * granice ekran bi pao bez puta nazad — a „Više" je jedini ulaz u odjavu. Ekran
+ * greške zato NE crta `TabScreen` (njegov `AppHeader` ima upite koji bi pali
+ * istom greškom), nego goli `ScreenHeader`.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <ViseErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
@@ -303,7 +245,8 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useThemeColors();
   return (
-    <TabScreen title="Više">
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ScreenHeader title="Više" titleSize="display" />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Meni se ne može učitati"
@@ -311,24 +254,34 @@ function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => 
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
-    </TabScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   content: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 4,
     paddingBottom: 32,
-    gap: 20,
+    gap: 24,
   },
-  section: {
+  // Lista ekrana već ima razmak 16 — red ga ne dodaje drugi put.
+  row: {
+    minHeight: MIN_TOUCH_TARGET + 4,
+    paddingHorizontal: 4,
+    borderRadius: radius.md,
+  },
+  themeBlock: {
     gap: 8,
+    paddingHorizontal: 4,
+    paddingTop: 8,
   },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  themeLabel: {
+    ...text.body,
+    fontWeight: fontWeight.medium,
   },
   segmented: {
     flexDirection: 'row',
@@ -342,30 +295,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minHeight: 44,
+    minHeight: MIN_TOUCH_TARGET,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'transparent',
   },
   segmentLabel: {
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: fontWeight.medium,
-  },
-  menuCard: {
-    padding: 0,
-    gap: 0,
-    overflow: 'hidden',
-  },
-  soonPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-  },
-  soonText: {
-    fontSize: 13,
-    fontWeight: fontWeight.medium,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
   },
   signOut: {
     marginTop: 4,
@@ -375,7 +313,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    minHeight: 44,
+    minHeight: MIN_TOUCH_TARGET,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderStyle: 'dashed',

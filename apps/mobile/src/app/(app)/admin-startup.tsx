@@ -48,7 +48,8 @@ const MAX_NAME_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 500;
 
 /**
- * Administracija startupa (PARITET A2) — mobilni pandan web `admin-dialog.tsx`
+ * Podešavanja startupa (PARITET A2; do PROSTOR K09 „Administracija startupa") —
+ * mobilni pandan web `admin-dialog.tsx`
  * ("Startup" tab + redosled oblasti iz sidebar drag&drop-a). Ulaz je skriven u
  * tabu „Više" ako korisnik nije admin.
  *
@@ -245,7 +246,7 @@ export default function AdminStartupScreen() {
   if (profile !== undefined && profile !== null && profile.role !== 'admin') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScreenHeader title="Administracija startupa" onBack={() => router.back()} />
+        <ScreenHeader title="Podešavanja startupa" onBack={() => router.back()} />
         <EmptyState
           icon={<ShieldCheck size={40} color={colors.mutedForeground} />}
           title="Potreban je administratorski pristup"
@@ -261,7 +262,7 @@ export default function AdminStartupScreen() {
           `KeyboardAvoidingView` ispod — meri se ovde jer `ScreenHeader` sam
           uračunava safe-area (isto kao `zadatak/[id].tsx`/`razgovor/[id].tsx`). */}
       <View onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
-        <ScreenHeader title="Administracija startupa" onBack={() => router.back()} eyebrow={startup?.name} />
+        <ScreenHeader title="Podešavanja startupa" onBack={() => router.back()} subtitle={startup?.name} />
 
         <View style={styles.createBlock}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -482,7 +483,7 @@ function AdminStartupError({ message, onRetry }: { message: string; onRetry: () 
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Administracija startupa" onBack={() => router.back()} />
+      <ScreenHeader title="Podešavanja startupa" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Administracija se ne može učitati"

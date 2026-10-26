@@ -192,7 +192,7 @@ export default function IdejeScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Ideje"
-        eyebrow={
+        subtitle={
           count > 0
             ? searchActive
               ? `${filteredNodes.length} od ${count}`

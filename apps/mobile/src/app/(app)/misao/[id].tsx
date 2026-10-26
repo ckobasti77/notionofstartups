@@ -115,7 +115,7 @@ export default function MisaoScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Misao"
-        eyebrow="Misli"
+        subtitle="Misli"
         onBack={() => router.back()}
         actions={
           node ? (

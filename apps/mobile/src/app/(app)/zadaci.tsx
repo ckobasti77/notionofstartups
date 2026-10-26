@@ -1,12 +1,13 @@
 import { findStartupRow, locateStartupRow, type StartupMini, type TaskRowModel } from '@devotion/shared';
 import { usePaginatedQuery, useQuery } from 'convex/react';
-import { useRouter, type ErrorBoundaryProps } from 'expo-router';
+import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { ListTodo, Plus, SlidersHorizontal, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SegmentedControl } from '@/components/chat/segmented-control';
 import { EmptyState } from '@/components/empty-state';
 import {
   ALL_TASKS_LIST,
@@ -46,10 +47,11 @@ import { useRetained } from '@/hooks/use-retained';
 import { classifyDeadline } from '@/lib/deadline';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import { backOrProstor, dismissToProstor } from '@/lib/navigation/back-to-prostor';
 import { readLastArea, readStoredDestination } from '@/lib/quick-add-memory';
 import { TASK_STATUS_META, tasksWord } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, text } from '@/theme/tokens';
+import { text } from '@/theme/tokens';
 
 /**
  * Ogledalo `packages/backend/convex/taskAssignees.ts`'s `MAX_ASSIGNEE_LOOKUP_PAGES` —
@@ -61,14 +63,24 @@ import { fontWeight, text } from '@/theme/tokens';
  */
 const MAX_ASSIGNEE_LOOKUP = 300;
 
-/** Stavka spljoštene liste „Svi zadaci": zaglavlje sekcije ili red. */
+/** „Svi · Moji" iznad liste (plan K07 §5.3); osoba ostaje u filter-sheet-u. */
+const SCOPE_SEGMENTS = [
+  { id: 'svi', label: 'Svi' },
+  { id: 'moji', label: 'Moji' },
+] as const;
+
+type ScopeId = (typeof SCOPE_SEGMENTS)[number]['id'];
+
+/** Stavka spljoštene liste Zadataka: zaglavlje sekcije ili red. */
 type ListItem =
   | { kind: 'header'; key: string; section: StatusSection }
   | { kind: 'row'; key: string; row: TaskRowModel };
 
 /**
- * Ekran „Svi zadaci" (PARITET A3) — pregled CELOG startupa, ne samo mog dana kao
- * Komandni centar. Od K18 (par web K17 „Moji zadaci u startupu") redovi su isti
+ * Ekran „Zadaci" (PARITET A3, PROSTOR P18) — svi zadaci startupa, ulaz je red
+ * „Zadaci" u Prostoru. Iznad liste je „Svi · Moji" (`?filter=moji` otvara
+ * „Moji", par web `?view=tasks&filter=moji`); izbor osobe i ostali filteri su
+ * u filter-sheet-u. Od K18 (par web K17 „Moji zadaci u startupu") redovi su isti
  * zajednički red zadatka kao u Komandnom centru i u Moj dan, a radnje dolaze iz
  * istog hooka (`useStartupTaskCommands`): swipe desno završi sa „Poništi", swipe
  * levo „Rok i plan", dugi pritisak radnje, dodir panel sa „Puni prikaz".
@@ -84,6 +96,7 @@ export default function ZadaciScreen() {
   const reduced = useReducedMotion();
   const insets = useSafeAreaInsets();
   const { activeStartupId, restoring } = useActiveStartup();
+  const params = useLocalSearchParams<{ filter?: string }>();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
@@ -94,6 +107,28 @@ export default function ZadaciScreen() {
 
   const profile = useQuery(api.profiles.getCurrent, {});
   const myId = profile?._id ?? null;
+  // „Moji" iz linka (`filter=moji`) ili dodira pre nego što profil stigne: čeka
+  // `myId`, pa tek onda postaje filter izvršioca (server ga primenjuje).
+  const [wantMine, setWantMine] = useState(params.filter === 'moji');
+  // Isti ekran već u steku, a link opet traži „Moji" — parametar se prati i posle mount-a.
+  useEffect(() => {
+    if (params.filter === 'moji') setWantMine(true);
+  }, [params.filter]);
+  useEffect(() => {
+    if (!wantMine || myId === null) return;
+    setAssigneeFilter(myId);
+    setWantMine(false);
+  }, [wantMine, myId]);
+  const scope: ScopeId = wantMine || (myId !== null && assigneeFilter === myId) ? 'moji' : 'svi';
+  const changeScope = (next: ScopeId) => {
+    if (next === 'moji') {
+      if (myId === null) setWantMine(true);
+      else setAssigneeFilter(myId);
+      return;
+    }
+    setWantMine(false);
+    setAssigneeFilter('all');
+  };
   const startup = useQuery(
     api.startups.get,
     activeStartupId ? { startupId: activeStartupId } : 'skip',
@@ -236,12 +271,21 @@ export default function ZadaciScreen() {
     sectionsRef.current = sections ?? [];
   }, [sections]);
 
-  const filtersActive =
-    statusFilter !== 'all' || priorityFilter !== 'all' || assigneeFilter !== 'all' || dueFilter !== 'all';
+  // Izvršilac koji NIJE „ja" (druga osoba ili „Nedodeljeno") — „Moji" ga ne
+  // pokazuje, pa ime ide u meta red ispod naslova.
+  const personFilter = assigneeFilter !== 'all' && assigneeFilter !== myId ? assigneeFilter : null;
+  const personName =
+    personFilter === null
+      ? null
+      : personFilter === 'unassigned'
+        ? 'Nedodeljeno'
+        : (members?.find((member) => member.profile._id === personFilter)?.profile.displayName ?? 'Član tima');
+  // Ostali filteri (bez izvršioca, koga pokrivaju „Svi · Moji" i meta red).
+  const otherFiltersActive = statusFilter !== 'all' || priorityFilter !== 'all' || dueFilter !== 'all';
   const activeFilterCount = [
     statusFilter !== 'all',
     priorityFilter !== 'all',
-    assigneeFilter !== 'all',
+    personFilter !== null,
     dueFilter !== 'all',
   ].filter(Boolean).length;
 
@@ -250,6 +294,7 @@ export default function ZadaciScreen() {
     setPriorityFilter('all');
     setAssigneeFilter('all');
     setDueFilter('all');
+    setWantMine(false);
   };
 
   // --- Brzi unos: isti sheet i isti tok kao u Moj dan i Komandnom centru ---
@@ -307,7 +352,7 @@ export default function ZadaciScreen() {
   if (activeStartupId === null) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScreenHeader title="Svi zadaci" onBack={() => router.back()} />
+        <ScreenHeader title="Zadaci" onBack={() => backOrProstor(router)} />
         {restoring ? (
           <TasksSkeleton />
         ) : (
@@ -316,7 +361,7 @@ export default function ZadaciScreen() {
             title="Izaberi startup"
             description="Zadaci se prikazuju po startupu. Izaberi ga u Prostoru."
             actionLabel="Otvori Prostor"
-            onAction={() => router.navigate('/prostor')}
+            onAction={() => dismissToProstor(router)}
           />
         )}
       </View>
@@ -334,8 +379,10 @@ export default function ZadaciScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
-        title="Svi zadaci"
-        onBack={() => router.back()}
+        title="Zadaci"
+        subtitle={personName ? `Osoba: ${personName}` : undefined}
+        onBack={() => backOrProstor(router)}
+        below={<SegmentedControl options={SCOPE_SEGMENTS} value={scope} onChange={changeScope} />}
         actions={
           <View>
             <IconButton
@@ -363,21 +410,13 @@ export default function ZadaciScreen() {
 
       <LoadingSwap loading={loading} skeleton={<TasksSkeleton />}>
         {loading || sections === undefined ? null : empty ? (
-          <EmptyState
-            icon={<ListTodo size={40} color={colors.mutedForeground} />}
-            title={filtersActive ? 'Nijedan zadatak ne odgovara filterima' : 'Nema zadataka'}
-            description={
-              filtersActive
-                ? pageStatus === 'CanLoadMore'
-                  ? 'Nema podudaranja među trenutno učitanim zadacima. Očisti filtere ili ih promeni.'
-                  : 'Nijedan zadatak ne odgovara trenutno izabranim filterima.'
-                : 'Ovaj startup još nema zadataka. Napravi prvi odmah!'
-            }
-            actionLabel={filtersActive ? 'Očisti filtere' : 'Novi zadatak'}
-            onAction={() => {
-              if (filtersActive) clearFilters();
-              else setQuickAddOpen(true);
-            }}
+          <TasksEmpty
+            otherFiltersActive={otherFiltersActive}
+            canLoadMore={pageStatus === 'CanLoadMore'}
+            scope={scope}
+            personName={personName}
+            onClearFilters={clearFilters}
+            onCreate={() => setQuickAddOpen(true)}
           />
         ) : (
           // Virtualizovana lista (K21): „Učitaj još" nema gornju granicu, a red je
@@ -457,6 +496,69 @@ export default function ZadaciScreen() {
   );
 }
 
+/**
+ * Prazno stanje po filteru (plan K07 §5.3): ostali filteri → „Nema rezultata",
+ * osoba → „{Ime} nema zadataka ovde.", Moji → „Nemaš zadataka…", Svi → prvi
+ * zadatak. Bez filtera tekst ne obećava ništa što ekran ne radi.
+ */
+function TasksEmpty({
+  otherFiltersActive,
+  canLoadMore,
+  scope,
+  personName,
+  onClearFilters,
+  onCreate,
+}: {
+  otherFiltersActive: boolean;
+  canLoadMore: boolean;
+  scope: ScopeId;
+  personName: string | null;
+  onClearFilters: () => void;
+  onCreate: () => void;
+}) {
+  const colors = useThemeColors();
+  const icon = <ListTodo size={40} color={colors.mutedForeground} />;
+  if (otherFiltersActive) {
+    return (
+      <EmptyState
+        icon={icon}
+        title="Nema rezultata za ovaj filter."
+        description={canLoadMore ? 'Pretraženi su samo učitani zadaci.' : undefined}
+        actionLabel="Poništi filtere"
+        onAction={onClearFilters}
+      />
+    );
+  }
+  if (personName !== null) {
+    return (
+      <EmptyState
+        icon={icon}
+        title={`${personName} nema zadataka ovde.`}
+        actionLabel="Prikaži sve"
+        onAction={onClearFilters}
+      />
+    );
+  }
+  if (scope === 'moji') {
+    return (
+      <EmptyState
+        icon={icon}
+        title="Nemaš zadataka u ovom startupu."
+        actionLabel="Prikaži sve"
+        onAction={onClearFilters}
+      />
+    );
+  }
+  return (
+    <EmptyState
+      icon={icon}
+      title="Još nema zadataka u ovom startupu."
+      actionLabel="Novi zadatak"
+      onAction={onCreate}
+    />
+  );
+}
+
 /** Oblik onoga što stiže: 5 redova zadatka, bez sekcijskih zaglavlja. */
 function TasksSkeleton() {
   return (
@@ -485,10 +587,10 @@ function ZadaciErrorState({ message, onRetry }: { message: string; onRetry: () =
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Svi zadaci" onBack={() => router.back()} />
+      <ScreenHeader title="Zadaci" onBack={() => backOrProstor(router)} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Zadaci se ne mogu učitati"
+        title="Zadaci nisu učitani."
         description={message || 'Došlo je do greške pri učitavanju zadataka.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
@@ -529,11 +631,10 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 4,
   },
+  // Broj zadataka uz filter statusa — meta, normalna slova (DIZAJN-SMIRENJE U2).
   summary: {
     ...text.meta,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    fontVariant: ['tabular-nums'],
   },
   loadMore: {
     marginTop: 24,

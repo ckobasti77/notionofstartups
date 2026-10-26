@@ -8,23 +8,35 @@ import { useThemeColors } from '@/theme/theme-provider';
 import { MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
 export type ScreenHeaderProps = {
-  /** Naslov ekrana — `display` (28/34/700), levo. */
+  /** Naslov ekrana — jedini naslov, levo. */
   title: string;
+  /**
+   * Veličina naslova (DIZAJN-SMIRENJE §2): `display` (28/34) samo za koren taba,
+   * `title` (20/26) za svaki gurnut ekran. Podrazumevano `title`.
+   */
+  titleSize?: 'display' | 'title';
   /** Naslov sadržaja (npr. ime stranice) ume da bude dug — 2 reda umesto 1. */
   titleNumberOfLines?: number;
   /**
-   * Prigušena `meta` linija IZNAD naslova (npr. ime startupa, oblast, putanja).
-   * String se prikazuje kao tekst; čvor (npr. `Skeleton`) se ubacuje kakav jeste.
+   * Kad je zadat, sam naslov je dugme sa strelicom nadole (npr. birač startupa u
+   * Prostoru, gde je naslov ime startupa).
    */
-  eyebrow?: ReactNode;
-  /** Kad je zadat, eyebrow je dodirljiv i dobija strelicu nadole. */
-  onEyebrowPress?: () => void;
-  eyebrowAccessibilityLabel?: string;
+  onTitlePress?: () => void;
+  titleAccessibilityLabel?: string;
+  /**
+   * Prigušena `meta` linija ISPOD naslova (broj, nedelja, putanja, startup).
+   * Nadnaslov iznad naslova više ne postoji (PROSTOR P17, K07 §1.5). String se
+   * prikazuje kao tekst; čvor (npr. `Skeleton`, putanja) se ubacuje kakav jeste.
+   */
+  subtitle?: ReactNode;
+  /** Kad je zadat, meta linija je dodirljiva i dobija strelicu nadole. */
+  onSubtitlePress?: () => void;
+  subtitleAccessibilityLabel?: string;
   /** Kad je zadat, levo od naslova stoji „nazad". */
   onBack?: () => void;
   /** Akcije desno od naslova (ikonice, avatar, pilula-brojač). */
   actions?: ReactNode;
-  /** Red ISPOD naslova unutar istog zaglavlja (segment, breadcrumb, pretraga). */
+  /** Red ISPOD naslova unutar istog zaglavlja (segment, filteri, pretraga). */
   below?: ReactNode;
   /** Hairline ivica na dnu — samo kad sadržaj ispod skroluje pod zaglavlje. */
   divider?: boolean;
@@ -32,20 +44,22 @@ export type ScreenHeaderProps = {
 };
 
 /**
- * JEDNO zaglavlje ekrana. Ranije su postojale dve trake jedna ispod druge
- * (kontekst startupa + naslov ekrana) i ~8 ručno sklopljenih kopija po stack
- * ekranima; ovo je jedna komponenta: `eyebrow` nosi kontekst kao `meta` linija,
- * naslov je `display` levo, akcije desno.
+ * JEDNO zaglavlje ekrana: naslov levo, akcije desno, opciona meta linija ispod
+ * naslova i opcioni red ispod (segment, filteri). Jedan naslov po ekranu;
+ * kontekst (startup, putanja, broj) je meta ISPOD naslova, nikad nadnaslov.
  *
  * Gornji safe-area je uvek uračunat ovde — ekran koji koristi `ScreenHeader` ne
  * sme da dodaje `insets.top` još jednom.
  */
 export function ScreenHeader({
   title,
+  titleSize = 'title',
   titleNumberOfLines = 1,
-  eyebrow,
-  onEyebrowPress,
-  eyebrowAccessibilityLabel,
+  onTitlePress,
+  titleAccessibilityLabel,
+  subtitle,
+  onSubtitlePress,
+  subtitleAccessibilityLabel,
   onBack,
   actions,
   below,
@@ -54,20 +68,31 @@ export function ScreenHeader({
 }: ScreenHeaderProps) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const titleStyle = titleSize === 'display' ? styles.titleDisplay : styles.titleScreen;
 
-  const eyebrowBody =
-    eyebrow == null ? null : (
+  const subtitleBody =
+    subtitle == null ? null : (
       <>
-        {typeof eyebrow === 'string' ? (
-          <Text numberOfLines={1} style={[styles.eyebrow, { color: colors.mutedForeground }]}>
-            {eyebrow}
+        {typeof subtitle === 'string' ? (
+          <Text numberOfLines={1} style={[styles.subtitle, { color: colors.mutedForeground }]}>
+            {subtitle}
           </Text>
         ) : (
-          eyebrow
+          subtitle
         )}
-        {onEyebrowPress ? <ChevronDown size={14} color={colors.subtle} /> : null}
+        {onSubtitlePress ? <ChevronDown size={14} color={colors.subtle} /> : null}
       </>
     );
+
+  const titleText = (
+    <Text
+      // Naslov-dugme (birač) nosi ulogu dugmeta; inače je ovo naslov ekrana.
+      accessibilityRole={onTitlePress ? undefined : 'header'}
+      numberOfLines={titleNumberOfLines}
+      style={[titleStyle, styles.titleText, { color: colors.foreground }]}>
+      {title}
+    </Text>
+  );
 
   return (
     <View
@@ -81,27 +106,6 @@ export function ScreenHeader({
         },
         style,
       ]}>
-      {eyebrowBody ? (
-        onEyebrowPress ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              eyebrowAccessibilityLabel ?? (typeof eyebrow === 'string' ? eyebrow : undefined)
-            }
-            onPress={onEyebrowPress}
-            // Red je `minHeight: 20`, pa 20 + 20 + 4 = 44pt dodirne mete bez
-            // ijednog piksela vizuelne promene. Slop ide NAGORE (iznad eyebrow-a
-            // je samo padding ispod statusne trake); nadole bi prekrio red naslova
-            // i mogao da otme tap sa dugmeta „Nazad".
-            hitSlop={{ top: 20, bottom: 4, left: 8, right: 8 }}
-            style={({ pressed }) => [styles.eyebrowRow, pressed && styles.pressed]}>
-            {eyebrowBody}
-          </Pressable>
-        ) : (
-          <View style={styles.eyebrowRow}>{eyebrowBody}</View>
-        )
-      ) : null}
-
       <View style={styles.titleRow}>
         {onBack ? (
           <Pressable
@@ -120,13 +124,47 @@ export function ScreenHeader({
             <ChevronLeft size={24} color={colors.foreground} />
           </Pressable>
         ) : null}
-        <Text
-          numberOfLines={titleNumberOfLines}
-          style={[styles.title, { color: colors.foreground }]}>
-          {title}
-        </Text>
+        {onTitlePress ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={titleAccessibilityLabel ?? title}
+            onPress={onTitlePress}
+            style={({ pressed }) => [styles.titleButton, pressed && styles.pressed]}>
+            {titleText}
+            <ChevronDown size={18} color={colors.mutedForeground} />
+          </Pressable>
+        ) : (
+          <View style={styles.titleWrap}>{titleText}</View>
+        )}
         {actions ? <View style={styles.actions}>{actions}</View> : null}
       </View>
+
+      {subtitleBody ? (
+        onSubtitlePress ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              subtitleAccessibilityLabel ?? (typeof subtitle === 'string' ? subtitle : undefined)
+            }
+            onPress={onSubtitlePress}
+            // Red je `minHeight: 32`; slop ga dovodi do 44pt (4 + 32 + 8). Nadole
+            // samo 8: ispod može da stoji `below` (razmak 8), pa ne preklapaju;
+            // nagore bi prekrio red naslova i oteo tap sa „Nazad".
+            hitSlop={{ top: 4, bottom: 8, left: 8, right: 8 }}
+            style={({ pressed }) => [
+              styles.subtitleRow,
+              styles.subtitlePressable,
+              onBack ? styles.subtitleIndent : null,
+              pressed && styles.pressed,
+            ]}>
+            {subtitleBody}
+          </Pressable>
+        ) : (
+          <View style={[styles.subtitleRow, onBack ? styles.subtitleIndent : null]}>
+            {subtitleBody}
+          </View>
+        )
+      ) : null}
 
       {below ? <View style={styles.below}>{below}</View> : null}
     </View>
@@ -138,13 +176,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
-  eyebrowRow: {
+  subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 4,
     minHeight: 20,
+    maxWidth: '100%',
   },
-  eyebrow: {
+  // Dodirljiva meta linija je viša, da sa `hitSlop` dobije 44pt.
+  subtitlePressable: {
+    minHeight: 32,
+  },
+  // Meta stoji poravnata sa naslovom, ne sa strelicom „nazad" (44 - 12 + 4 = 36).
+  subtitleIndent: {
+    marginLeft: 36,
+  },
+  subtitle: {
     ...text.meta,
     flexShrink: 1,
   },
@@ -166,9 +214,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.control,
   },
-  title: {
-    ...text.display,
+  titleWrap: {
     flex: 1,
+  },
+  titleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    minHeight: MIN_TOUCH_TARGET,
+  },
+  titleText: {
+    flexShrink: 1,
+  },
+  titleDisplay: {
+    ...text.display,
+  },
+  titleScreen: {
+    ...text.title,
   },
   actions: {
     flexDirection: 'row',

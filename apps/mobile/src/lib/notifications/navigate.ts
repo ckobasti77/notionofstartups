@@ -54,7 +54,9 @@ export function navigateToNotificationDestination(
       router.push('/ideje');
       return;
     case 'approvals':
-      router.push('/odobrenja');
+      // Odobrenja su ugašena (PROSTOR P4); ostaci tog toka (Oporavljeno) i sve
+      // obrisano su u Korpi (K09).
+      router.push('/korpa');
       return;
     case 'puls':
       // Bez `weekStart` Puls sam otvara tekuću nedelju.
@@ -71,7 +73,10 @@ export function navigateToNotificationDestination(
   }
 }
 
-/** Komandni centar startupa (Prostor) za startup cilj; Moj dan za lični. */
+/**
+ * Komandni centar startupa za startup cilj — od PROSTOR K09 je to sama početna
+ * taba Prostor (bez segmenata, pa bez parametra); Moj dan za lični cilj.
+ */
 function navigateToFallback(
   router: ReturnType<typeof useRouter>,
   dest: NotificationDestination,
@@ -80,5 +85,5 @@ function navigateToFallback(
     router.navigate('/danas');
     return;
   }
-  router.navigate({ pathname: '/prostor', params: { segment: 'komandni-centar' } });
+  router.navigate('/prostor');
 }

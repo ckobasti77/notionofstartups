@@ -115,7 +115,7 @@ export default function ClanoviScreen() {
       <ScreenHeader
         title="Članovi tima"
         onBack={() => router.back()}
-        eyebrow={count > 0 ? `${capped ? `${count}+` : count} ${membersWord(count)}` : undefined}
+        subtitle={count > 0 ? `${capped ? `${count}+` : count} ${membersWord(count)}` : undefined}
         actions={
           activeStartupId && isAdmin ? (
             <IconButton

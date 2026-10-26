@@ -197,7 +197,7 @@ export default function MisliScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Misli"
-        eyebrow={
+        subtitle={
           count > 0
             ? searchActive
               ? `${filteredNodes.length} od ${count}${hasMore ? '+' : ''}`

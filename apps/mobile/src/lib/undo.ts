@@ -325,6 +325,18 @@ export type UndoEntry = {
 };
 
 /**
+ * Poruka na istoj traci, ali BEZ „Poništi" (K09): „Vraćeno: „X”." + „Otvori"
+ * posle „Vrati" iz Korpe (plan K07 E10 — vraćanje je bezbedno, pa se ne
+ * poništava). Nije radnja: ne ulazi u stek ni u „Istoriju radnji", nema inverz.
+ */
+export type UndoNotice = {
+  label: string;
+  /** Raste na svaki prikaz — restartuje tajmer trake i za istu poruku. */
+  key: number;
+  secondary?: UndoEntry['secondary'];
+};
+
+/**
  * Poništavanje ide VIŠE koraka unazad (PARITET-REVIZIJA C12): stek, ne jedna
  * stavka. Traka „Poništi" i dalje prikazuje samo JEDNU stavku odjednom
  * (`visibleKey`) — to je namerno, ekran „Istorija radnji" je mesto za dublje
@@ -341,6 +353,7 @@ const MAX_UNDO_ENTRIES = 20;
 
 let entries: UndoEntry[] = []; // najstarija prva; vrh (najnovija) je poslednji element
 let visibleKey: number | null = null; // stavka koju traka SME da prikaže
+let notice: UndoNotice | null = null; // poruka bez „Poništi"; isključuje `visibleKey`
 let counter = 0;
 const listeners = new Set<() => void>();
 
@@ -404,6 +417,8 @@ export function pushUndo(input: {
   const now = Date.now();
   pruneExpired(now);
   counter += 1;
+  // Nova radnja sa „Poništi" smenjuje poruku na traci (jedna traka, jedna stvar).
+  notice = null;
   entries = [
     ...entries,
     {
@@ -462,18 +477,35 @@ export function hasUndo(key: number): boolean {
   return entries.some((e) => e.key === key);
 }
 
+/**
+ * Poruka na traci bez „Poništi" (K09, Korpa): smenjuje stavku koju traka nudi,
+ * ali stek NE dira — ta stavka ostaje u „Istoriji radnji".
+ */
+export function showUndoNotice(input: { label: string; secondary?: UndoEntry['secondary'] }): void {
+  counter += 1;
+  notice = {
+    label: input.label,
+    key: counter,
+    ...(input.secondary ? { secondary: input.secondary } : {}),
+  };
+  visibleKey = null;
+  publish();
+}
+
 /** Sklanja traku bez brisanja steka (npr. ✕, ili istek tajmera trake). */
 export function hideUndoBar(): void {
-  if (visibleKey === null) return;
+  if (visibleKey === null && notice === null) return;
   visibleKey = null;
+  notice = null;
   publish();
 }
 
 /** Prazni CEO stek i traku (npr. promena aktivnog startupa). */
 export function clearUndo(): void {
-  if (entries.length === 0 && visibleKey === null) return;
+  if (entries.length === 0 && visibleKey === null && notice === null) return;
   entries = [];
   visibleKey = null;
+  notice = null;
   if (expiryTimer !== null) {
     clearTimeout(expiryTimer);
     expiryTimer = null;
@@ -490,6 +522,8 @@ function subscribe(listener: () => void): () => void {
 
 const getStackSnapshot = () => stackSnapshot;
 const getBarSnapshot = () => barSnapshot;
+// `notice` se uvek zamenjuje novim objektom, pa je sam sebi stabilan snimak.
+const getNoticeSnapshot = () => notice;
 
 /** Ceo stek za ekran „Istorija radnji" (`app/(app)/istorija.tsx`) — najnovija prva. */
 export function useUndoStack(): UndoEntry[] {
@@ -501,11 +535,20 @@ export function useUndoBarEntry(): UndoEntry | null {
   return useSyncExternalStore(subscribe, getBarSnapshot, getBarSnapshot);
 }
 
+/** Poruka bez „Poništi" koju traka prikazuje (ili `null`) — reaktivno za `UndoBar`. */
+export function useUndoNotice(): UndoNotice | null {
+  return useSyncExternalStore(subscribe, getNoticeSnapshot, getNoticeSnapshot);
+}
+
 /**
  * Plain (ne-hook) čitanje steka — SAMO za `undo.test.ts`, koji testira modul
  * bez React-a. Nijedan komponent ga ne uvozi; `useUndoStack`/`useUndoBarEntry`
  * su put za UI.
  */
-export function getUndoSnapshotForTest(): { stack: UndoEntry[]; bar: UndoEntry | null } {
-  return { stack: stackSnapshot, bar: barSnapshot };
+export function getUndoSnapshotForTest(): {
+  stack: UndoEntry[];
+  bar: UndoEntry | null;
+  notice: UndoNotice | null;
+} {
+  return { stack: stackSnapshot, bar: barSnapshot, notice };
 }

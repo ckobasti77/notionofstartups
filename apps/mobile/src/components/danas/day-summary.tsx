@@ -34,13 +34,13 @@ export function DaySummary({
   firstName: string | null;
   /** Brojači; `null` dok zadaci stižu (prikazuje se skelet). */
   counts: DaySummaryCounts | null;
-  /** „Pregled" ili „Moji zadaci" — kaže na šta se brojači odnose. */
+  /** Na šta se brojači odnose („ceo tim" ili ime člana iz filtera) — za čitač ekrana. */
   segmentLabel: string;
 }) {
   const colors = useThemeColors();
 
-  // Ime startupa namerno NIJE ovde: već stoji u `AppHeader` eyebrow-u (koji je
-  // ujedno i prebacivač) — dvaput u 400px je bio bag E4.
+  // Ime startupa namerno NIJE ovde: već je naslov Prostora (koji je ujedno i
+  // prebacivač) — dvaput u 400px je bio bag E4.
   return (
     <Card style={styles.card}>
       {firstName === null ? (

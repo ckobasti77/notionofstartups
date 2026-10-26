@@ -140,7 +140,7 @@ export default function PulsScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Puls"
-        eyebrow={formatWeekLabel(weekStart, weekEnd)}
+        subtitle={formatWeekLabel(weekStart, weekEnd)}
         onBack={() => router.back()}
       />
 
@@ -199,7 +199,7 @@ export default function PulsScreen() {
 }
 
 /**
- * Navigacija kroz nedelje. Sam datum nedelje NIJE ovde — nosi ga `eyebrow`
+ * Navigacija kroz nedelje. Sam datum nedelje NIJE ovde — nosi ga `subtitle`
  * zaglavlja, pa red ostaje jedna linija: strelice sa strane, stanje u sredini.
  */
 function WeekNav({

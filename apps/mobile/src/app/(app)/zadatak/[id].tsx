@@ -214,18 +214,18 @@ export default function ZadatakScreen() {
             titleNumberOfLines={2}
             // Putanja umesto statusa (E12): status već stoji kao prvi red meta
             // kartice ispod, a „gde sam" se bez sidebara nema odakle videti.
-            eyebrow={
+            subtitle={
               <BreadcrumbsEyebrow
                 pageId={pageId}
                 startupId={page.startupId}
                 areaId={page.areaId}
               />
             }
-            onEyebrowPress={() => {
+            onSubtitlePress={() => {
               haptics.tap();
               setPathOpen(true);
             }}
-            eyebrowAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
+            subtitleAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
             onBack={() => router.back()}
             actions={
               <>

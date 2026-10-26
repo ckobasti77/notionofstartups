@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUndoRunner } from '@/hooks/use-undo-runner';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import { hideUndoBar, popUndo, useUndoBarEntry } from '@/lib/undo';
+import { hideUndoBar, popUndo, useUndoBarEntry, useUndoNotice } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, SHADOW_COLOR, text } from '@/theme/tokens';
 
@@ -42,6 +42,8 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const entry = useUndoBarEntry();
+  // Poruka bez „Poništi" (K09, „Vraćeno: …" iz Korpe) — ista traka, bez inverza.
+  const notice = useUndoNotice();
   const runUndo = useUndoRunner();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -64,7 +66,69 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
     return () => clearTimeout(timer);
   }, [entry]);
 
-  if (entry === null) return null;
+  // Poruka stoji isto koliko i traka „Poništi" (8 s) — dovoljno da se tapne „Otvori".
+  useEffect(() => {
+    if (notice === null) return;
+    const timer = setTimeout(hideUndoBar, AUTO_HIDE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const barPosition = {
+    bottom: insets.bottom + 16 + bottomOffset,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    shadowColor: SHADOW_COLOR,
+  };
+
+  const closeButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        entry === null ? 'Sakrij poruku' : 'Sakrij traku — radnja ostaje u Istoriji radnji'
+      }
+      disabled={busy}
+      onPress={() => {
+        haptics.select();
+        hideUndoBar();
+      }}
+      style={({ pressed }) => [styles.closeBtn, pressed && { backgroundColor: colors.muted }]}>
+      <X size={18} color={colors.mutedForeground} />
+    </Pressable>
+  );
+
+  if (entry === null) {
+    if (notice === null) return null;
+    return (
+      <View
+        accessibilityLiveRegion="polite"
+        // Sa „Otvori" poruka dobija ceo red, a dugmad prelaze ispod nje (kao traka
+        // „Poništi" sa drugom radnjom) — dug naslov bi se inače sekao elipsom.
+        style={[styles.bar, notice.secondary ? styles.barStacked : null, barPosition]}>
+        <Text
+          numberOfLines={2}
+          style={[styles.label, notice.secondary ? styles.labelStacked : null, { color: colors.foreground }]}>
+          {notice.label}
+        </Text>
+        {notice.secondary ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${notice.secondary.label} — ${notice.label}`}
+            onPress={() => {
+              const secondary = notice.secondary;
+              haptics.tap();
+              hideUndoBar();
+              secondary?.onPress();
+            }}
+            style={({ pressed }) => [styles.undoBtn, pressed && { backgroundColor: colors.muted }]}>
+            <Text style={[styles.undoText, { color: colors.primaryText }]}>
+              {notice.secondary.label}
+            </Text>
+          </Pressable>
+        ) : null}
+        {closeButton}
+      </View>
+    );
+  }
 
   const undo = async () => {
     if (busyRef.current) return;
@@ -97,12 +161,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
         // Sa drugom radnjom poruka dobija ceo red, a dugmad prelaze ispod nje —
         // tri dugmeta pored teksta bi ga na uskom ekranu sekla elipsom.
         entry.secondary ? styles.barStacked : null,
-        {
-          bottom: insets.bottom + 16 + bottomOffset,
-          backgroundColor: colors.surfaceRaised,
-          borderColor: colors.border,
-          shadowColor: SHADOW_COLOR,
-        },
+        barPosition,
       ]}>
       <Text
         numberOfLines={2}
@@ -136,17 +195,7 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
           <Text style={[styles.undoText, { color: colors.primaryText }]}>Poništi</Text>
         </Pressable>
       )}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Sakrij traku — radnja ostaje u Istoriji radnji"
-        disabled={busy}
-        onPress={() => {
-          haptics.select();
-          hideUndoBar();
-        }}
-        style={({ pressed }) => [styles.closeBtn, pressed && { backgroundColor: colors.muted }]}>
-        <X size={18} color={colors.mutedForeground} />
-      </Pressable>
+      {closeButton}
     </View>
   );
 }

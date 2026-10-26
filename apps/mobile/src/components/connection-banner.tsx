@@ -5,6 +5,7 @@ import { useConvexConnectionState } from 'convex/react';
 import { WifiOff } from 'lucide-react-native';
 
 import { useThemeColors } from '@/theme/theme-provider';
+import { SHADOW_COLOR } from '@/theme/tokens';
 
 /**
  * Pukla veza ka Convexu NE baca grešku — upiti samo večno „učitavaju" (zamka
@@ -67,7 +68,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    shadowColor: '#000',
+    // Pilula pluta nad sadržajem — jedina dozvoljena senka, kroz token (U3).
+    shadowColor: SHADOW_COLOR,
     shadowOpacity: 0.25,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },

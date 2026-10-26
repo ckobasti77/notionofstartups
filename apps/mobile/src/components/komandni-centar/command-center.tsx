@@ -2,10 +2,9 @@ import { findStartupRow, locateStartupRow, type StartupMini, type TaskRowModel }
 import { useQuery } from 'convex/react';
 import { CalendarX2, ListTodo } from 'lucide-react-native';
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { SegmentedControl } from '@/components/chat/segmented-control';
 import { AssigneeStack } from '@/components/danas/assignee-stack';
 import { DaySummary, type DaySummaryCounts } from '@/components/danas/day-summary';
 import { QuickAddFab } from '@/components/danas/quick-add-fab';
@@ -22,7 +21,6 @@ import { MeSectionHeader } from '@/components/me/section-header';
 import { TaskRow } from '@/components/me/task-row';
 import { useQuickAdd } from '@/components/me/use-quick-add';
 import { exitFade, listLayout, useListEntering } from '@/components/motion';
-import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList, SkeletonTaskCard } from '@/components/ui/skeletons';
 import { UndoBar } from '@/components/undo-bar';
@@ -35,7 +33,7 @@ import { classifyDeadline, type TodaySection } from '@/lib/deadline';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { readLastArea, readStoredDestination } from '@/lib/quick-add-memory';
-import { TODAY_SEGMENTS, type CommandCenterTask, type TodaySegmentId } from '@/lib/tasks';
+import type { CommandCenterTask } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
 import { space, text } from '@/theme/tokens';
 
@@ -57,32 +55,64 @@ const SECTION_LABEL: Record<TodaySection, string> = {
 };
 
 /**
- * Komandni centar startupa (docs/mobile/02-EKRANI.md §4) — do K09 je to bio tab
- * „Danas"; sada živi u tabu Prostor kao prvi segment (P15, plan K07 E14), jer je
- * „Danas" postao lični Moj dan. Od K18 (par web K17) redovi su zajednički red
+ * Komandni centar startupa (docs/mobile/02-EKRANI.md §4) — do LICNO K09 je to bio
+ * tab „Danas"; od PROSTOR K09 je to SAMA početna taba Prostor (P18, plan K07
+ * §4.2): bez segmenata Pregled/Moji zadaci, a iznad blokova stoje redovi Prostora
+ * (`header`; „Moji" su sada filter u Zadacima). Od K18 (par web K17) redovi su zajednički red
  * zadatka (`TaskRow` nad `TaskRowModel`): swipe desno = završi sa „Poništi",
  * swipe levo = „Rok i plan", dugi pritisak = radnje (status, rok, prioritet,
  * „Dodaj u Moj dan", „Priključi se"), dodir = panel zadatka sa „Puni prikaz".
  * Mutacije i dozvole su iste kao na webu i u Moj dan (`useStartupTaskCommands`).
  * Brzi unos je isti sheet kao u Moj dan, sa unapred izabranim startupom.
- * Segment Pregled/Moji zadaci, traka opterećenja i sekcije prekoračeno → danas →
- * sledeće → blokirano ostaju. Bez kanbana — svajp lista.
+ * Traka opterećenja i sekcije prekoračeno → danas → sledeće → blokirano ostaju
+ * (blokove 2.0 pravi K19). Bez kanbana — svajp lista.
  *
- * Greška upita (npr. korisnik više nije član) ostaje u ovom segmentu
- * (`CommandCenterBoundary`), pa „Oblasti" i ostatak Prostora rade dalje.
+ * Greška upita (npr. korisnik više nije član) ostaje u blokovima
+ * (`CommandCenterBoundary`): redovi Prostora (`header`, `footer`) ostaju na
+ * ekranu i rade dalje.
  */
-export function CommandCenter({ startupId }: { startupId: Id<'startups'> }) {
+export function CommandCenter({
+  startupId,
+  header,
+  footer,
+}: {
+  startupId: Id<'startups'>;
+  /** Iznad blokova, u istom skrolu (redovi Prostora, plan K07 E4). */
+  header?: ReactNode;
+  /** Ispod blokova (privremeni redovi Puls/Aktivnost do K19). */
+  footer?: ReactNode;
+}) {
   return (
-    <CommandCenterBoundary key={startupId}>
-      <CommandCenterBody startupId={startupId} />
+    <CommandCenterBoundary
+      key={startupId}
+      fallback={(error, retry) => (
+        <ScrollView contentContainerStyle={styles.fallbackContent} showsVerticalScrollIndicator={false}>
+          {header}
+          <View style={styles.fallbackError}>
+            <CommandCenterErrorState
+              message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju zadataka.')}
+              onRetry={retry}
+            />
+          </View>
+          {footer ? <View style={styles.footerWrap}>{footer}</View> : null}
+        </ScrollView>
+      )}>
+      <CommandCenterBody startupId={startupId} header={header} footer={footer} />
     </CommandCenterBoundary>
   );
 }
 
-function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
+function CommandCenterBody({
+  startupId,
+  header,
+  footer,
+}: {
+  startupId: Id<'startups'>;
+  header?: ReactNode;
+  footer?: ReactNode;
+}) {
   const colors = useThemeColors();
   const reduced = useReducedMotion();
-  const [segment, setSegment] = useState<TodaySegmentId>('overview');
   const [blockedOpen, setBlockedOpen] = useState(false);
   // Filter trake opterećenja: `null` = svi, `UNASSIGNED_KEY` = bez izvršioca.
   const [memberFilter, setMemberFilter] = useState<WorkloadFilter>(null);
@@ -141,15 +171,6 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   });
   const { now } = commands;
 
-  // „Moji zadaci" = otvoreni zadaci aktivnog startupa gde sam izvršilac.
-  const segmentTasks = useMemo<CommandCenterTask[] | undefined>(() => {
-    if (tasks === undefined) return undefined;
-    if (segment === 'overview') return tasks;
-    if (taskIds.length > 0 && assigneeRows === undefined) return undefined; // čeka izvršioce
-    if (myId === null) return [];
-    return tasks.filter((task) => assigneesByTask.get(task._id)?.some((a) => a.profileId === myId));
-  }, [tasks, segment, taskIds, assigneeRows, myId, assigneesByTask]);
-
   // Opterećenje tima (traka čipova) — računa se iz SVIH otvorenih zadataka, ne iz
   // filtriranih, da brojači po članu ostanu stabilni dok se filter menja (kao web).
   const workload = useMemo<WorkloadEntry[]>(() => {
@@ -198,18 +219,17 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
     return unassigned.open > 0 ? [...entries, unassigned] : entries;
   }, [tasks, members, assigneesByTask, now]);
 
-  // Filter po članu važi samo u segmentu „Pregled" — u „Mojim zadacima" bi sužavao
-  // listu koja je već svedena na jednog čoveka.
+  // Filter po članu iz trake opterećenja („Moji" su od K09 filter u Zadacima).
   const visibleTasks = useMemo<CommandCenterTask[] | undefined>(() => {
-    if (segmentTasks === undefined) return undefined;
-    if (segment !== 'overview' || memberFilter === null) return segmentTasks;
+    if (tasks === undefined) return undefined;
+    if (memberFilter === null) return tasks;
     if (memberFilter === UNASSIGNED_KEY) {
-      return segmentTasks.filter((task) => assigneesByTask.get(task._id)?.length === 0);
+      return tasks.filter((task) => assigneesByTask.get(task._id)?.length === 0);
     }
-    return segmentTasks.filter((task) =>
+    return tasks.filter((task) =>
       (assigneesByTask.get(task._id) ?? []).some((a) => a.profileId === memberFilter),
     );
-  }, [segmentTasks, segment, memberFilter, assigneesByTask]);
+  }, [tasks, memberFilter, assigneesByTask]);
 
   // Redovi po sekcijama: zajednički `TaskRowModel` (dozvole, plan, zadržavanje).
   const sections = useMemo(
@@ -220,7 +240,7 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
             startup: startupMini,
             areaLabels,
             assigneeIdsByTask,
-            assumeAssignee: segment === 'mine',
+            assumeAssignee: false,
             plannedKeys: commands.plannedKeys,
             holds: commands.holds,
             pending: commands.pending,
@@ -233,7 +253,6 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
       now,
       areaLabels,
       assigneeIdsByTask,
-      segment,
       commands.plannedKeys,
       commands.holds,
       commands.pending,
@@ -244,7 +263,7 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   }, [sections]);
 
   // Brojači za `DaySummary` — isti skup zadataka koji je i u listi, pa se pozdrav i
-  // lista ne mogu razići (segment „Moji zadaci" sužava oba).
+  // lista ne mogu razići (filter člana sužava oba).
   const summaryCounts = useMemo<DaySummaryCounts | null>(() => {
     if (visibleTasks === undefined) return null;
     let overdue = 0;
@@ -267,7 +286,8 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   const firstName = profile?.displayName.trim().split(/\s+/)[0] ?? null;
   const filteredName =
     memberFilter === null ? null : (workload.find((e) => e.key === memberFilter)?.name ?? null);
-  const segmentLabel = filteredName ?? (segment === 'mine' ? 'Moji zadaci' : 'Pregled');
+  // Na šta se brojači odnose (čitač ekrana): izabran član ili ceo tim.
+  const segmentLabel = filteredName ?? 'ceo tim';
 
   // --- Brzi unos: isti sheet i isti tok kao u Moj dan, startup je unapred izabran ---
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -284,10 +304,10 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   // Granica E12 važi i za izlaz (kao „Svi zadaci” i Moj dan).
   const exiting = rowCount <= LAYOUT_ANIMATION_MAX_ROWS ? exitFade(reduced) : undefined;
   // Ulaz iz rečnika (`components/motion`, 24 ms): prvo punjenje i promena
-  // segmenta ili filtera člana su novo punjenje liste.
+  // filtera člana su novo punjenje liste.
   const entering = useListEntering(
     reduced,
-    `${segment}:${memberFilter ?? 'all'}:${sections === undefined ? 'ucitavanje' : 'spremno'}`,
+    `${memberFilter ?? 'all'}:${sections === undefined ? 'ucitavanje' : 'spremno'}`,
   );
   // Spljoštena lista (zaglavlja + redovi) za virtualizaciju: do 150 zadataka po
   // statusu je do 600 teških redova (swipe, kvačica, layout), pa ne ScrollView.
@@ -341,94 +361,100 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
   const allEmpty = sections !== undefined && rowCount === 0;
   const startupReady = startup !== undefined;
 
+  // Prazno stanje i učitavanje stoje U listi (`ListEmptyComponent`), ne umesto
+  // nje: redovi Prostora (`header`) i traka opterećenja moraju ostati na ekranu i
+  // dok zadaci stižu i kad filter isprazni listu (dugme „Prikaži sve").
+  const emptyBody = loading ? (
+    <LoadingList />
+  ) : allEmpty && memberFilter !== null ? (
+    <View style={styles.emptyWrap}>
+      <EmptyState
+        icon={<ListTodo size={40} color={colors.mutedForeground} />}
+        title="Za izabranog člana nema otvorenih zadataka"
+        description="Filter je uključen u traci opterećenja iznad."
+        actionLabel="Prikaži sve"
+        onAction={() => setMemberFilter(null)}
+      />
+    </View>
+  ) : allEmpty ? (
+    <View style={styles.emptyWrap}>
+      <EmptyState
+        icon={<ListTodo size={40} color={colors.mutedForeground} />}
+        title="Nema otvorenih zadataka"
+        description="Otvoreni zadaci tima pojaviće se ovde."
+        actionLabel="Brzi unos"
+        onAction={() => setQuickAddOpen(true)}
+      />
+    </View>
+  ) : null;
+
   return (
     <View style={styles.root}>
-      {/* Segment Pregled/Moji zadaci je prvi red sadržaja: zaglavlje Prostora već
-          nosi segment „Komandni centar | Oblasti". */}
-      <View style={styles.segmentRow}>
-        <SegmentedControl options={TODAY_SEGMENTS} value={segment} onChange={setSegment} />
-      </View>
-      {/* Traka opterećenja je FILTER, pa stoji van skrola liste: kad filter isprazni
-          listu, dugme za gašenje filtera mora ostati na ekranu. */}
-      {segment === 'overview' && startupReady ? (
-        <WorkloadStrip
-          entries={workload}
-          totalOpen={tasks?.length ?? 0}
-          activeKey={memberFilter}
-          onSelect={setMemberFilter}
-          loading={members === undefined || command === undefined}
-        />
-      ) : null}
-
-      {allEmpty && memberFilter !== null ? (
-        <EmptyState
-          icon={<ListTodo size={40} color={colors.mutedForeground} />}
-          title="Za izabranog člana nema otvorenih zadataka"
-          description="Filter je uključen u traci opterećenja iznad."
-          actionLabel="Prikaži sve"
-          onAction={() => setMemberFilter(null)}
-        />
-      ) : allEmpty ? (
-        <EmptyState
-          icon={<ListTodo size={40} color={colors.mutedForeground} />}
-          title="Nema otvorenih zadataka"
-          description={
-            segment === 'mine'
-              ? 'Kad ti neko dodeli zadatak, pojaviće se ovde.'
-              : 'Otvoreni zadaci tima pojaviće se ovde.'
-          }
-          actionLabel="Brzi unos"
-          onAction={() => setQuickAddOpen(true)}
-        />
-      ) : (
-        <LoadingSwap loading={loading} skeleton={<LoadingList />}>
-          {sections === undefined ? null : (
-            <Animated.FlatList
-              data={listItems}
-              keyExtractor={(item) => item.key}
-              itemLayoutAnimation={layout}
-              initialNumToRender={16}
-              contentContainerStyle={styles.flatContent}
-              showsVerticalScrollIndicator={false}
-              refreshControl={refreshControl}
-              ListHeaderComponent={
-                <View style={styles.summaryWrap}>
-                  <DaySummary firstName={firstName} counts={summaryCounts} segmentLabel={segmentLabel} />
-                </View>
-              }
-              renderItem={({ item, index }) =>
-                item.kind === 'header' ? (
-                  <Animated.View
-                    entering={entering(index)}
-                    exiting={exiting}
-                    style={index === 0 ? styles.sectionHeaderFirst : styles.sectionHeader}>
-                    <MeSectionHeader
-                      title={SECTION_LABEL[item.id]}
-                      count={item.count}
-                      tone={item.id === 'overdue' ? 'danger' : 'default'}
-                      collapsible={item.id === 'blocked'}
-                      collapsed={!item.open}
-                      onToggle={item.id === 'blocked' ? () => setBlockedOpen((value) => !value) : undefined}
-                    />
-                  </Animated.View>
-                ) : (
-                  renderRow(item.row, index)
-                )
-              }
-              ListFooterComponent={
-                // `tasks.commandCenter` seče na 150 zadataka po statusu i to javi
-                // kroz `hasMore` (isto kao web).
-                command?.hasMore ? (
-                  <Text style={[styles.truncated, styles.truncatedGap, { color: colors.mutedForeground }]}>
-                    Prikazano je prvih 150 zadataka po statusu. Suzi filter ili
-                    otvori oblast u Prostoru za pun spisak.
-                  </Text>
-                ) : null
-              }
-            />
-          )}
-        </LoadingSwap>
-      )}
+      <Animated.FlatList
+        data={loading ? [] : listItems}
+        keyExtractor={(item) => item.key}
+        itemLayoutAnimation={layout}
+        initialNumToRender={16}
+        contentContainerStyle={styles.flatContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
+        ListHeaderComponent={
+          <>
+            {header}
+            {/* Traka opterećenja je FILTER: ide pre liste, a kad filter isprazni
+                listu, ostaje na ekranu sa „Prikaži sve" ispod. Lista ima svoj
+                horizontalni razmak, pa traka (koja ga nosi sama) izlazi do ivica. */}
+            {startupReady ? (
+              <View style={styles.workloadWrap}>
+                <WorkloadStrip
+                  entries={workload}
+                  totalOpen={tasks?.length ?? 0}
+                  activeKey={memberFilter}
+                  onSelect={setMemberFilter}
+                  loading={members === undefined || command === undefined}
+                />
+              </View>
+            ) : null}
+            {!loading && !allEmpty ? (
+              <View style={styles.summaryWrap}>
+                <DaySummary firstName={firstName} counts={summaryCounts} segmentLabel={segmentLabel} />
+              </View>
+            ) : null}
+          </>
+        }
+        ListEmptyComponent={emptyBody}
+        renderItem={({ item, index }) =>
+          item.kind === 'header' ? (
+            <Animated.View
+              entering={entering(index)}
+              exiting={exiting}
+              style={index === 0 ? styles.sectionHeaderFirst : styles.sectionHeader}>
+              <MeSectionHeader
+                title={SECTION_LABEL[item.id]}
+                count={item.count}
+                tone={item.id === 'overdue' ? 'danger' : 'default'}
+                collapsible={item.id === 'blocked'}
+                collapsed={!item.open}
+                onToggle={item.id === 'blocked' ? () => setBlockedOpen((value) => !value) : undefined}
+              />
+            </Animated.View>
+          ) : (
+            renderRow(item.row, index)
+          )
+        }
+        ListFooterComponent={
+          <>
+            {/* `tasks.commandCenter` seče na 150 zadataka po statusu i to javi
+                kroz `hasMore` (isto kao web). */}
+            {command?.hasMore ? (
+              <Text style={[styles.truncated, styles.truncatedGap, { color: colors.mutedForeground }]}>
+                Prikazano je prvih 150 zadataka po statusu. Pun spisak je u Zadacima.
+              </Text>
+            ) : null}
+            {footer ? <View style={styles.footerWrap}>{footer}</View> : null}
+          </>
+        }
+      />
 
       {startupReady ? (
         <QuickAddFab
@@ -463,7 +489,11 @@ function CommandCenterBody({ startupId }: { startupId: Id<'startups'> }) {
  */
 function LoadingList() {
   return (
-    <View style={styles.listContent}>
+    <View
+      style={styles.loadingList}
+      accessible
+      accessibilityLiveRegion="polite"
+      accessibilityLabel="Učitavanje zadataka">
       <View style={styles.skeletonSummary}>
         <Skeleton width="55%" height={20} />
         <Skeleton width="35%" height={13} />
@@ -474,8 +504,14 @@ function LoadingList() {
   );
 }
 
-/** Granica greške samo za ovaj segment — ostatak Prostora radi dalje. */
-class CommandCenterBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+/**
+ * Granica greške samo za blokove: `fallback` crta redove Prostora oko greške, pa
+ * ostatak Prostora radi dalje.
+ */
+class CommandCenterBoundary extends Component<
+  { children: ReactNode; fallback: (error: Error, retry: () => void) => ReactNode },
+  { error: Error | null }
+> {
   state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
@@ -484,12 +520,7 @@ class CommandCenterBoundary extends Component<{ children: ReactNode }, { error: 
 
   render() {
     if (this.state.error) {
-      return (
-        <CommandCenterErrorState
-          message={accessErrorMessage(this.state.error, 'Došlo je do greške pri učitavanju zadataka.')}
-          onRetry={() => this.setState({ error: null })}
-        />
-      );
+      return this.props.fallback(this.state.error, () => this.setState({ error: null }));
     }
     return this.props.children;
   }
@@ -518,25 +549,39 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  segmentRow: {
-    paddingHorizontal: space[4],
-    paddingTop: space[2],
-    paddingBottom: space[1],
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    // IZMERENO na emulatoru (E11): sa 96 poslednja kartica na kraju skrola
-    // završava ~47dp ISPOD vrha FAB-a (efektivni razmak ~25dp, ne 96). 160 daje
-    // ≥ 8dp zazora iznad FAB-a (56 + bottom 16). Ne smanjuj bez merenja.
-    paddingBottom: 160,
+  // Skeleton stoji u listi (ispod redova Prostora), pa nema svoj okvir ekrana.
+  loadingList: {
+    paddingTop: 24,
     gap: 20,
   },
   // Lista je virtualizovana (`Animated.FlatList`): `gap` bi važio između SVIH
   // ćelija, pa razmaci idu kroz zaglavlja (20 između sekcija, 4 do redova).
   flatContent: {
     paddingHorizontal: 16,
-    // Isti donji prostor kao `listContent` (izmereno iznad FAB-a, E11).
+    // IZMERENO na emulatoru (E11): sa 96 poslednja kartica na kraju skrola
+    // završava ~47dp ISPOD vrha FAB-a (efektivni razmak ~25dp, ne 96). 160 daje
+    // ≥ 8dp zazora iznad FAB-a (56 + bottom 16). Ne smanjuj bez merenja.
     paddingBottom: 160,
+  },
+  // Isti okvir kad blokovi padnu (`fallback`): redovi Prostora + greška.
+  fallbackContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 160,
+  },
+  fallbackError: {
+    paddingVertical: 24,
+  },
+  // Traka opterećenja nosi svoj `paddingHorizontal: 16` — poništava razmak liste.
+  // Razmak između sekcija je 24 (DIZAJN-SMIRENJE §3): redovi Prostora → blokovi.
+  workloadWrap: {
+    marginHorizontal: -16,
+    marginTop: 24,
+  },
+  emptyWrap: {
+    paddingVertical: 24,
+  },
+  footerWrap: {
+    marginTop: 24,
   },
   summaryWrap: {
     marginBottom: 20,

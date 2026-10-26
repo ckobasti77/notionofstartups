@@ -20,6 +20,11 @@ import { MIN_TOUCH_TARGET } from '@/theme/tokens';
 export type AppHeaderProps = {
   /** Naslov ekrana — jedini naslov; nema druge trake iznad. */
   title: string;
+  /**
+   * Početna startupa (Prostor, PROSTOR P18): naslov JE ime aktivnog startupa i
+   * otvara birač; `title` je tada samo rezerva dok nema startupa.
+   */
+  startupAsTitle?: boolean;
   /** Akcije specifične za ekran; stoje levo od pretrage i avatara. */
   actions?: ReactNode;
   /** Kad je zadat, zaglavlje dobija „nazad" levo od naslova. */
@@ -29,12 +34,13 @@ export type AppHeaderProps = {
 };
 
 /**
- * JEDNO zaglavlje aplikacije: ime startupa kao `meta` linija, naslov ekrana
- * `display` levo, pa akcije ekrana, pretraga i avatar desno. Prebacivanje
- * startupa i „Moj profil" stoje IZA avatara (isti sheet) — ranije je to bila
- * zasebna traka koja je sa naslovom jela četvrtinu ekrana.
+ * JEDNO zaglavlje aplikacije: naslov ekrana levo (`display` na korenu taba,
+ * `title` na gurnutom ekranu), ime startupa kao `meta` linija ISPOD naslova
+ * (bez nadnaslova, PROSTOR P17), pa akcije ekrana, pretraga i avatar desno. Na
+ * početnoj startupa (`startupAsTitle`) naslov je samo ime startupa, bez meta
+ * linije. Prebacivanje startupa i „Moj profil" stoje i IZA avatara (isti sheet).
  */
-export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
+export function AppHeader({ title, startupAsTitle = false, actions, onBack, below }: AppHeaderProps) {
   const colors = useThemeColors();
   const router = useRouter();
   const { activeStartupId, setActiveStartupId, restoring } = useActiveStartup();
@@ -77,11 +83,19 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
     if (status === 'CanLoadMore') loadMore(20);
   }, [activeStartupId, active, status, loadMore]);
 
-  // Dok je izabran startup a stranica sa njim još nije stigla, eyebrow pokazuje
-  // skeleton — NE ime prvog startupa (`?? startups[0]` je za NEIZABRAN startup).
+  // Dok je izabran startup a stranica sa njim još nije stigla, meta linija
+  // pokazuje skeleton — NE ime prvog startupa (`?? startups[0]` je za NEIZABRAN
+  // startup).
   const resolving = loadingStartups || (activeStartupId !== null && active === undefined);
   const fallback = activeStartupId === null ? startups[0] : undefined;
   const activeName = (active ?? fallback)?.name ?? 'Bez startupa';
+  const openSwitcher = () => {
+    haptics.tap();
+    setSwitcherOpen(true);
+  };
+  const switcherLabel = `Startup: ${activeName}. Otvori nalog i prebacivanje.`;
+  // Naslov-startup: dok se ime razrešava stoji rezerva (`title`), ne tuđe ime.
+  const startupTitle = startupAsTitle && !resolving && (active ?? fallback) !== undefined;
 
   const switcherStartups: SwitcherStartup[] = startups.map((s) => ({
     _id: s._id,
@@ -92,14 +106,16 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
   return (
     <>
       <ScreenHeader
-        title={title}
+        title={startupTitle ? activeName : title}
+        titleSize={onBack ? 'title' : 'display'}
+        onTitlePress={startupTitle ? openSwitcher : undefined}
+        titleAccessibilityLabel={startupTitle ? switcherLabel : undefined}
         onBack={onBack}
-        eyebrow={resolving ? <Skeleton width={110} height={13} /> : activeName}
-        onEyebrowPress={() => {
-          haptics.tap();
-          setSwitcherOpen(true);
-        }}
-        eyebrowAccessibilityLabel={`Startup: ${activeName}. Otvori nalog i prebacivanje.`}
+        subtitle={
+          startupAsTitle ? undefined : resolving ? <Skeleton width={110} height={13} /> : activeName
+        }
+        onSubtitlePress={startupAsTitle ? undefined : openSwitcher}
+        subtitleAccessibilityLabel={switcherLabel}
         below={below}
         actions={
           <>
@@ -115,10 +131,7 @@ export function AppHeader({ title, actions, onBack, below }: AppHeaderProps) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Nalog i startupi. Trenutni startup: ${activeName}.`}
-              onPress={() => {
-                haptics.tap();
-                setSwitcherOpen(true);
-              }}
+              onPress={openSwitcher}
               style={({ pressed }) => [styles.avatarButton, pressed && styles.pressed]}>
               <Avatar name={profile?.displayName} uri={profile?.avatarUrl ?? null} size={32} />
             </Pressable>

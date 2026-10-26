@@ -12,7 +12,7 @@ import {
 } from '@devotion/shared';
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import { CalendarPlus, CheckSquare2, Plus } from 'lucide-react-native';
+import { CalendarPlus, CheckSquare2, NotebookPen, Plus } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
@@ -228,6 +228,16 @@ export function MyDayScreen() {
                 router.push('/moji-zadaci');
               }}>
               <CheckSquare2 size={22} color={colors.foreground} />
+            </IconButton>
+            {/* Beleške (PROSTOR P18): stalni ulaz umesto stavke „Misli" u Više;
+                ruta zadržava ime zbog deep linkova, ekran Beleški pravi K18. */}
+            <IconButton
+              accessibilityLabel="Beleške"
+              onPress={() => {
+                haptics.tap();
+                router.push('/misli');
+              }}>
+              <NotebookPen size={22} color={colors.foreground} />
             </IconButton>
             <IconButton
               accessibilityLabel="Isplaniraj dan"

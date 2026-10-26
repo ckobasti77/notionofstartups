@@ -21,7 +21,7 @@ const MAX_DESCRIPTION = 500;
  * Novi startup — mobilni pandan „Startup" tabu u web `admin-dialog.tsx` (create
  * grana), kao bottom sheet. `startups.create` je admin-only i sam pravi
  * podrazumevane oblasti (Dev/Marketing/Sales/Other) i opšti kanal — logo se ne
- * bira ovde, dodaje se posle kroz „Administracija startupa" (ekran ostaje
+ * bira ovde, dodaje se posle kroz „Podešavanja startupa" (ekran ostaje
  * fokusiran, a admin tako odmah vidi novi startup pre nego što bira sliku).
  */
 export function CreateStartupSheet({

@@ -70,22 +70,6 @@ export function writeActiveStartupId(profileId: Id<'profiles'>, startupId: Id<'s
   write(ACTIVE_STARTUP_PREFIX + sanitizeKeyPart(profileId), startupId);
 }
 
-const PROSTOR_SEGMENT_KEY = 'devotion.prostorSegment';
-
-export type ProstorSegmentValue = 'komandni-centar' | 'oblasti';
-
-/**
- * Poslednji segment taba Prostor (plan K07, E14). Prvi put (ništa sačuvano)
- * otvara se Komandni centar — navika iz vremena kad je on bio tab „Danas".
- */
-export function readProstorSegment(): ProstorSegmentValue {
-  return read(PROSTOR_SEGMENT_KEY) === 'oblasti' ? 'oblasti' : 'komandni-centar';
-}
-
-export function writeProstorSegment(next: ProstorSegmentValue): void {
-  write(PROSTOR_SEGMENT_KEY, next);
-}
-
 /** Da li je korisnik svesno isključio push na OVOM uređaju (`lib/notifications/register.ts`). */
 export function readPushOptOut(): boolean {
   return read(PUSH_OPT_OUT_KEY) === '1';

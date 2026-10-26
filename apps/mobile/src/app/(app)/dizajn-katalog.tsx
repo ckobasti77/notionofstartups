@@ -97,6 +97,8 @@ import {
   TitleField,
 } from '@/components/me/task-panel-parts';
 import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
+import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
+import { UndoBar } from '@/components/undo-bar';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
   AnimatedCheck,
@@ -1037,6 +1039,9 @@ export default function DizajnKatalogScreen() {
 
         {/* Pokret kroz celu aplikaciju (K19): pritisak, sheet, liste, stablo, mehurić. */}
         <PokretK19Katalog />
+
+        {/* PROSTOR K09: redovi Prostora, zaglavlje, Korpa, traka bez „Poništi“. */}
+        <ProstorK09Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1242,6 +1247,8 @@ export default function DizajnKatalogScreen() {
         onCarryOver={(keys) => setK12Log(`Vraćeno u danas: ${keys.length}`)}
         onDismiss={(keys) => setK12Log(`Sklonjeno: ${keys.length}`)}
       />
+      {/* Traka „Vraćeno: …“ iz Korpe (K09) — ista traka kao na ekranima. */}
+      <UndoBar />
     </View>
   );
 }

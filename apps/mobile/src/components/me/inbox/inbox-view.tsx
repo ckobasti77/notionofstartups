@@ -691,7 +691,7 @@ function PendingBody({
       ))}
       {state.truncated ? (
         <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
-          Prikazan je samo deo. Ostalo je u Odobrenjima.
+          Prikazan je samo deo.
         </Text>
       ) : null}
     </ScrollView>

@@ -35,10 +35,3 @@ export type StartupMember =
 
 /** Oblast iz `startups.get` (za labelu i boju na kartici / u quick-add-u). */
 export type StartupArea = FunctionReturnType<typeof api.startups.get>['areas'][number];
-
-export type TodaySegmentId = 'overview' | 'mine';
-
-export const TODAY_SEGMENTS = [
-  { id: 'overview', label: 'Pregled' },
-  { id: 'mine', label: 'Moji zadaci' },
-] as const satisfies ReadonlyArray<{ id: TodaySegmentId; label: string }>;

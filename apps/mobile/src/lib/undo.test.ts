@@ -10,6 +10,7 @@ import {
   hideUndoBar,
   popUndo,
   pushUndo,
+  showUndoNotice,
   type UndoAction,
 } from './undo';
 
@@ -144,5 +145,43 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     expect(opened).toBe(1);
     push('Bez druge radnje', 'c');
     expect('secondary' in (getUndoSnapshotForTest().bar ?? {})).toBe(false);
+  });
+
+  test('K09 — poruka bez „Poništi" (Korpa) smenjuje traku, a stek ostaje netaknut', () => {
+    let opened = 0;
+    push('Prva', 'a');
+    showUndoNotice({
+      label: 'Vraćeno: „Plan”.',
+      secondary: { label: 'Otvori', onPress: () => (opened += 1) },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    // Traka nudi poruku, ne stavku; stavka i dalje čeka u „Istoriji radnji".
+    expect(snapshot.bar).toBeNull();
+    expect(snapshot.notice?.label).toBe('Vraćeno: „Plan”.');
+    expect(snapshot.stack.map((entry) => entry.label)).toEqual(['Prva']);
+    snapshot.notice?.secondary?.onPress();
+    expect(opened).toBe(1);
+  });
+
+  test('K09 — nova radnja, ✕ i clearUndo sklanjaju poruku; svaki prikaz dobija nov ključ', () => {
+    showUndoNotice({ label: 'Vraćeno.' });
+    const first = getUndoSnapshotForTest().notice!.key;
+    showUndoNotice({ label: 'Vraćeno.' });
+    expect(getUndoSnapshotForTest().notice!.key).not.toBe(first);
+    expect('secondary' in getUndoSnapshotForTest().notice!).toBe(false);
+
+    push('Radnja', 'r');
+    expect(getUndoSnapshotForTest().notice).toBeNull();
+    expect(getUndoSnapshotForTest().bar?.label).toBe('Radnja');
+
+    showUndoNotice({ label: 'Uklonjeno iz Oporavljenog.' });
+    hideUndoBar();
+    expect(getUndoSnapshotForTest().notice).toBeNull();
+    expect(getUndoSnapshotForTest().stack.length).toBe(1);
+
+    showUndoNotice({ label: 'Vraćeno.' });
+    clearUndo();
+    expect(getUndoSnapshotForTest().notice).toBeNull();
+    expect(getUndoSnapshotForTest().stack).toEqual([]);
   });
 });
