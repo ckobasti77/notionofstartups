@@ -67,6 +67,12 @@ export type PageDocumentProps = {
   editable: boolean;
   onTitleChange: (value: string) => void;
   titleRef?: Ref<HTMLInputElement>;
+  /** Oznaka polja naslova za čitač ekrana (zadatak: „Naslov zadatka"). */
+  titleLabel?: string;
+  /** Tekst trake „Zaključano" (zadatak ima svoj, u muškom rodu). */
+  lockNotice?: string;
+  /** Šta dokument jeste (oznake za čitač ekrana): stranica ili zadatak. */
+  subject?: "page" | "task";
   /** `null` kad gledalac ne menja stranicu (nema čuvanja). */
   saveState: PageEditorSaveState | null;
   /** Traka ispod naslova (nerešen konflikt, izgubljeno pravo izmene). */
@@ -137,6 +143,9 @@ export function PageDocument({
   editable,
   onTitleChange,
   titleRef,
+  titleLabel = "Naslov stranice",
+  lockNotice,
+  subject = "page",
   saveState,
   notice,
   editors,
@@ -175,7 +184,7 @@ export function PageDocument({
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-4 sm:px-6 lg:px-8 lg:pt-6">
       <div data-workspace-enter className="mb-3 flex min-h-9 items-center gap-2">
-        <nav aria-label="Putanja stranice" className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
+        <nav aria-label={subject === "task" ? "Putanja zadatka" : "Putanja stranice"} className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           <button
             type="button"
             disabled={!crumbs.onOpenArea}
@@ -210,7 +219,7 @@ export function PageDocument({
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label="Radnje stranice" data-page-actions="">
+            <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label={subject === "task" ? "Radnje zadatka" : "Radnje stranice"} data-page-actions="">
               <MoreHorizontal aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
@@ -252,7 +261,7 @@ export function PageDocument({
                 value={title}
                 maxLength={200}
                 placeholder="Bez naslova"
-                aria-label="Naslov stranice"
+                aria-label={titleLabel}
                 aria-invalid={saveState === "invalid"}
                 aria-describedby={saveState === "invalid" ? invalidId : undefined}
                 onChange={(event) => onTitleChange(event.target.value)}
@@ -271,7 +280,7 @@ export function PageDocument({
             ) : null}
             <div className="flex min-w-0 items-center gap-3 md:hidden">{statusFor(false)}</div>
           </div>
-          {lock.view === "locked-readonly" ? <LockNotice className="mt-3" /> : null}
+          {lock.view === "locked-readonly" ? <LockNotice className="mt-3" text={lockNotice} /> : null}
           {notice ? (
             <div
               role="alert"
@@ -298,7 +307,7 @@ export function PageDocument({
         </div>
 
         <aside
-          aria-label="Podaci o stranici"
+          aria-label={subject === "task" ? "Podaci o zadatku" : "Podaci o stranici"}
           className="mt-8 min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-1"
         >
           <div className="space-y-6 lg:sticky lg:top-6">

@@ -32,7 +32,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckpointContributionDialog } from "@/components/workspace/task-checkpoint-list";
+import { CheckpointCommentsDialog } from "@/components/collab/checkpoint-comments-dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -47,6 +47,8 @@ import styles from "./task-checkpoint-node.module.css";
 
 export type TaskCheckpointFlowNodeData = {
   checkpointId: Id<"taskCheckpoints">;
+  /** Startup zadatka (komentari koraka traže članove za @). */
+  startupId: Id<"startups">;
   ordinal: number;
   text: string;
   completed: boolean;
@@ -441,8 +443,9 @@ export const TaskCheckpointFlowNodeCard = memo(
           />
         </article>
 
-        <CheckpointContributionDialog
+        <CheckpointCommentsDialog
           checkpointId={data.checkpointId}
+          startupId={data.startupId}
           title={data.text}
           open={threadOpen}
           onOpenChange={setThreadOpen}

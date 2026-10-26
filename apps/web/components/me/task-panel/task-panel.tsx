@@ -1,12 +1,16 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { taskPermissions, type TaskPriorityKey } from "@devotion/shared";
+import type { TaskPriorityKey } from "@devotion/shared";
 
+import { CommentsSection } from "@/components/collab/comments-section";
+import { useLiveNow } from "@/components/collab/use-live-now";
 import { Drawer } from "@/components/motion/drawer";
+import { requestCommentsFocus } from "@/components/workspace/task-page/comments-focus";
 import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
+import { taskPermissionsOf } from "@/components/workspace/task-page/task-page-model";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { accessErrorMessage } from "@/lib/errors";
@@ -14,8 +18,10 @@ import type { Today } from "@/lib/today";
 
 import { useQueryState } from "../my-day/use-query-state";
 import { PersonalTaskPanelHeader, PersonalTaskPanelView, type MoveTargetStartup } from "./personal-task-panel-view";
-import { StartupTaskPanelHeader, StartupTaskPanelView, type StartupTaskStatus } from "./startup-task-panel-view";
+import { PanelInstructions, StartupTaskPanelHeader, type StartupTaskStatus } from "./startup-task-panel-view";
+import { TaskDetailLayout } from "./task-detail-layout";
 import { isGoneError, TaskPanelError, TaskPanelGone, TaskPanelHeaderSkeleton, TaskPanelSkeleton } from "./task-panel-states";
+import { PLAN_UNDO_MS, usePlanEntry, usePlanToggle } from "./use-plan-toggle";
 import { useTitleFlight } from "./use-title-flight";
 
 export type TaskPanelTarget =
@@ -47,7 +53,7 @@ export type TaskPanelProps = {
 };
 
 /** „Poništi" traje 8 s (plan K07 E6). */
-const UNDO_MS = 8_000;
+const UNDO_MS = PLAN_UNDO_MS;
 
 export function panelRequestKey(request: TaskPanelRequest | null) {
   if (!request) return null;
@@ -128,43 +134,6 @@ function rowFocusOf(origin: HTMLElement | null) {
   return () => origin?.closest("[data-row-key]")?.querySelector<HTMLElement>("[data-row-focus]") ?? null;
 }
 
-type PlanRef = { kind: "task"; taskPageId: Id<"pages"> } | { kind: "personal"; personalTaskId: Id<"personalTasks"> };
-
-/** Stavka plana za danas (iz deljene pretplate `myDay.overview`). */
-function usePlanEntry(today: Today, refKey: string) {
-  const overview = useQueryState(api.myDay.overview, { dayKey: today.dayKey, doneSince: today.doneSince });
-  if (overview.status !== "ready") return null;
-  return overview.data.entries.find((entry) => entry.refKey === refKey)?._id ?? null;
-}
-
-function usePlanToggle(today: Today, entryId: Id<"myDayEntries"> | null, ref: PlanRef) {
-  const plan = useMutation(api.myDay.plan);
-  const unplan = useMutation(api.myDay.unplan);
-  return () => {
-    if (entryId !== null) {
-      void unplan({ entryId })
-        .then((removed) =>
-          toast("Uklonjeno iz Moj dan.", {
-            duration: UNDO_MS,
-            action: {
-              label: "Poništi",
-              onClick: () => {
-                void plan({ dayKey: removed.dayKey, ref: removed.ref, position: removed.position }).catch((error: unknown) =>
-                  toast.error(accessErrorMessage(error, "Plan nije sačuvan.")),
-                );
-              },
-            },
-          }),
-        )
-        .catch((error: unknown) => toast.error(accessErrorMessage(error, "Plan nije sačuvan.")));
-      return;
-    }
-    void plan({ dayKey: today.dayKey, ref })
-      .then(() => toast.success("Dodato u Moj dan."))
-      .catch((error: unknown) => toast.error(accessErrorMessage(error, "Plan nije sačuvan.")));
-  };
-}
-
 function StartupTaskPanel({
   pageId,
   open,
@@ -184,10 +153,22 @@ function StartupTaskPanel({
   const page = useQueryState(api.pages.get, { pageId });
   const assignees = useQueryState(api.taskAssignees.listForTask, { taskPageId: pageId });
   const data = page.status === "ready" ? page.data : null;
-  const isCreator = data?.createdByProfileId === profileId;
+  // Izvršioce menja svaki član dok zadatak nije zaključan (P1), pa su članovi uvek potrebni.
   const members = useQueryState(
     api.startups.listMembers,
-    data && isCreator ? { startupId: data.startupId, limit: 50 } : "skip",
+    data ? { startupId: data.startupId, limit: 50 } : "skip",
+  );
+  const liveNow = useLiveNow(today.now);
+  const commentsHeadingId = useId();
+  const memberData = members.status === "ready" ? members.data : null;
+  const mentionMembers = useMemo(
+    () =>
+      (memberData ?? []).map(({ profile }) => ({
+        profileId: profile._id,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+      })),
+    [memberData],
   );
   const entryId = usePlanEntry(today, `task:${pageId}`);
   const togglePlan = usePlanToggle(today, entryId, { kind: "task", taskPageId: pageId });
@@ -209,7 +190,9 @@ function StartupTaskPanel({
   // (inače bi izvršilac na trenutak video zaključan status i „Priključi se").
   const assigneeList = assignees.status === "ready" ? assignees.data : [];
   const isAssignee = assigneeList.some((person) => person.profileId === profileId);
-  const permissions = taskPermissions({ kind: "task", isCreator, isAssignee });
+  // Zaključan zadatak menjaju autor, vlasnik i admin (`permissions.canEdit`); izvršilac još i status.
+  // Dok se stranica učitava, panel je skeleton (dozvole se ne koriste).
+  const permissions = taskPermissionsOf(data ? data.permissions : { isLocked: false, canEdit: true }, isAssignee);
 
   const fail = (fallback: string) => (error: unknown) => toast.error(accessErrorMessage(error, fallback));
 
@@ -287,8 +270,20 @@ function StartupTaskPanel({
         }}
       />
     );
+    const memberList =
+      members.status === "ready"
+        ? members.data.map(({ profile }) => ({ _id: profile._id, displayName: profile.displayName, avatarUrl: profile.avatarUrl }))
+        : members.status === "error"
+          ? ("error" as const)
+          : undefined;
+    const openFullPage = () => {
+      onClose();
+      if (openFull) openFull(pageId);
+      else openInStartup(data.startupId, pageId);
+    };
     body = (
-      <StartupTaskPanelView
+      <TaskDetailLayout
+        variant="panel"
         now={today.now}
         task={task}
         assignees={assigneeList.map((person) => ({
@@ -296,13 +291,7 @@ function StartupTaskPanel({
           displayName: person.displayName,
           avatarUrl: person.avatarUrl,
         }))}
-        members={
-          members.status === "ready"
-            ? members.data.map(({ profile }) => ({ _id: profile._id, displayName: profile.displayName, avatarUrl: profile.avatarUrl }))
-            : members.status === "error"
-              ? "error"
-              : undefined
-        }
+        members={memberList}
         permissions={permissions}
         isSelfAssigned={isAssignee}
         planned={entryId !== null}
@@ -310,14 +299,40 @@ function StartupTaskPanel({
         onJoin={() => void join({ taskPageId: pageId }).catch(fail("Priključivanje nije uspelo."))}
         onLeave={() => void leave({ taskPageId: pageId }).catch(fail("Napuštanje zadatka nije uspelo."))}
         onTogglePlan={togglePlan}
-        openLabel={openFull ? "full" : "startup"}
-        onOpenInStartup={() => {
-          onClose();
-          if (openFull) openFull(pageId);
-          else openInStartup(data.startupId, pageId);
-        }}
         onDenied={(reason) => toast.error(reason)}
-        checkpoints={<TaskCheckpointList taskPageId={pageId} canCreate={permissions.checkpoints.allowed} compact />}
+        openAction={{ kind: openFull ? "full" : "startup", onSelect: openFullPage }}
+        checkpoints={
+          <TaskCheckpointList
+            taskPageId={pageId}
+            startupId={data.startupId}
+            canCreate={permissions.checkpoints.allowed}
+            compact
+          />
+        }
+        instructions={
+          <PanelInstructions
+            value={task.instructions}
+            editable={permissions.instructions.allowed}
+            lockedReason={permissions.instructions.allowed ? null : permissions.instructions.reason}
+            onDenied={(reason) => toast.error(reason)}
+            onSave={(instructions) => change({ instructions })}
+          />
+        }
+        comments={
+          <CommentsSection
+            target={{ kind: "page", id: pageId }}
+            members={mentionMembers}
+            selfProfileId={profileId}
+            now={liveNow}
+            headingId={commentsHeadingId}
+            compact={{
+              onShowAll: () => {
+                requestCommentsFocus(pageId);
+                openFullPage();
+              },
+            }}
+          />
+        }
       />
     );
   }

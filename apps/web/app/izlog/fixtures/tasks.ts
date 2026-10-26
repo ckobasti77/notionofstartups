@@ -12,7 +12,7 @@ import {
 
 import type { MyTasksSource } from "@/components/me/tasks/my-tasks-model";
 import type { PersonalTaskPanelViewProps } from "@/components/me/task-panel/personal-task-panel-view";
-import type { PanelPerson, StartupTaskPanelViewProps } from "@/components/me/task-panel/startup-task-panel-view";
+import type { PanelPerson, StartupTaskView } from "@/components/me/task-panel/startup-task-panel-view";
 
 import { fakeId } from "./ids";
 import { IZLOG_STARTUPS } from "./me";
@@ -117,7 +117,7 @@ export const IZLOG_PEOPLE: PanelPerson[] = [
 ];
 
 /** Startup zadatak u panelu (Ugovor sa dobavljačem). */
-export const IZLOG_PANEL_TASK: StartupTaskPanelViewProps["task"] = {
+export const IZLOG_PANEL_TASK: StartupTaskView = {
   title: "Ugovor sa dobavljačem piletine",
   status: "in_progress",
   priority: "high",
@@ -137,7 +137,8 @@ export const IZLOG_PANEL_CHECKPOINTS = [
 ];
 
 export const IZLOG_PERMS_CREATOR = taskPermissions({ kind: "task", isCreator: true, isAssignee: true });
-export const IZLOG_PERMS_MEMBER = taskPermissions({ kind: "task", isCreator: false, isAssignee: true });
+/** Izvršilac na ZAKLJUČANOM zadatku: menja status i korake, ostalo ima katanac (P1, D5). */
+export const IZLOG_PERMS_MEMBER = taskPermissions({ kind: "task", isCreator: false, isAssignee: true, lockedForViewer: true });
 
 export const IZLOG_PANEL_PERSONAL: PersonalTaskPanelViewProps["task"] = {
   title: "Pregledati Q4 budžet",

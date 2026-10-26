@@ -33,7 +33,7 @@ import {
   type CommandCenterZone,
 } from "@/components/workspace/startup-tasks/command-center-model";
 import { STARTUP_FLIP_MAX_ROWS } from "@/components/workspace/startup-tasks/constants";
-import { TaskContentLocks, TaskMetaChips } from "@/components/workspace/startup-tasks/task-meta-chips";
+import { TaskMetaChips } from "@/components/workspace/startup-tasks/task-meta-chips";
 import { TaskQuickCreate } from "@/components/workspace/startup-tasks/task-quick-create";
 import { useMoveFocus } from "@/components/workspace/startup-tasks/use-move-focus";
 import { buildTaskSections, TasksBody, tasksListName, useBoardAllowed, type TasksMode } from "@/components/workspace/tasks-view";
@@ -498,7 +498,6 @@ function IzlogDetaljKartica({ creator }: { creator: boolean }) {
         </div>
       </header>
       <div className="space-y-4 px-5 py-5">
-        {creator ? null : <TaskContentLocks onDenied={(reason) => toast.error(reason)} />}
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Instrukcije</h3>
           <p className="mt-2 text-sm leading-6 text-foreground/85">

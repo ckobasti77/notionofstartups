@@ -6,6 +6,10 @@ import { EMPTY_TASK_FILTERS } from "@devotion/shared";
 
 import { Drawer } from "@/components/motion/drawer";
 import { AnimatedCheck } from "@/components/motion/animated-check";
+import { CommentList } from "@/components/collab/comment-list";
+import { compactComments } from "@/components/collab/collab-model";
+import { CommentComposer } from "@/components/collab/comment-composer";
+import { CommentsPanel, ShowAllCommentsButton } from "@/components/collab/comments-section";
 import { MyTasksView } from "@/components/me/tasks/my-tasks-view";
 import { buildMyTasks, buildTaskRows } from "@/components/me/tasks/my-tasks-model";
 import {
@@ -13,14 +17,16 @@ import {
   PersonalTaskPanelView,
 } from "@/components/me/task-panel/personal-task-panel-view";
 import {
+  PanelInstructions,
   StartupTaskPanelHeader,
-  StartupTaskPanelView,
   type StartupTaskPanelChange,
 } from "@/components/me/task-panel/startup-task-panel-view";
+import { TaskDetailLayout } from "@/components/me/task-panel/task-detail-layout";
 import { useTitleFlight } from "@/components/me/task-panel/use-title-flight";
 
 import type { IzlogEkranProps } from "../registry";
 import { IZLOG_NOW } from "../fixtures/now";
+import { IZLOG_COMMENTS, IZLOG_DOC_MEMBERS, IZLOG_DOC_SELF } from "../fixtures/page-document";
 import {
   IZLOG_PANEL_CHECKPOINTS,
   IZLOG_PANEL_PERSONAL,
@@ -37,7 +43,7 @@ export type IzlogPanelKind = "kreator" | "clan" | "licni" | "prebaci";
 const noop = () => {};
 
 /** Kratak pregled koraka (u aplikaciji je to `TaskCheckpointList`, koji traži prijavu). */
-function IzlogCheckpoints({ editable }: { editable: boolean }) {
+export function IzlogCheckpoints({ editable }: { editable: boolean }) {
   const [items, setItems] = useState(IZLOG_PANEL_CHECKPOINTS);
   const done = items.filter((item) => item.completed).length;
   return (
@@ -62,6 +68,36 @@ function IzlogCheckpoints({ editable }: { editable: boolean }) {
         ))}
       </ul>
       {editable ? <p className="pl-1 text-xs text-muted-foreground">Novi korak dodaješ ispod liste.</p> : null}
+    </div>
+  );
+}
+
+const asyncNoop = async () => {};
+
+/** Kompaktni Komentari panela (poslednja tri + „Svi komentari"), isti prezentacioni delovi kao u aplikaciji. */
+function IzlogCompactComments() {
+  const { shown, hidden } = compactComments(IZLOG_COMMENTS);
+  return (
+    <div>
+      <CommentsPanel
+        headingAs="h3"
+        count={String(IZLOG_COMMENTS.length)}
+        composer={<CommentComposer members={IZLOG_DOC_MEMBERS} selfProfileId={IZLOG_DOC_SELF} onSubmit={asyncNoop} />}
+      >
+        <CommentList
+          state={{ status: "ready", items: shown, loadMore: null }}
+          now={IZLOG_NOW}
+          members={IZLOG_DOC_MEMBERS}
+          selfProfileId={IZLOG_DOC_SELF}
+          editingId={null}
+          onStartEdit={noop}
+          onCancelEdit={noop}
+          onSaveEdit={asyncNoop}
+          onRemove={noop}
+          animateArrivals={false}
+        />
+        {hidden > 0 ? <ShowAllCommentsButton count={IZLOG_COMMENTS.length} onClick={noop} /> : null}
+      </CommentsPanel>
     </div>
   );
 }
@@ -118,7 +154,7 @@ export function IzlogPanel({
   ) : (
     <StartupTaskPanelHeader
       task={task}
-      canEditTitle={kind === "kreator"}
+      canEditTitle={kind !== "clan"}
       onRename={(next) => setTask((current) => ({ ...current, title: next }))}
       titleRef={setTitleEl}
     />
@@ -155,7 +191,8 @@ export function IzlogPanel({
           }}
         />
       ) : (
-        <StartupTaskPanelView
+        <TaskDetailLayout
+          variant="panel"
           now={IZLOG_NOW}
           task={task}
           assignees={assignees}
@@ -172,10 +209,19 @@ export function IzlogPanel({
           onJoin={() => setAssignees((current) => [...current, IZLOG_PEOPLE[0]])}
           onLeave={() => setAssignees((current) => current.filter((person) => person._id !== IZLOG_PEOPLE[0]._id))}
           onTogglePlan={() => setPlanned((value) => !value)}
-          onOpenInStartup={onClose}
-          openLabel={openLabel}
           onDenied={(reason) => toast.error(reason)}
+          openAction={{ kind: openLabel, onSelect: onClose }}
           checkpoints={<IzlogCheckpoints editable={permissions.checkpoints.allowed} />}
+          instructions={
+            <PanelInstructions
+              value={task.instructions}
+              editable={permissions.instructions.allowed}
+              lockedReason={permissions.instructions.allowed ? null : permissions.instructions.reason}
+              onDenied={(reason) => toast.error(reason)}
+              onSave={(instructions) => changeTask({ instructions })}
+            />
+          }
+          comments={<IzlogCompactComments />}
         />
       )}
     </Drawer>

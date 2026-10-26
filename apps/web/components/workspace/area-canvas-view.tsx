@@ -542,6 +542,7 @@ function AreaCanvasReady({
               style: { width, height },
               data: {
                 checkpointId: checkpoint._id,
+                startupId,
                 ordinal,
                 text: checkpoint.text,
                 completed: checkpoint.completed,
@@ -577,6 +578,7 @@ function AreaCanvasReady({
     filter,
     ownTaskPageId,
     pendingTimestamp,
+    startupId,
     taskCheckpoints,
     visibleCheckpointTaskId,
   ]);

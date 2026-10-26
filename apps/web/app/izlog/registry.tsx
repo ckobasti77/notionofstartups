@@ -15,6 +15,7 @@ import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
 import PorukeEkran from "./ekrani/poruke";
 import StranicaEkran from "./ekrani/stranica";
+import ZadatakStranaEkran from "./ekrani/zadatak-strana";
 import ZadaciStartupEkran from "./ekrani/zadaci-startup";
 
 export type IzlogEkranProps = {
@@ -102,5 +103,11 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K10",
     varijante: ["lista", "pregled", "potvrda", "zakljucano", "prazno", "ucitavanje", "greska"],
     Komponenta: IstorijaIzmenaEkran,
+  },
+  "zadatak-strana": {
+    naslov: "Zadatak na celu stranu",
+    korak: "K11",
+    varijante: ["clan", "zakljucan", "sa-komentarima"],
+    Komponenta: ZadatakStranaEkran,
   },
 };

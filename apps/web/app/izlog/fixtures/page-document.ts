@@ -83,7 +83,7 @@ export const IZLOG_DOC_CANDIDATES: PageRelationCandidate[] = [
   { pageId: fakeId("pages", 832), title: "Kampanja za otvaranje", kind: "note", areaLabel: "Marketing" },
 ];
 
-function comment(input: {
+export function comment(input: {
   n: number;
   author: (typeof IZLOG_DOC_PEOPLE)[keyof typeof IZLOG_DOC_PEOPLE] | null;
   text: string;

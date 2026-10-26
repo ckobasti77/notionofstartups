@@ -116,7 +116,7 @@ export function restoreOutcomeMessage(changed: boolean, ms: number, nowMs: numbe
 
 // --- Konflikt i zaključavanje ---------------------------------------------------
 
-export type ConflictSubject = "page" | "area";
+export type ConflictSubject = "page" | "area" | "task";
 
 export const UNKNOWN_EDITOR = "Neko iz tima";
 
@@ -130,7 +130,9 @@ export function conflictCopy(input: {
   const title =
     input.subject === "area"
       ? "Neko je u međuvremenu izmenio opis oblasti"
-      : "Neko je u međuvremenu izmenio stranicu";
+      : input.subject === "task"
+        ? "Neko je u međuvremenu izmenio zadatak"
+        : "Neko je u međuvremenu izmenio stranicu";
   const name = input.updaterName?.trim() || UNKNOWN_EDITOR;
   const when =
     input.updatedAt !== null && input.updatedAt > 0
@@ -141,6 +143,10 @@ export function conflictCopy(input: {
 
 export const LOCK_NOTICE =
   "Zaključano. Menjaju je autor, vlasnik startupa i admin — ti možeš da komentarišeš.";
+
+/** Isto za zadatak (muški rod); izvršilac na zaključanom zadatku još menja status i korake. */
+export const LOCK_NOTICE_TASK =
+  "Zaključano. Menjaju ga autor, vlasnik startupa i admin — ti možeš da komentarišeš. Izvršilac menja status i završava korake.";
 
 /** Opis oznake „Zaključano" (tooltip): „Zaključao/la Ana · 24. okt u 09:30". */
 export function lockedByLabel(input: {
@@ -227,4 +233,22 @@ export function keptMentions<Member extends MentionCandidate>(
     if (text.includes(`@${mention.displayName}`)) result.push(mention);
   }
   return result;
+}
+
+// --- Kompaktni komentari (panel zadatka) -----------------------------------------
+
+/** Koliko poslednjih komentara panel zadatka prikazuje (K07 §5.7). */
+export const COMPACT_COMMENTS_VISIBLE = 3;
+
+/**
+ * Lista je rastuća (najstariji prvi), pa „poslednja N" su s kraja. `hidden` je
+ * koliko ih ostaje iza „Svi komentari".
+ */
+export function compactComments<Comment>(
+  items: ReadonlyArray<Comment>,
+  visible: number = COMPACT_COMMENTS_VISIBLE,
+): { shown: Comment[]; hidden: number } {
+  const keep = Math.max(0, Math.floor(visible));
+  const shown = keep === 0 ? [] : items.slice(-keep);
+  return { shown, hidden: items.length - shown.length };
 }

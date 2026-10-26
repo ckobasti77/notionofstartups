@@ -3,7 +3,6 @@
 import { Component, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { History, Lock, LockOpen, Map as MapIcon, MessageSquare, MessagesSquare, Trash2, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 import { CommentsSection, type CommentsCount } from "@/components/collab/comments-section";
@@ -25,24 +24,12 @@ import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/
 import { useQueryResult, useQueryTolerant } from "@/components/workspace/workspace-error-boundary";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { accessErrorMessage } from "@/lib/errors";
 import { prefersReducedMotion } from "@/lib/motion";
 
 import type { PageEditorSaveState } from "./page-autosave-model";
-import {
-  PAGE_ACTIONS_SELECTOR,
-  PageDocument,
-  type PageDocumentMenuItem,
-  type PageDocumentNotice,
-} from "./page-document";
-import {
-  countLabel,
-  documentAccess,
-  pageMenuKeys,
-  restoreBlockedReason,
-  subpageMeta,
-  trashedMessage,
-} from "./page-document-model";
+import { PAGE_ACTIONS_SELECTOR, PageDocument, type PageDocumentNotice } from "./page-document";
+import { buildPageMenuItems, usePageDocumentActions, useSaveShortcut } from "./page-document-actions";
+import { countLabel, documentAccess, pageMenuKeys, restoreBlockedReason, subpageMeta } from "./page-document-model";
 import { PageSideFacts } from "./page-side-column";
 import { SubpagesList } from "./subpages-list";
 import { useBeforeUnloadGuard, usePageAutosave } from "./use-page-autosave";
@@ -111,11 +98,6 @@ export function PageDocumentView({
     page,
     noteFileCount: noteFiles?.length ?? 0,
   });
-  const lockPage = useMutation(api.pages.lock);
-  const unlockPage = useMutation(api.pages.unlock);
-  const archivePage = useMutation(api.areasV2.archivePage);
-  const restoreFromTrash = useMutation(api.trash.restore);
-  const detachPage = useMutation(api.areasV2.detachPage);
   const discussion = useQueryTolerant(api.chat.channelForAnchor, {
     startupId: startup._id,
     anchorType: "page",
@@ -127,7 +109,6 @@ export function PageDocumentView({
   const subpagesHeadingId = useId();
   const commentsHeadingId = useId();
   const relationsHeadingId = useId();
-  const [lockBusy, setLockBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const [dismissedConflict, setDismissedConflict] = useState<string | null>(null);
@@ -163,21 +144,7 @@ export function PageDocumentView({
   const conflictOpen = conflictKey !== null && dismissedConflict !== conflictKey;
   const setConflictOpen = (open: boolean) => setDismissedConflict(open ? null : conflictKey);
 
-  // Ctrl/⌘ S: sačuvaj odmah (pregledač ne otvara svoj dijalog). Slušalac se
-  // vezuje jednom; poslednja funkcija čuvanja stiže kroz ref.
-  const saveNowRef = useRef(autosave.saveNow);
-  useEffect(() => {
-    saveNowRef.current = autosave.saveNow;
-  });
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() !== "s" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
-      event.preventDefault();
-      saveNowRef.current();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useSaveShortcut(autosave.saveNow);
 
   const draftReady = autosave.draftReady;
   useEffect(() => {
@@ -195,76 +162,30 @@ export function PageDocumentView({
       ?.focus({ preventScroll: true });
   }
 
-  async function setLocked(locked: boolean) {
-    if (lockBusy) return;
-    setLockBusy(true);
-    try {
-      if (locked) await lockPage({ pageId });
-      else await unlockPage({ pageId });
-      toast.success(locked ? "Stranica je zaključana." : "Stranica je otključana.");
-    } catch (error) {
-      toast.error(accessErrorMessage(error, locked ? "Stranica nije zaključana." : "Stranica nije otključana."));
-    } finally {
-      setLockBusy(false);
-    }
-  }
-
-  async function archive() {
-    if (saveState === "dirty" || saveState === "saving") {
-      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
-      return;
-    }
-    const title = page.title;
-    try {
-      await archivePage({ startupId: startup._id, pageId });
-      toast.success(trashedMessage(title), {
-        action: {
-          label: "Poništi",
-          onClick: () =>
-            void restoreFromTrash({ target: { kind: "page", id: pageId } }).catch((error: unknown) =>
-              toast.error(accessErrorMessage(error, "Stranica nije vraćena.")),
-            ),
-        },
-      });
-      onArchived();
-    } catch (error) {
-      toast.error(accessErrorMessage(error, "Stranica nije obrisana."));
-    }
-  }
-
-  async function detach() {
-    try {
-      const result = await detachPage({ startupId: startup._id, pageId });
-      if (result.status !== "detached") throw new Error("Stranica više nije ugnežđena.");
-      toast.success("Stranica je odvojena i premeštena na vrh oblasti.");
-    } catch (error) {
-      toast.error(accessErrorMessage(error, "Stranica nije odvojena."));
-    }
-  }
+  const { lockBusy, setLocked, archive, detach } = usePageDocumentActions({
+    kind: "page",
+    startupId: startup._id,
+    pageId,
+    title: page.title,
+    saveState,
+    onArchived,
+  });
 
   const otherAreas = startup.areas.filter((area) => area._id !== page.areaId).length;
   const hasChildren = (subpageCount?.count ?? 0) > 0;
   const menuKeys = pageMenuKeys(page.permissions, { hasChildren, otherAreas });
-  const menuItems: PageDocumentMenuItem[] = [];
-  for (const key of menuKeys) {
-    if (key === "comments") {
-      menuItems.push({ key, label: "Komentari", icon: MessageSquare, onSelect: jumpToComments, afterClose: true });
-    }
-    if (key === "history") menuItems.push({ key, label: "Istorija izmena", icon: History, onSelect: () => setHistoryOpen(true) });
-    if (key === "lock") menuItems.push({ key, label: "Zaključaj stranicu", icon: Lock, onSelect: () => void setLocked(true) });
-    if (key === "unlock") menuItems.push({ key, label: "Otključaj", icon: LockOpen, onSelect: () => void setLocked(false) });
-    if (key === "map") menuItems.push({ key, label: "Prikaži na mapi", icon: MapIcon, onSelect: () => onOpenMap(pageId) });
-    if (key === "detach") menuItems.push({ key, label: "Odvoji na vrh oblasti", icon: Unlink, onSelect: () => void detach() });
-    if (key === "discussion") {
-      menuItems.push({
-        key,
-        label: discussion ? `Diskusija u Porukama · ${discussion.messageCount}` : "Diskusija u Porukama",
-        icon: MessagesSquare,
-        onSelect: () => (discussion && onOpenChannel ? onOpenChannel(discussion._id) : setDiscussionOpen(true)),
-      });
-    }
-    if (key === "archive") menuItems.push({ key, label: "Obriši", icon: Trash2, onSelect: () => void archive(), destructive: true });
-  }
+  const menuItems = buildPageMenuItems({
+    keys: menuKeys,
+    kind: "page",
+    discussionLabel: discussion ? `Diskusija u Porukama · ${discussion.messageCount}` : "Diskusija u Porukama",
+    onJumpToComments: jumpToComments,
+    onOpenHistory: () => setHistoryOpen(true),
+    onSetLocked: (locked) => void setLocked(locked),
+    onOpenMap: () => onOpenMap(pageId),
+    onDetach: () => void detach(),
+    onDiscussion: () => (discussion && onOpenChannel ? onOpenChannel(discussion._id) : setDiscussionOpen(true)),
+    onArchive: () => void archive(),
+  });
 
   // Stranica je zaključana dok je nacrt čekao: editor je samo za čitanje, a
   // nacrt nije na serveru — to mora da se vidi i da se reši (kopija ili odbacivanje).
@@ -461,7 +382,8 @@ export function PageDocumentView({
   );
 }
 
-function SubpagesLoader({
+/** Podstranice stranice ili zadatka (deli ih i puna strana zadatka, K11). */
+export function SubpagesLoader({
   startupId,
   page,
   headingId,
@@ -481,7 +403,8 @@ function SubpagesLoader({
   memberName: (id: string | null) => string | null;
   onOpen: (id: Id<"pages">) => void;
   onCreate: () => void;
-  onShowMap: () => void;
+  /** Zadatak nema mapu (P14): bez ovoga nema "Prikaži na mapi". */
+  onShowMap?: () => void;
   onCount: (count: { count: number; capped: boolean } | null) => void;
 }) {
   const { results, status, loadMore } = usePaginatedQuery(
@@ -526,7 +449,7 @@ function SubpagesLoader({
   );
 }
 
-class SubpagesBoundary extends Component<{ children: ReactNode; headingId: string }, { failed: boolean; attempt: number }> {
+export class SubpagesBoundary extends Component<{ children: ReactNode; headingId: string }, { failed: boolean; attempt: number }> {
   state = { failed: false, attempt: 0 };
 
   static getDerivedStateFromError() {
@@ -549,7 +472,8 @@ class SubpagesBoundary extends Component<{ children: ReactNode; headingId: strin
   }
 }
 
-function RelationsContainer(props: {
+/** "Povezano" u bočnoj koloni dokumenta i zadatka (K11 ga deli). */
+export function RelationsContainer(props: {
   startupId: Id<"startups">;
   page: PageDetails;
   areas: ReadonlyArray<{ _id: Id<"startupAreas">; label: string }>;

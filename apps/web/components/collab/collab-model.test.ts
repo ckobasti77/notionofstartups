@@ -8,6 +8,7 @@ import {
   commentAuthorName,
   commentMeta,
   commentToDraft,
+  compactComments,
   conflictCopy,
   groupRevisionsByDay,
   keptMentions,
@@ -149,5 +150,23 @@ describe("komentari — pominjanja u unosu", () => {
     expect(commentMeta({ createdAt: NOW - 30_000, edited: false, moderationStatus: "rejected" }, NOW)).toBe(
       "upravo · Odbijeno ranije",
     );
+  });
+});
+
+describe("compactComments", () => {
+  it("prikazuje poslednja tri, a ostale broji kao skrivene", () => {
+    const result = compactComments(["a", "b", "c", "d", "e"]);
+    expect(result.shown).toEqual(["c", "d", "e"]);
+    expect(result.hidden).toBe(2);
+  });
+
+  it("kratka lista se prikazuje cela", () => {
+    expect(compactComments(["a", "b"])).toEqual({ shown: ["a", "b"], hidden: 0 });
+    expect(compactComments([])).toEqual({ shown: [], hidden: 0 });
+  });
+
+  it("nevalidna veličina ne baca (0 sakriva sve)", () => {
+    expect(compactComments(["a", "b"], 0)).toEqual({ shown: [], hidden: 2 });
+    expect(compactComments(["a", "b"], -1)).toEqual({ shown: [], hidden: 2 });
   });
 });

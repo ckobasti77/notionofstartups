@@ -113,8 +113,10 @@ export function trashedMessage(title: string): string {
 export function restoreBlockedReason(input: {
   canRestoreRevision: boolean;
   saveState: "saved" | "saving" | "dirty" | "error" | "conflict" | "invalid";
+  /** Zadatak je muškog roda: „Zadatak je zaključan." */
+  subject?: "page" | "task";
 }): string | null {
-  if (!input.canRestoreRevision) return "Stranica je zaključana.";
+  if (!input.canRestoreRevision) return input.subject === "task" ? "Zadatak je zaključan." : "Stranica je zaključana.";
   if (input.saveState !== "saved") return "Sačekaj da se tvoje izmene sačuvaju.";
   return null;
 }

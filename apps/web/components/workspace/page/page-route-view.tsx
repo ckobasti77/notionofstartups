@@ -3,12 +3,13 @@
 import { Component, useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 
-import { PageEditorView } from "@/components/workspace/page-editor-view";
 import { PageMapView } from "@/components/workspace/page-workspace-view";
+import { TaskPageView } from "@/components/workspace/task-page/task-page-view";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
 import { useQueryResult } from "@/components/workspace/workspace-error-boundary";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { Today } from "@/lib/today";
 
 import type { PageEditorSaveState } from "./page-autosave-model";
 import { PageDocumentSkeleton, PageRouteProblem } from "./page-document";
@@ -20,6 +21,8 @@ export type PageRouteViewProps = {
   pageId: Id<"pages">;
   tab?: "mapa";
   now: number;
+  /** Današnji dan (plan „Moj dan" na zadatku). */
+  today: Today;
   autoFocusTitle?: boolean;
   onAutoFocusDone?: () => void;
   onOpenPage: (pageId: Id<"pages">) => void;
@@ -34,7 +37,7 @@ export type PageRouteViewProps = {
 
 /**
  * Ruta `?view=page` (PROSTOR K10, plan K07 §3): beleška, tabela i fajl su
- * dokument tima; zadatak ostaje postojeći prikaz do K11 (bez kanvasa); `tab=mapa`
+ * dokument tima, zadatak je zadatak na celu stranu (K11, `TaskPageView`); `tab=mapa`
  * je Mapa stranice (zadatak nema mapu). Sopstvena granica greške razlikuje
  * obrisanu stranicu (Korpa) od greške učitavanja („Pokušaj ponovo").
  */
@@ -63,6 +66,7 @@ function PageRouteLoader({
   pageId,
   tab,
   now,
+  today,
   autoFocusTitle,
   onAutoFocusDone,
   onOpenPage,
@@ -79,18 +83,20 @@ function PageRouteLoader({
 
   if (page.kind === "task") {
     return (
-      <div className="pb-8">
-        <PageEditorView
-          startup={startup}
-          pageId={pageId}
-          onOpenPage={onOpenPage}
-          onOpenArea={onOpenArea}
-          onOpenChannel={onOpenChannel}
-          onCreateChild={onCreateChild}
-          onArchived={() => onArchived(fallback)}
-          onSaveStateChange={onSaveStateChange}
-        />
-      </div>
+      <TaskPageView
+        startup={startup}
+        profileId={profileId}
+        page={page}
+        today={today}
+        autoFocusTitle={autoFocusTitle}
+        onAutoFocusDone={onAutoFocusDone}
+        onOpenPage={onOpenPage}
+        onOpenArea={onOpenArea}
+        onOpenChannel={onOpenChannel}
+        onCreateChild={onCreateChild}
+        onArchived={() => onArchived(fallback)}
+        onSaveStateChange={onSaveStateChange}
+      />
     );
   }
   if (tab === "mapa") {

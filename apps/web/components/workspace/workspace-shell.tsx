@@ -1202,6 +1202,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 pageId={route.pageId}
                 tab={route.tab}
                 now={today.now}
+                today={today}
                 autoFocusTitle={createdPageId === route.pageId}
                 onAutoFocusDone={clearCreatedPage}
                 onOpenPage={openPage}
