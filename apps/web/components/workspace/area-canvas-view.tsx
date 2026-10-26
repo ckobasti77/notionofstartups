@@ -1921,7 +1921,7 @@ function AreaCanvasReady({
               edges.some((edge) => edge.selected);
             // Bez selekcije Esc putuje dalje do globalne navigacije „nazad”.
             // Potrošen Esc se označava sa preventDefault — to je ugovor koji
-            // globalni slušalac u PageWorkspaceView poštuje.
+            // globalni slušalac Mape stranice (`PageMapView`) poštuje.
             if (!hasSelection) return;
             event.preventDefault();
             setNodes((current) =>

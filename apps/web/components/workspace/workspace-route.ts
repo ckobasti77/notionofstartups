@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import type { MeRoute, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
+import type { MeRoute, PageTab, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
 
 /** Prikazi ličnog nivoa „Ja" (P1). */
 export const ME_ROUTE_KINDS = [
@@ -20,7 +20,7 @@ export function routeScope(route: WorkspaceRoute): WorkspaceScope {
 
 export type AreasRouteCandidate =
   | { kind: "area"; areaId: string }
-  | { kind: "page"; pageId: string };
+  | { kind: "page"; pageId: string; tab?: PageTab };
 
 export type StaticWorkspaceRoute = Exclude<
   WorkspaceRoute,
@@ -99,7 +99,9 @@ export function readWorkspaceRouteCandidate(
   }
   if (view === "page") {
     const pageId = params.get("pageId")?.trim();
-    return pageId ? { kind: "page", pageId } : null;
+    if (!pageId) return null;
+    // Nepoznata kartica = dokument (K07 E13).
+    return params.get("tab") === "mapa" ? { kind: "page", pageId, tab: "mapa" } : { kind: "page", pageId };
   }
   return null;
 }
@@ -159,6 +161,7 @@ export function workspaceRouteHref(
   url.searchParams.delete("filter");
   url.searchParams.delete("osoba");
   url.searchParams.delete("vrsta");
+  url.searchParams.delete("tab");
   url.searchParams.delete("startupId");
   url.searchParams.set("view", route.kind);
 
@@ -166,6 +169,7 @@ export function workspaceRouteHref(
     url.searchParams.set("areaId", route.areaId);
   } else if (route.kind === "page") {
     url.searchParams.set("pageId", route.pageId);
+    if (route.tab) url.searchParams.set("tab", route.tab);
   } else if (
     (route.kind === "chat" || route.kind === "me-chat") &&
     route.channelId
@@ -186,6 +190,18 @@ export function workspaceRouteHref(
   }
 
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+/**
+ * Razrešena ruta stranice zadržava traženu karticu (`tab=mapa`): `areasV2.resolveRoute`
+ * vraća samo id, a obaveštenja i linkovi vode i na Mapu.
+ */
+export function withPageTab(
+  resolved: WorkspaceRoute | null,
+  candidate: WorkspaceRouteCandidate,
+): WorkspaceRoute | null {
+  if (resolved?.kind !== "page" || candidate.kind !== "page" || !candidate.tab) return resolved;
+  return resolved.pageId === candidate.pageId ? { ...resolved, tab: candidate.tab } : resolved;
 }
 
 export function workspaceRouteAfterStartupSwitch(

@@ -30,6 +30,9 @@ export type MeRoute =
 /** Filter Zadataka startupa (PROSTOR P11): Svi (podrazumevano) · Moji · osoba. */
 export type TasksFilter = "svi" | "moji";
 
+/** Kartica rute stranice: samo Mapa (zadatak je ignoriše, P14). */
+export type PageTab = "mapa";
+
 /** Segment Korpe (PROSTOR P3) — isti ključevi kao `trash.list`. */
 export type TrashSegment = "page" | "idea" | "file" | "recovered";
 
@@ -54,7 +57,8 @@ export type StartupRoute =
   | { kind: "chat"; channelId?: Id<"chatChannels"> }
   | { kind: "puls"; weekStart?: number }
   | { kind: "area"; areaId: Id<"startupAreas"> }
-  | { kind: "page"; pageId: Id<"pages"> };
+  /** `tab: "mapa"` = Mapa stranice (PROSTOR P13, K10); bez njega dokument. */
+  | { kind: "page"; pageId: Id<"pages">; tab?: PageTab };
 
 export type WorkspaceRoute = MeRoute | StartupRoute;
 

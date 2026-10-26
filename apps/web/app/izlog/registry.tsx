@@ -3,6 +3,8 @@ import type { ComponentType } from "react";
 import BiracDatumaEkran from "./ekrani/birac-datuma";
 import BrziUnosEkran from "./ekrani/brzi-unos";
 import InboxEkran from "./ekrani/inbox";
+import IstorijaIzmenaEkran from "./ekrani/istorija-izmena";
+import KomentariEkran from "./ekrani/komentari";
 import IsplanirajEkran from "./ekrani/isplaniraj";
 import KorpaEkran from "./ekrani/korpa";
 import LjuskaEkran from "./ekrani/ljuska";
@@ -12,6 +14,7 @@ import MojiZadaciEkran from "./ekrani/moji-zadaci";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
 import PorukeEkran from "./ekrani/poruke";
+import StranicaEkran from "./ekrani/stranica";
 import ZadaciStartupEkran from "./ekrani/zadaci-startup";
 
 export type IzlogEkranProps = {
@@ -81,5 +84,23 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K08",
     varijante: ["stranice", "ideje", "prilozi", "oporavljeno", "prazna", "ucitavanje", "greska"],
     Komponenta: KorpaEkran,
+  },
+  stranica: {
+    naslov: "Stranica — dokument tima",
+    korak: "K10",
+    varijante: ["clan", "zakljucana-autor", "zakljucana-clan", "konflikt", "prisustvo", "tabela", "fajl", "ucitavanje", "obrisana", "greska"],
+    Komponenta: StranicaEkran,
+  },
+  komentari: {
+    naslov: "Komentari",
+    korak: "K10",
+    varijante: ["lista", "pominjanje", "izmena", "prazno", "greska", "ucitavanje"],
+    Komponenta: KomentariEkran,
+  },
+  "istorija-izmena": {
+    naslov: "Istorija izmena",
+    korak: "K10",
+    varijante: ["lista", "pregled", "potvrda", "zakljucano", "prazno", "ucitavanje", "greska"],
+    Komponenta: IstorijaIzmenaEkran,
   },
 };

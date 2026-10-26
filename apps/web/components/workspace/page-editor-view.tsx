@@ -4,41 +4,29 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { AlignLeft, AlertTriangle, Archive, ArrowLeft, Check, CheckSquare2, ChevronRight, Clock3, Copy, FileText, FolderOutput, Info, LayoutGrid, List, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { Archive, ArrowLeft, CheckSquare2, ChevronRight, FolderOutput, LoaderCircle, Plus, RefreshCw, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
-import { RichTextEditor } from "@/components/rich-text-editor";
+import { CommentsSection } from "@/components/collab/comments-section";
+import { ConflictDialog } from "@/components/collab/conflict-dialog";
+import { LockNotice } from "@/components/collab/lock";
+import { useLiveNow } from "@/components/collab/use-live-now";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  NoteAttachmentsProvider,
-  useNoteFileUpload,
-} from "@/components/workspace/files/note-attachments";
-import { PageFilesPanel } from "@/components/workspace/files/page-files-panel";
 import { EntityDiscussionPanel } from "@/components/workspace/chat/entity-discussion-panel";
 import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
-import { PageTablePanel } from "@/components/workspace/tables/page-table-panel";
+import {
+  combinedEditorSaveState,
+  SAVE_STATE_LABELS,
+  type PageEditorSaveState,
+} from "@/components/workspace/page/page-autosave-model";
+import { trashedMessage } from "@/components/workspace/page/page-document-model";
+import { useBeforeUnloadGuard, usePageAutosave } from "@/components/workspace/page/use-page-autosave";
 import { pageEntryDisplayText } from "@/components/workspace/page-entry-text";
 import { PageRelationsPanel } from "@/components/workspace/page-relations";
 import { TaskCheckpointList } from "@/components/workspace/task-checkpoint-list";
@@ -46,21 +34,15 @@ import {
   TaskContentLocks,
   TaskMetaChips,
   type TaskMetaChange,
-  type TaskMetaField,
 } from "@/components/workspace/startup-tasks/task-meta-chips";
 import {
-  activatePageRevision,
   createTaskInstructionsDraft,
-  createPageRevisionLedger,
   editTaskInstructionsDraft,
   prepareTaskInstructionsSave,
-  readPageRevision,
   reconcileTaskInstructionsDraft,
   rejectTaskInstructionsSave,
-  resolvePageRevision,
   resolveTaskInstructionsSave,
   taskInstructionsSaveState,
-  type PageRevisionLedger,
   type TaskInstructionsDraft,
   type TaskInstructionsSaveState,
   type TaskInstructionsServerState,
@@ -74,41 +56,15 @@ import { accessErrorMessage } from "@/lib/errors";
 import { type TaskPriority, type TaskStatus } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
-export type PageEditorSaveState =
-  | "saved"
-  | "saving"
-  | "dirty"
-  | "error"
-  | "conflict"
-  | "invalid";
+export type { PageEditorSaveState };
 
-/** Vadi id-jeve priloga iz HTML tela beleške (`data-file-id` na `noteFile` blokovima). */
-function extractNoteFileIds(html: string): string[] {
-  if (!html.includes("data-note-file")) return [];
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  return Array.from(parsed.querySelectorAll("[data-note-file]"))
-    .map((element) => element.getAttribute("data-file-id") ?? "")
-    .filter((id) => id !== "");
-}
-
-function combinedEditorSaveState(
-  pageState: PageEditorSaveState,
-  instructionsState: TaskInstructionsSaveState,
-): PageEditorSaveState {
-  if (pageState === "saving" || instructionsState === "saving") {
-    return "saving";
-  }
-  if (pageState === "dirty" || instructionsState === "dirty") {
-    return "dirty";
-  }
-  if (pageState === "invalid") return "invalid";
-  if (pageState === "conflict") return "conflict";
-  if (pageState === "error" || instructionsState === "error") {
-    return "error";
-  }
-  return "saved";
-}
-
+/**
+ * Zadatak na ruti stranice — prelazni prikaz do K11 (zadatak na celu stranu):
+ * naslov, čipovi, instrukcije, koraci, Povezano, Diskusija i Komentari, bez
+ * kanvasa (P14). Beleška, tabela i fajl su dokument tima
+ * (`page/page-document-view.tsx`). Naslov se čuva kroz zajednički
+ * `usePageAutosave` (isti red i revizija kao osobine zadatka).
+ */
 export function PageEditorView({
   startup,
   pageId,
@@ -117,9 +73,6 @@ export function PageEditorView({
   onOpenChannel,
   onCreateChild,
   onArchived,
-  presentation = "page",
-  taskViewMode = "canvas",
-  onTaskViewModeChange,
   onSaveStateChange,
 }: {
   startup: StartupWithAreas;
@@ -129,374 +82,102 @@ export function PageEditorView({
   onOpenChannel?: (channelId: Id<"chatChannels">) => void;
   onCreateChild: (target: CreatePageTarget) => void;
   onArchived: () => void;
-  presentation?: "page" | "dialog" | "task-canvas";
-  taskViewMode?: "canvas" | "list";
-  onTaskViewModeChange?: (mode: "canvas" | "list") => void;
   onSaveStateChange?: (state: PageEditorSaveState) => void;
 }) {
-  const [taskSheetSection, setTaskSheetSection] = useState<
-    "checkpoints" | "instructions" | "details" | null
-  >(null);
   const page = useQuery(api.pages.get, { pageId });
   const breadcrumbs = useQuery(api.pages.getBreadcrumbs, { pageId });
   const members = useQuery(api.startups.listMembers, { startupId: startup._id, limit: 50 });
-  const assigneeProfileIds = useMemo(
-    () => (page?.assignees ?? []).map((assignee) => assignee._id),
-    [page?.assignees],
-  );
   const updatePage = useMutation(api.areasV2.updatePage);
-  // Metapodaci zadatka (K17): ne-kreator menja status kroz `tasks.updateMetadata`
-  // (server to izvršiocu dozvoljava), a sebe dodaje/skida kroz `taskAssignees`.
+  // Metapodaci zadatka (K17): izvršilac na zaključanom menja status kroz
+  // `tasks.updateMetadata`, a sebe dodaje/skida kroz `taskAssignees`.
   const currentProfile = useQuery(api.profiles.getCurrent, {});
-  // Sat za oznaku roka u čipu (prikaz ne čita sat u renderu).
-  const [metaNow] = useState(() => Date.now());
+  // Sat za oznaku roka i „pre N min" (prikaz ne čita sat u renderu).
+  const [initialNow] = useState(() => Date.now());
+  const metaNow = useLiveNow(initialNow);
   const updateTaskAsMember = useMutation(api.tasks.updateMetadata);
   const joinTask = useMutation(api.taskAssignees.join);
   const leaveTask = useMutation(api.taskAssignees.leave);
   const archivePage = useMutation(api.areasV2.archivePage);
+  const restoreFromTrash = useMutation(api.trash.restore);
   const detachPage = useMutation(api.areasV2.detachPage);
-  // Prilozi u telu beleške: spisak hrani i node view-ove (URL-ovi) i čišćenje.
-  const noteFiles = useQuery(
-    api.pageFiles.list,
-    page?.kind === "note" ? { pageId } : "skip",
-  );
-  const pruneNoteFiles = useMutation(api.pageFiles.prune);
-  const uploadNoteFile = useNoteFileUpload(
-    page?.kind === "note" && page.permissions.canEditBody ? page._id : null,
-  );
   const relationsResult = useQuery(api.areasV2.listRelations, {
     startupId: startup._id,
     pageId,
   });
   const createRelation = useMutation(api.areasV2.createRelation);
   const deleteRelation = useMutation(api.areasV2.deleteRelation);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [draftPageId, setDraftPageId] = useState<Id<"pages"> | null>(null);
-  const [saveState, setSaveState] = useState<PageEditorSaveState>("saved");
+  const autosave = usePageAutosave({
+    startupId: startup._id,
+    pageId,
+    page,
+  });
   const [instructionsSaveState, setInstructionsSaveState] =
     useState<TaskInstructionsSaveState>("saved");
-  const [autosaveTick, setAutosaveTick] = useState(0);
   const [selectedRelationPageId, setSelectedRelationPageId] = useState<
     Id<"pages"> | ""
   >("");
   const [relationBusy, setRelationBusy] = useState(false);
   const [detachBusy, setDetachBusy] = useState(false);
-  const loadedPageId = useRef<string | null>(null);
-  const activePageIdRef = useRef<string>(pageId);
-  const baseRevisionRef = useRef(0);
-  const localVersionRef = useRef(0);
-  const saveInFlightRef = useRef(false);
-  const saveQueuedRef = useRef(false);
-  const pageUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const pageRevisionLedgerRef = useRef<PageRevisionLedger>(
-    createPageRevisionLedger(pageId, 0),
-  );
-  const latestDraftRef = useRef({ title: "", content: "" });
-  // Ogledalo za autosave efekat — spisak fajlova ne sme da mu širi dependencije.
-  const noteFilesCountRef = useRef(0);
-  useEffect(() => {
-    noteFilesCountRef.current = noteFiles?.length ?? 0;
-  }, [noteFiles]);
+  const [dismissedConflict, setDismissedConflict] = useState<string | null>(null);
+  const commentsHeadingId = useId();
   const editorSaveState = combinedEditorSaveState(
-    saveState,
+    autosave.saveState,
     instructionsSaveState,
   );
-  const enqueuePageUpdate = useCallback(
-    <Result,>(operation: () => Promise<Result>) => {
-      const queued = pageUpdateQueueRef.current.then(operation, operation);
-      pageUpdateQueueRef.current = queued.then(
-        () => undefined,
-        () => undefined,
-      );
-      return queued;
-    },
-    [],
-  );
-
-  useLayoutEffect(() => {
-    activePageIdRef.current = pageId;
-    activatePageRevision(pageRevisionLedgerRef.current, pageId);
-  }, [pageId]);
-
-  useEffect(() => {
-    if (!page) return;
-
-    if (loadedPageId.current !== page._id) {
-      loadedPageId.current = page._id;
-      activePageIdRef.current = page._id;
-      activatePageRevision(
-        pageRevisionLedgerRef.current,
-        page._id,
-        page.revision,
-      );
-      baseRevisionRef.current = readPageRevision(
-        pageRevisionLedgerRef.current,
-        page._id,
-        page.revision,
-      );
-      localVersionRef.current = 0;
-      saveQueuedRef.current = false;
-      const remoteDraft = { title: page.title, content: page.content };
-      latestDraftRef.current = remoteDraft;
-      setTitle(remoteDraft.title);
-      setContent(remoteDraft.content);
-      setDraftPageId(page._id);
-      setSaveState("saved");
-      setInstructionsSaveState("saved");
-      return;
-    }
-
-    // Reaktivne izmene sa servera prihvatamo samo kada lokalni nacrt nije
-    // promenjen. Dok je nacrt dirty/saving/conflict, baseRevision ostaje
-    // prikovan za verziju od koje je korisnik krenuo, pa sledece cuvanje mora
-    // ili uspeti nad tom verzijom ili eksplicitno prijaviti konflikt.
-    if (saveState !== "saved" || page.revision < baseRevisionRef.current) return;
-    if (
-      page.revision === baseRevisionRef.current
-      && page.title === latestDraftRef.current.title
-      && page.content === latestDraftRef.current.content
-    ) return;
-
-    activatePageRevision(
-      pageRevisionLedgerRef.current,
-      page._id,
-      page.revision,
-    );
-    baseRevisionRef.current = readPageRevision(
-      pageRevisionLedgerRef.current,
-      page._id,
-      page.revision,
-    );
-    const remoteDraft = { title: page.title, content: page.content };
-    latestDraftRef.current = remoteDraft;
-    setTitle(remoteDraft.title);
-    setContent(remoteDraft.content);
-  }, [page, saveState]);
-
-  useEffect(() => {
-    if (!page || !page.permissions.canEdit || saveState !== "dirty") return;
-    const timer = window.setTimeout(async () => {
-      if (saveInFlightRef.current) {
-        saveQueuedRef.current = true;
-        return;
-      }
-
-      const snapshot = {
-        title: latestDraftRef.current.title.trim(),
-        content: latestDraftRef.current.content,
-      };
-      if (!snapshot.title) return;
-
-      const requestPageId = pageId;
-      const fallbackRevision = baseRevisionRef.current;
-      const snapshotVersion = localVersionRef.current;
-      saveInFlightRef.current = true;
-      saveQueuedRef.current = false;
-      setSaveState("saving");
-      let conflictDetected = false;
-
-      try {
-        const result = await enqueuePageUpdate(() =>
-          updatePage({
-            startupId: startup._id,
-            pageId: requestPageId,
-            title: snapshot.title,
-            content: snapshot.content,
-            expectedRevision: readPageRevision(
-              pageRevisionLedgerRef.current,
-              requestPageId,
-              fallbackRevision,
-            ),
-          }),
-        );
-        const activeRevision = resolvePageRevision(
-          pageRevisionLedgerRef.current,
-          requestPageId,
-          result.revision,
-        );
-        if (activePageIdRef.current !== requestPageId) return;
-
-        if (activeRevision !== null) {
-          baseRevisionRef.current = activeRevision;
-        }
-        setSaveState(localVersionRef.current === snapshotVersion ? "saved" : "dirty");
-        // Tek posle uspešnog čuvanja se čiste prilozi izbačeni iz tela. Unija
-        // sačuvanog snimka i živog nacrta štiti upload koji je stigao posle
-        // snimka; server dodatno ne dira redove mlađe od grace perioda.
-        if (page.kind === "note" && noteFilesCountRef.current > 0) {
-          const keepFileIds = Array.from(
-            new Set([
-              ...extractNoteFileIds(snapshot.content),
-              ...extractNoteFileIds(latestDraftRef.current.content),
-            ]),
-          );
-          void pruneNoteFiles({ pageId: requestPageId, keepFileIds }).catch(
-            () => {
-              // GC ne sme da prekine tok čuvanja; sledeći save pokušava opet.
-            },
-          );
-        }
-      } catch (error) {
-        if (activePageIdRef.current !== requestPageId) return;
-
-        if (String(error).includes("KONFLIKT_IZMENA")) {
-          conflictDetected = true;
-          saveQueuedRef.current = false;
-          setSaveState("conflict");
-        } else {
-          setSaveState(localVersionRef.current === snapshotVersion ? "error" : "dirty");
-          toast.error(error instanceof Error ? error.message : "Izmene nisu sačuvane.");
-        }
-      } finally {
-        saveInFlightRef.current = false;
-        if (
-          !conflictDetected
-          && saveQueuedRef.current
-        ) {
-          saveQueuedRef.current = false;
-          setAutosaveTick((tick) => tick + 1);
-        }
-      }
-    }, 650);
-    return () => window.clearTimeout(timer);
-  }, [
-    autosaveTick,
-    content,
-    enqueuePageUpdate,
-    page,
-    pageId,
-    pruneNoteFiles,
-    saveState,
-    startup._id,
-    title,
-    updatePage,
-  ]);
-
-  useEffect(() => {
-    if (editorSaveState === "saved") return;
-    const warnAboutUnsavedDraft = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnAboutUnsavedDraft);
-    return () => window.removeEventListener("beforeunload", warnAboutUnsavedDraft);
-  }, [editorSaveState]);
+  useBeforeUnloadGuard(editorSaveState);
 
   useEffect(() => {
     onSaveStateChange?.(editorSaveState);
   }, [editorSaveState, onSaveStateChange]);
 
-  function markDraftChanged(nextDraft: { title: string; content: string }) {
-    latestDraftRef.current = nextDraft;
-    localVersionRef.current += 1;
-    setSaveState((current) =>
-      !nextDraft.title.trim()
-        ? "invalid"
-        : current === "conflict"
-          ? "conflict"
-          : "dirty",
-    );
-  }
+  const conflictKey = autosave.conflict
+    ? `${autosave.conflict.currentRevision ?? "?"}:${autosave.conflict.updatedAt ?? "?"}`
+    : null;
+  // Nov konflikt otvara dijalog sam; Esc ga zatvara za taj konflikt (traka ostaje).
+  const conflictOpen = conflictKey !== null && dismissedConflict !== conflictKey;
+  const setConflictOpen = (open: boolean) => setDismissedConflict(open ? null : conflictKey);
 
-  async function copyLocalDraft() {
-    const draft = latestDraftRef.current;
-    const parsedContent = new DOMParser().parseFromString(draft.content, "text/html");
-    const plainText = parsedContent.body.textContent?.trim();
-    const text = [draft.title.trim(), plainText].filter(Boolean).join("\n\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("Tvoj nacrt je kopiran.");
-    } catch {
-      toast.error("Nacrt nije moguće kopirati. Obeleži sadržaj i kopiraj ga ručno.");
-    }
-  }
-
-  function loadTeamVersion() {
-    if (!page || page.revision <= baseRevisionRef.current) {
-      toast.info("Timska verzija još stiže. Pokušaj ponovo za trenutak.");
-      return;
-    }
-
-    const remoteDraft = { title: page.title, content: page.content };
-    activatePageRevision(
-      pageRevisionLedgerRef.current,
-      page._id,
-      page.revision,
-    );
-    baseRevisionRef.current = readPageRevision(
-      pageRevisionLedgerRef.current,
-      page._id,
-      page.revision,
-    );
-    localVersionRef.current += 1;
-    latestDraftRef.current = remoteDraft;
-    saveQueuedRef.current = false;
-    setTitle(remoteDraft.title);
-    setContent(remoteDraft.content);
-    setSaveState("saved");
-    toast.success("Učitana je poslednja timska verzija.");
-  }
-
-  async function updateTaskMetadata(patch: {
-    status?: TaskStatus;
-    priority?: TaskPriority;
-    assigneeProfileIds?: Array<Id<"profiles">>;
-    dueDate?: number | null;
-    instructions?: string | null;
-    checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
-  }) {
-    const requestPageId = pageId;
-    const fallbackRevision = baseRevisionRef.current;
-    const result = await enqueuePageUpdate(() =>
-      updatePage({
-        startupId: startup._id,
-        pageId: requestPageId,
-        expectedRevision: readPageRevision(
-          pageRevisionLedgerRef.current,
-          requestPageId,
-          fallbackRevision,
-        ),
-        ...(patch.status === undefined ? {} : { taskStatus: patch.status }),
-        ...(patch.priority === undefined
-          ? {}
-          : { taskPriority: patch.priority }),
-        ...(patch.assigneeProfileIds === undefined
-          ? {}
-          : { assigneeProfileIds: patch.assigneeProfileIds }),
-        ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
-        ...(patch.instructions === undefined
-          ? {}
-          : { instructions: patch.instructions }),
-        ...(patch.checkpoints === undefined
-          ? {}
-          : { checkpoints: patch.checkpoints }),
-      }),
-    );
-    const activeRevision = resolvePageRevision(
-      pageRevisionLedgerRef.current,
-      requestPageId,
-      result.revision,
-    );
-    if (
-      activeRevision !== null &&
-      activePageIdRef.current === requestPageId
-    ) {
-      baseRevisionRef.current = activeRevision;
-    }
-    return result;
-  }
+  const runPageUpdate = autosave.runPageUpdate;
+  const updateTaskMetadata = useCallback(
+    (patch: {
+      status?: TaskStatus;
+      priority?: TaskPriority;
+      assigneeProfileIds?: Array<Id<"profiles">>;
+      dueDate?: number | null;
+      instructions?: string | null;
+      checkpoints?: Array<{ id: string; text: string; completed: boolean }> | null;
+    }) =>
+      runPageUpdate((expectedRevision) =>
+        updatePage({
+          startupId: startup._id,
+          pageId,
+          expectedRevision,
+          ...(patch.status === undefined ? {} : { taskStatus: patch.status }),
+          ...(patch.priority === undefined ? {} : { taskPriority: patch.priority }),
+          ...(patch.assigneeProfileIds === undefined
+            ? {}
+            : { assigneeProfileIds: patch.assigneeProfileIds }),
+          ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
+          ...(patch.instructions === undefined ? {} : { instructions: patch.instructions }),
+          ...(patch.checkpoints === undefined ? {} : { checkpoints: patch.checkpoints }),
+        }),
+      ),
+    [pageId, runPageUpdate, startup._id, updatePage],
+  );
 
   async function setTaskMetadata(patch: { status?: TaskStatus; priority?: TaskPriority; assigneeProfileIds?: Array<Id<"profiles">>; dueDate?: number | null }) {
     if (!page?.permissions.canEdit) return;
-    try { await updateTaskMetadata(patch); toast.success("Zadatak je ažuriran."); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "Podaci zadatka nisu sačuvani."); }
+    try {
+      await updateTaskMetadata(patch);
+      toast.success("Zadatak je ažuriran.");
+    } catch (error) {
+      toast.error(accessErrorMessage(error, "Podaci zadatka nisu sačuvani."));
+    }
   }
 
   /**
-   * Promena kroz čip: kreator ide postojećim putem (`areasV2.updatePage` sa
-   * revizijom); izvršilac koji nije kreator menja samo status, kroz
+   * Promena kroz čip: ko sme da menja zadatak ide kroz `areasV2.updatePage` sa
+   * revizijom; izvršilac zaključanog zadatka menja samo status, kroz
    * `tasks.updateMetadata` (ista pravila servera kao panel zadatka).
    */
   function changeTaskMeta(change: TaskMetaChange) {
@@ -519,50 +200,30 @@ export function PageEditorView({
 
   async function archive() {
     if (!page) return;
-    if (
-      editorSaveState === "dirty" ||
-      editorSaveState === "saving"
-    ) {
+    if (editorSaveState === "dirty" || editorSaveState === "saving") {
       toast.info("Sačekaj trenutak da se izmene sačuvaju.");
       return;
     }
-    if (
-      (editorSaveState === "invalid" ||
-        editorSaveState === "error" ||
-        editorSaveState === "conflict") &&
-      !window.confirm(
-        "Postoje izmene koje nisu sačuvane. Arhivirati stranicu i odbaciti taj nacrt?",
-      )
-    ) {
-      return;
+    const title = page.title;
+    try {
+      await archivePage({ startupId: startup._id, pageId });
+      toast.success(trashedMessage(title), {
+        action: {
+          label: "Poništi",
+          onClick: () =>
+            void restoreFromTrash({ target: { kind: "page", id: pageId } }).catch((error: unknown) =>
+              toast.error(accessErrorMessage(error, "Zadatak nije vraćen.")),
+            ),
+        },
+      });
+      onArchived();
+    } catch (error) {
+      toast.error(accessErrorMessage(error, "Zadatak nije obrisan."));
     }
-    if (!page.permissions.canDeleteDirectly) {
-      try {
-        await requestDeletion({
-          target: { kind: "page", id: page._id },
-        });
-        toast.success("Glasanje o brisanju je pokrenuto.");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Zahtev nije poslat.",
-        );
-      }
-      return;
-    }
-    if (!window.confirm("Arhivirati ovu stranicu? Podstranice će biti izvučene nivo iznad.")) return;
-    try { await archivePage({ startupId: startup._id, pageId }); toast.success("Stranica je arhivirana."); onArchived(); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "Stranica nije arhivirana."); }
   }
 
   async function detachFromParent() {
     if (!page?.permissions.canDetach || detachBusy) return;
-    if (
-      !window.confirm(
-        "Odvojiti ovu stavku od roditelja i vratiti je u koren oblasti?",
-      )
-    ) {
-      return;
-    }
     setDetachBusy(true);
     try {
       const result = await detachPage({
@@ -570,13 +231,11 @@ export function PageEditorView({
         pageId: page._id,
       });
       if (result.status !== "detached") {
-        throw new Error("Stavka više nije ugnježđena.");
+        throw new Error("Stavka više nije ugnežđena.");
       }
-      toast.success("Stavka je odvojena i vraćena u koren oblasti.");
+      toast.success("Stavka je odvojena i premeštena na vrh oblasti.");
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Stavka nije odvojena.",
-      );
+      toast.error(accessErrorMessage(error, "Stavka nije odvojena."));
     } finally {
       setDetachBusy(false);
     }
@@ -612,26 +271,10 @@ export function PageEditorView({
     }
   }
 
-  async function requestUnlinkPage(relationId: Id<"pageRelations">) {
-    if (relationBusy) return;
-    setRelationBusy(true);
-    try {
-      await requestDeletion({
-        target: { kind: "page_relation", id: relationId },
-      });
-      toast.success(
-        "Zahtev za uklanjanje veze je poslat na odobravanje.",
-      );
-    } finally {
-      setRelationBusy(false);
-    }
-  }
-
-  // Tiptap must not mount with the empty local defaults. Its initial update can
-  // otherwise mark that placeholder as a user edit and autosave it over the
-  // body that was just created (notably after converting a private thought).
-  if (!page || page._id !== pageId || draftPageId !== page._id) {
-    return <EditorSkeleton presentation={presentation} />;
+  // Polje se ne puni dok ne stigne verzija ove stranice (Tiptap/autosave ne
+  // smeju da prime prazne podrazumevane vrednosti kao izmenu korisnika).
+  if (!page || !autosave.draftReady) {
+    return <EditorSkeleton />;
   }
   const pageArea = startup.areas.find((area) => area._id === page.areaId);
   const areaLabelById = new Map(
@@ -642,8 +285,8 @@ export function PageEditorView({
       ? null
       : (areaLabelById.get(areaId) ?? "Nepoznata oblast");
   const canMoveToArea = page.permissions.canMove && startup.areas.length > 1;
-  // „Nazad” = jedan nivo hijerarhije naviše: roditeljski oblačić ako je
-  // stavka ugnežđena, inače koren njene oblasti. Isti cilj kao Esc prečica.
+  // „Nazad” = jedan nivo hijerarhije naviše: roditeljska stranica ako je
+  // stavka ugnežđena, inače njena oblast.
   const parentCrumb =
     breadcrumbs && breadcrumbs.length > 1
       ? breadcrumbs[breadcrumbs.length - 2]
@@ -655,395 +298,16 @@ export function PageEditorView({
     if (page.parentPageId) onOpenPage(page.parentPageId);
     else onOpenArea?.(page.areaId);
   };
-  const showBack =
-    presentation !== "dialog" &&
-    (page.parentPageId !== null || Boolean(onOpenArea));
+  const showBack = page.parentPageId !== null || Boolean(onOpenArea);
   const status = (page.taskStatus ?? "backlog") as TaskStatus;
   const priority = (page.taskPriority ?? "medium") as TaskPriority;
+  const assigneeProfileIds = (page.assignees ?? []).map((assignee) => assignee._id);
   const isTaskAssignee = currentProfile ? assigneeProfileIds.includes(currentProfile._id) : false;
-  const renderTaskMeta = (fields?: ReadonlyArray<TaskMetaField>, className?: string) => (
-    <TaskMetaChips
-      className={className}
-      fields={fields}
-      now={metaNow}
-      status={status}
-      priority={priority}
-      dueDate={page.dueDate}
-      assignees={(page.assignees ?? []).map((person) => ({
-        _id: person._id,
-        displayName: person.displayName,
-        avatarUrl: person.avatarUrl ?? null,
-      }))}
-      members={members?.map(({ profile }) => ({
-        _id: profile._id,
-        displayName: profile.displayName,
-        avatarUrl: profile.avatarUrl,
-      }))}
-      permissions={taskPermissions({ kind: "task", isCreator: page.permissions.canEdit, isAssignee: isTaskAssignee })}
-      isSelfAssigned={isTaskAssignee}
-      onChange={changeTaskMeta}
-      onJoin={() =>
-        void joinTask({ taskPageId: page._id })
-          .then(() => toast.success("Sad si na zadatku."))
-          .catch((error: unknown) => toast.error(accessErrorMessage(error, "Priključivanje nije uspelo.")))
-      }
-      onLeave={() =>
-        void leaveTask({ taskPageId: page._id })
-          .then(() => toast.success("Više nisi na zadatku."))
-          .catch((error: unknown) => toast.error(accessErrorMessage(error, "Napuštanje zadatka nije uspelo.")))
-      }
-      onDenied={(reason) => toast.error(reason)}
-    />
-  );
-  const checkpointTotal = page.checkpointTotal ?? 0;
-  const checkpointCompleted = page.checkpointCompleted ?? 0;
-
-  if (presentation === "task-canvas" && page.kind === "task") {
-    const saveLabel = page.permissions.canEdit
-      ? saveState === "saving"
-        ? "Čuvam…"
-        : saveState === "saved"
-          ? "Sačuvano"
-          : saveState === "error"
-            ? "Čuvanje nije uspelo"
-            : saveState === "conflict"
-              ? "Konflikt izmena"
-              : saveState === "invalid"
-                ? "Naslov je obavezan"
-                : "Izmene čekaju"
-      : "Samo autor menja osnovni sadržaj";
-    const checkpointProgress =
-      checkpointTotal === 0
-        ? 0
-        : Math.round((checkpointCompleted / checkpointTotal) * 100);
-
-    return (
-      <div className="mx-auto w-full max-w-7xl px-4 pt-2 sm:px-7 lg:px-10">
-        <PageBreadcrumbNav
-          className="mb-2"
-          startupName={startup.name}
-          areaLabel={pageArea?.label ?? "Oblast"}
-          breadcrumbs={breadcrumbs}
-          onOpenArea={onOpenArea ? () => onOpenArea(page.areaId) : undefined}
-          onOpenPage={onOpenPage}
-          onBack={showBack ? goBack : undefined}
-          backLabel={backTargetLabel}
-        />
-        <article
-          data-workspace-enter
-          className="rounded-2xl border border-border/75 bg-card px-3 py-3 shadow-sm sm:px-4"
-          aria-label="Komande zadatka"
-        >
-          {saveState === "conflict" ? (
-            <section
-              className="mb-3 flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-              role="alert"
-              aria-live="assertive"
-            >
-              <p className="font-semibold">
-                Neko iz tima je izmenio ovu stranicu. Tvoj nacrt je sačuvan
-                lokalno.
-              </p>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={copyLocalDraft}>
-                  <Copy /> Kopiraj nacrt
-                </Button>
-                <Button type="button" size="sm" onClick={loadTeamVersion}>
-                  <RefreshCw /> Učitaj timsku verziju
-                </Button>
-              </div>
-            </section>
-          ) : null}
-
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/9 text-primary">
-              <CheckSquare2 className="size-4" aria-hidden="true" />
-            </span>
-            <Input
-              disabled={!page.permissions.canEdit}
-              aria-invalid={saveState === "invalid"}
-              aria-label="Naslov zadatka"
-              value={title}
-              onChange={(event) => {
-                const nextTitle = event.target.value;
-                setTitle(nextTitle);
-                markDraftChanged({
-                  ...latestDraftRef.current,
-                  title: nextTitle,
-                });
-              }}
-              className="h-9 min-w-0 flex-1 border-0 bg-transparent px-0 text-lg font-bold tracking-[-0.03em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-xl"
-              maxLength={200}
-            />
-            <span
-              className="hidden shrink-0 items-center gap-1.5 text-[0.6875rem] font-medium text-muted-foreground sm:inline-flex"
-              aria-live="polite"
-            >
-              {page.permissions.canEdit ? (
-                saveState === "saving" ? (
-                  <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
-                ) : saveState === "saved" ? (
-                  <Check className="size-3.5 text-success" />
-                ) : saveState === "conflict" || saveState === "invalid" ? (
-                  <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" />
-                ) : (
-                  <Clock3 className="size-3.5" />
-                )
-              ) : (
-                <UserRound className="size-3.5" />
-              )}
-              {saveLabel}
-            </span>
-          </div>
-
-          <div className="scrollbar-thin mt-2.5 flex items-center gap-2 overflow-x-auto border-t border-border/60 pb-1 pt-2.5">
-            {renderTaskMeta(["status", "priority"], "shrink-0 flex-nowrap")}
-
-            <div
-              className="flex h-9 min-w-[8.5rem] items-center gap-2 rounded-lg border border-border/65 bg-muted/25 px-3"
-              role="progressbar"
-              aria-label="Napredak checkpointa"
-              aria-valuemin={0}
-              aria-valuemax={checkpointTotal}
-              aria-valuenow={checkpointCompleted}
-            >
-              <span className="whitespace-nowrap text-xs font-bold tabular-nums">
-                {checkpointCompleted}/{checkpointTotal}
-              </span>
-              <span className="h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-muted">
-                <span
-                  className="block h-full rounded-full bg-emerald-500 transition-[width]"
-                  style={{ width: `${checkpointProgress}%` }}
-                />
-              </span>
-            </div>
-
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                className="h-9 rounded-lg"
-                disabled={!page.permissions.canEdit}
-                onClick={() => setTaskSheetSection("checkpoints")}
-              >
-                <Plus aria-hidden="true" /> Dodaj checkpoint
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 rounded-lg"
-                onClick={() => setTaskSheetSection("instructions")}
-              >
-                <AlignLeft aria-hidden="true" /> Instrukcije
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 rounded-lg"
-                onClick={() => setTaskSheetSection("details")}
-              >
-                <Info aria-hidden="true" /> Detalji
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-9 rounded-lg"
-                    aria-label="Više opcija zadatka"
-                  >
-                    <MoreHorizontal aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onTaskViewModeChange?.(
-                        taskViewMode === "canvas" ? "list" : "canvas",
-                      )
-                    }
-                  >
-                    {taskViewMode === "canvas" ? <List /> : <LayoutGrid />}
-                    {taskViewMode === "canvas" ? "Prikaži listu" : "Prikaži kanvas"}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => setTaskSheetSection("details")}
-                  >
-                    <Info /> Svi detalji
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onCreateChild({
-                        areaId: page.areaId,
-                        parentPageId: page._id,
-                      })
-                    }
-                  >
-                    <Plus /> Nova podstranica
-                  </DropdownMenuItem>
-                  {canMoveToArea ? (
-                    <MoveToAreaMenu
-                      asSubmenu
-                      startupId={startup._id}
-                      pageId={page._id}
-                      pageTitle={page.title}
-                      currentAreaId={page.areaId}
-                      areas={startup.areas}
-                    />
-                  ) : null}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onSelect={() => void archive()}>
-                    <Archive />
-                    {page.permissions.canDeleteDirectly
-                      ? "Arhiviraj zadatak"
-                      : "Zatraži brisanje"}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </article>
-
-        <Sheet
-          open={taskSheetSection !== null}
-          onOpenChange={(open) => {
-            if (!open) setTaskSheetSection(null);
-          }}
-        >
-          <SheetContent className="h-full w-full gap-0 overflow-hidden p-0 sm:max-w-2xl">
-            <SheetHeader className="border-b border-border/70 px-5 py-5 pr-12 sm:px-7">
-              <SheetTitle>Detalji zadatka</SheetTitle>
-              <SheetDescription>
-                Instrukcije, checkpointi, dodela, rok, relacije i doprinosi na
-                jednom mestu.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="scrollbar-thin flex-1 overflow-y-auto px-5 py-5 sm:px-7">
-              <section className="mb-5 rounded-2xl border border-border/70 bg-muted/20 p-4">
-                {renderTaskMeta(["assignees", "due"])}
-              </section>
-
-              <TaskDetailWidgets
-                page={page}
-                canEdit={page.permissions.canEdit}
-                updateMetadata={updateTaskMetadata}
-                onSaveStateChange={setInstructionsSaveState}
-                focusCheckpointCreate={taskSheetSection === "checkpoints"}
-                focusInstructions={taskSheetSection === "instructions"}
-                stacked
-                collapsible
-              />
-
-              {pageEntryDisplayText(content).trim() ? (
-                <section className="mt-5 rounded-2xl border border-border/70 bg-muted/20 p-5">
-                  <p className="text-[0.6875rem] font-bold uppercase tracking-[0.11em] text-muted-foreground">
-                    Dodatni kontekst
-                  </p>
-                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/85">
-                    {pageEntryDisplayText(content)}
-                  </p>
-                </section>
-              ) : null}
-
-              <div className="pb-1 pt-5">
-                <PageRelationsPanel
-                  loading={relationsResult === undefined}
-                  currentKind={page.kind}
-                  relations={(relationsResult?.relations ?? []).map((relation) => ({
-                    id: relation._id,
-                    pageId: relation.linkedPage.pageId,
-                    title: relation.linkedPage.title,
-                    kind: relation.linkedPage.kind,
-                    areaLabel: relationAreaLabel(relation.linkedPage.areaId),
-                    canDelete: relation.canDelete,
-                    canRequestDeletion: relation.canRequestDeletion,
-                  }))}
-                  candidates={(relationsResult?.candidates ?? []).map(
-                    (candidate) => ({
-                      pageId: candidate.pageId,
-                      title: candidate.title,
-                      kind: candidate.kind,
-                      areaLabel: relationAreaLabel(candidate.areaId),
-                    }),
-                  )}
-                  candidatesTruncated={relationsResult?.candidatesTruncated ?? false}
-                  selectedCandidate={selectedRelationPageId}
-                  onSelectedCandidate={setSelectedRelationPageId}
-                  busy={relationBusy}
-                  onCreate={linkSelectedPage}
-                  onDelete={unlinkPage}
-                  onRequestDeletion={requestUnlinkPage}
-                  onOpenPage={onOpenPage}
-                />
-              </div>
-
-              <PageAuthorEntries page={page} />
-
-              <footer className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border/65 pt-5">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {page.creator ? (
-                    <>
-                      <ProfileAvatar profile={page.creator} className="size-6" />
-                      <span>
-                        Kreirao/la{" "}
-                        <strong className="font-semibold text-foreground">
-                          {page.creator.displayName}
-                        </strong>
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <UserRound className="size-4" /> Autor nije dostupan
-                    </>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  {page.permissions.canDetach ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={detachBusy}
-                      onClick={detachFromParent}
-                    >
-                      {detachBusy ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <FolderOutput />
-                      )}
-                      Odvoji u oblast
-                    </Button>
-                  ) : null}
-                  {canMoveToArea ? (
-                    <MoveToAreaMenu
-                      startupId={startup._id}
-                      pageId={page._id}
-                      pageTitle={page.title}
-                      currentAreaId={page.areaId}
-                      areas={startup.areas}
-                    />
-                  ) : null}
-                </div>
-              </footer>
-            </div>
-          </SheetContent>
-        </Sheet>
-      </div>
-    );
-  }
+  const content = autosave.content;
+  const saveState = autosave.saveState;
 
   return (
-    <div
-      className={cn(
-        "mx-auto w-full max-w-5xl",
-        presentation === "dialog"
-          ? "px-4 pb-16 pt-4 sm:px-6 sm:pb-10"
-          : "px-4 pb-24 pt-4 sm:px-7 lg:px-10 lg:pt-6",
-      )}
-    >
+    <div className="mx-auto w-full max-w-5xl px-4 pb-24 pt-4 sm:px-7 lg:px-10 lg:pt-6">
       <PageBreadcrumbNav
         className="mb-5"
         startupName={startup.name}
@@ -1054,199 +318,217 @@ export function PageEditorView({
         onBack={showBack ? goBack : undefined}
         backLabel={backTargetLabel}
       />
-      <article
-        data-workspace-enter
-        className={cn(
-          "desk-surface rounded-[1.35rem] border border-border/75 bg-card",
-          presentation === "dialog" ? "overflow-visible" : "overflow-hidden",
-        )}
-      >
-        {saveState === "conflict" ? (
-          <section
-            className="flex flex-col gap-3 border-b border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-8"
-            role="alert"
-            aria-live="assertive"
-          >
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="size-4" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="font-semibold text-foreground">Neko iz tima je izmenio ovu stranicu.</p>
-                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                  Tvoj nacrt je ostao netaknut. Kopiraj ga pre nego što učitaš poslednju timsku verziju.
-                </p>
+      <article data-workspace-enter className="rounded-xl border bg-card">
+        <header className="border-b px-5 pb-5 pt-5 sm:px-8 sm:pt-7">
+          <div className="flex items-start gap-3">
+            <CheckSquare2 className="mt-2 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <h1>
+                <Input
+                  disabled={!page.permissions.canEdit}
+                  aria-invalid={saveState === "invalid"}
+                  aria-label="Naslov zadatka"
+                  value={autosave.title}
+                  onChange={(event) => autosave.editTitle(event.target.value)}
+                  className="h-auto border-0 bg-transparent px-0 py-0 text-xl font-semibold tracking-[-0.02em] shadow-none disabled:opacity-100 focus-visible:ring-0 lg:text-2xl"
+                  maxLength={200}
+                />
+              </h1>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                {page.permissions.canEdit ? <span>{SAVE_STATE_LABELS[saveState]}</span> : null}
+                {page.updater ? <span>Izmenio/la {page.updater.displayName}</span> : null}
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-              <Button type="button" variant="outline" size="sm" onClick={copyLocalDraft}>
-                <Copy /> Kopiraj moj nacrt
+            {page.permissions.canArchive ? (
+              <Button type="button" variant="ghost" size="icon" aria-label="Obriši zadatak" onClick={() => void archive()}>
+                <Archive />
               </Button>
+            ) : null}
+          </div>
+          {page.permissions.isLocked && !page.permissions.canEdit ? <LockNotice className="mt-4" /> : null}
+          {!page.permissions.canEdit && saveState !== "saved" ? (
+            <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+              <span>Zadatak je zaključan dok si menjao/la — tvoje izmene nisu sačuvane.</span>
+              <span className="flex flex-wrap gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => void autosave.copyDraft()}>
+                  Kopiraj moju verziju
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void autosave.discardDraft()}>
+                  Učitaj najnoviju
+                </Button>
+              </span>
+            </div>
+          ) : null}
+          {saveState === "conflict" && !conflictOpen ? (
+            <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+              <span>Nije sačuvano zbog izmene tima.</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => setConflictOpen(true)}>
+                <RefreshCw /> Reši
+              </Button>
+            </div>
+          ) : null}
+          <div className="mt-5">
+            <TaskMetaChips
+              now={metaNow}
+              status={status}
+              priority={priority}
+              dueDate={page.dueDate}
+              assignees={(page.assignees ?? []).map((person) => ({
+                _id: person._id,
+                displayName: person.displayName,
+                avatarUrl: person.avatarUrl ?? null,
+              }))}
+              members={members?.map(({ profile }) => ({
+                _id: profile._id,
+                displayName: profile.displayName,
+                avatarUrl: profile.avatarUrl,
+              }))}
+              permissions={taskPermissions({
+                kind: "task",
+                isCreator: page.permissions.canEdit,
+                isAssignee: isTaskAssignee,
+              })}
+              isSelfAssigned={isTaskAssignee}
+              onChange={changeTaskMeta}
+              onJoin={() =>
+                void joinTask({ taskPageId: page._id })
+                  .then(() => toast.success("Sad si na zadatku."))
+                  .catch((error: unknown) => toast.error(accessErrorMessage(error, "Priključivanje nije uspelo.")))
+              }
+              onLeave={() =>
+                void leaveTask({ taskPageId: page._id })
+                  .then(() => toast.success("Više nisi na zadatku."))
+                  .catch((error: unknown) => toast.error(accessErrorMessage(error, "Napuštanje zadatka nije uspelo.")))
+              }
+              onDenied={(reason) => toast.error(reason)}
+            />
+          </div>
+        </header>
+        <div className="space-y-6 px-5 py-6 sm:px-8">
+          <TaskDetailWidgets
+            page={page}
+            canEdit={page.permissions.canEdit}
+            updateMetadata={updateTaskMetadata}
+            onSaveStateChange={setInstructionsSaveState}
+          />
+          {pageEntryDisplayText(content).trim() ? (
+            <section>
+              <h2 className="mb-2 text-sm font-semibold">Dodatni kontekst</h2>
+              <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/85">
+                {pageEntryDisplayText(content)}
+              </p>
+            </section>
+          ) : null}
+          <PageRelationsPanel
+            loading={relationsResult === undefined}
+            currentKind={page.kind}
+            relations={(relationsResult?.relations ?? []).map((relation) => ({
+              id: relation._id,
+              pageId: relation.linkedPage.pageId,
+              title: relation.linkedPage.title,
+              kind: relation.linkedPage.kind,
+              areaLabel: relationAreaLabel(relation.linkedPage.areaId),
+              canDelete: relation.canDelete,
+              canRequestDeletion: false,
+            }))}
+            candidates={(relationsResult?.candidates ?? []).map((candidate) => ({
+              pageId: candidate.pageId,
+              title: candidate.title,
+              kind: candidate.kind,
+              areaLabel: relationAreaLabel(candidate.areaId),
+            }))}
+            candidatesTruncated={relationsResult?.candidatesTruncated ?? false}
+            selectedCandidate={selectedRelationPageId}
+            onSelectedCandidate={setSelectedRelationPageId}
+            busy={relationBusy}
+            onCreate={linkSelectedPage}
+            onDelete={unlinkPage}
+            onRequestDeletion={unlinkPage}
+            onOpenPage={onOpenPage}
+          />
+          <EntityDiscussionPanel
+            startupId={startup._id}
+            anchorType="page"
+            anchorId={page._id}
+            members={members}
+            onOpenChannel={onOpenChannel}
+          />
+          <CommentsSection
+            target={{ kind: "page", id: page._id }}
+            members={(members ?? []).map(({ profile }) => ({
+              profileId: profile._id,
+              displayName: profile.displayName,
+              avatarUrl: profile.avatarUrl,
+            }))}
+            selfProfileId={currentProfile?._id ?? null}
+            now={metaNow}
+            headingId={commentsHeadingId}
+          />
+        </div>
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-4 sm:px-8">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {page.creator ? (
+              <>
+                <ProfileAvatar profile={page.creator} className="size-6" />
+                <span>Napravio/la <strong className="font-semibold text-foreground">{page.creator.displayName}</strong></span>
+              </>
+            ) : (
+              <>
+                <UserRound className="size-4" /> Autor nije dostupan
+              </>
+            )}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {page.permissions.canDetach ? (
               <Button
                 type="button"
+                variant="outline"
                 size="sm"
-                onClick={loadTeamVersion}
+                disabled={detachBusy}
+                onClick={detachFromParent}
               >
-                <RefreshCw /> Učitaj timsku verziju
+                {detachBusy ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <FolderOutput />
+                )}
+                Odvoji na vrh oblasti
               </Button>
-            </div>
-          </section>
-        ) : null}
-        <header
-          className="border-b border-border/65 bg-card px-5 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-7"
-        >
-          <div className="flex items-start gap-3"><span className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-primary/9 text-primary">{page.kind === "task" ? <CheckSquare2 className="size-4.5" /> : <FileText className="size-4.5" />}</span><div className="min-w-0 flex-1"><Input disabled={!page.permissions.canEdit} aria-invalid={saveState === "invalid"} aria-label="Naslov stranice" value={title} onChange={(event) => { const nextTitle = event.target.value; setTitle(nextTitle); markDraftChanged({ ...latestDraftRef.current, title: nextTitle }); }} className="h-auto border-0 bg-transparent px-0 py-0 text-2xl font-bold tracking-[-0.04em] shadow-none disabled:opacity-100 focus-visible:ring-0 sm:text-3xl" maxLength={200} /><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5">{page.permissions.canEdit ? (saveState === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : saveState === "saved" ? <Check className="size-3.5 text-success" /> : saveState === "conflict" || saveState === "invalid" ? <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" /> : <Clock3 className="size-3.5" />) : <UserRound className="size-3.5" />}{page.permissions.canEdit ? (saveState === "saving" ? "Čuvam…" : saveState === "saved" ? "Sačuvano" : saveState === "error" ? "Čuvanje nije uspelo" : saveState === "conflict" ? "Konflikt izmena" : saveState === "invalid" ? "Naslov je obavezan" : "Izmene čekaju") : "Osnovni sadržaj menja samo kreator"}</span>{page.updater ? <span>Ažurirao/la {page.updater.displayName}</span> : null}</div></div><Button type="button" variant="ghost" size="icon" aria-label={page.permissions.canDeleteDirectly ? "Arhiviraj stranicu" : "Zatraži brisanje stranice"} onClick={archive}><Archive /></Button></div>
-          {page.kind === "task" ? (
-            <div className="mt-5 rounded-xl border border-border/65 bg-muted/25 p-3">{renderTaskMeta()}</div>
-          ) : null}
-        </header>
-        <div className="px-5 sm:px-8">
-          {page.kind === "note" ? (
-            <NoteAttachmentsProvider files={noteFiles}>
-              <RichTextEditor
-                key={page._id}
-                documentKey={page._id}
-                content={content}
-                editable={page.permissions.canEditBody}
-                attachments={
-                  uploadNoteFile !== null
-                    ? { upload: uploadNoteFile }
-                    : undefined
-                }
-                onChange={({ html }) => {
-                  setContent(html);
-                  markDraftChanged({ ...latestDraftRef.current, content: html });
-                }}
-              />
-            </NoteAttachmentsProvider>
-          ) : page.kind === "file" ? (
-            <div className="py-6">
-              <PageFilesPanel
+            ) : null}
+            {canMoveToArea ? (
+              <MoveToAreaMenu
+                startupId={startup._id}
                 pageId={page._id}
-                canManage={page.permissions.canEdit}
+                pageTitle={page.title}
+                currentAreaId={page.areaId}
+                areas={startup.areas}
               />
-            </div>
-          ) : page.kind === "table" ? (
-            <div className="py-6">
-              <PageTablePanel pageId={page._id} />
-            </div>
-          ) : (
-            <div className="py-6">
-              <TaskDetailWidgets
-                page={page}
-                canEdit={page.permissions.canEdit}
-                updateMetadata={updateTaskMetadata}
-                onSaveStateChange={setInstructionsSaveState}
-              />
-              {pageEntryDisplayText(content).trim() ? (
-                <section className="mt-5 rounded-2xl border border-border/70 bg-muted/20 p-5">
-                  <p className="text-[0.6875rem] font-bold uppercase tracking-[0.11em] text-muted-foreground">
-                    Dodatni kontekst
-                  </p>
-                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/85">
-                    {pageEntryDisplayText(content)}
-                  </p>
-                </section>
-              ) : null}
-            </div>
-          )}
-
-          <div className="pb-1 pt-2">
-            <PageRelationsPanel
-              loading={relationsResult === undefined}
-              currentKind={page.kind}
-              relations={(relationsResult?.relations ?? []).map((relation) => ({
-                id: relation._id,
-                pageId: relation.linkedPage.pageId,
-                title: relation.linkedPage.title,
-                kind: relation.linkedPage.kind,
-                areaLabel: relationAreaLabel(relation.linkedPage.areaId),
-                canDelete: relation.canDelete,
-                canRequestDeletion: relation.canRequestDeletion,
-              }))}
-              candidates={(relationsResult?.candidates ?? []).map(
-                (candidate) => ({
-                  pageId: candidate.pageId,
-                  title: candidate.title,
-                  kind: candidate.kind,
-                  areaLabel: relationAreaLabel(candidate.areaId),
-                }),
-              )}
-              candidatesTruncated={
-                relationsResult?.candidatesTruncated ?? false
-              }
-              selectedCandidate={selectedRelationPageId}
-              onSelectedCandidate={setSelectedRelationPageId}
-              busy={relationBusy}
-              onCreate={linkSelectedPage}
-              onDelete={unlinkPage}
-              onRequestDeletion={requestUnlinkPage}
-              onOpenPage={onOpenPage}
-            />
-          </div>
-
-          <div className="pb-1 pt-2">
-            <EntityDiscussionPanel
-              startupId={startup._id}
-              anchorType="page"
-              anchorId={page._id}
-              members={members}
-              onOpenChannel={onOpenChannel}
-            />
-          </div>
-
-          {/* Block-level Author Entries (Sadržaj sa autorstvom članova) */}
-          <PageAuthorEntries page={page} />
-        </div>
-        {/* Dijalog „Detalji stavke” ima sopstveni sticky footer u shell-u sa
-            istim akcijama — ovde bi bile duplirane. */}
-        {presentation === "page" ? (
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/65 bg-muted/20 px-5 py-4 sm:px-8">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {page.creator ? (
-                <>
-                  <ProfileAvatar profile={page.creator} className="size-6" />
-                  <span>Kreirao/la <strong className="font-semibold text-foreground">{page.creator.displayName}</strong></span>
-                </>
-              ) : (
-                <>
-                  <UserRound className="size-4" /> Autor nije dostupan
-                </>
-              )}
-            </div>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {page.permissions.canDetach ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={detachBusy}
-                  onClick={detachFromParent}
-                >
-                  {detachBusy ? (
-                    <LoaderCircle className="animate-spin" />
-                  ) : (
-                    <FolderOutput />
-                  )}
-                  Odvoji u oblast
-                </Button>
-              ) : null}
-              {canMoveToArea ? (
-                <MoveToAreaMenu
-                  startupId={startup._id}
-                  pageId={page._id}
-                  pageTitle={page.title}
-                  currentAreaId={page.areaId}
-                  areas={startup.areas}
-                />
-              ) : null}
+            ) : null}
+            {page.permissions.canEdit ? (
               <Button variant="outline" size="sm" onClick={() => onCreateChild({ areaId: page.areaId, parentPageId: page._id })}>
                 <Plus /> Podstranica
               </Button>
-            </div>
-          </footer>
-        ) : null}
+            ) : null}
+          </div>
+        </footer>
       </article>
+      <ConflictDialog
+        open={conflictOpen && saveState === "conflict"}
+        onOpenChange={setConflictOpen}
+        updaterName={
+          members?.find(({ profile }) => profile._id === autosave.conflict?.updatedByProfileId)?.profile.displayName ?? null
+        }
+        updatedAt={autosave.conflict?.updatedAt ?? null}
+        now={metaNow}
+        onCopy={() => void autosave.copyDraft()}
+        onLoadLatest={() => {
+          if (autosave.loadLatest()) setConflictOpen(false);
+        }}
+        onOverwrite={() => {
+          setConflictOpen(false);
+          autosave.overwrite();
+        }}
+      />
     </div>
   );
 }
@@ -1495,16 +777,13 @@ function PageBreadcrumbNav({
       aria-label="Putanja stranice"
     >
       {onBack ? (
-        // Nativni `title` umesto Radix Tooltip-a: otvoren tooltip je dismissable
-        // sloj koji bi pojeo prvi Esc pre navigacije unazad.
         <Button
           type="button"
           variant="ghost"
           size="icon"
           className="mr-1 size-8 shrink-0 rounded-lg"
           aria-label={backTitle}
-          aria-keyshortcuts="Escape"
-          title={`${backTitle} (Esc)`}
+          title={backTitle}
           onClick={onBack}
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
@@ -1548,278 +827,11 @@ function PageBreadcrumbNav({
   );
 }
 
-function EditorSkeleton({
-  presentation = "page",
-}: {
-  presentation?: "page" | "dialog" | "task-canvas";
-}) {
+function EditorSkeleton() {
   return (
-    <div
-      className={cn(
-        "mx-auto w-full max-w-5xl space-y-4",
-        presentation === "dialog"
-          ? "px-4 py-5 sm:px-6"
-          : presentation === "task-canvas"
-            ? "max-w-7xl px-4 py-2 sm:px-7 lg:px-10"
-          : "px-4 py-7 sm:px-7 lg:px-10",
-      )}
-    >
+    <div role="status" aria-label="Učitavanje zadatka" className="mx-auto w-full max-w-5xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
       <Skeleton className="h-6 w-72" />
-      <Skeleton className="h-[38rem] rounded-2xl" />
-    </div>
-  );
-}
-
-function PageAuthorEntries({ page }: { page: Doc<"pages"> }) {
-  const [newEntryText, setNewEntryText] = useState("");
-  const [editingEntryId, setEditingEntryId] =
-    useState<Id<"contentContributions"> | null>(null);
-  const [editingEntryText, setEditingEntryText] = useState("");
-  const {
-    results: entries,
-    status: entriesStatus,
-    loadMore: loadMoreEntries,
-  } = usePaginatedQuery(
-    api.collaboration.listContributionsPaginated,
-    { target: { kind: "page", id: page._id } },
-    { initialNumItems: 40 },
-  );
-  const addEntry = useMutation(api.pages.addEntry);
-  const updateEntry = useMutation(api.collaboration.updateContribution);
-  const deleteEntry = useMutation(api.collaboration.deleteOwnContribution);
-  const restoreEntry = useMutation(api.collaboration.restoreOwnContribution);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
-
-  const handleAddEntry = async () => {
-    if (!newEntryText.trim()) return;
-    try {
-      await addEntry({
-        pageId: page._id,
-        content: newEntryText.trim(),
-      });
-      setNewEntryText("");
-      toast.success("Unos sa vašim autorstvom je uspešno dodat!");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Greška pri dodavanju unosa.");
-    }
-  };
-
-  const handleDeleteEntry = async (
-    entry: NonNullable<typeof entries>[number],
-  ) => {
-    try {
-      if (!entry.canDeleteDirectly) {
-        await requestDeletion({
-          target: { kind: "contribution", id: entry._id },
-        });
-        toast.success("Glasanje o brisanju je pokrenuto.");
-        return;
-      }
-      await deleteEntry({
-        contributionId: entry._id,
-      });
-      toast.success("Tekst je uklonjen.", {
-        duration: 8_000,
-        action: {
-          label: "Undo",
-          onClick: () =>
-            void restoreEntry({ contributionId: entry._id }).catch((error) =>
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : "Tekst nije vraćen.",
-              ),
-            ),
-        },
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Greška pri brisanju.");
-    }
-  };
-
-  return (
-    <div className="my-8 space-y-6 border-t border-border/60 pt-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold tracking-wide uppercase text-muted-foreground">
-          Potpisani doprinosi članova ({entries?.length ?? 0})
-        </h3>
-        <span className="text-xs text-muted-foreground">
-          Svaki član ima svoj označen blok sa avatarom i vremenom
-        </span>
-      </div>
-
-      {/* Render existing author entries */}
-      <div className="space-y-4">
-        {entriesStatus === "LoadingFirstPage" ? (
-          <Skeleton className="h-28 rounded-2xl" />
-        ) : entries.length === 0 && entriesStatus === "Exhausted" ? (
-          <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            Još nema izmena članova.
-          </div>
-        ) : entries.map((entry) => {
-          const formattedTime = new Date(entry.createdAt).toLocaleString("sr-RS", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-
-          return (
-            <div
-              key={entry._id}
-              className="flex items-start gap-4 rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all hover:border-primary/30"
-            >
-              {/* Left Side: Avatar with clear spacing */}
-              <div className="shrink-0 pt-0.5">
-                <ProfileAvatar
-                  profile={{
-                    displayName: entry.author?.displayName || "Član",
-                    avatarUrl: entry.author?.avatarUrl || null,
-                  }}
-                  className="size-9 ring-2 ring-primary/20"
-                />
-              </div>
-
-              {/* Main Entry Content */}
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-foreground">
-                    {entry.author?.displayName ||
-                      (entry.attribution === "legacy_neutral"
-                        ? "Raniji zajednički sadržaj"
-                        : "Član tima")}
-                  </span>
-                  <div className="flex gap-1">
-                    {entry.canEdit ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        onClick={() => {
-                          setEditingEntryId(entry._id);
-                          setEditingEntryText(entry.content);
-                        }}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground hover:text-destructive"
-                      aria-label={
-                        entry.canDeleteDirectly
-                          ? "Obriši moj tekst"
-                          : "Zatraži brisanje teksta"
-                      }
-                      onClick={() => void handleDeleteEntry(entry)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-
-                {editingEntryId === entry._id ? (
-                  <div className="space-y-2">
-                    <textarea
-                      value={editingEntryText}
-                      onChange={(event) =>
-                        setEditingEntryText(event.target.value)
-                      }
-                      className="min-h-28 w-full rounded-xl border border-input bg-background p-3 text-sm"
-                    />
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingEntryId(null)}
-                      >
-                        <X /> Otkaži
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          void updateEntry({
-                            contributionId: entry._id,
-                            content: editingEntryText,
-                          })
-                            .then(() => {
-                              setEditingEntryId(null);
-                              toast.success("Tekst je sačuvan.");
-                            })
-                            .catch((error) =>
-                              toast.error(
-                                error instanceof Error
-                                  ? error.message
-                                  : "Tekst nije sačuvan.",
-                              ),
-                            )
-                        }
-                      >
-                        Sačuvaj
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-                    {pageEntryDisplayText(entry.content)}
-                  </div>
-                )}
-
-                {/* Bottom Timestamp */}
-                <div className="pt-1 text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Clock3 className="size-3 text-muted-foreground" />
-                  <span>Napisano: {formattedTime}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {entriesStatus === "CanLoadMore" ||
-      entriesStatus === "LoadingMore" ? (
-        <div className="flex justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={entriesStatus === "LoadingMore"}
-            onClick={() => loadMoreEntries(40)}
-          >
-            {entriesStatus === "LoadingMore"
-              ? "Učitavanje…"
-              : "Učitaj još izmena"}
-          </Button>
-        </div>
-      ) : null}
-
-      {/* Add New Entry Box */}
-      <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-4 space-y-3">
-        <label className="text-xs font-semibold text-foreground block">
-          Dodaj svoj doprinos na ovoj stranici (sa tvojim avatarom i vremenom):
-        </label>
-        <textarea
-          value={newEntryText}
-          onChange={(e) => setNewEntryText(e.target.value)}
-          placeholder="Napiši tvoj deo teksta, zapažanja ili izmene..."
-          className="w-full min-h-[90px] rounded-xl border border-input bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        />
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleAddEntry}
-            disabled={!newEntryText.trim()}
-            className="rounded-xl text-xs bg-primary text-primary-foreground font-medium gap-1.5"
-          >
-            <Plus className="size-3.5" />
-            <span>Objavi moj unos</span>
-          </Button>
-        </div>
-      </div>
+      <Skeleton className="h-[38rem] rounded-xl" />
     </div>
   );
 }

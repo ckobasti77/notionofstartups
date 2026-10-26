@@ -33,7 +33,7 @@ import type { Id } from "@/convex/_generated/dataModel";
  * unutar te funkcije). Debounce 300 ms, minimum 2 znaka — paritet sa mobilnim.
  *
  * Navigacija je na nivou sekcije (nema deep-linka do čvora/poruke): stranice i
- * zadaci otvaraju detalj u mestu (`onOpenPage`), a ideje/misli/poruke vode na svoj
+ * zadaci otvaraju svoju rutu (`onOpenPage`, PROSTOR K10), a ideje/misli/poruke vode na svoj
  * prikaz kroz `onNavigate` (isti obrazac kao klik na obaveštenje).
  *
  * Upiti su izdvojeni u `SearchResults` iza `SearchResultsBoundary`: Convex

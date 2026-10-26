@@ -1,19 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
-import {
-  Building2,
-  ExternalLink,
-  FileText,
-  FolderOutput,
-  LoaderCircle,
-  Plus,
-  Sparkles,
-  UserRound,
-} from "lucide-react";
+import { Building2, LoaderCircle, Sparkles } from "lucide-react";
 
 import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
@@ -43,7 +34,6 @@ import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
 import { IdeasView } from "@/components/workspace/ideas-view";
-import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { NotificationSettingsDialog } from "@/components/workspace/notification-settings-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
@@ -56,9 +46,6 @@ import { PulsView } from "@/components/workspace/puls-view";
 import { TasksView, type TasksFilterValue } from "@/components/workspace/tasks-view";
 import { TrashContainer } from "@/components/workspace/trash/trash-container";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
-import {
-  ProfileAvatar,
-} from "@/components/workspace/workspace-ui";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
 import {
   WorkspaceErrorBoundary,
@@ -74,59 +61,37 @@ import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, TrashS
 import type { InboxNavigation } from "@/components/me/inbox/inbox-container";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { MotionDialog } from "@/components/motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { PageEditorSaveState } from "@/components/workspace/page-editor-view";
 import {
-  ITEM_SIZE_DIMENSIONS,
-  ItemSizeMenu,
-  ItemSizePicker,
-  workspaceItemDialogContentClass,
-  type ItemSizePreset,
-} from "@/components/workspace/workspace-item-dialog";
+  isSettling,
+  leavePageQuestion,
+  type PageEditorSaveState,
+} from "@/components/workspace/page/page-autosave-model";
 import {
-  useWorkspaceHistory,
   WorkspaceHistoryProvider,
 } from "@/components/workspace/workspace-history";
 import {
   isAreasRouteCandidate,
   isMeRoute,
+  pageArchiveFallbackRoute,
   readWorkspaceLocation,
   resolvedAreasRoute,
+  withPageTab,
   workspaceRouteAfterStartupSwitch,
   workspaceRouteHref,
 } from "@/components/workspace/workspace-route";
 
-const PageEditorView = dynamic(
-  () => import("@/components/workspace/page-editor-view").then((module) => module.PageEditorView),
+const PageRouteView = dynamic(
+  () => import("@/components/workspace/page/page-route-view").then((module) => module.PageRouteView),
   {
     loading: () => (
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
-        <Skeleton className="h-6 w-72" />
-        <Skeleton className="h-[38rem] rounded-2xl" />
-      </div>
-    ),
-  },
-);
-
-const PageWorkspaceView = dynamic(
-  () =>
-    import("@/components/workspace/page-workspace-view").then(
-      (module) => module.PageWorkspaceView,
-    ),
-  {
-    loading: () => (
-      <div className="mx-auto w-full max-w-7xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
-        <Skeleton className="h-6 w-72" />
-        <Skeleton className="h-[42rem] rounded-3xl" />
+      <div className="mx-auto w-full max-w-6xl space-y-4 px-4 pt-4 sm:px-6 lg:px-8 lg:pt-6">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-8 w-2/3" />
+        <Skeleton className="h-[40vh] rounded-lg" />
       </div>
     ),
   },
@@ -251,6 +216,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     direction: 0,
   });
   const routeResolutionRequestRef = useRef(0);
+  // Nazad/Napred posle „Napusti" ne pita ponovo.
+  const bypassPopGuardRef = useRef(false);
   const activeStartupIdRef = useRef<Id<"startups"> | null>(null);
   const resetForStartupIdRef = useRef<Id<"startups"> | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -272,12 +239,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
   const [profileOpen, setProfileOpen] = useState(false);
-  const [detailPageId, setDetailPageId] = useState<Id<"pages"> | null>(null);
-  const [detailSaveState, setDetailSaveState] =
-    useState<PageEditorSaveState>("saved");
-  const [detailDetachBusy, setDetailDetachBusy] = useState(false);
   const [pageSaveState, setPageSaveState] =
     useState<PageEditorSaveState>("saved");
+  // Stranica upravo napravljena iz dijaloga: fokus ide na naslov (K07 §5.6).
+  const [createdPageId, setCreatedPageId] = useState<Id<"pages"> | null>(null);
+  // Napuštanje stranice sa nesačuvanim izmenama (K07 §3): prvo se sačeka do
+  // 2 s da se čuvanje završi, pa tek onda pitanje „Ostani" / „Napusti".
+  const [leaveRequest, setLeaveRequest] = useState<{ proceed: () => void; asked: boolean } | null>(null);
+  const stayButtonRef = useRef<HTMLButtonElement>(null);
   // Drag and drop state for pages in sidebar
   const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
@@ -285,11 +254,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   const markNotificationRead = useMutation(api.notifications.markRead);
   const movePage = useMutation(api.areasV2.movePage);
-  const resizePage = useMutation(api.areasV2.resizePage);
-  const resetPageSize = useMutation(api.areasV2.resetPageSize);
-  const detachPage = useMutation(api.areasV2.detachPage);
   const convex = useConvex();
-  const { pushHistory } = useWorkspaceHistory();
   const startupIdFromUrl =
     typeof window === "undefined"
       ? null
@@ -322,52 +287,20 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         : null,
     [myDayOverview, today.now],
   );
-  // Tolerantno: pad `pages.get` obara body dijaloga kroz granicu, a footer se
-  // degradira na „Autor nije dostupan" umesto da sruši ceo shell.
-  const detailPage = useQueryTolerant(
-    api.pages.get,
-    detailPageId ? { pageId: detailPageId } : "skip",
-  );
-  const detailCanvas = useQuery(
-    api.areasV2.getCanvas,
-    detailPage && startup && detailPage.startupId === startup._id
-      ? {
-          startupId: startup._id,
-          areaId: detailPage.areaId,
-          rootPageId: detailPage.parentPageId,
-        }
-      : "skip",
-  );
-  const detailCardSize = detailCanvas?.pages.find(
-    (page) => page._id === detailPageId,
-  );
-
   const canLeaveActivePage = useCallback((
     nextRoute: WorkspaceRoute,
+    proceed: () => void,
   ) => {
+    // Ista stranica, isti prikaz: dokument → Mapa iste stranice demontira editor,
+    // pa je i to napuštanje (V2 recenzije K10).
     const staysOnSamePage =
       route.kind === "page" &&
       nextRoute.kind === "page" &&
-      route.pageId === nextRoute.pageId;
-    if (route.kind !== "page" || staysOnSamePage) return true;
-
-    if (pageSaveState === "dirty" || pageSaveState === "saving") {
-      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
-      return false;
-    }
-    if (
-      (pageSaveState === "invalid" ||
-        pageSaveState === "error" ||
-        pageSaveState === "conflict") &&
-      !window.confirm(
-        pageSaveState === "invalid"
-          ? "Naslov je prazan i nacrt ne može da se sačuva. Napustiti stranicu i odbaciti nacrt?"
-          : "Izmene nisu sačuvane. Napustiti stranicu?",
-      )
-    ) {
-      return false;
-    }
-    return true;
+      route.pageId === nextRoute.pageId &&
+      (route.tab ?? null) === (nextRoute.tab ?? null);
+    if (route.kind !== "page" || staysOnSamePage || pageSaveState === "saved") return true;
+    setLeaveRequest({ proceed, asked: !isSettling(pageSaveState) });
+    return false;
   }, [pageSaveState, route]);
 
   const navigateRoute = useCallback((
@@ -378,13 +311,21 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       targetStartupId?: Id<"startups">;
     } = {},
   ) => {
-    if (!options.bypassGuard && !canLeaveActivePage(nextRoute)) return false;
+    if (
+      !options.bypassGuard &&
+      !canLeaveActivePage(nextRoute, () =>
+        navigateRouteRef.current(nextRoute, { ...options, bypassGuard: true }),
+      )
+    ) {
+      return false;
+    }
     const navigationStartupId = options.targetStartupId ?? startupId;
     const leavesCurrentPage =
       route.kind === "page" &&
       !(
         nextRoute.kind === "page" &&
-        nextRoute.pageId === route.pageId
+        nextRoute.pageId === route.pageId &&
+        (nextRoute.tab ?? null) === (route.tab ?? null)
       );
     if (leavesCurrentPage) setPageSaveState("saved");
     if (selectedStartupId === null && navigationStartupId) {
@@ -410,6 +351,32 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     selectedStartupId,
     startupId,
   ]);
+  // Odložena navigacija (posle čuvanja) mora da vidi najnoviju funkciju.
+  const navigateRouteRef = useRef(navigateRoute);
+  useEffect(() => {
+    navigateRouteRef.current = navigateRoute;
+  }, [navigateRoute]);
+
+  // Čeka se kraj čuvanja (do 2 s); sačuvano → idi, inače pitaj.
+  const leavePending = leaveRequest !== null && !leaveRequest.asked;
+  useEffect(() => {
+    if (!leavePending || leaveRequest === null) return;
+    const request = leaveRequest;
+    const saved = pageSaveState === "saved";
+    // Sačuvano → nastavi odmah; čuvanje traje → pitaj posle 2 s; zapelo → pitaj odmah.
+    const timer = window.setTimeout(
+      () => {
+        if (saved) {
+          setLeaveRequest(null);
+          request.proceed();
+        } else {
+          setLeaveRequest((current) => (current ? { ...current, asked: true } : current));
+        }
+      },
+      saved || !isSettling(pageSaveState) ? 0 : 2_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [leavePending, leaveRequest, pageSaveState]);
 
   const resolveLocationRoute = useCallback(async (
     currentStartupId: Id<"startups">,
@@ -452,7 +419,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           : { startupId: currentStartupId, pageId: candidate.pageId },
       );
       if (routeResolutionRequestRef.current !== requestId) return;
-      const resolved = resolvedAreasRoute(value);
+      const resolved = withPageTab(resolvedAreasRoute(value), candidate);
       if (resolved) {
         navigateRoute(resolved, {
           replace: true,
@@ -498,7 +465,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     }
 
     function onPopState() {
-      if (!canLeaveActivePage({ kind: "today" })) {
+      if (bypassPopGuardRef.current) {
+        bypassPopGuardRef.current = false;
+      } else if (
+        !canLeaveActivePage({ kind: "today" }, () => {
+          bypassPopGuardRef.current = true;
+          window.history.back();
+        })
+      ) {
         window.history.pushState(
           null,
           "",
@@ -591,25 +565,38 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   function openInStartup(
     targetStartupId: Id<"startups">,
     target: { pageId: Id<"pages"> } | { route: WorkspaceRoute },
+    bypassGuard = false,
   ) {
+    if (!bypassGuard && deferScopeChange(() => openInStartup(targetStartupId, target, true))) return;
     const nextRoute: WorkspaceRoute =
-      "route" in target ? target.route : { kind: "today" };
+      "route" in target ? target.route : { kind: "page", pageId: target.pageId };
     markScopeMotion({ kind: "startup", startupId: targetStartupId });
     if (startup?._id !== targetStartupId) {
       resetForStartupIdRef.current = targetStartupId;
-      if (!navigateRoute(nextRoute, { targetStartupId })) {
+      if (!navigateRoute(nextRoute, { targetStartupId, bypassGuard })) {
         resetForStartupIdRef.current = null;
         return;
       }
       setSelectedStartupId(targetStartupId);
       resetStartupLocalState();
-    } else if (!navigateRoute(nextRoute)) {
+    } else if (!navigateRoute(nextRoute, { bypassGuard })) {
       return;
     }
-    if ("pageId" in target) openPageDetails(target.pageId);
   }
 
-  function selectStartup(nextStartupId: Id<"startups">) {
+  /**
+   * Promena startupa ili otvaranje iz drugog opsega dok stranica još čuva:
+   * cela radnja (ne samo navigacija) se ponavlja posle čuvanja ili „Napusti",
+   * da izabrani startup i ruta ostanu usklađeni. `true` = radnja je odložena.
+   */
+  function deferScopeChange(retry: () => void): boolean {
+    if (route.kind !== "page" || pageSaveState === "saved") return false;
+    setLeaveRequest({ proceed: retry, asked: !isSettling(pageSaveState) });
+    return true;
+  }
+
+  function selectStartup(nextStartupId: Id<"startups">, bypassGuard = false) {
+    if (!bypassGuard && deferScopeChange(() => selectStartup(nextStartupId, true))) return;
     // Iz „Ja" je izbor startupa nov unos u istoriji (Nazad vraća u „Ja");
     // između startupa ostaje zamena kao ranije.
     const fromMe = isMeRoute(route);
@@ -622,6 +609,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         !navigateRoute(nextRoute, {
           replace: !fromMe,
           targetStartupId: nextStartupId,
+          bypassGuard,
         })
       ) {
         resetForStartupIdRef.current = null;
@@ -758,36 +746,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     setCreateOpen(true);
   }
 
-  function canLeavePageDetails() {
-    if (detailSaveState === "dirty" || detailSaveState === "saving") {
-      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
-      return false;
-    }
-    if (
-      (detailSaveState === "invalid" ||
-        detailSaveState === "error" ||
-        detailSaveState === "conflict") &&
-      !window.confirm(
-        detailSaveState === "invalid"
-          ? "Naslov je prazan i nacrt ne može da se sačuva. Napustiti detalje i odbaciti nacrt?"
-          : "Izmene nisu sačuvane. Napustiti detalje?",
-      )
-    ) {
-      return false;
-    }
-    return true;
-  }
+  const clearCreatedPage = useCallback(() => setCreatedPageId(null), []);
 
-  function openPageDetails(pageId: Id<"pages">) {
-    if (detailPageId !== null && !canLeavePageDetails()) return;
-    setDetailSaveState("saved");
-    setDetailPageId(pageId);
-  }
-
-  function closePageDetails() {
-    if (!canLeavePageDetails()) return;
-    setDetailPageId(null);
-    setDetailSaveState("saved");
+  /** Stranica se svuda otvara rutom (K07 E2) — brzi detalj u dijalogu ne postoji. */
+  function openPage(pageId: Id<"pages">) {
+    navigateRoute({ kind: "page", pageId });
   }
 
   /**
@@ -851,11 +814,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           toast.error("Sadržaj obaveštenja više ne postoji.");
           return;
         }
-        if (resolved.kind === "page") {
-          openPageDetails(resolved.pageId);
-          return;
-        }
         navigateRoute(resolved);
+        if (resolved.kind === "page") return;
         toast.info("Sadržaj više nije dostupan; otvorena je njegova oblast.");
       } catch {
         toast.error("Sadržaj obaveštenja više ne postoji.");
@@ -922,129 +882,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     openInStartup(targetStartupId, { route });
   }
 
-  function resizeDetailCard(preset: ItemSizePreset) {
-    if (
-      !detailPageId ||
-      !detailPage ||
-      !detailCardSize ||
-      !detailCardSize.canResize ||
-      detailPage.startupId !== startup._id
-    ) {
-      return;
-    }
-    const pageId = detailPageId;
-    const scope = {
-      startupId: startup._id,
-      areaId: detailPage.areaId,
-      rootPageId: detailPage.parentPageId,
-      pageId,
-    };
-    const before = {
-      width: detailCardSize.width,
-      height: detailCardSize.height,
-    };
-    const dimensions = ITEM_SIZE_DIMENSIONS[preset];
-    void resizePage({ ...scope, ...dimensions })
-      .then(() => {
-        pushHistory({
-          label: "promena veličine kartice",
-          undo: () => resizePage({ ...scope, ...before }),
-          redo: () => resizePage({ ...scope, ...dimensions }),
-        });
-        toast.success("Veličina oblačića je sačuvana.");
-      })
-      .catch((error) =>
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Veličina oblačića nije sačuvana.",
-        ),
-      );
-  }
-
-  function resetDetailCardSize() {
-    if (
-      !detailPageId ||
-      !detailPage ||
-      !detailCardSize ||
-      !detailCardSize.canResize ||
-      detailPage.startupId !== startup._id
-    ) {
-      return;
-    }
-    const pageId = detailPageId;
-    const scope = {
-      startupId: startup._id,
-      areaId: detailPage.areaId,
-      rootPageId: detailPage.parentPageId,
-      pageId,
-    };
-    const before = {
-      width: detailCardSize.width,
-      height: detailCardSize.height,
-    };
-    void resetPageSize(scope)
-      .then(() => {
-        pushHistory({
-          label: "vraćanje početne veličine kartice",
-          undo: () => resizePage({ ...scope, ...before }),
-          redo: () => resetPageSize(scope),
-        });
-        toast.success("Vraćena je početna veličina kartice.");
-      })
-      .catch((error) =>
-        toast.error(
-          error instanceof Error ? error.message : "Početna veličina nije vraćena.",
-        ),
-      );
-  }
-
-  async function detachDetailPage() {
-    if (
-      !detailPageId ||
-      !detailPage?.permissions.canDetach ||
-      detailDetachBusy ||
-      !canLeavePageDetails()
-    ) {
-      return;
-    }
-    if (
-      !window.confirm(
-        "Odvojiti ovu stavku od roditelja i vratiti je u koren oblasti?",
-      )
-    ) {
-      return;
-    }
-    setDetailDetachBusy(true);
-    try {
-      const result = await detachPage({
-        startupId: startup._id,
-        pageId: detailPageId,
-      });
-      if (result.status !== "detached") {
-        throw new Error("Stavka više nije ugnežđena.");
-      }
-      toast.success("Stavka je odvojena i vraćena u koren oblasti.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Stavka nije odvojena.",
-      );
-    } finally {
-      setDetailDetachBusy(false);
-    }
-  }
-
-  function createChildFromDetails() {
-    if (!detailPage || !canLeavePageDetails()) return;
-    const target = {
-      areaId: detailPage.areaId,
-      parentPageId: detailPage._id,
-    };
-    setDetailPageId(null);
-    setDetailSaveState("saved");
-    openCreate(target);
-  }
-
   function openAdmin() {
     setAdminMode("edit");
     setAdminOpen(true);
@@ -1100,7 +937,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onDragPageOver: handleDragPageOver,
     onDropPage: handleDropPage,
   };
-  const routeKey = route.kind === "page" ? `page:${route.pageId}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
+  const routeKey = route.kind === "page" ? `page:${route.pageId}:${route.tab ?? ""}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
   const meActive = isMeRoute(route);
   const currentScope: RailScope = meActive
     ? { kind: "me" }
@@ -1268,11 +1105,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "thoughts" ? (
-            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
+            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
             <IdeasView
               startup={startup}
-              onOpenPage={openPageDetails}
+              onOpenPage={openPage}
               onOpenChannel={(channelId) =>
                 navigateRoute({ kind: "chat", channelId })
               }
@@ -1284,7 +1121,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 profile={profile}
                 today={today}
                 startups={startups}
-                onOpenPage={openPageDetails}
+                onOpenPage={openPage}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
                 links={[
@@ -1303,7 +1140,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 startups={startups}
                 filter={tasksFilterOf(route)}
                 onFilterChange={(filter) => navigateRoute(tasksRouteOf(filter), { replace: true })}
-                onOpenPage={openPageDetails}
+                onOpenPage={openPage}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
               />
@@ -1312,7 +1149,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             <PulsView
               startup={startup}
               initialWeekStart={route.weekStart ?? null}
-              onOpenPage={openPageDetails}
+              onOpenPage={openPage}
               onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
             />
           ) : route.kind === "activity" ? (
@@ -1327,7 +1164,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               }
               now={today.now}
               onOpen={(target) =>
-                target.kind === "page" ? openPageDetails(target.pageId) : navigateRoute({ kind: "ideas" })
+                target.kind === "page" ? openPage(target.pageId) : navigateRoute({ kind: "ideas" })
               }
             />
           ) : route.kind === "chat" ? (
@@ -1339,7 +1176,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 navigateRoute({ kind: "chat", channelId })
               }
               onOpenList={() => navigateRoute({ kind: "chat" })}
-              onOpenPage={openPageDetails}
+              onOpenPage={openPage}
             />
           ) : route.kind === "area" ? (
             <AreaView
@@ -1349,7 +1186,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               onOpenCanvas={(pageId) =>
                 navigateRoute({ kind: "page", pageId })
               }
-              onOpenDetails={openPageDetails}
+              onOpenDetails={openPage}
               onCreate={openCreate}
               onCreateArea={() => setCreateAreaOpen(true)}
             />
@@ -1359,36 +1196,26 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               title="Stranica se ne može učitati"
               className="min-h-[24rem]"
             >
-            <PageWorkspaceView
-              startup={startup}
-              pageId={route.pageId}
-              onOpenCanvas={(pageId) =>
-                navigateRoute({ kind: "page", pageId })
-              }
-              onOpenArea={(areaId) =>
-                navigateRoute({ kind: "area", areaId })
-              }
-              onOpenChannel={(channelId) =>
-                navigateRoute({ kind: "chat", channelId })
-              }
-              onOpenDetails={openPageDetails}
-              onCreateChild={openCreate}
-              onSaveStateChange={setPageSaveState}
-              onArchived={(fallbackRoute) => {
-                setPageSaveState("saved");
-                if (
-                  navigateRoute(fallbackRoute, {
-                    bypassGuard: true,
-                  })
-                ) {
-                  toast.info(
-                    fallbackRoute.kind === "page"
-                      ? "Otvoren je roditeljski kanvas."
-                      : "Otvorena je pripadajuća oblast.",
-                  );
-                }
-              }}
-            />
+              <PageRouteView
+                startup={startup}
+                profileId={profile._id}
+                pageId={route.pageId}
+                tab={route.tab}
+                now={today.now}
+                autoFocusTitle={createdPageId === route.pageId}
+                onAutoFocusDone={clearCreatedPage}
+                onOpenPage={openPage}
+                onOpenMap={(pageId) => navigateRoute({ kind: "page", pageId, tab: "mapa" })}
+                onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
+                onOpenChannel={(channelId) => navigateRoute({ kind: "chat", channelId })}
+                onOpenTrash={() => navigateRoute({ kind: "trash" }, { bypassGuard: true })}
+                onCreateChild={openCreate}
+                onSaveStateChange={setPageSaveState}
+                onArchived={(page) => {
+                  setPageSaveState("saved");
+                  navigateRoute(pageArchiveFallbackRoute(page), { bypassGuard: true, replace: true });
+                }}
+              />
             </WorkspaceErrorBoundary>
           )}
         </MotionStage>
@@ -1398,167 +1225,43 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         open={notificationSettingsOpen}
         onOpenChange={setNotificationSettingsOpen}
       />
-      <Dialog
-        open={detailPageId !== null}
+      <MotionDialog
+        open={leaveRequest?.asked ?? false}
         onOpenChange={(open) => {
-          if (!open) closePageDetails();
+          if (!open) setLeaveRequest(null);
         }}
-      >
-        <DialogContent
-          className={`${workspaceItemDialogContentClass} grid-rows-[auto_minmax(0,1fr)_auto]`}
-        >
-          <div className="relative z-30 flex flex-wrap items-center gap-3 border-b border-border/70 bg-card/90 px-4 py-3 pr-14 backdrop-blur-xl sm:px-6 sm:pr-16">
-            <DialogHeader className="sr-only">
-              <DialogTitle>Detalji sadržaja</DialogTitle>
-              <DialogDescription>
-                Pročitaj i izmeni belešku ili zadatak bez napuštanja trenutnog prikaza.
-              </DialogDescription>
-            </DialogHeader>
-            <span className="inline-flex items-center gap-2 text-sm font-semibold">
-              <span className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary">
-                <FileText className="size-4" />
-              </span>
-              Detalji stavke
-            </span>
-            {detailCardSize?.canResize ? (
-              <>
-                <ItemSizeMenu
-                  className="ml-auto sm:hidden"
-                  onChange={resizeDetailCard}
-                  onReset={resetDetailCardSize}
-                />
-                <ItemSizePicker
-                  className="ml-auto hidden w-auto sm:block"
-                  onChange={resizeDetailCard}
-                  onReset={resetDetailCardSize}
-                />
-              </>
-            ) : null}
+        title={leavePageQuestion(pageSaveState)}
+        description="Ako napustiš stranicu, nesačuvan tekst se gubi."
+        width="26rem"
+        bodyClassName="py-2"
+        initialFocus={() => stayButtonRef.current}
+        footer={
+          <>
+            <Button ref={stayButtonRef} type="button" variant="outline" onClick={() => setLeaveRequest(null)}>
+              Ostani
+            </Button>
             <Button
               type="button"
-              size="sm"
-              variant="outline"
-              className="h-10 rounded-xl"
+              variant="destructive"
               onClick={() => {
-                if (!detailPageId) return;
-                if (!canLeavePageDetails()) return;
-                const pageId = detailPageId;
-                if (!navigateRoute({ kind: "page", pageId })) return;
-                setDetailPageId(null);
-                setDetailSaveState("saved");
+                // Navigacija sama vraća stanje stranice na „sačuvano".
+                const request = leaveRequest;
+                setLeaveRequest(null);
+                request?.proceed();
               }}
             >
-              <ExternalLink className="size-4" />
-              Puni prikaz
+              Napusti
             </Button>
-          </div>
-          <div className="scrollbar-thin min-h-0 overflow-y-auto overscroll-contain bg-background">
-            {detailPageId ? (
-              <WorkspaceErrorBoundary
-                key={detailPageId}
-                title="Stranica se ne može učitati"
-                className="m-4 min-h-[20rem]"
-              >
-              <PageEditorView
-                key={detailPageId}
-                startup={startup}
-                pageId={detailPageId}
-                presentation="dialog"
-                onSaveStateChange={setDetailSaveState}
-                onOpenPage={openPageDetails}
-                onOpenArea={(areaId) => {
-                  if (!canLeavePageDetails()) return;
-                  if (!navigateRoute({ kind: "area", areaId })) return;
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                }}
-                onOpenChannel={(channelId) => {
-                  if (!canLeavePageDetails()) return;
-                  if (!navigateRoute({ kind: "chat", channelId })) return;
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                }}
-                onCreateChild={(target) => {
-                  if (!canLeavePageDetails()) return;
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                  openCreate(target);
-                }}
-                onArchived={() => {
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                }}
-              />
-              </WorkspaceErrorBoundary>
-            ) : null}
-          </div>
-          <footer className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-4 py-3 shadow-[0_-14px_30px_-24px_rgba(0,0,0,0.6)] backdrop-blur sm:px-6">
-            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              {detailPage?.creator ? (
-                <>
-                  <ProfileAvatar
-                    profile={detailPage.creator}
-                    className="size-6 shrink-0"
-                  />
-                  <span className="truncate">
-                    Kreirao/la{" "}
-                    <strong className="font-semibold text-foreground">
-                      {detailPage.creator.displayName}
-                    </strong>
-                  </span>
-                </>
-              ) : (
-                <>
-                  <UserRound className="size-4" aria-hidden="true" />
-                  Autor nije dostupan
-                </>
-              )}
-            </div>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {detailPage?.permissions.canDetach ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={detailDetachBusy}
-                  onClick={() => void detachDetailPage()}
-                >
-                  {detailDetachBusy ? (
-                    <LoaderCircle
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <FolderOutput aria-hidden="true" />
-                  )}
-                  Odvoji u oblast
-                </Button>
-              ) : null}
-              {detailPage?.permissions.canMove && startup.areas.length > 1 ? (
-                <MoveToAreaMenu
-                  startupId={startup._id}
-                  pageId={detailPage._id}
-                  pageTitle={detailPage.title}
-                  currentAreaId={detailPage.areaId}
-                  areas={startup.areas}
-                />
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!detailPage}
-                onClick={createChildFromDetails}
-              >
-                <Plus aria-hidden="true" />
-                Podstranica
-              </Button>
-            </div>
-          </footer>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        {null}
+      </MotionDialog>
 
-      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} profileId={profile._id} now={today.now} target={createTarget} onCreated={openPageDetails} />
+            <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} profileId={profile._id} now={today.now} target={createTarget} onCreated={(pageId) => {
+        setCreatedPageId(pageId);
+        openPage(pageId);
+      }} />
       <QuickAddContainer
         open={quickAdd.open}
         onOpenChange={(open) => setQuickAdd((current) => ({ ...current, open }))}
@@ -1571,7 +1274,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => navigateRoute({ kind: "area", areaId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
         setSearchOpen(false);
-        openPageDetails(pageId);
+        openPage(pageId);
       }} onNavigate={(route) => {
         setSearchOpen(false);
         navigateRoute(route);

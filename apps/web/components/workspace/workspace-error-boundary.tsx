@@ -44,6 +44,28 @@ export function useQueryTolerant<Query extends FunctionReference<"query">>(
 }
 
 /**
+ * Isto kao `useQueryTolerant`, ali greška ostaje vidljiva pozivaocu (blok može
+ * da prikaže „… nije učitano." umesto večitog učitavanja). PROSTOR K10.
+ */
+export function useQueryResult<Query extends FunctionReference<"query">>(
+  query: Query,
+  args: Query["_args"] | "skip",
+): { data: FunctionReturnType<Query> | undefined; failed: boolean } {
+  const argsKey = args === "skip" ? "skip" : JSON.stringify(args);
+  const queryKey = getFunctionName(query);
+  const queries = useMemo(() => {
+    if (args === "skip") return {} as RequestForQueries;
+    return { value: { query, args } } as RequestForQueries;
+    // `queryKey`/`argsKey` vrednosno pokrivaju `query`/`args` (vidi `useQueryTolerant`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, argsKey]);
+  const result = useQueries(queries).value as FunctionReturnType<Query> | Error | undefined;
+  return result instanceof Error
+    ? { data: undefined, failed: true }
+    : { data: result, failed: false };
+}
+
+/**
  * Convex `useQuery` baca serversku grešku upita TOKOM rendera. Bez granice pad
  * jedne stranice (npr. pokvaren `pages.get`) obara ceo workspace do korenskog
  * `app/error.tsx`. Granica zadržava ostatak shell-a živim i prikazuje pravu

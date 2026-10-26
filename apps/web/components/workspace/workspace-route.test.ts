@@ -10,6 +10,7 @@ import {
   readWorkspaceStartupId,
   routeScope,
   workspaceRouteAfterStartupSwitch,
+  withPageTab,
   workspaceRouteHref,
 } from "./workspace-route";
 import type { WorkspaceRoute } from "./types";
@@ -379,6 +380,35 @@ describe("workspace URL route contract", () => {
       expect(workspaceRouteAfterStartupSwitch({ kind: "tasks", filter: "moji" })).toEqual({ kind: "tasks", filter: "moji" });
       expect(workspaceRouteAfterStartupSwitch({ kind: "trash", segment: "file" })).toEqual({ kind: "trash", segment: "file" });
       expect(workspaceRouteAfterStartupSwitch({ kind: "puls" })).toEqual({ kind: "today" });
+    });
+  });
+
+  describe("stranica kao dokument i Mapa stranice (PROSTOR P13, K10)", () => {
+    it("tab=mapa otvara Mapu, nepoznata kartica i bez nje dokument", () => {
+      expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1&tab=mapa")).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });
+      expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1&tab=nesto")).toEqual({ kind: "page", pageId: "page-1" });
+      expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1")).toEqual({ kind: "page", pageId: "page-1" });
+      expect(readAreasRouteCandidate("?view=page&pageId=page-1&tab=mapa")).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });
+    });
+
+    it("href nosi tab samo za Mapu, a svaki drugi prikaz ga briše", () => {
+      const mapHref = workspaceRouteHref({ kind: "page", pageId: "page-1" as never, tab: "mapa" }, "https://example.test/", "startup-1" as never);
+      expect(mapHref).toBe("/?view=page&pageId=page-1&tab=mapa&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "page", pageId: "page-1" as never }, "https://example.test/?view=page&pageId=page-1&tab=mapa", "startup-1" as never),
+      ).toBe("/?view=page&pageId=page-1&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "trash" }, "https://example.test/?view=page&pageId=page-1&tab=mapa", "startup-1" as never),
+      ).toBe("/?view=trash&startupId=startup-1");
+    });
+
+    it("razrešena ruta zadržava traženu Mapu samo za istu stranicu", () => {
+      const candidate = { kind: "page", pageId: "page-1", tab: "mapa" } as const;
+      expect(withPageTab({ kind: "page", pageId: "page-1" as never }, candidate)).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });
+      expect(withPageTab({ kind: "area", areaId: "area-1" as never }, candidate)).toEqual({ kind: "area", areaId: "area-1" });
+      expect(withPageTab({ kind: "page", pageId: "page-2" as never }, candidate)).toEqual({ kind: "page", pageId: "page-2" });
+      expect(withPageTab(null, candidate)).toBeNull();
+      expect(withPageTab({ kind: "page", pageId: "page-1" as never }, { kind: "page", pageId: "page-1" })).toEqual({ kind: "page", pageId: "page-1" });
     });
   });
 });
