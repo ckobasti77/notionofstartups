@@ -235,6 +235,9 @@ describe("myDay.overview", () => {
         "dueDate",
         "isAssignee",
         "isCreator",
+        // PROSTOR P1: zaključavanje zadatka (polja se samo dodaju, P25).
+        "isLocked",
+        "lockedForViewer",
         "startup",
         "taskPriority",
         "taskSortAt",

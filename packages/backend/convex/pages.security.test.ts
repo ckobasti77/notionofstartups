@@ -365,8 +365,11 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     });
   });
 
-  test("nepotpisan raniji sadržaj ne može naknadno da prisvoji kreator", async () => {
-    const { t, startupA, areaA1, asActor } =
+  test("nepotpisan raniji sadržaj menja svaki član, a zatečeno stanje ostaje u Istoriji", async () => {
+    // PROSTOR P1/P2 (namerna promena pravila): ranije je „raniji zajednički
+    // sadržaj" bio zaključan za sve; sada ga menja svaki član, a zatečeno stanje
+    // ostaje kao bazna revizija bez autora.
+    const { t, startupA, areaA1, asActor, asMember } =
       await seedPagesSecurityWorkspace();
     const pageId = await asActor.mutation(api.pages.create, {
       startupId: startupA,
@@ -387,15 +390,25 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       await ctx.db.delete("contentContributions", contribution._id);
     });
 
-    const page = await asActor.query(api.pages.get, { pageId });
-    expect(page.permissions.canEditBody).toBe(false);
-    await expect(
-      asActor.mutation(api.pages.update, {
-        pageId,
-        expectedRevision: 0,
-        content: "<p>Pokušaj prisvajanja</p>",
-      }),
-    ).rejects.toThrow("Raniji zajednički sadržaj je zaključan");
+    // Raniji sadržaj nije potpisan, ali stranica je već menjana (revision 1),
+    // pa autor bazne revizije nije poznat.
+    await t.run((ctx) => ctx.db.patch("pages", pageId, { revision: 1 }));
+    const page = await asMember.query(api.pages.get, { pageId });
+    expect(page.permissions.canEditBody).toBe(true);
+    await asMember.mutation(api.pages.update, {
+      pageId,
+      expectedRevision: 1,
+      content: "<p>Izmena člana</p>",
+    });
+    const revisions = await asActor.query(api.history.list, {
+      target: { kind: "page", id: pageId },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(revisions.page.map((row) => [row.kind, row.author])).toEqual([
+      ["edit", expect.objectContaining({ displayName: "Member" })],
+      ["baseline", null],
+    ]);
+    expect(revisions.page[1].excerpt).toBe("Nasleđen tekst");
   });
 
   test("legacy body backfill ne duplira canonical ni raniji bodyId zapis", async () => {
@@ -656,7 +669,9 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     expect(state.children).toHaveLength(201);
   });
 
-  test("samo autor pomera svoju vidljivu karticu na kanvasu oblasti", async () => {
+  test("svaki član pomera vidljivu karticu na kanvasu oblasti", async () => {
+    // PROSTOR P1 (namerna promena pravila, D20): raspored kartica menja svaki
+    // član; scope (samo kartice sa kanvasa oblasti) ostaje.
     const { t, actor, startupA, areaA1, asActor, asMember } =
       await seedPagesSecurityWorkspace();
     const actorPageId = await asActor.mutation(api.pages.create, {
@@ -680,7 +695,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       kind: "note",
     });
     expect(memberCanvas.pages).toEqual([
-      expect.objectContaining({ _id: actorPageId, canMove: false }),
+      expect.objectContaining({ _id: actorPageId, canMove: true }),
     ]);
     await expect(
       asMember.mutation(api.canvases.moveAreaCanvasPages, {
@@ -688,7 +703,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         areaId: areaA1,
         updates: [{ pageId: actorPageId, x: 120, y: 80 }],
       }),
-    ).rejects.toThrow("samo svoje kartice");
+    ).resolves.toBeNull();
     await expect(
       asActor.mutation(api.canvases.moveAreaCanvasPages, {
         startupId: startupA,

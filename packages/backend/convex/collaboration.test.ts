@@ -178,7 +178,9 @@ describe("demokratske Canvas dozvole", () => {
     ]);
   });
 
-  test("tim može pomerati tuđu ideju, ali samo autor menja sadržaj i veličinu", async () => {
+  test("tim menja tekst, veličinu i poziciju tuđe ideje; izmena teksta ide u Istoriju", async () => {
+    // PROSTOR P1/P6 (namerna promena pravila): ranije je sadržaj i veličinu
+    // menjao samo autor. Brisanje tuđe ideje (Korpa) menja K03.
     const { t, startupId, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
@@ -189,25 +191,29 @@ describe("demokratske Canvas dozvole", () => {
       y: 20,
     });
 
-    await expect(
-      asMember.mutation(api.ideas.update, {
-        startupId,
-        ideaId,
-        title: "Tuđa izmena",
-        text: "Tuđa izmena",
-        color: "rose",
-      }),
-    ).rejects.toThrow("samo svoju ideju");
-    await expect(
-      asMember.mutation(api.ideas.updateLayout, {
-        startupId,
-        ideaId,
-        x: 100,
-        y: 100,
-        width: 400,
-        height: 300,
-      }),
-    ).rejects.toThrow("samo svoje kartice");
+    await asMember.mutation(api.ideas.update, {
+      startupId,
+      ideaId,
+      title: "Tuđa izmena",
+      text: "Tuđa izmena",
+      color: "rose",
+    });
+    const history = await asAuthor.query(api.history.list, {
+      target: { kind: "idea", id: ideaId },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(history.page.map((row) => [row.kind, row.title])).toEqual([
+      ["edit", "Tuđa izmena"],
+      ["baseline", "Autorska ideja"],
+    ]);
+    await asMember.mutation(api.ideas.updateLayout, {
+      startupId,
+      ideaId,
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 300,
+    });
     await asMember.mutation(api.ideas.updatePositions, {
       startupId,
       updates: [{ id: ideaId, x: 999, y: 999 }],

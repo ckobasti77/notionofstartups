@@ -77,15 +77,28 @@ describe("red zadatka u startupu", () => {
     expect(rowFromStartupTask(task({ taskStatus: "done" }), context()).done).toBe(true);
   });
 
-  test("kreator sme sve", () => {
-    const row = rowFromStartupTask(task({ createdByProfileId: "me" }), context());
+  // PROSTOR P1 (namerna promena pravila): ograničenja važe samo za zaključan
+  // zadatak; otključan menja svaki član, a „Priključi se" se nudi svakom ko
+  // još nije izvršilac.
+  test("kreator sme sve, i na zaključanom", () => {
+    const row = rowFromStartupTask(task({ createdByProfileId: "me", lockedAt: 1 }), context());
     expect(Object.values(row.permissions).every((perm) => perm.allowed)).toBe(true);
     expect(row.permissions.assignees.selfOnly).toBe(false);
-    expect(canJoinTask(row)).toBe(false);
+    expect(canJoinTask(row)).toBe(true);
   });
 
-  test("izvršilac menja samo status; rok i prioritet su zaključani sa razlogom", () => {
-    const row = rowFromStartupTask(task(), context({ assigneeIds: ["ana", "me"] }));
+  test("nezaključan zadatak: svaki član sme sve, menadžer i zaključan", () => {
+    const member = rowFromStartupTask(task(), context({ assigneeIds: ["ana"] }));
+    expect(Object.values(member.permissions).every((perm) => perm.allowed)).toBe(true);
+    const manager = rowFromStartupTask(
+      task({ lockedAt: 1 }),
+      context({ assigneeIds: ["ana"], isManager: true }),
+    );
+    expect(Object.values(manager.permissions).every((perm) => perm.allowed)).toBe(true);
+  });
+
+  test("zaključan: izvršilac menja samo status; rok i prioritet su zaključani sa razlogom", () => {
+    const row = rowFromStartupTask(task({ lockedAt: 1 }), context({ assigneeIds: ["ana", "me"] }));
     expect(row.permissions.status.allowed).toBe(true);
     expect(row.permissions.due).toEqual({ allowed: false, reason: PERMISSION_REASONS.due });
     expect(row.permissions.priority).toEqual({ allowed: false, reason: PERMISSION_REASONS.priority });
@@ -95,17 +108,27 @@ describe("red zadatka u startupu", () => {
     expect(canJoinTask(row)).toBe(false);
   });
 
-  test("član koji nije ni kreator ni izvršilac: sve zaključano, nudi se „Priključi se\"", () => {
-    const row = rowFromStartupTask(task(), context({ assigneeIds: ["ana"] }));
-    expect(row.permissions.status).toEqual({ allowed: false, reason: PERMISSION_REASONS.status });
-    expect(completionCall(row, true)).toEqual({ fn: "denied", reason: PERMISSION_REASONS.status });
+  test("zaključan, član koji nije ni kreator ni izvršilac: sve zaključano, nudi se „Priključi se\"", () => {
+    const row = rowFromStartupTask(task({ lockedAt: 1 }), context({ assigneeIds: ["ana"] }));
+    expect(row.permissions.status).toEqual({
+      allowed: false,
+      reason: PERMISSION_REASONS.lockedStatus,
+    });
+    expect(completionCall(row, true)).toEqual({
+      fn: "denied",
+      reason: PERMISSION_REASONS.lockedStatus,
+    });
     expect(canJoinTask(row)).toBe(true);
   });
 
-  test("izvršioci još nisu učitani: ne-kreator nije izvršilac, osim kad je lista već moja", () => {
-    expect(rowFromStartupTask(task(), context({ assigneeIds: null })).permissions.status.allowed).toBe(false);
+  test("zaključan, izvršioci još nisu učitani: ne-kreator nije izvršilac, osim kad je lista već moja", () => {
     expect(
-      rowFromStartupTask(task(), context({ assigneeIds: null, assumeAssignee: true })).permissions.status.allowed,
+      rowFromStartupTask(task({ lockedAt: 1 }), context({ assigneeIds: null })).permissions.status
+        .allowed,
+    ).toBe(false);
+    expect(
+      rowFromStartupTask(task({ lockedAt: 1 }), context({ assigneeIds: null, assumeAssignee: true }))
+        .permissions.status.allowed,
     ).toBe(true);
   });
 });

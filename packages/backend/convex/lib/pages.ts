@@ -88,6 +88,7 @@ export function summarizePage(page: Doc<"pages">) {
     completedAt: page.completedAt,
     createdByProfileId: page.createdByProfileId,
     updatedByProfileId: page.updatedByProfileId,
+    lockedAt: page.lockedAt ?? null,
     archivedAt: page.archivedAt,
     createdAt: page.createdAt,
     updatedAt: page.updatedAt,

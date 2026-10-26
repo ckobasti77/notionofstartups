@@ -295,6 +295,10 @@ export const taskItemValidator = v.object({
   createdByProfileId: v.id("profiles"),
   isCreator: v.boolean(),
   isAssignee: v.boolean(),
+  /** PROSTOR P1: zadatak je zaključan. Opciono zbog starih fixture-a. */
+  isLocked: v.optional(v.boolean()),
+  /** Zaključan, a gledalac nije autor, vlasnik startupa ni admin. */
+  lockedForViewer: v.optional(v.boolean()),
   createdAt: v.number(),
   updatedAt: v.number(),
   startup: startupMiniValidator,
@@ -389,6 +393,8 @@ export const pageSummaryValidator = v.object({
   completedAt: v.optional(v.union(v.number(), v.null())),
   createdByProfileId: v.id("profiles"),
   updatedByProfileId: v.id("profiles"),
+  /** PROSTOR P1; `summarizePage` uvek šalje broj ili `null`. */
+  lockedAt: v.optional(v.union(v.number(), v.null())),
   archivedAt: v.union(v.number(), v.null()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -413,6 +419,7 @@ export const pageDocumentValidator = pageSummaryValidator.extend({
   tableRowCount: v.optional(v.number()),
   tableColumnCount: v.optional(v.number()),
   sourceMessageId: v.optional(v.id("chatMessages")),
+  lockedByProfileId: v.optional(v.union(v.id("profiles"), v.null())),
 });
 
 export const startupDocumentValidator = v.object({

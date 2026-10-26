@@ -67,15 +67,26 @@ describe("zone Komandnog centra", () => {
     ]);
     const [gori, danas] = zones;
     expect(danas.rows[0]).toMatchObject({ areaLabel: "Marketing", planned: true, planEntryId: "e1" });
-    // Izvršilac (ja) sme status, ne i rok; tuđ zadatak je zaključan.
+    // PROSTOR P1 (namerna promena pravila): otključan zadatak menja svaki član.
     expect(gori.rows[0].permissions.status.allowed).toBe(true);
-    expect(gori.rows[0].permissions.due.allowed).toBe(false);
-    expect(danas.rows[0].permissions.status.allowed).toBe(false);
+    expect(gori.rows[0].permissions.due.allowed).toBe(true);
+    expect(danas.rows[0].permissions.status.allowed).toBe(true);
     expect(zoneRowCount(zones)).toBe(5);
+    // Zaključan: izvršilac (ja) sme status, ne i rok; tuđ zadatak je zaključan.
+    const locked = buildZones(
+      TASKS.map((item) => ({ ...item, lockedAt: 1 })),
+      context(),
+    );
+    expect(locked[0].rows[0].permissions.status.allowed).toBe(true);
+    expect(locked[0].rows[0].permissions.due.allowed).toBe(false);
+    expect(locked[1].rows[0].permissions.status.allowed).toBe(false);
   });
 
-  test("dok se izvršioci učitavaju, niko osim kreatora ne menja status", () => {
-    const zones = buildZones([task({ _id: "x", createdByProfileId: "me" }), task({ _id: "y" })], context({ assigneesByTaskId: null }));
+  test("zaključan: dok se izvršioci učitavaju, niko osim kreatora ne menja status", () => {
+    const zones = buildZones(
+      [task({ _id: "x", createdByProfileId: "me", lockedAt: 1 }), task({ _id: "y", lockedAt: 1 })],
+      context({ assigneesByTaskId: null }),
+    );
     const rows = zones.flatMap((zone) => zone.rows);
     expect(rows.find((row) => row.id === "x")?.permissions.status.allowed).toBe(true);
     expect(rows.find((row) => row.id === "y")?.permissions.status.allowed).toBe(false);

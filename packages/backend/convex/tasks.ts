@@ -20,7 +20,14 @@ import {
   type TaskItem,
   toTaskItem,
 } from "./lib/my_scope";
+import { pageSnapshot, recordPageRevision } from "./lib/page_content";
 import { workspaceCanvasPreview } from "./lib/page_creation";
+import {
+  canChangeTaskStatus,
+  canEditPage,
+  LOCKED_PAGE_MESSAGE,
+  permissionError,
+} from "./lib/permissions";
 import {
   nextCompletedAt,
   pageTaskSortAt,
@@ -422,7 +429,8 @@ export const updateMetadata = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije task.");
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     const currentAssigneeIds = await listActiveTaskAssigneeIds(ctx, page._id);
     const requestedAssigneeIds =
       normalizeAssigneeProfileIds(args.assigneeProfileIds) ??
@@ -495,38 +503,27 @@ export const updateMetadata = mutation({
       canvasPreview === page.canvasPreview;
     if (unchanged) return page._id;
 
-    // Dozvole se sude po stvarnoj razlici, ne po prisustvu argumenta: kreator
-    // vodi zadatak, svaki izvršilac pomera njegov status, a svaki član tima
-    // može sam sebe da doda ili skine sa zadatka.
-    const isCreator = page.createdByProfileId === profile._id;
+    // Dozvole se sude po stvarnoj razlici, ne po prisustvu argumenta. PROSTOR
+    // P1: svaki član menja sve osobine zadatka; na zaključanom zadatku autor,
+    // vlasnik startupa i admin, a izvršilac još i status (ODLUKA K01 D5); svako
+    // sme sebe da doda ili skine.
     const isAssignee = currentAssigneeIds.includes(profile._id);
     const touchesOnlySelf = [...addedAssignees, ...removedAssignees].every(
       (profileId) => profileId === profile._id,
     );
     const claimsForSelf = addedAssignees.includes(profile._id);
 
-    if (!isCreator) {
-      if (changesAssignee && !touchesOnlySelf) {
-        throw new Error(
-          "Tuđe učešće na zadatku menja njegov kreator. Sebe možeš da dodaš ili skineš.",
-        );
-      }
-      if (changesStatus && !isAssignee && !claimsForSelf) {
-        throw new Error(
-          "Status menja kreator zadatka ili osoba kojoj je dodeljen.",
-        );
-      }
-      if (changesPriority) {
-        throw new Error("Prioritet menja samo kreator zadatka.");
-      }
-      if (changesDueDate) {
-        throw new Error("Rok menja samo kreator zadatka.");
-      }
-      if (changesInstructions) {
-        throw new Error("Instrukcije menja samo kreator zadatka.");
-      }
-      if (changesCheckpoints) {
-        throw new Error("Checkpointe menja samo kreator zadatka.");
+    if (!canEditPage(actor, page)) {
+      if (
+        changesPriority ||
+        changesDueDate ||
+        changesInstructions ||
+        changesCheckpoints ||
+        (changesAssignee && !touchesOnlySelf) ||
+        (changesStatus &&
+          !canChangeTaskStatus(actor, page, isAssignee || claimsForSelf))
+      ) {
+        throw permissionError("ZAKLJUCANO", LOCKED_PAGE_MESSAGE);
       }
     }
 
@@ -571,6 +568,18 @@ export const updateMetadata = mutation({
         checkpoints,
         actorProfileId: profile._id,
         now,
+      });
+    }
+    if (changesInstructions) {
+      // Instrukcije su sadržaj zadatka → Istorija izmena (P2, P14).
+      const content = body?.content ?? "";
+      await recordPageRevision(ctx, {
+        page,
+        before: pageSnapshot(page, page.title, content, page.instructions),
+        after: pageSnapshot(page, page.title, content, instructions),
+        actorProfileId: profile._id,
+        now,
+        revision: page.revision + 1,
       });
     }
     await recordActivity(ctx, {

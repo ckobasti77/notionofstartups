@@ -16,15 +16,34 @@ import {
   requireProfileInStartup,
   requireStartupMember,
 } from "./lib/auth";
+import { contributionTargetKey } from "./lib/collaboration";
 import {
-  contributionTargetKey,
-  insertContribution,
-} from "./lib/collaboration";
+  latestRevision,
+  recordRevision,
+  revisionTargetKey,
+} from "./lib/history";
 import {
   createNotification,
   notificationCopy,
   notifyTaskStakeholders,
 } from "./lib/notifications";
+import {
+  getPageBody,
+  pageSnapshot,
+  recordPageRevision,
+  syncPageBodyMirror,
+} from "./lib/page_content";
+import {
+  canChangeTaskStatus,
+  canComment,
+  canEditArea,
+  canEditPage,
+  canLayoutOnMap,
+  conflictError,
+  isPageLocked,
+  LOCKED_PAGE_MESSAGE,
+  permissionError,
+} from "./lib/permissions";
 import {
   cleanPageContent,
   cleanPagePosition,
@@ -135,6 +154,9 @@ const canvasPageValidator = v.object({
   canMove: v.boolean(),
   canResize: v.boolean(),
   canDetach: v.boolean(),
+  /** PROSTOR P1 (P25: nova polja): naslov i sadržaj kartice; zaključanost. */
+  canEdit: v.boolean(),
+  isLocked: v.boolean(),
   creator: profileSummaryValidator,
 });
 const visibleEdgeValidator = v.object({
@@ -341,13 +363,6 @@ async function requireScope(
           areaId,
         });
   return { area, root };
-}
-
-async function getPageBody(ctx: ReadCtx, pageId: Id<"pages">) {
-  return await ctx.db
-    .query("pageBodies")
-    .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-    .unique();
 }
 
 async function upsertPlacement(
@@ -758,37 +773,6 @@ async function applySameAreaReparent(
       updatedAt: args.now,
     });
   }
-}
-
-async function getPageBodyContributions(
-  ctx: ReadCtx,
-  pageId: Id<"pages">,
-  bodyId: Id<"pageBodies"> | null,
-) {
-  const sourceIds = bodyId === null ? [pageId] : [pageId, bodyId];
-  const batches = await Promise.all(
-    sourceIds.map((sourceId) =>
-      ctx.db
-        .query("contentContributions")
-        .withIndex("by_sourceKind_and_sourceId", (q) =>
-          q.eq("sourceKind", "page_body").eq("sourceId", sourceId),
-        )
-        .take(2),
-    ),
-  );
-  return Array.from(
-    new Map(
-      batches
-        .flat()
-        .filter(
-          (row) =>
-            row.targetKind === "page" &&
-            row.targetId === pageId &&
-            row.archivedAt === null,
-        )
-        .map((row) => [row._id, row]),
-    ).values(),
-  );
 }
 
 function cleanCanvasLabel(value: string | undefined) {
@@ -1425,7 +1409,7 @@ export const getCanvas = query({
   },
   returns: canvasPayloadValidator,
   handler: async (ctx, args) => {
-    const { profile, startup } = await requireStartupMember(ctx, args.startupId);
+    const member = await requireStartupMember(ctx, args.startupId);
     const { area, root } = await requireScope(
       ctx,
       args.startupId,
@@ -1436,8 +1420,7 @@ export const getCanvas = query({
       startupId: args.startupId,
       areaId: args.areaId,
       rootPageId: args.rootPageId,
-      profile,
-      startup,
+      member,
       area,
       root,
     });
@@ -1460,13 +1443,13 @@ async function assembleCanvas(
     startupId: Id<"startups">;
     areaId: Id<"startupAreas">;
     rootPageId: CanvasRoot;
-    profile: CanvasMember["profile"];
-    startup: CanvasMember["startup"];
+    member: CanvasMember;
     area: CanvasScope["area"];
     root: CanvasScope["root"];
   },
 ) {
-  const { profile, startup, area, root } = params;
+  const { member, area, root } = params;
+  const { profile } = member;
   const args = {
     startupId: params.startupId,
     areaId: params.areaId,
@@ -1632,12 +1615,15 @@ async function assembleCanvas(
           y: placement?.y ?? Math.max(0, row) * 220,
           width: placement?.width ?? DEFAULT_WIDTH,
           height: placement?.height ?? DEFAULT_HEIGHT,
-          canMove: page.createdByProfileId === profile._id,
-          canResize: page.createdByProfileId === profile._id,
+          // Raspored (pozicija, veličina) menja svaki član (PROSTOR P1, D20).
+          canMove: canLayoutOnMap(member),
+          canResize: canLayoutOnMap(member),
           canDetach:
             root !== null &&
             (page.createdByProfileId === profile._id ||
               root.createdByProfileId === profile._id),
+          canEdit: canEditPage(member, page),
+          isLocked: isPageLocked(page),
           creator,
         });
       }
@@ -1778,7 +1764,7 @@ async function assembleCanvas(
     }
     const ownerProfileId =
       root === null
-        ? areaBody?.ownerProfileId ?? startup.createdByProfileId
+        ? areaBody?.ownerProfileId ?? member.startup.createdByProfileId
         : root.createdByProfileId;
     return {
       pages: canvasPages,
@@ -1813,7 +1799,9 @@ async function assembleCanvas(
           instructions: root?.kind === "task" ? root.instructions ?? null : null,
           revision: root?.revision ?? areaBody?.revision ?? 0,
           ownerProfileId,
-          canEdit: ownerProfileId === profile._id,
+          // Opis oblasti menja svaki član; telo korena — po pravilu stranice.
+          canEdit:
+            root === null ? canEditArea(member, area) : canEditPage(member, root),
         },
       },
     };
@@ -1832,7 +1820,7 @@ export const getAreaCanvasByArea = query({
   handler: async (ctx, args) => {
     const area = await ctx.db.get("startupAreas", args.areaId);
     if (area === null) throw new Error("Oblast ne postoji.");
-    const { profile, startup } = await requireStartupMember(ctx, area.startupId);
+    const member = await requireStartupMember(ctx, area.startupId);
     const { area: scopedArea, root } = await requireScope(
       ctx,
       area.startupId,
@@ -1843,8 +1831,7 @@ export const getAreaCanvasByArea = query({
       startupId: area.startupId,
       areaId: args.areaId,
       rootPageId: null,
-      profile,
-      startup,
+      member,
       area: scopedArea,
       root,
     });
@@ -1863,7 +1850,7 @@ export const getPageCanvasByPage = query({
   handler: async (ctx, args) => {
     const page = await ctx.db.get("pages", args.pageId);
     if (page === null) throw new Error("Stranica ne postoji.");
-    const { profile, startup } = await requireStartupMember(ctx, page.startupId);
+    const member = await requireStartupMember(ctx, page.startupId);
     const { area, root } = await requireScope(
       ctx,
       page.startupId,
@@ -1874,8 +1861,7 @@ export const getPageCanvasByPage = query({
       startupId: page.startupId,
       areaId: page.areaId,
       rootPageId: args.pageId,
-      profile,
-      startup,
+      member,
       area,
       root,
     });
@@ -1894,11 +1880,9 @@ export const updateAreaBody = mutation({
     updatedAt: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { profile, startup } = await requireStartupMember(
-      ctx,
-      args.startupId,
-    );
-    await requireArea(ctx, args.startupId, args.areaId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile, startup } = actor;
+    const area = await requireArea(ctx, args.startupId, args.areaId);
     if (
       !Number.isSafeInteger(args.expectedRevision) ||
       args.expectedRevision < 0
@@ -1910,18 +1894,23 @@ export const updateAreaBody = mutation({
         `Briefing može imati najviše ${MAX_AREA_BODY_LENGTH.toLocaleString("sr-Latn-RS")} znakova.`,
       );
     }
+    // PROSTOR P1: opis oblasti je dokument tima — menja ga svaki član, a svaka
+    // izmena ostaje u Istoriji izmena.
+    if (!canEditArea(actor, area)) {
+      throw permissionError("NEMA_DOZVOLU", "Oblast nije pronađena u ovom startupu.");
+    }
     const existing = await ctx.db
       .query("areaBodies")
       .withIndex("by_areaId", (q) => q.eq("areaId", args.areaId))
       .unique();
-    const ownerProfileId =
-      existing?.ownerProfileId ?? startup.createdByProfileId;
-    if (ownerProfileId !== profile._id) {
-      throw new Error("Briefing oblasti može menjati samo kreator startupa.");
-    }
     const currentRevision = existing?.revision ?? 0;
     if (currentRevision !== args.expectedRevision) {
-      throw new Error(
+      throw conflictError(
+        {
+          revision: currentRevision,
+          updatedByProfileId: null,
+          updatedAt: existing?.updatedAt ?? 0,
+        },
         "KONFLIKT_IZMENA: Briefing je u međuvremenu izmenjen.",
       );
     }
@@ -1937,7 +1926,8 @@ export const updateAreaBody = mutation({
       await ctx.db.insert("areaBodies", {
         startupId: args.startupId,
         areaId: args.areaId,
-        ownerProfileId,
+        // Stari „vlasnik briefinga"; polje ostaje zbog šeme, prava ne daje.
+        ownerProfileId: startup.createdByProfileId,
         content: args.content,
         revision,
         createdAt: now,
@@ -1950,7 +1940,70 @@ export const updateAreaBody = mutation({
         updatedAt: now,
       });
     }
+    await recordRevision(ctx, {
+      startupId: args.startupId,
+      target: { kind: "area", id: area._id },
+      before: { title: area.label, content: existing?.content ?? "" },
+      after: { title: area.label, content: args.content },
+      baseline: { authorProfileId: null, at: existing?.updatedAt ?? now },
+      actorProfileId: profile._id,
+      now,
+      targetRevision: revision,
+    });
     return { revision, updatedAt: now };
+  },
+});
+
+/**
+ * Opis oblasti za kartice Pregled (P12) bez celog kanvasa. `lastEditor` je
+ * autor poslednje revizije iz Istorije izmena.
+ */
+export const getAreaBody = query({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+  },
+  returns: v.object({
+    areaId: v.id("startupAreas"),
+    label: v.string(),
+    content: v.string(),
+    revision: v.number(),
+    updatedAt: v.union(v.number(), v.null()),
+    lastEditor: v.union(profileSummaryObjectValidator, v.null()),
+    permissions: v.object({
+      canEdit: v.boolean(),
+      canComment: v.boolean(),
+    }),
+  }),
+  handler: async (ctx, args) => {
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const area = await requireArea(ctx, args.startupId, args.areaId);
+    const [body, latest] = await Promise.all([
+      ctx.db
+        .query("areaBodies")
+        .withIndex("by_areaId", (q) => q.eq("areaId", area._id))
+        .unique(),
+      latestRevision(
+        ctx,
+        revisionTargetKey({ kind: "area", id: area._id }),
+      ),
+    ]);
+    const lastEditor =
+      latest?.authorProfileId
+        ? await getProfileSummary(ctx, latest.authorProfileId)
+        : null;
+    return {
+      areaId: area._id,
+      label: area.label,
+      content: body?.content ?? "",
+      revision: body?.revision ?? 0,
+      updatedAt: body?.updatedAt ?? null,
+      lastEditor,
+      permissions: {
+        canEdit: canEditArea(actor, area),
+        canComment: canComment(actor),
+      },
+    };
   },
 });
 
@@ -2101,19 +2154,13 @@ export const updatePage = mutation({
     const page = await requireStrictVisiblePage(ctx, args.pageId, {
       startupId: args.startupId,
     });
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    assertOwnedPage(
-      page,
-      profile._id,
-      "Naslov i osnovni sadržaj menja samo kreator stranice.",
-    );
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     if (
       !Number.isSafeInteger(args.expectedRevision) ||
       page.revision !== args.expectedRevision
     ) {
-      throw new Error(
-        "KONFLIKT_IZMENA: Neko iz tima je u međuvremenu izmenio ovu stranicu.",
-      );
+      throw conflictError(page);
     }
     const hasTaskPatch =
       args.taskStatus !== undefined ||
@@ -2165,11 +2212,11 @@ export const updatePage = mutation({
     const addedAssignees = assigneeProfileIds.filter(
       (profileId) => !currentAssigneeIds.includes(profileId),
     );
+    const removedAssignees = currentAssigneeIds.filter(
+      (profileId) => !assigneeProfileIds.includes(profileId),
+    );
     const changesAssignee =
-      addedAssignees.length > 0 ||
-      currentAssigneeIds.some(
-        (profileId) => !assigneeProfileIds.includes(profileId),
-      );
+      addedAssignees.length > 0 || removedAssignees.length > 0;
     const assigneeProfileId =
       page.kind === "task" ? assigneeProfileIds[0] ?? null : null;
     const dueDate =
@@ -2184,30 +2231,9 @@ export const updatePage = mutation({
       page.kind === "task" && args.checkpoints !== undefined
         ? (normalizeTaskCheckpoints(args.checkpoints) ?? [])
         : page.checkpoints;
-    const bodyContributions = await getPageBodyContributions(
-      ctx,
-      page._id,
-      body?._id ?? null,
-    );
-    const authoredBodyContribution = bodyContributions.find(
-      (contribution) =>
-        contribution.attribution === "author" &&
-        contribution.authorProfileId === profile._id,
-    );
-    const shouldClaimMissingBody =
-      content !== currentContent &&
-      authoredBodyContribution === undefined &&
-      bodyContributions.length === 0 &&
-      !currentContent.trim();
-    if (
-      content !== currentContent &&
-      authoredBodyContribution === undefined &&
-      !shouldClaimMissingBody
-    ) {
-      throw new Error(
-        "Raniji zajednički sadržaj je zaključan. Dodajte svoj potpisani tekst.",
-      );
-    }
+    const changesCheckpoints =
+      JSON.stringify(checkpoints ?? null) !==
+      JSON.stringify(page.checkpoints ?? null);
     const unchanged =
       title === page.title &&
       content === currentContent &&
@@ -2216,9 +2242,32 @@ export const updatePage = mutation({
       !changesAssignee &&
       dueDate === page.dueDate &&
       instructions === page.instructions &&
-      JSON.stringify(checkpoints ?? null) ===
-        JSON.stringify(page.checkpoints ?? null);
+      !changesCheckpoints;
     if (unchanged) return { revision: page.revision };
+
+    // PROSTOR P1: svaki član menja sve; na zaključanoj stranici autor,
+    // vlasnik startupa i admin, a izvršilac još i status (ODLUKA K01 D5) i
+    // svoje učešće.
+    if (!canEditPage(actor, page)) {
+      const touchesOnlySelf = [...addedAssignees, ...removedAssignees].every(
+        (profileId) => profileId === profile._id,
+      );
+      const claimsForSelf = addedAssignees.includes(profile._id);
+      const isAssignee = currentAssigneeIds.includes(profile._id);
+      if (
+        title !== page.title ||
+        content !== currentContent ||
+        taskPriority !== page.taskPriority ||
+        dueDate !== page.dueDate ||
+        instructions !== page.instructions ||
+        changesCheckpoints ||
+        (changesAssignee && !touchesOnlySelf) ||
+        (taskStatus !== page.taskStatus &&
+          !canChangeTaskStatus(actor, page, isAssignee || claimsForSelf))
+      ) {
+        throw permissionError("ZAKLJUCANO", LOCKED_PAGE_MESSAGE);
+      }
+    }
 
     const now = Date.now();
     const revision = page.revision + 1;
@@ -2277,24 +2326,22 @@ export const updatePage = mutation({
     } else if (content !== currentContent) {
       await ctx.db.patch("pageBodies", body._id, { content, updatedAt: now });
     }
-    if (content !== currentContent && authoredBodyContribution !== undefined) {
-      await ctx.db.patch(
-        "contentContributions",
-        authoredBodyContribution._id,
-        { content, updatedAt: now },
-      );
-    } else if (shouldClaimMissingBody) {
-      await insertContribution(ctx, {
-        startupId: page.startupId,
-        targetKind: "page",
-        targetId: page._id,
-        authorProfileId: profile._id,
-        content,
-        sourceKind: "page_body",
-        sourceId: page._id,
-        createdAt: now,
-      });
-    }
+    await syncPageBodyMirror(ctx, {
+      page,
+      bodyId: body?._id ?? null,
+      previousContent: currentContent,
+      content,
+      actorProfileId: profile._id,
+      now,
+    });
+    await recordPageRevision(ctx, {
+      page,
+      before: pageSnapshot(page, page.title, currentContent, page.instructions),
+      after: pageSnapshot(page, title, content, instructions),
+      actorProfileId: profile._id,
+      now,
+      revision,
+    });
     await recordActivity(ctx, {
       startupId: page.startupId,
       actorProfileId: profile._id,
@@ -2374,7 +2421,6 @@ export const movePages = mutation({
         areaId: args.areaId,
       });
       assertDirectCanvasPage(page, args.rootPageId);
-      assertOwnedPage(page, profile._id, "Možete pomerati samo svoje kartice.");
       pages.push({ page, update });
     }
     const now = Date.now();
@@ -2420,7 +2466,6 @@ export const resizePage = mutation({
       areaId: args.areaId,
     });
     assertDirectCanvasPage(page, args.rootPageId);
-    assertOwnedPage(page, profile._id, "Možete menjati veličinu samo svoje kartice.");
     if ((args.x === undefined) !== (args.y === undefined)) {
       throw new Error("Pozicija kartice mora imati i x i y koordinatu.");
     }
@@ -2467,7 +2512,6 @@ export const resetPageSize = mutation({
       areaId: args.areaId,
     });
     assertDirectCanvasPage(page, args.rootPageId);
-    assertOwnedPage(page, profile._id, "Možete menjati veličinu samo svoje kartice.");
     const placement = await getPlacement(ctx, page._id);
     if (placement !== null) {
       const now = Date.now();

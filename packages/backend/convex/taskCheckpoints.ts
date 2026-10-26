@@ -6,6 +6,15 @@ import { mutation, query } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import { requireVisiblePage } from "./lib/pages";
+import {
+  assertCanEditPage,
+  canChangeTaskStatus,
+  canEditPage,
+  canLayoutOnMap,
+  LOCKED_PAGE_MESSAGE,
+  permissionError,
+  type Actor,
+} from "./lib/permissions";
 import { isTaskAssignee } from "./lib/task_assignees";
 import {
   listActiveTaskCheckpoints,
@@ -82,14 +91,16 @@ async function requireTaskCheckpoint(
   ) {
     throw new Error("Checkpoint više nije povezan sa dostupnim zadatkom.");
   }
-  const { profile } = await requireStartupMember(ctx, page.startupId);
-  return { checkpoint, page, profile };
+  const actor = await requireStartupMember(ctx, page.startupId);
+  return { checkpoint, page, profile: actor.profile, actor };
 }
 
-function assertOwner(page: Doc<"pages">, profileId: Id<"profiles">) {
-  if (page.createdByProfileId !== profileId) {
-    throw new Error("Checkpoint menja samo autor zadatka.");
-  }
+/**
+ * PROSTOR P1: korake (tekst, lanac, dodavanje, brisanje) menja svaki član;
+ * na zaključanom zadatku samo autor, vlasnik startupa i admin.
+ */
+function assertOwner(actor: Actor, page: Doc<"pages">) {
+  assertCanEditPage(actor, page);
 }
 
 /**
@@ -133,7 +144,8 @@ export const listForTask = query({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.taskPageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije zadatak.");
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     if (
       args.canvasRootPageId !== undefined &&
       args.canvasRootPageId !== page._id &&
@@ -159,9 +171,15 @@ export const listForTask = query({
     const placementsByCheckpoint = new Map(
       placements.map((placement) => [placement.checkpointId, placement]),
     );
-    const canEdit = page.createdByProfileId === profile._id;
+    const canEdit = canEditPage(actor, page);
     const canToggle =
-      canEdit || (await isTaskAssignee(ctx, page, profile._id));
+      canEdit ||
+      canChangeTaskStatus(
+        actor,
+        page,
+        await isTaskAssignee(ctx, page, profile._id),
+      );
+    const canMove = canLayoutOnMap(actor);
     const lockStates = taskCheckpointLockStates(rows);
     return rows.map((row, index) => {
       const placement = placementsByCheckpoint.get(row._id);
@@ -190,9 +208,10 @@ export const listForTask = query({
           : null,
         canEdit,
         canToggle,
-        canMove: canEdit,
+        canMove,
         canDeleteDirectly: canEdit,
-        canRequestDeletion: !canEdit,
+        // Glasanje o brisanju više ne postoji (P4); polje ostaje (P25).
+        canRequestDeletion: false,
       };
     });
   },
@@ -204,8 +223,9 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.taskPageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije zadatak.");
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    assertOwner(page, profile._id);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
+    assertOwner(actor, page);
     const rows = await listActiveTaskCheckpoints(ctx, page._id);
     if (rows.length >= MAX_TASK_CHECKPOINTS) {
       throw new Error(
@@ -248,12 +268,12 @@ export const updateText = mutation({
   args: { checkpointId: v.id("taskCheckpoints"), text: v.string() },
   returns: v.id("taskCheckpoints"),
   handler: async (ctx, args) => {
-    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+    const { checkpoint, page, profile, actor } = await requireTaskCheckpoint(
       ctx,
       args.checkpointId,
     );
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
-    assertOwner(page, profile._id);
+    assertOwner(actor, page);
     const text = normalizeCheckpointText(args.text);
     if (text === checkpoint.text) return checkpoint._id;
     const now = Date.now();
@@ -273,16 +293,19 @@ export const setCompleted = mutation({
   },
   returns: v.id("taskCheckpoints"),
   handler: async (ctx, args) => {
-    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+    const { checkpoint, page, profile, actor } = await requireTaskCheckpoint(
       ctx,
       args.checkpointId,
     );
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
     if (
-      page.createdByProfileId !== profile._id &&
-      !(await isTaskAssignee(ctx, page, profile._id))
+      !canChangeTaskStatus(
+        actor,
+        page,
+        await isTaskAssignee(ctx, page, profile._id),
+      )
     ) {
-      throw new Error("Checkpoint završava autor ili osoba kojoj je zadatak dodeljen.");
+      throw permissionError("ZAKLJUCANO", LOCKED_PAGE_MESSAGE);
     }
     if (checkpoint.completed === args.completed) return checkpoint._id;
     await assertChainAllowsToggle(ctx, checkpoint, args.completed);
@@ -303,12 +326,12 @@ export const setChainedToPrevious = mutation({
   },
   returns: v.id("taskCheckpoints"),
   handler: async (ctx, args) => {
-    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+    const { checkpoint, page, profile, actor } = await requireTaskCheckpoint(
       ctx,
       args.checkpointId,
     );
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
-    assertOwner(page, profile._id);
+    assertOwner(actor, page);
     const rows = await listActiveTaskCheckpoints(ctx, page._id);
     if (rows[0]?._id === checkpoint._id && args.chained) {
       throw new Error("Prvi korak nema prethodni korak za koji bi bio vezan.");
@@ -332,8 +355,9 @@ export const setAllChained = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.taskPageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije zadatak.");
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    assertOwner(page, profile._id);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
+    assertOwner(actor, page);
     const rows = await listActiveTaskCheckpoints(ctx, page._id);
     const now = Date.now();
     let changed = 0;
@@ -361,12 +385,12 @@ export const archiveOwn = mutation({
     undoUntil: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+    const { checkpoint, page, profile, actor } = await requireTaskCheckpoint(
       ctx,
       args.checkpointId,
     );
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je već obrisan.");
-    assertOwner(page, profile._id);
+    assertOwner(actor, page);
     const now = Date.now();
     await archiveCheckpointCanvasEdgesForCheckpoint(
       ctx,
@@ -386,12 +410,12 @@ export const restoreOwn = mutation({
   args: { checkpointId: v.id("taskCheckpoints") },
   returns: v.id("taskCheckpoints"),
   handler: async (ctx, args) => {
-    const { checkpoint, page, profile } = await requireTaskCheckpoint(
+    const { checkpoint, page, profile, actor } = await requireTaskCheckpoint(
       ctx,
       args.checkpointId,
     );
     if (checkpoint.archivedAt === null) throw new Error("Checkpoint nije obrisan.");
-    assertOwner(page, profile._id);
+    assertOwner(actor, page);
     if (Date.now() - checkpoint.archivedAt > 8_000) {
       throw new Error("Vreme za Undo je isteklo.");
     }
@@ -425,7 +449,6 @@ export const saveCanvasPlacement = mutation({
       args.checkpointId,
     );
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
-    assertOwner(page, profile._id);
     if (
       args.canvasRootPageId !== page._id &&
       args.canvasRootPageId !== page.parentPageId
@@ -490,7 +513,6 @@ export const resetCanvasSize = mutation({
       args.checkpointId,
     );
     if (checkpoint.archivedAt !== null) throw new Error("Checkpoint je obrisan.");
-    assertOwner(page, profile._id);
     if (
       args.canvasRootPageId !== page._id &&
       args.canvasRootPageId !== page.parentPageId

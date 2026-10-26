@@ -17,6 +17,7 @@ import {
   type TableColumn,
 } from "./lib/page_tables";
 import { requireVisiblePage } from "./lib/pages";
+import { assertCanEditPage, canEditPage } from "./lib/permissions";
 import {
   boundedLimit,
   MAX_TABLE_COLUMNS,
@@ -44,14 +45,15 @@ async function requireTablePage(
 ) {
   const page = await requireVisiblePage(ctx, pageId);
   if (page.kind !== "table") throw new Error("Ova stranica nije tabela.");
-  const { profile } = await requireStartupMember(ctx, page.startupId);
-  return { page, profile };
+  const actor = await requireStartupMember(ctx, page.startupId);
+  return { page, profile: actor.profile, actor };
 }
 
 /**
- * Strukturu tabele (kolone, dodavanje i brisanje redova, uvoz) menja autor
- * kartice; vrednosti ćelija menja svaki aktivan član startupa — tabela koju
- * niko drugi ne može da popuni nema svrhu.
+ * PROSTOR P1/P19: strukturu i ćelije tabele menja svaki član (zaključanu samo
+ * autor, vlasnik startupa i admin). Radnje koje danas TRAJNO brišu podatke
+ * (`removeRow`, `removeColumn`, `importRows` sa `replace`) ostaju autorove dok
+ * ih K03 ne pretvori u meke (ODLUKA K02).
  */
 function assertStructureOwner(
   createdByProfileId: Id<"profiles">,
@@ -75,14 +77,14 @@ export const getMeta = query({
     rowCount: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTablePage(ctx, args.pageId);
+    const { page, actor } = await requireTablePage(ctx, args.pageId);
     const columnsRow = await getTableColumns(ctx, page._id);
+    const canEdit = canEditPage(actor, page);
     return {
       columns: columnsRow?.columns ?? [],
       revision: columnsRow?.revision ?? 0,
-      canEditStructure: page.createdByProfileId === profile._id,
-      // Vrednosti ćelija menja svaki aktivan član; strukturu samo autor.
-      canEditCells: true,
+      canEditStructure: canEdit,
+      canEditCells: canEdit,
       rowCount: page.tableRowCount ?? 0,
     };
   },
@@ -124,8 +126,8 @@ export const addColumn = mutation({
   args: { pageId: v.id("pages"), label: v.optional(v.string()) },
   returns: v.string(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTablePage(ctx, args.pageId);
-    assertStructureOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireTablePage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const now = Date.now();
     const columnsRow = await requireTableColumns(ctx, page, profile._id, now);
     const columnId = newTableKey("col", columnsRow.columns.length, now);
@@ -154,8 +156,8 @@ export const renameColumn = mutation({
   args: { pageId: v.id("pages"), columnId: v.string(), label: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTablePage(ctx, args.pageId);
-    assertStructureOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireTablePage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const now = Date.now();
     const columnsRow = await requireTableColumns(ctx, page, profile._id, now);
     const index = columnsRow.columns.findIndex(
@@ -210,8 +212,8 @@ export const moveColumn = mutation({
   args: { pageId: v.id("pages"), columnId: v.string(), toIndex: v.number() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTablePage(ctx, args.pageId);
-    assertStructureOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireTablePage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const now = Date.now();
     const columnsRow = await requireTableColumns(ctx, page, profile._id, now);
     const fromIndex = columnsRow.columns.findIndex(
@@ -235,8 +237,8 @@ export const addRow = mutation({
   args: { pageId: v.id("pages"), afterPosition: v.optional(v.number()) },
   returns: v.id("pageTableRows"),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTablePage(ctx, args.pageId);
-    assertStructureOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireTablePage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const now = Date.now();
     await requireTableColumns(ctx, page, profile._id, now);
     const rows = await ctx.db
@@ -318,7 +320,8 @@ export const setCells = mutation({
     if (row === null || row.archivedAt !== null) {
       throw new Error("Red nije pronađen.");
     }
-    const { page, profile } = await requireTablePage(ctx, row.pageId);
+    const { page, profile, actor } = await requireTablePage(ctx, row.pageId);
+    assertCanEditPage(actor, page);
     const columnsRow = await getTableColumns(ctx, page._id);
     const knownIds = new Set((columnsRow?.columns ?? []).map((c) => c.id));
     const cells = { ...row.cells };
@@ -353,8 +356,12 @@ export const importRows = mutation({
   },
   returns: v.object({ importedRows: v.number(), totalRows: v.number() }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTablePage(ctx, args.pageId);
-    assertStructureOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireTablePage(ctx, args.pageId);
+    if (args.mode === "replace") {
+      assertStructureOwner(page.createdByProfileId, profile._id);
+    } else {
+      assertCanEditPage(actor, page);
+    }
     if (args.rows.length > MAX_TABLE_IMPORT_BATCH) {
       throw new Error(
         `Jedna serija uvoza može imati najviše ${MAX_TABLE_IMPORT_BATCH} redova.`,

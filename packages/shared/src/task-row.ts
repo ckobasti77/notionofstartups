@@ -24,30 +24,47 @@ export type TaskPermissions = {
   plan: Perm;
 };
 
-/** Razlozi za onemogućen čip (plan K07 §3, E15) — tekst servera gde postoji. */
+const LOCKED_REASON =
+  "Zadatak je zaključan. Menja ga autor, vlasnik startupa ili admin.";
+const LOCKED_STATUS_REASON =
+  "Zadatak je zaključan. Status menja izvršilac, autor, vlasnik startupa ili admin.";
+
+/**
+ * Razlozi za onemogućen čip (plan K07 §3, E15). PROSTOR P1: radnja je
+ * zabranjena samo na zaključanom zadatku, pa svi razlozi govore o tome.
+ */
 export const PERMISSION_REASONS = {
-  status: "Status menja kreator zadatka ili osoba kojoj je dodeljen.",
-  priority: "Prioritet menja samo kreator zadatka.",
-  due: "Rok menja samo kreator zadatka.",
-  instructions: "Instrukcije menja samo kreator zadatka.",
-  checkpoints: "Korake menja samo kreator zadatka.",
-  assignees: "Druge izvršioce menja kreator. Sebe možeš da dodaš ili skineš.",
+  locked: LOCKED_REASON,
+  lockedStatus: LOCKED_STATUS_REASON,
+  status: LOCKED_STATUS_REASON,
+  priority: LOCKED_REASON,
+  due: LOCKED_REASON,
+  instructions: LOCKED_REASON,
+  checkpoints: LOCKED_REASON,
+  assignees: "Zadatak je zaključan. Sebe možeš da dodaš ili skineš.",
 } as const;
 
 const ALLOWED: Perm = { allowed: true, reason: null };
 const denied = (reason: string): Perm => ({ allowed: false, reason });
 
 /**
- * Dozvole po pravilima `tasks.updateMetadata`: kreator vodi zadatak, izvršilac
- * menja status, svaki član sme sebe da doda ili skine; lični zadatak je ceo
+ * Dozvole po pravilima `tasks.updateMetadata` (PROSTOR P1): svaki član menja
+ * sve osobine zadatka; na zaključanom zadatku (`lockedForViewer`) izvršilac
+ * menja samo status, ostali ništa osim svog učešća. Lični zadatak je ceo
  * vlasnikov.
  */
 export function taskPermissions(input: {
   kind: "task" | "personal";
   isCreator: boolean;
   isAssignee: boolean;
+  /** Zaključan, a gledalac nije autor, vlasnik startupa ni admin; odsutno = ne. */
+  lockedForViewer?: boolean;
 }): TaskPermissions {
-  if (input.kind === "personal" || input.isCreator) {
+  if (
+    input.kind === "personal" ||
+    input.isCreator ||
+    input.lockedForViewer !== true
+  ) {
     return {
       status: ALLOWED,
       priority: ALLOWED,
@@ -59,7 +76,7 @@ export function taskPermissions(input: {
     };
   }
   return {
-    status: input.isAssignee ? ALLOWED : denied(PERMISSION_REASONS.status),
+    status: input.isAssignee ? ALLOWED : denied(PERMISSION_REASONS.lockedStatus),
     priority: denied(PERMISSION_REASONS.priority),
     due: denied(PERMISSION_REASONS.due),
     instructions: denied(PERMISSION_REASONS.instructions),
@@ -91,6 +108,8 @@ export type TaskRowModel = {
   done: boolean;
   checkpoints: { done: number; total: number } | null;
   permissions: TaskPermissions;
+  /** Da li sam izvršilac (startup zadatak); `undefined` = ne znamo. */
+  isAssignee?: boolean;
   /** Za stabilan redosled pri grupisanju (Moji zadaci); opciono. */
   createdAt?: number;
 };
@@ -123,6 +142,7 @@ export function rowFromMyDay(
     done: row.status === "done",
     checkpoints: null,
     permissions: taskPermissions(row),
+    ...(row.kind === "task" ? { isAssignee: row.isAssignee } : {}),
   };
 }
 
@@ -137,6 +157,8 @@ export type TaskItemLike = {
   checkpointCompleted: number;
   isCreator: boolean;
   isAssignee: boolean;
+  /** PROSTOR P1 (server `taskItemValidator`); odsutno = otključan. */
+  lockedForViewer?: boolean;
   startup: StartupMini;
   area: { label: string } | null;
   createdAt?: number;
@@ -181,7 +203,9 @@ export function rowFromTaskItem(
       kind: "task",
       isCreator: item.isCreator,
       isAssignee: item.isAssignee,
+      lockedForViewer: item.lockedForViewer,
     }),
+    isAssignee: item.isAssignee,
     ...(item.createdAt === undefined ? {} : { createdAt: item.createdAt }),
   };
 }

@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireStartupMember } from "./lib/auth";
 import { requirePageArea } from "./lib/page_creation";
+import { canLayoutOnMap } from "./lib/permissions";
 import {
   pageKindValidator,
   taskPriorityValidator,
@@ -234,7 +235,8 @@ export const getAreaCanvas = query({
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const member = await requireStartupMember(ctx, args.startupId);
+    const { profile } = member;
     await requirePageArea(ctx, args.startupId, args.areaId);
 
     const rawPages = await ctx.db
@@ -315,8 +317,9 @@ export const getAreaCanvas = query({
         y: layout?.y ?? (row - 1) * 205,
         width: layout?.width ?? DEFAULT_PAGE_NODE_WIDTH,
         height: layout?.height ?? DEFAULT_PAGE_NODE_HEIGHT,
-        canMove: page.createdByProfileId === profile._id,
-        canResize: page.createdByProfileId === profile._id,
+        // Raspored menja svaki član (PROSTOR P1, D20).
+        canMove: canLayoutOnMap(member),
+        canResize: canLayoutOnMap(member),
         creator: creatorsById.get(page.createdByProfileId) ?? null,
       };
     }));
@@ -384,9 +387,6 @@ export const moveAreaCanvasPages = mutation({
       ) {
         throw new Error("Pomeri samo dostupne kartice sa kanvasa oblasti.");
       }
-      if (page.createdByProfileId !== profile._id) {
-        throw new Error("Možete pomerati samo svoje kartice.");
-      }
       await syncLegacyAndV2Placement(ctx, {
         page,
         actorProfileId: profile._id,
@@ -420,10 +420,6 @@ export const resizeAreaCanvasPage = mutation({
     ) {
       throw new Error("Kartica više nije dostupna.");
     }
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Možete promeniti veličinu samo svoje kartice.");
-    }
-
     const now = Date.now();
     await syncLegacyAndV2Placement(ctx, {
       page,
@@ -463,10 +459,6 @@ export const resetAreaCanvasPageSize = mutation({
     ) {
       throw new Error("Kartica više nije dostupna.");
     }
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Možete vratiti veličinu samo svoje kartice.");
-    }
-
     await syncLegacyAndV2Placement(ctx, {
       page,
       actorProfileId: profile._id,

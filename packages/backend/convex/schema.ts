@@ -263,6 +263,11 @@ export default defineSchema({
     sourceMessageId: v.optional(v.id("chatMessages")),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
+    // Zaključavanje (PROSTOR P1): naslov, sadržaj, osobine, premeštanje i
+    // brisanje zaključane stranice menjaju samo autor, vlasnik startupa i admin.
+    // Odsutno ili `null` = otključana.
+    lockedAt: v.optional(v.union(v.number(), v.null())),
+    lockedByProfileId: v.optional(v.union(v.id("profiles"), v.null())),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1269,6 +1274,11 @@ export default defineSchema({
       v.literal("content_recovered"),
       v.literal("content_soft_deleted"),
       v.literal("member_password_changed"),
+      // PROSTOR (K02): nove radnje čuvaju `title` = naslov objekta, a rečenicu
+      // gradi shared `formatActivity`.
+      v.literal("page_locked"),
+      v.literal("page_unlocked"),
+      v.literal("revision_restored"),
     ),
     targetType: v.union(
       v.literal("startup"),
@@ -1279,6 +1289,7 @@ export default defineSchema({
       v.literal("contribution"),
       v.literal("request"),
       v.literal("recovered"),
+      v.literal("area"),
     ),
     targetId: v.string(),
     title: v.string(),
@@ -1290,6 +1301,50 @@ export default defineSchema({
       "actorProfileId",
       "createdAt",
     ]),
+
+  // --- Istorija izmena i prisustvo (PROSTOR P2, P23) ------------------------
+  //
+  // Snimak naslova i sadržaja POSLE izmene, za stranice, opis oblasti i ideje.
+  // Pre prve izmene upisuje se bazna revizija (zatečeno stanje). Izmene istog
+  // autora u roku od 10 minuta se spajaju u jednu reviziju; „Vrati ovu verziju"
+  // pravi NOVU reviziju. Ništa se ne briše.
+  contentRevisions: defineTable({
+    startupId: v.id("startups"),
+    targetKind: v.union(v.literal("page"), v.literal("area"), v.literal("idea")),
+    targetId: v.string(),
+    /** `contributionTargetKey(targetKind, targetId)`. */
+    targetKey: v.string(),
+    kind: v.union(
+      v.literal("baseline"),
+      v.literal("edit"),
+      v.literal("restore"),
+    ),
+    /** `null` = zatečeno stanje bez poznatog autora. */
+    authorProfileId: v.union(v.id("profiles"), v.null()),
+    /** Oblast: njen naziv u trenutku izmene. */
+    title: v.union(v.string(), v.null()),
+    content: v.string(),
+    /** Samo zadaci. */
+    instructions: v.optional(v.union(v.string(), v.null())),
+    /** `pages.revision` / `areaBodies.revision` posle izmene; ideja `null`. */
+    targetRevision: v.union(v.number(), v.null()),
+    restoredFromId: v.optional(v.id("contentRevisions")),
+    createdAt: v.number(),
+    /** Pomera se pri spajanju (10 min). */
+    updatedAt: v.number(),
+  }).index("by_targetKey_and_updatedAt", ["targetKey", "updatedAt"]),
+
+  // „<Ime> uređuje" — isti obrazac kao `chatPresence`: klijent šalje otkucaje,
+  // upit vraća `expiresAt`, a klijent sam odbacuje istekle (upit ne čita sat).
+  pagePresence: defineTable({
+    startupId: v.id("startups"),
+    pageId: v.id("pages"),
+    profileId: v.id("profiles"),
+    editing: v.boolean(),
+    /** `Date.now() + PAGE_PRESENCE_TTL_MS`; `0` = napustio stranicu. */
+    expiresAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_pageId_and_profileId", ["pageId", "profileId"]),
 
   // --- Chat (docs/mobile/04-CHAT.md) --------------------------------------
 

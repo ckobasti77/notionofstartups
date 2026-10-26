@@ -152,16 +152,19 @@ describe("tabela kao vrsta oblačića", () => {
     ).rejects.toThrow("bar jednu kolonu");
   });
 
-  test("strukturu menja autor, ćelije menja svaki član", async () => {
+  test("strukturu i ćelije menja svaki član, zaključanu tabelu samo autor", async () => {
+    // PROSTOR P1/P19 (namerna promena pravila): ranije je strukturu menjao
+    // samo autor kartice; sada svaki član, osim kad je tabela zaključana.
     const { pageId, asOwner, asMember, readAll } = await seedTableWorkspace();
     const { meta, rows } = await readAll();
 
-    await expect(
-      asMember.mutation(api.pageTables.addColumn, { pageId }),
-    ).rejects.toThrow("samo autor kartice");
-    await expect(
-      asMember.mutation(api.pageTables.addRow, { pageId }),
-    ).rejects.toThrow("samo autor kartice");
+    await asMember.mutation(api.pageTables.addColumn, { pageId });
+    await asMember.mutation(api.pageTables.addRow, { pageId });
+    const memberMeta = await asMember.query(api.pageTables.getMeta, { pageId });
+    expect(memberMeta).toMatchObject({
+      canEditStructure: true,
+      canEditCells: true,
+    });
 
     await asMember.mutation(api.pageTables.setCells, {
       rowId: rows[0]._id,
@@ -170,7 +173,24 @@ describe("tabela kao vrsta oblačića", () => {
     expect((await readAll()).rows[0].cells[meta.columns[0].id]).toBe(
       "član je upisao",
     );
-    void asOwner;
+
+    await asOwner.mutation(api.pages.lock, { pageId });
+    expect(
+      await asMember.query(api.pageTables.getMeta, { pageId }),
+    ).toMatchObject({ canEditStructure: false, canEditCells: false });
+    await expect(
+      asMember.mutation(api.pageTables.addColumn, { pageId }),
+    ).rejects.toThrow("zaključana");
+    await expect(
+      asMember.mutation(api.pageTables.setCells, {
+        rowId: rows[0]._id,
+        values: { [meta.columns[0].id]: "posle zaključavanja" },
+      }),
+    ).rejects.toThrow("zaključana");
+    await asOwner.mutation(api.pageTables.setCells, {
+      rowId: rows[0]._id,
+      values: { [meta.columns[0].id]: "autor menja" },
+    });
   });
 
   test("nepoznata kolona i predugačka ćelija se odbijaju", async () => {

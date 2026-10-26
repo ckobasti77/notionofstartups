@@ -1299,7 +1299,9 @@ describe("Areas V2 backend", () => {
     ).resolves.toBe(contributionId);
   });
 
-  test("layout i edge autorizacija su vlasnički i tenant-scope ostaje zatvoren", async () => {
+  test("raspored menja svaki član, veze su vlasničke do K03 i tenant-scope ostaje zatvoren", async () => {
+    // PROSTOR P1 (namerna promena pravila, D20): pozicija i veličina tuđe
+    // kartice više nisu zabranjene. Uklanjanje tuđe veze menja K03.
     const {
       t,
       startupA,
@@ -1331,7 +1333,7 @@ describe("Areas V2 backend", () => {
         rootPageId: null,
         updates: [{ pageId: note.pageId, x: 10, y: 20 }],
       }),
-    ).rejects.toThrow("svoje kartice");
+    ).resolves.toBeNull();
     await expect(
       asMember.mutation(api.areasV2.resizePage, {
         startupId: startupA,
@@ -1341,7 +1343,7 @@ describe("Areas V2 backend", () => {
         width: 400,
         height: 300,
       }),
-    ).rejects.toThrow("svoje kartice");
+    ).resolves.toBeNull();
     const edgeId = await asActor.mutation(api.areasV2.connectPages, {
       startupId: startupA,
       areaId: areaA1,

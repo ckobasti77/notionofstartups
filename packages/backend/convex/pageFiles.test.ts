@@ -165,6 +165,8 @@ describe("fajlovi u oblačiću", () => {
     });
     const storageId = await store("x", "image/png");
 
+    // PROSTOR P1 (namerna promena pravila): član sme da dodaje fajlove, ali
+    // tuđa dozvola za slanje i dalje ne prolazi.
     await expect(
       asMember.mutation(api.pageFiles.attach, {
         pageId,
@@ -172,7 +174,7 @@ describe("fajlovi u oblačiću", () => {
         token,
         name: "tudje.png",
       }),
-    ).rejects.toThrow("samo njegov autor");
+    ).rejects.toThrow("Dozvola za slanje fajla nije ispravna");
     // Neuspeh autorizacije ne sme da dira blob — pozivalac nije dokazao da je
     // blob njegov.
     expect(
@@ -304,12 +306,19 @@ describe("fajlovi u oblačiću", () => {
     ).toBe(null);
   });
 
-  test("tuđi oblačić ne prima fajlove, ali ih član vidi", async () => {
-    const { pageId, asMember } = await seedFileWorkspace();
+  test("član dodaje fajlove u tuđi oblačić, osim kad je zaključan", async () => {
+    // PROSTOR P1/P19 (namerna promena pravila): ranije je tuđi oblačić
+    // odbijao fajlove; sada samo zaključan (autor, vlasnik, admin).
+    const { pageId, asOwner, asMember } = await seedFileWorkspace();
     await expect(
       asMember.mutation(api.pageFiles.generateUploadUrl, { pageId }),
-    ).rejects.toThrow("samo njegov autor");
+    ).resolves.toMatchObject({ token: expect.any(String) });
     expect(await asMember.query(api.pageFiles.list, { pageId })).toEqual([]);
+
+    await asOwner.mutation(api.pages.lock, { pageId });
+    await expect(
+      asMember.mutation(api.pageFiles.generateUploadUrl, { pageId }),
+    ).rejects.toThrow("zaključana");
   });
 
   test("fajl API odbija stranice koje ne podržavaju fajlove", async () => {

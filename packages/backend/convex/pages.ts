@@ -1,7 +1,5 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import type { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
   archivePageWithV2Sidecars,
@@ -11,6 +9,16 @@ import {
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import { insertContribution } from "./lib/collaboration";
+import { writePageContent } from "./lib/page_content";
+import {
+  assertCanEditPage,
+  canLockPage,
+  conflictError,
+  isPageLocked,
+  pagePermissions,
+  pagePermissionsValidator,
+  permissionError,
+} from "./lib/permissions";
 import {
   cleanPageContent,
   insertWorkspacePage,
@@ -18,14 +26,8 @@ import {
   requirePageArea,
   requirePageParent,
   validateWorkspacePageTarget,
-  workspaceCanvasPreview,
 } from "./lib/page_creation";
-import {
-  pageSearchText,
-  pageTaskSortAt,
-  requireVisiblePage,
-  summarizePage,
-} from "./lib/pages";
+import { requireVisiblePage, summarizePage } from "./lib/pages";
 import {
   getProfileSummary,
   profileSummaryValidator as profileSummaryDisplayValidator,
@@ -42,8 +44,6 @@ import {
   taskPriorityValidator,
   taskStatusValidator,
 } from "./lib/validators";
-
-type PageReadCtx = QueryCtx | MutationCtx;
 
 const profileDocumentValidator = v.object({
   _id: v.id("profiles"),
@@ -69,46 +69,11 @@ const pageDetailsValidator = pageDocumentValidator.extend({
   /** Prvi izvršilac; ceo spisak je u `assignees`. */
   assignee: v.union(profileDocumentValidator, v.null()),
   assignees: v.array(profileSummaryDisplayValidator),
-  permissions: v.object({
-    canEdit: v.boolean(),
-    canEditBody: v.boolean(),
-    canMove: v.boolean(),
-    canResize: v.boolean(),
-    canDetach: v.boolean(),
-    canDeleteDirectly: v.boolean(),
-    canRequestDeletion: v.boolean(),
-  }),
+  /** Ko je zaključao stranicu (PROSTOR P1); `null` kad je otključana. */
+  lockedBy: v.union(profileSummaryDisplayValidator, v.null()),
+  /** P25: stara polja ostaju, nova se dodaju (`lib/permissions.ts`). */
+  permissions: pagePermissionsValidator,
 });
-
-async function getPageBodyContributions(
-  ctx: PageReadCtx,
-  pageId: Id<"pages">,
-  bodyId: Id<"pageBodies"> | null,
-) {
-  const sourceIds = bodyId === null ? [pageId] : [pageId, bodyId];
-  const batches = await Promise.all(
-    sourceIds.map((sourceId) =>
-      ctx.db
-        .query("contentContributions")
-        .withIndex("by_sourceKind_and_sourceId", (q) =>
-          q.eq("sourceKind", "page_body").eq("sourceId", sourceId),
-        )
-        .take(2),
-    ),
-  );
-  const byId = new Map(
-    batches
-      .flat()
-      .filter(
-        (contribution) =>
-          contribution.targetKind === "page" &&
-          contribution.targetId === pageId &&
-          contribution.archivedAt === null,
-      )
-      .map((contribution) => [contribution._id, contribution]),
-  );
-  return Array.from(byId.values());
-}
 
 export const listChildren = query({
   args: {
@@ -159,7 +124,8 @@ export const get = query({
   returns: pageDetailsValidator,
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     const [body, creator, updater, assignee, parent] = await Promise.all([
       ctx.db
         .query("pageBodies")
@@ -180,11 +146,10 @@ export const get = query({
         assigneeEntries.map((entry) => getProfileSummary(ctx, entry.profileId)),
       )
     ).filter((summary) => summary !== null);
-    const pageBodyContributions = await getPageBodyContributions(
-      ctx,
-      page._id,
-      body?._id ?? null,
-    );
+    const lockedBy =
+      isPageLocked(page) && page.lockedByProfileId
+        ? await getProfileSummary(ctx, page.lockedByProfileId)
+        : null;
 
     let creatorAvatarUrl = null;
     if (creator?.avatarStorageId) {
@@ -199,30 +164,19 @@ export const get = query({
       updater,
       assignee,
       assignees,
-      permissions: {
-        canEdit: page.createdByProfileId === profile._id,
-        canEditBody:
-          page.createdByProfileId === profile._id &&
-          ((pageBodyContributions.length === 0 &&
-            !(body?.content ?? "").trim()) ||
-            pageBodyContributions.some(
-              (contribution) =>
-                contribution.attribution === "author" &&
-                contribution.authorProfileId === profile._id,
-            )),
-        canMove: page.createdByProfileId === profile._id,
-        canResize: page.createdByProfileId === profile._id,
-        canDetach:
-          page.parentPageId !== null &&
-          (page.createdByProfileId === profile._id ||
-            (parent !== null &&
-              parent.archivedAt === null &&
-              parent.startupId === page.startupId &&
-              parent.areaId === page.areaId &&
-              parent.createdByProfileId === profile._id)),
-        canDeleteDirectly: page.createdByProfileId === profile._id,
-        canRequestDeletion: page.createdByProfileId !== profile._id,
-      },
+      lockedBy,
+      permissions: pagePermissions(actor, page, {
+        parent:
+          parent !== null &&
+          parent.archivedAt === null &&
+          parent.startupId === page.startupId &&
+          parent.areaId === page.areaId
+            ? parent
+            : null,
+        isAssignee: assigneeEntries.some(
+          (entry) => entry.profileId === profile._id,
+        ),
+      }),
     };
   },
 });
@@ -446,14 +400,15 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error(
-        "Naslov i osnovni sadržaj menja samo kreator. Dodajte svoj tekst.",
-      );
-    }
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
+    // PROSTOR P1: svaki član menja naslov i telo; zaključanu samo autor,
+    // vlasnik startupa i admin. Raniji „zaključan zajednički sadržaj"
+    // (`legacy_neutral`) više ne blokira izmenu — zatečeno stanje ostaje u
+    // Istoriji izmena kao bazna revizija.
+    assertCanEditPage(actor, page);
     if (page.revision !== args.expectedRevision) {
-      throw new Error("KONFLIKT_IZMENA: Neko iz tima je u međuvremenu izmenio ovu stranicu.");
+      throw conflictError(page);
     }
     const body = await ctx.db
       .query("pageBodies")
@@ -464,74 +419,17 @@ export const update = mutation({
       : cleanRequiredText(args.title, "Naslov", 200);
     const currentContent = body?.content ?? "";
     const content = args.content === undefined ? currentContent : cleanPageContent(args.content);
-    const bodyContributions = await getPageBodyContributions(
-      ctx,
-      page._id,
-      body?._id ?? null,
-    );
-    const authoredBodyContribution = bodyContributions.find(
-      (contribution) =>
-        contribution.attribution === "author" &&
-        contribution.authorProfileId === profile._id,
-    );
-    const shouldClaimMissingBody =
-      content !== currentContent &&
-      authoredBodyContribution === undefined &&
-      bodyContributions.length === 0 &&
-      !currentContent.trim();
-    if (
-      content !== currentContent &&
-      authoredBodyContribution === undefined &&
-      !shouldClaimMissingBody
-    ) {
-      throw new Error(
-        "Raniji zajednički sadržaj je zaključan. Dodajte svoj potpisani tekst.",
-      );
-    }
     if (title === page.title && content === currentContent) {
       return { pageId: page._id, revision: page.revision, updatedAt: page.updatedAt };
     }
     const now = Date.now();
-    const revision = page.revision + 1;
-    await ctx.db.patch("pages", page._id, {
+    const { revision } = await writePageContent(ctx, {
+      page,
+      actorProfileId: profile._id,
+      now,
       title,
-      searchText: pageSearchText(title, content),
-      canvasPreview: workspaceCanvasPreview(
-        title,
-        content,
-        page.instructions,
-      ),
-      revision,
-      taskSortAt: pageTaskSortAt(page.dueDate, now),
-      updatedByProfileId: profile._id,
-      updatedAt: now,
+      content,
     });
-    if (body === null) {
-      await ctx.db.insert("pageBodies", { pageId: page._id, content, updatedAt: now });
-    } else if (content !== currentContent) {
-      await ctx.db.patch("pageBodies", body._id, { content, updatedAt: now });
-    }
-    if (
-      content !== currentContent &&
-      authoredBodyContribution !== undefined
-    ) {
-      await ctx.db.patch(
-        "contentContributions",
-        authoredBodyContribution._id,
-        { content, updatedAt: now },
-      );
-    } else if (shouldClaimMissingBody) {
-      await insertContribution(ctx, {
-        startupId: page.startupId,
-        targetKind: "page",
-        targetId: page._id,
-        authorProfileId: profile._id,
-        content,
-        sourceKind: "page_body",
-        sourceId: page._id,
-        createdAt: now,
-      });
-    }
     if (title !== page.title || now - page.updatedAt >= 5 * 60 * 1_000) {
       await recordActivity(ctx, {
         startupId: page.startupId,
@@ -543,6 +441,81 @@ export const update = mutation({
       });
     }
     return { pageId: page._id, revision, updatedAt: now };
+  },
+});
+
+const lockStateValidator = v.object({
+  lockedAt: v.union(v.number(), v.null()),
+  lockedByProfileId: v.union(v.id("profiles"), v.null()),
+});
+
+/**
+ * Zaključavanje (PROSTOR P1): autor stranice, vlasnik startupa ili admin.
+ * Idempotentno; ne menja `revision` (zaključavanje nije izmena sadržaja).
+ */
+export const lock = mutation({
+  args: { pageId: v.id("pages") },
+  returns: lockStateValidator,
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    if (!canLockPage(actor, page)) {
+      throw permissionError(
+        "NEMA_DOZVOLU",
+        "Stranicu zaključava njen autor, vlasnik startupa ili admin.",
+      );
+    }
+    if (isPageLocked(page)) {
+      return {
+        lockedAt: page.lockedAt ?? null,
+        lockedByProfileId: page.lockedByProfileId ?? null,
+      };
+    }
+    const now = Date.now();
+    await ctx.db.patch("pages", page._id, {
+      lockedAt: now,
+      lockedByProfileId: actor.profile._id,
+    });
+    await recordActivity(ctx, {
+      startupId: page.startupId,
+      actorProfileId: actor.profile._id,
+      action: "page_locked",
+      targetType: "page",
+      targetId: page._id,
+      title: page.title,
+    });
+    return { lockedAt: now, lockedByProfileId: actor.profile._id };
+  },
+});
+
+export const unlock = mutation({
+  args: { pageId: v.id("pages") },
+  returns: lockStateValidator,
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    if (!canLockPage(actor, page)) {
+      throw permissionError(
+        "NEMA_DOZVOLU",
+        "Stranicu otključava njen autor, vlasnik startupa ili admin.",
+      );
+    }
+    if (!isPageLocked(page)) {
+      return { lockedAt: null, lockedByProfileId: null };
+    }
+    await ctx.db.patch("pages", page._id, {
+      lockedAt: null,
+      lockedByProfileId: null,
+    });
+    await recordActivity(ctx, {
+      startupId: page.startupId,
+      actorProfileId: actor.profile._id,
+      action: "page_unlocked",
+      targetType: "page",
+      targetId: page._id,
+      title: page.title,
+    });
+    return { lockedAt: null, lockedByProfileId: null };
   },
 });
 

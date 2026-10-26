@@ -368,3 +368,12 @@ export {
 } from "./task-create";
 
 export { msUntilNextDay, nextToday, TODAY_REFRESH_MS, todayOf, type Today } from "./today";
+
+export {
+  formatEditTime,
+  htmlToPlainText,
+  REVISION_KIND_LABELS,
+  revisionMeta,
+  UNKNOWN_REVISION_AUTHOR,
+  type RevisionKind,
+} from "./revisions";

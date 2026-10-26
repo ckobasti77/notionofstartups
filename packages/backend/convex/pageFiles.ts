@@ -15,6 +15,7 @@ import {
   syncPageFileSummary,
 } from "./lib/page_files";
 import { requireVisiblePage } from "./lib/pages";
+import { assertCanEditPage, canEditPage } from "./lib/permissions";
 import { pageFileCategoryValidator } from "./lib/validators";
 
 // 30 min: veliki video na sporoj mobilnoj vezi ume da traje duže od 10 min,
@@ -61,10 +62,15 @@ async function requireAttachmentPage(
   if (page.kind !== "file" && page.kind !== "note") {
     throw new Error("Ova stranica ne podržava fajlove.");
   }
-  const { profile } = await requireStartupMember(ctx, page.startupId);
-  return { page, profile };
+  const actor = await requireStartupMember(ctx, page.startupId);
+  return { page, profile: actor.profile, actor };
 }
 
+/**
+ * Trajno brisanje (`remove`, `prune`) i dalje radi samo autor oblačića dok ga
+ * K03 ne pretvori u meko brisanje (ODLUKA K02: ne širimo krug za nepovratnu
+ * radnju). Dodavanje, preimenovanje i redosled menja svaki član (P1, P19).
+ */
 function assertOwner(
   createdByProfileId: Id<"profiles">,
   profileId: Id<"profiles">,
@@ -78,9 +84,9 @@ export const list = query({
   args: { pageId: v.id("pages") },
   returns: v.array(pageFileValidator),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
+    const { page, actor } = await requireAttachmentPage(ctx, args.pageId);
     const rows = await listActivePageFiles(ctx, page._id);
-    const canManage = page.createdByProfileId === profile._id;
+    const canManage = canEditPage(actor, page);
     return await Promise.all(
       rows.map(async (row) => ({
         _id: row._id,
@@ -106,8 +112,8 @@ export const generateUploadUrl = mutation({
     expiresAt: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireAttachmentPage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const rows = await listActivePageFiles(ctx, page._id);
     if (rows.length >= MAX_PAGE_FILES) {
       throw new Error(
@@ -174,8 +180,8 @@ export const attach = mutation({
     }),
   ),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireAttachmentPage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
 
     const tokenHash = await hashUploadToken(args.token);
     const upload = await ctx.db
@@ -287,8 +293,8 @@ export const rename = mutation({
     if (file === null || file.archivedAt !== null) {
       throw new Error("Fajl nije pronađen.");
     }
-    const { page, profile } = await requireAttachmentPage(ctx, file.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, actor } = await requireAttachmentPage(ctx, file.pageId);
+    assertCanEditPage(actor, page);
     const name = cleanPageFileName(args.name);
     if (name === file.name) return null;
     await ctx.db.patch("pageFiles", file._id, { name, updatedAt: Date.now() });
@@ -325,8 +331,8 @@ export const reorder = mutation({
   args: { pageId: v.id("pages"), fileIds: v.array(v.id("pageFiles")) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireAttachmentPage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const rows = await listActivePageFiles(ctx, page._id);
     const byId = new Map(rows.map((row) => [row._id, row]));
     if (

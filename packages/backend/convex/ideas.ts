@@ -9,7 +9,9 @@ import {
   detachIdeaChildren,
   insertContribution,
 } from "./lib/collaboration";
+import { ideaBaseline, recordRevision } from "./lib/history";
 import { createNotification, notificationCopy } from "./lib/notifications";
+import { canEditIdea, canLayoutOnMap, permissionError } from "./lib/permissions";
 import {
   prepareWorkspacePage,
   validateWorkspacePageTarget,
@@ -528,7 +530,8 @@ export const update = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -537,8 +540,9 @@ export const update = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Možete urediti samo svoju ideju.");
+    // PROSTOR P6/O1: tekst ideje menja svaki član; izmena ide u Istoriju.
+    if (!canEditIdea(actor, idea)) {
+      throw permissionError("NEMA_DOZVOLU", "Ideja nije pronađena.");
     }
 
     const title = cleanRequiredText(
@@ -547,12 +551,23 @@ export const update = mutation({
       MAX_IDEA_TITLE,
     );
     const text = cleanRequiredText(args.text, "Tekst ideje", MAX_IDEA_TEXT);
+    const now = Date.now();
     await ctx.db.patch(args.ideaId, {
       title,
       text,
       searchText: nodeSearchText(title, text),
       color: args.color,
-      updatedAt: Date.now(),
+      updatedAt: now,
+    });
+    await recordRevision(ctx, {
+      startupId: idea.startupId,
+      target: { kind: "idea", id: idea._id },
+      before: { title: idea.title, content: idea.text },
+      after: { title, content: text },
+      baseline: ideaBaseline(idea),
+      actorProfileId: profile._id,
+      now,
+      targetRevision: null,
     });
     const original = await ctx.db
       .query("contentContributions")
@@ -581,7 +596,7 @@ export const updateLayout = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -590,8 +605,9 @@ export const updateLayout = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Možete promeniti veličinu samo svoje kartice.");
+    // Raspored na Mapi menja svaki član (PROSTOR P1, D20).
+    if (!canLayoutOnMap(actor)) {
+      throw new Error("Nemate pristup ovom startupu.");
     }
 
     await ctx.db.patch(args.ideaId, {
@@ -622,7 +638,7 @@ export const resetLayoutSize = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -631,8 +647,9 @@ export const resetLayoutSize = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Možete promeniti veličinu samo svoje kartice.");
+    // Raspored na Mapi menja svaki član (PROSTOR P1, D20).
+    if (!canLayoutOnMap(actor)) {
+      throw new Error("Nemate pristup ovom startupu.");
     }
 
     await ctx.db.patch(args.ideaId, {

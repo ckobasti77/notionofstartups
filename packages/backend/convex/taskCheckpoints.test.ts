@@ -88,6 +88,9 @@ describe("task checkpoint entiteti", () => {
   });
 
   test("pet checkpointa je live, nezavisno od revision-a editora i uz uloge", async () => {
+    // PROSTOR P1 (namerna promena pravila): na otključanom zadatku korake
+    // menja i završava svaki član; zaključan menjaju autor/vlasnik/admin, a
+    // završava još i izvršilac (D5). Raspored koraka na Mapi menja svaki član.
     const {
       t,
       startupId,
@@ -120,17 +123,29 @@ describe("task checkpoint entiteti", () => {
     expect(rows.map((row) => row.ordinal)).toEqual([1, 2, 3, 4, 5]);
     expect(rows[0]).toMatchObject({
       text: "Korak 1",
-      canEdit: false,
-      canToggle: false,
-      canRequestDeletion: true,
+      canEdit: true,
+      canToggle: true,
+      canMove: true,
+      canRequestDeletion: false,
     });
 
+    await asOwner.mutation(api.pages.lock, { pageId: taskId });
+    rows = await asMember.query(api.taskCheckpoints.listForTask, {
+      taskPageId: taskId,
+      canvasRootPageId: null,
+    });
+    expect(rows[0]).toMatchObject({
+      canEdit: false,
+      canToggle: false,
+      canMove: true,
+      canRequestDeletion: false,
+    });
     await expect(
       asMember.mutation(api.taskCheckpoints.setCompleted, {
         checkpointId: rows[0]._id,
         completed: true,
       }),
-    ).rejects.toThrow("autor ili osoba kojoj je zadatak dodeljen");
+    ).rejects.toThrow("zaključana");
     await asAssignee.mutation(api.taskCheckpoints.setCompleted, {
       checkpointId: rows[0]._id,
       completed: true,
@@ -166,7 +181,7 @@ describe("task checkpoint entiteti", () => {
         checkpointId: rows[0]._id,
         text: "Tuđa izmena",
       }),
-    ).rejects.toThrow("samo autor");
+    ).rejects.toThrow("zaključana");
     await asOwner.mutation(api.taskCheckpoints.updateText, {
       checkpointId: rows[0]._id,
       text: "Potvrdi finalni plan",
@@ -231,7 +246,7 @@ describe("task checkpoint entiteti", () => {
         checkpointId: rows[0]._id,
         canvasRootPageId: null,
       }),
-    ).rejects.toThrow("samo autor");
+    ).resolves.toBeNull();
     await asOwner.mutation(api.taskCheckpoints.resetCanvasSize, {
       checkpointId: rows[0]._id,
       canvasRootPageId: null,
@@ -745,9 +760,12 @@ describe("lanac checkpointa", () => {
     ]);
   });
 
-  test("prvi korak ne može biti vezan i lanac menja samo autor", async () => {
+  test("prvi korak ne može biti vezan, a lanac zaključanog zadatka menja samo autor", async () => {
+    // PROSTOR P1 (namerna promena pravila): lanac otključanog zadatka menja
+    // svaki član; zaključanog samo autor, vlasnik i admin.
     const { taskId, asOwner, asAssignee, list } = await seedChainedTask();
     const rows = await list();
+    await asOwner.mutation(api.pages.lock, { pageId: taskId });
 
     await expect(
       asOwner.mutation(api.taskCheckpoints.setChainedToPrevious, {
@@ -760,13 +778,19 @@ describe("lanac checkpointa", () => {
         checkpointId: rows[1]._id,
         chained: true,
       }),
-    ).rejects.toThrow("samo autor");
+    ).rejects.toThrow("zaključana");
     await expect(
       asAssignee.mutation(api.taskCheckpoints.setAllChained, {
         taskPageId: taskId,
         chained: true,
       }),
-    ).rejects.toThrow("samo autor");
+    ).rejects.toThrow("zaključana");
+    await asOwner.mutation(api.pages.unlock, { pageId: taskId });
+    await asAssignee.mutation(api.taskCheckpoints.setChainedToPrevious, {
+      checkpointId: rows[1]._id,
+      chained: true,
+    });
+    expect((await list())[1].chainedToPrevious).toBe(true);
 
     await asOwner.mutation(api.taskCheckpoints.setAllChained, {
       taskPageId: taskId,
