@@ -263,8 +263,11 @@ describe("obaveštenja o idejama", () => {
 });
 
 describe("obaveštenja o glasanju za brisanje", () => {
-  test("zahtev pita ostale, ishod javlja podnosiocu", async () => {
+  // PROSTOR K03 (P3, P4): glasanje je ugašeno — stari `requestDeletion` odmah
+  // šalje tuđu stranicu u Korpu i nikoga ne pita ni ne obaveštava.
+  test("stari zahtev za brisanje ne pita tim ni ne javlja ishod; stranica je u Korpi", async () => {
     const {
+      t,
       startup,
       area,
       owner,
@@ -272,11 +275,9 @@ describe("obaveštenja o glasanju za brisanje", () => {
       third,
       asOwner,
       asMember,
-      asThird,
       notificationsFor,
     } = await seedNotificationWorkspace(3);
 
-    // Zahtev se podnosi za tuđi sadržaj — svoj se briše direktno.
     const pageId = await asOwner.mutation(api.pages.create, {
       startupId: startup,
       areaId: area,
@@ -284,39 +285,26 @@ describe("obaveštenja o glasanju za brisanje", () => {
       kind: "note",
       title: "Za brisanje",
     });
-    const requestId = await asMember.mutation(
-      api.collaboration.requestDeletion,
-      { target: { kind: "page", id: pageId } },
-    );
+    await expect(
+      asMember.mutation(api.collaboration.requestDeletion, {
+        target: { kind: "page", id: pageId },
+      }),
+    ).resolves.toBeNull();
 
-    // Svi sem podnosioca dobijaju poziv na glasanje.
-    for (const profileId of [owner.profileId, third.profileId]) {
+    for (const profileId of [owner.profileId, member.profileId, third.profileId]) {
       const rows = await notificationsFor(profileId);
-      const request = rows.find((row) => row.type === "vote_requested");
-      expect(request).toMatchObject({
-        targetType: "approvals",
-        targetId: requestId,
-      });
-      expect(request?.title).toContain("Potreban je tvoj glas");
+      expect(
+        rows.filter(
+          (row) =>
+            row.type === "vote_requested" || row.type === "request_resolved",
+        ),
+      ).toEqual([]);
     }
-    expect(
-      (await notificationsFor(member.profileId)).filter(
-        (row) => row.type === "vote_requested",
-      ),
-    ).toHaveLength(0);
-
-    // Odbijanje razrešava zahtev i javlja podnosiocu.
-    await asOwner.mutation(api.collaboration.voteOnDeletion, {
-      requestId,
-      vote: "reject",
+    expect(await t.run((ctx) => ctx.db.get("pages", pageId))).toMatchObject({
+      trashState: "root",
+      archivedByProfileId: member.profileId,
     });
-    const resolved = (await notificationsFor(member.profileId)).find(
-      (row) => row.type === "request_resolved",
-    );
-    expect(resolved?.title).toContain("odbijen");
-    expect(asThird).toBeDefined();
   });
-
 });
 
 describe("cron podsetnici za rokove", () => {

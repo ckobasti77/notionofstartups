@@ -101,8 +101,42 @@ async function seedAreasV2Workspace() {
   };
 }
 
+/**
+ * PROSTOR K03: javni API više ne pravi zahteve za ugnežđavanje, pa testovi koji
+ * proveravaju kako se STARI otvoreni zahtevi ponašaju upisuju ih direktno.
+ */
+async function insertLegacyPageNesting(
+  t: Awaited<ReturnType<typeof seedAreasV2Workspace>>["t"],
+  args: {
+    startupId: Id<"startups">;
+    areaId: Id<"startupAreas">;
+    childPageId: Id<"pages">;
+    targetParentPageId: Id<"pages">;
+    requesterProfileId: Id<"profiles">;
+    parentAuthorProfileId: Id<"profiles">;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const child = await ctx.db.get("pages", args.childPageId);
+    const now = Date.now();
+    return await ctx.db.insert("pageNestingRequests", {
+      ...args,
+      sourceParentPageId: child?.parentPageId ?? null,
+      expectedTreeRevision: child?.treeRevision ?? 0,
+      proposedX: 0,
+      proposedY: 0,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      resolvedAt: null,
+    });
+  });
+}
+
 describe("Areas V2 backend", () => {
-  test("automatic layout separates new cards, ghosts, and migrated collisions", async () => {
+  // PROSTOR K03 (P4): podstranica pod tuđim korenom nastaje odmah — nema
+  // zahteva ni duha; obe kartice dobijaju različita mesta.
+  test("automatic layout separates new cards and migrated collisions (bez duhova)", async () => {
     const { t, startupA, areaA1, asActor, asMember } =
       await seedAreasV2Workspace();
     const parent = await asActor.mutation(api.areasV2.createPage, {
@@ -126,14 +160,14 @@ describe("Areas V2 backend", () => {
       kind: "note",
       title: "Existing child",
     });
-    const pending = await asMember.mutation(api.areasV2.createPage, {
+    const memberChild = await asMember.mutation(api.areasV2.createPage, {
       startupId: startupA,
       areaId: areaA1,
       rootPageId: parent.pageId,
       kind: "task",
-      title: "Proposed child",
+      title: "Member child",
     });
-    expect(pending.nestingStatus).toBe("pending");
+    expect(memberChild).toMatchObject({ nestingStatus: "none", requestId: null });
 
     const rootCanvas = await asActor.query(api.areasV2.getCanvas, {
       startupId: startupA,
@@ -152,12 +186,16 @@ describe("Areas V2 backend", () => {
       areaId: areaA1,
       rootPageId: parent.pageId,
     });
-    expect(childCanvas.pages).toEqual([
-      expect.objectContaining({ _id: child.pageId }),
-    ]);
-    expect(childCanvas.ghosts).toHaveLength(1);
+    expect(childCanvas.pages).toHaveLength(2);
+    expect(childCanvas.pages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: child.pageId }),
+        expect.objectContaining({ _id: memberChild.pageId }),
+      ]),
+    );
+    expect(childCanvas.ghosts).toEqual([]);
     expect(`${childCanvas.pages[0].x}:${childCanvas.pages[0].y}`).not.toBe(
-      `${childCanvas.ghosts[0].x}:${childCanvas.ghosts[0].y}`,
+      `${childCanvas.pages[1].x}:${childCanvas.pages[1].y}`,
     );
 
     await t.run(async (ctx) => {
@@ -200,7 +238,9 @@ describe("Areas V2 backend", () => {
     expect(idempotent.changed).toBe(0);
   });
 
-  test("pending auto-layout uses source card and pending ghost dimensions", async () => {
+  // PROSTOR K03 (P4): ugnežđavanje pod tuđu stranicu je odmah; auto-raspored i
+  // dalje koristi dimenzije premeštene kartice i zauzeta mesta na cilju.
+  test("direct nesting auto-layout uses source card dimensions", async () => {
     const { t, startupA, areaA1, asActor, asMember } =
       await seedAreasV2Workspace();
     const parentWithObstacle = await asActor.mutation(
@@ -250,22 +290,18 @@ describe("Areas V2 backend", () => {
       },
     );
     expect(largeRequest).toMatchObject({
-      nestingStatus: "pending",
-      requestId: expect.any(String),
+      nestingStatus: "none",
+      requestId: null,
     });
     let targetCanvas = await asActor.query(api.areasV2.getCanvas, {
       startupId: startupA,
       areaId: areaA1,
       rootPageId: parentWithObstacle.pageId,
     });
+    expect(targetCanvas.ghosts).toEqual([]);
     expect(
-      targetCanvas.ghosts.find((ghost) => ghost.pageId === largeChild.pageId),
-    ).toMatchObject({ x: 704, y: 0 });
-
-    await asActor.mutation(api.areasV2.approveNesting, {
-      startupId: startupA,
-      requestId: largeRequest.requestId!,
-    });
+      targetCanvas.pages.find((page) => page._id === largeChild.pageId),
+    ).toMatchObject({ x: 704, y: 0, width: 520, height: 420 });
     const approvedPlacement = await t.run((ctx) =>
       ctx.db
         .query("pageCanvasPlacements")
@@ -327,7 +363,7 @@ describe("Areas V2 backend", () => {
       rootPageId: ghostParent.pageId,
     });
     expect(
-      targetCanvas.ghosts.find((ghost) => ghost.pageId === smallGhost.pageId),
+      targetCanvas.pages.find((page) => page._id === smallGhost.pageId),
     ).toMatchObject({ x: 704, y: 0 });
   });
 
@@ -387,7 +423,9 @@ describe("Areas V2 backend", () => {
     });
   });
 
-  test("archive promotion preserves card dimensions and projects its edge", async () => {
+  // PROSTOR K03 (P3, D1, D3): brisanje roditelja više ne „podiže" decu — cela
+  // grana ide u Korpu netaknuta, a „Vrati" vraća dimenzije i vezu dece.
+  test("archive sends the branch to Korpa and restore keeps dimensions and edge", async () => {
     const { t, startupA, areaA1, asActor } =
       await seedAreasV2Workspace();
     const obstacle = await asActor.mutation(api.areasV2.createPage, {
@@ -442,38 +480,80 @@ describe("Areas V2 backend", () => {
       sourcePageId: childA.pageId,
       targetPageId: childB.pageId,
     });
+    const placementBefore = await t.run((ctx) =>
+      ctx.db
+        .query("pageCanvasPlacements")
+        .withIndex("by_pageId", (q) => q.eq("pageId", childA.pageId))
+        .unique(),
+    );
     await asActor.mutation(api.areasV2.archivePage, {
       startupId: startupA,
       pageId: parent.pageId,
     });
     const pairKey = [childA.pageId, childB.pageId].sort().join(":");
-    const state = await t.run(async (ctx) => ({
-      placement: await ctx.db
-        .query("pageCanvasPlacements")
-        .withIndex("by_pageId", (q) => q.eq("pageId", childA.pageId))
-        .unique(),
-      edge: await ctx.db.get("pageCanvasEdgesV2", edgeId),
-      legacyEdge: await ctx.db
-        .query("pageEdges")
-        .withIndex("by_areaId_and_pairKey", (q) =>
-          q.eq("areaId", areaA1).eq("pairKey", pairKey),
-        )
-        .unique(),
-    }));
-    expect(state.placement).toMatchObject({
-      rootPageId: null,
-      x: 704,
-      y: 0,
+    const readState = () =>
+      t.run(async (ctx) => ({
+        pages: await Promise.all(
+          [parent.pageId, childA.pageId, childB.pageId].map((pageId) =>
+            ctx.db.get("pages", pageId),
+          ),
+        ),
+        placement: await ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex("by_pageId", (q) => q.eq("pageId", childA.pageId))
+          .unique(),
+        edge: await ctx.db.get("pageCanvasEdgesV2", edgeId),
+        legacyEdge: await ctx.db
+          .query("pageEdges")
+          .withIndex("by_areaId_and_pairKey", (q) =>
+            q.eq("areaId", areaA1).eq("pairKey", pairKey),
+          )
+          .unique(),
+      }));
+    const trashed = await readState();
+    expect(trashed.pages[0]).toMatchObject({
+      trashState: "root",
+      trashDescendantCount: 2,
+    });
+    for (const child of trashed.pages.slice(1)) {
+      expect(child).toMatchObject({
+        parentPageId: parent.pageId,
+        trashState: "descendant",
+        archivedWithPageId: parent.pageId,
+        archivedAt: trashed.pages[0]!.archivedAt,
+      });
+    }
+    // D3: raspored i veza dece se ne diraju dok su u Korpi.
+    expect(trashed.placement).toEqual(placementBefore);
+    expect(trashed.edge).toMatchObject({
+      rootPageId: parent.pageId,
+      archivedAt: null,
+    });
+    expect(trashed.legacyEdge).toBeNull();
+
+    await asActor.mutation(api.trash.restore, {
+      target: { kind: "page", id: parent.pageId },
+    });
+    const restored = await readState();
+    expect(restored.pages.every((page) => page?.archivedAt === null)).toBe(true);
+    expect(restored.pages[1]).toMatchObject({ parentPageId: parent.pageId });
+    expect(restored.placement).toMatchObject({
+      rootPageId: parent.pageId,
       width: 520,
       height: 420,
     });
-    expect(state.edge).toMatchObject({ rootPageId: null, archivedAt: null });
-    expect(state.legacyEdge).toMatchObject({
-      startupId: startupA,
-      areaId: areaA1,
-      pairKey,
+    expect(restored.edge).toMatchObject({
+      rootPageId: parent.pageId,
       archivedAt: null,
     });
+    const nested = await asActor.query(api.areasV2.getCanvas, {
+      startupId: startupA,
+      areaId: areaA1,
+      rootPageId: parent.pageId,
+    });
+    expect(nested.edges).toEqual([
+      expect.objectContaining({ _id: edgeId, canDelete: true }),
+    ]);
   });
 
   test("V2 writes keep the legacy rollback projection current", async () => {
@@ -605,6 +685,8 @@ describe("Areas V2 backend", () => {
   test("successful cross-area move keeps all sidecars and rollback rows consistent", async () => {
     const {
       t,
+      actor,
+      member,
       startupA,
       areaA1,
       areaA2,
@@ -681,11 +763,18 @@ describe("Areas V2 backend", () => {
       kind: "task",
       title: "Tuđi roditelj",
     });
-    const outgoing = await asActor.mutation(api.areasV2.requestNesting, {
-      startupId: startupA,
-      childPageId: root.pageId,
-      targetParentPageId: memberParent.pageId,
-    });
+    // PROSTOR K03: stari otvoreni zahtevi (pre gašenja odobrenja) se upisuju
+    // direktno; selidba ih i dalje zatvara.
+    const outgoing = {
+      requestId: await insertLegacyPageNesting(t, {
+        startupId: startupA,
+        areaId: areaA1,
+        childPageId: root.pageId,
+        targetParentPageId: memberParent.pageId,
+        requesterProfileId: actor.profileId,
+        parentAuthorProfileId: member.profileId,
+      }),
+    };
     const memberChild = await asMember.mutation(api.areasV2.createPage, {
       startupId: startupA,
       areaId: areaA1,
@@ -693,13 +782,16 @@ describe("Areas V2 backend", () => {
       kind: "note",
       title: "Tuđe dete",
     });
-    const incoming = await asMember.mutation(api.areasV2.requestNesting, {
-      startupId: startupA,
-      childPageId: memberChild.pageId,
-      targetParentPageId: root.pageId,
-    });
-    expect(outgoing.nestingStatus).toBe("pending");
-    expect(incoming.nestingStatus).toBe("pending");
+    const incoming = {
+      requestId: await insertLegacyPageNesting(t, {
+        startupId: startupA,
+        areaId: areaA1,
+        childPageId: memberChild.pageId,
+        targetParentPageId: root.pageId,
+        requesterProfileId: member.profileId,
+        parentAuthorProfileId: actor.profileId,
+      }),
+    };
 
     await asActor.mutation(api.areasV2.movePage, {
       startupId: startupA,
@@ -991,13 +1083,14 @@ describe("Areas V2 backend", () => {
       kind: "note",
       title: "Članova beleška",
     });
+    // PROSTOR K03 (D20): relaciju između dve tuđe stranice pravi svaki član.
     await expect(
       asActor.mutation(api.areasV2.createRelation, {
         startupId: startupA,
         pageAId: memberNote.pageId,
         pageBId: memberTask.pageId,
       }),
-    ).rejects.toThrow("samo sa svojom stranicom");
+    ).resolves.toEqual(expect.any(String));
   });
 
   test("relacija preživljava premeštanje jednog kraja u drugu oblast", async () => {
@@ -1299,9 +1392,9 @@ describe("Areas V2 backend", () => {
     ).resolves.toBe(contributionId);
   });
 
-  test("raspored menja svaki član, veze su vlasničke do K03 i tenant-scope ostaje zatvoren", async () => {
+  test("raspored i veze menja svaki član, a tenant-scope ostaje zatvoren", async () => {
     // PROSTOR P1 (namerna promena pravila, D20): pozicija i veličina tuđe
-    // kartice više nisu zabranjene. Uklanjanje tuđe veze menja K03.
+    // kartice i uklanjanje tuđe veze više nisu zabranjeni (K02 + K03).
     const {
       t,
       startupA,
@@ -1358,7 +1451,19 @@ describe("Areas V2 backend", () => {
         rootPageId: null,
         edgeId,
       }),
-    ).rejects.toThrow("koju ste napravili");
+    ).resolves.toBeNull();
+    expect(
+      (await t.run((ctx) => ctx.db.get("pageCanvasEdgesV2", edgeId)))
+        ?.archivedAt,
+    ).not.toBeNull();
+    await expect(
+      asOutsider.mutation(api.areasV2.disconnectPages, {
+        startupId: startupA,
+        areaId: areaA1,
+        rootPageId: null,
+        edgeId,
+      }),
+    ).rejects.toThrow("Nemate pristup");
     const oppositeTask = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
       areaId: areaA1,
@@ -1413,7 +1518,9 @@ describe("Areas V2 backend", () => {
     expect(canvas.pages.map((page) => page._id)).not.toContain(foreign.pageId);
   });
 
-  test("tuđ V2 edge i relacija se arhiviraju samo kroz jednoglasni approval", async () => {
+  // PROSTOR K03 (D20, P4): tuđu vezu i relaciju uklanja svaki član — direktno
+  // ili kroz stari `requestDeletion`, koji više ne otvara glasanje.
+  test("tuđ V2 edge i relaciju uklanja svaki član, direktno ili kroz stari requestDeletion", async () => {
     const {
       t,
       startupA,
@@ -1476,55 +1583,52 @@ describe("Areas V2 backend", () => {
       }),
     ]);
     expect(memberCanvas.edges.find((edge) => edge._id === edgeId)).toMatchObject({
-      canDelete: false,
-      canRequestDeletion: true,
+      canDelete: true,
+      canRequestDeletion: false,
     });
     expect(
       memberCanvas.relations.find((relation) => relation._id === relationId),
-    ).toMatchObject({ canDelete: false, canRequestDeletion: true });
+    ).toMatchObject({ canDelete: true, canRequestDeletion: false });
     expect(ownerCanvas.edges.find((edge) => edge._id === edgeId)).toMatchObject({
       canDelete: true,
       canRequestDeletion: false,
     });
     expect(memberRelations.relations[0]).toMatchObject({
       _id: relationId,
-      canDelete: false,
-      canRequestDeletion: true,
+      canDelete: true,
+      canRequestDeletion: false,
     });
 
-    await expect(
-      asActor.mutation(api.collaboration.requestDeletion, {
-        target: { kind: "page_edge", id: edgeId },
-      }),
-    ).rejects.toThrow("Sopstveni sadržaj");
     await expect(
       asOutsider.mutation(api.collaboration.requestDeletion, {
         target: { kind: "page_edge", id: edgeId },
       }),
     ).rejects.toThrow("Nemate pristup");
     await expect(
+      asOutsider.mutation(api.areasV2.deleteRelation, {
+        startupId: startupA,
+        relationId,
+      }),
+    ).rejects.toThrow("Nemate pristup");
+
+    // Veza kroz stari tok, relacija direktno — nijedan zahtev ni listić.
+    await expect(
+      asMember.mutation(api.collaboration.requestDeletion, {
+        target: { kind: "page_edge", id: edgeId },
+      }),
+    ).resolves.toBeNull();
+    await expect(
       asMember.mutation(api.areasV2.deleteRelation, {
         startupId: startupA,
         relationId,
       }),
-    ).rejects.toThrow("koju ste napravili");
-
-    const [edgeRequestId, relationRequestId] = await Promise.all([
-      asMember.mutation(api.collaboration.requestDeletion, {
-        target: { kind: "page_edge", id: edgeId },
-      }),
-      asMember.mutation(api.collaboration.requestDeletion, {
-        target: { kind: "page_relation", id: relationId },
-      }),
-    ]);
-    await asActor.mutation(api.collaboration.voteOnDeletion, {
-      requestId: edgeRequestId,
-      vote: "approve",
-    });
-    await asActor.mutation(api.collaboration.voteOnDeletion, {
-      requestId: relationRequestId,
-      vote: "approve",
-    });
+    ).resolves.toBeNull();
+    expect(
+      await t.run((ctx) => ctx.db.query("deletionRequests").collect()),
+    ).toEqual([]);
+    expect(
+      await t.run((ctx) => ctx.db.query("deletionBallots").collect()),
+    ).toEqual([]);
     const archived = await t.run(async (ctx) => {
       const edge = await ctx.db.get("pageCanvasEdgesV2", edgeId);
       return {
@@ -1546,8 +1650,10 @@ describe("Areas V2 backend", () => {
     expect(archived.relation?.archivedAt).not.toBeNull();
   });
 
-  test("nesting prolazi pending/approve, stale cancel i cycle zaštitu", async () => {
-    const { t, startupA, areaA1, asActor, asMember } =
+  // PROSTOR K03 (P4): ugnežđavanje pod tuđu stranicu je odmah; stari
+  // `approveNesting` daje STARI_TOK i ne dira zahtev; ciklus se i dalje odbija.
+  test("nesting je direktan, approveNesting je STARI_TOK, ciklus ostaje zaštićen", async () => {
+    const { t, actor, member, startupA, areaA1, asActor, asMember } =
       await seedAreasV2Workspace();
     const child = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
@@ -1573,19 +1679,13 @@ describe("Areas V2 backend", () => {
       x: 45,
       y: 60,
     });
-    expect(request.nestingStatus).toBe("pending");
-    expect(
-      await t.run((ctx) => ctx.db.get("pages", child.pageId)),
-    ).toMatchObject({ parentPageId: null });
-    await expect(
-      asMember.mutation(api.areasV2.approveNesting, {
-        startupId: startupA,
-        requestId: request.requestId!,
-      }),
-    ).resolves.toEqual({ status: "approved" });
+    expect(request).toEqual({ nestingStatus: "none", requestId: null });
     expect(
       await t.run((ctx) => ctx.db.get("pages", child.pageId)),
     ).toMatchObject({ parentPageId: foreignParent.pageId });
+    expect(
+      await t.run((ctx) => ctx.db.query("pageNestingRequests").collect()),
+    ).toEqual([]);
 
     const [childOwnerView, parentOwnerView] = await Promise.all([
       asActor.query(api.pages.get, { pageId: child.pageId }),
@@ -1614,27 +1714,48 @@ describe("Areas V2 backend", () => {
         ?.canDetach,
     ).toBe(true);
 
-    await asMember.mutation(api.areasV2.detachPage, {
+    await expect(
+      asMember.mutation(api.areasV2.detachPage, {
+        startupId: startupA,
+        pageId: child.pageId,
+      }),
+    ).resolves.toEqual({ status: "detached" });
+    expect(
+      await t.run((ctx) => ctx.db.get("pages", child.pageId)),
+    ).toMatchObject({ parentPageId: null });
+
+    // Stari otvoreni zahtev: odobravanje je ugašeno, zahtev ostaje netaknut.
+    const legacyRequestId = await insertLegacyPageNesting(t, {
       startupId: startupA,
-      pageId: child.pageId,
-    });
-    const stale = await asActor.mutation(api.areasV2.requestNesting, {
-      startupId: startupA,
+      areaId: areaA1,
       childPageId: child.pageId,
       targetParentPageId: foreignParent.pageId,
+      requesterProfileId: actor.profileId,
+      parentAuthorProfileId: member.profileId,
     });
-    await t.run(async (ctx) => {
-      const row = await ctx.db.get("pages", child.pageId);
-      await ctx.db.patch("pages", child.pageId, {
-        treeRevision: (row?.treeRevision ?? 0) + 1,
-      });
-    });
-    await expect(
-      asMember.mutation(api.areasV2.approveNesting, {
+    const legacyError = await asMember
+      .mutation(api.areasV2.approveNesting, {
         startupId: startupA,
-        requestId: stale.requestId!,
+        requestId: legacyRequestId,
+      })
+      .catch((error: unknown) => error);
+    expect(String(legacyError)).toContain("Zahtevi za ugnežđavanje više ne postoje");
+    expect((legacyError as { data?: { code?: string } }).data?.code).toBe(
+      "STARI_TOK",
+    );
+    expect(
+      await t.run((ctx) => ctx.db.get("pageNestingRequests", legacyRequestId)),
+    ).toMatchObject({ status: "pending" });
+    expect(
+      await t.run((ctx) => ctx.db.get("pages", child.pageId)),
+    ).toMatchObject({ parentPageId: null });
+    // Odvajanje stavke koja nema roditelja povlači stari zahtev.
+    await expect(
+      asActor.mutation(api.areasV2.detachPage, {
+        startupId: startupA,
+        pageId: child.pageId,
       }),
-    ).resolves.toEqual({ status: "cancelled" });
+    ).resolves.toEqual({ status: "withdrawn" });
 
     const ownedParent = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
@@ -1660,17 +1781,20 @@ describe("Areas V2 backend", () => {
     ).rejects.toThrow("kružnu");
   });
 
-  test("cross-area move odbija granu sa aktivnim stranim autorom", async () => {
+  // PROSTOR K03 (D6): grana sa tuđom stranicom se seli; odbija se samo grana
+  // sa ZAKLJUČANOM stranicom za koju premeštač nema pravo.
+  test("cross-area move seli tuđu granu, a odbija granu sa tuđom zaključanom stranicom", async () => {
     const { t, startupA, areaA1, areaA2, asActor, asMember } =
       await seedAreasV2Workspace();
-    const root = await asActor.mutation(api.areasV2.createPage, {
+    // Actor je vlasnik startupa (menadžer); granu seli običan član.
+    const root = await asMember.mutation(api.areasV2.createPage, {
       startupId: startupA,
       areaId: areaA1,
       rootPageId: null,
       kind: "note",
       title: "Grana",
     });
-    const foreignChild = await asMember.mutation(
+    const foreignChild = await asActor.mutation(
       api.areasV2.createPage,
       {
         startupId: startupA,
@@ -1680,22 +1804,35 @@ describe("Areas V2 backend", () => {
         title: "Tuđi potomak",
       },
     );
-    expect(foreignChild.nestingStatus).toBe("pending");
-    await asActor.mutation(api.areasV2.approveNesting, {
-      startupId: startupA,
-      requestId: foreignChild.requestId!,
-    });
+    expect(foreignChild.nestingStatus).toBe("none");
+    await asActor.mutation(api.pages.lock, { pageId: foreignChild.pageId });
+    const lockedError = await asMember
+      .mutation(api.areasV2.movePage, {
+        startupId: startupA,
+        pageId: root.pageId,
+        targetAreaId: areaA2,
+        targetParentPageId: null,
+      })
+      .catch((error: unknown) => error);
+    expect(String(lockedError)).toContain("Tuđi potomak");
+    expect((lockedError as { data?: { code?: string } }).data?.code).toBe(
+      "ZAKLJUCANO",
+    );
+    expect(await t.run((ctx) => ctx.db.get("pages", root.pageId))).toMatchObject(
+      { areaId: areaA1 },
+    );
+    await asActor.mutation(api.pages.unlock, { pageId: foreignChild.pageId });
     await expect(
-      asActor.mutation(api.areasV2.movePage, {
+      asMember.mutation(api.areasV2.movePage, {
         startupId: startupA,
         pageId: root.pageId,
         targetAreaId: areaA2,
         targetParentPageId: null,
       }),
-    ).rejects.toThrow("drugih autora");
-    expect(await t.run((ctx) => ctx.db.get("pages", root.pageId))).toMatchObject(
-      { areaId: areaA1 },
-    );
+    ).resolves.toEqual({ nestingStatus: "none", requestId: null });
+    expect(
+      await t.run((ctx) => ctx.db.get("pages", foreignChild.pageId)),
+    ).toMatchObject({ areaId: areaA2, parentPageId: root.pageId });
   });
 
   test("cross-area move ne može prepuniti relacije ciljne oblasti", async () => {
@@ -1772,8 +1909,11 @@ describe("Areas V2 backend", () => {
     expect(state.relation?.areaId).toBe(areaA1);
   });
 
-  test("odobrena timska arhiva koristi istu V2 sidecar semantiku", async () => {
-    const { t, startupA, areaA1, asActor, asMember } =
+  // PROSTOR K03 (P3, P4, D3): stari `requestDeletion` tuđe stranice odmah šalje
+  // celu granu u Korpu (bez glasanja); veze, relacije, raspored i stari zahtevi
+  // ostaju netaknuti, pa „Vrati" vraća sve kako je bilo.
+  test("stari requestDeletion šalje granu u Korpu odmah, a Vrati je vraća netaknutu", async () => {
+    const { t, actor, member, startupA, areaA1, asActor, asMember } =
       await seedAreasV2Workspace();
     const parent = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
@@ -1818,46 +1958,99 @@ describe("Areas V2 backend", () => {
         pageBId: memberTask.pageId,
       },
     );
-    const pendingChild = await asMember.mutation(api.areasV2.createPage, {
+    const memberLoose = await asMember.mutation(api.areasV2.createPage, {
       startupId: startupA,
       areaId: areaA1,
-      rootPageId: parent.pageId,
+      rootPageId: null,
       kind: "note",
-      title: "Ghost zahtev",
+      title: "Stari zahtev",
     });
-    expect(pendingChild.nestingStatus).toBe("pending");
-
-    const requestId = await asMember.mutation(
-      api.collaboration.requestDeletion,
-      { target: { kind: "page", id: parent.pageId } },
-    );
-    await asActor.mutation(api.collaboration.voteOnDeletion, {
-      requestId,
-      vote: "approve",
+    const legacyRequestId = await insertLegacyPageNesting(t, {
+      startupId: startupA,
+      areaId: areaA1,
+      childPageId: memberLoose.pageId,
+      targetParentPageId: parent.pageId,
+      requesterProfileId: member.profileId,
+      parentAuthorProfileId: actor.profileId,
     });
-
-    const state = await t.run(async (ctx) => ({
-      parent: await ctx.db.get("pages", parent.pageId),
-      childA: await ctx.db.get("pages", childA.pageId),
-      childB: await ctx.db.get("pages", childB.pageId),
-      placementA: await ctx.db
+    const placementBefore = await t.run((ctx) =>
+      ctx.db
         .query("pageCanvasPlacements")
         .withIndex("by_pageId", (q) => q.eq("pageId", childA.pageId))
         .unique(),
-      edge: await ctx.db.get("pageCanvasEdgesV2", edgeId),
-      relation: await ctx.db.get("pageRelations", relationId),
-      nesting: await ctx.db.get(
-        "pageNestingRequests",
-        pendingChild.requestId!,
-      ),
-    }));
-    expect(state.parent?.archivedAt).not.toBeNull();
-    expect(state.childA?.parentPageId).toBeNull();
-    expect(state.childB?.parentPageId).toBeNull();
-    expect(state.placementA?.rootPageId).toBeNull();
-    expect(state.edge).toMatchObject({ rootPageId: null, archivedAt: null });
-    expect(state.relation?.archivedAt).not.toBeNull();
-    expect(state.nesting?.status).toBe("cancelled");
+    );
+
+    await expect(
+      asMember.mutation(api.collaboration.requestDeletion, {
+        target: { kind: "page", id: parent.pageId },
+      }),
+    ).resolves.toBeNull();
+
+    const readState = () =>
+      t.run(async (ctx) => ({
+        parent: await ctx.db.get("pages", parent.pageId),
+        childA: await ctx.db.get("pages", childA.pageId),
+        childB: await ctx.db.get("pages", childB.pageId),
+        placementA: await ctx.db
+          .query("pageCanvasPlacements")
+          .withIndex("by_pageId", (q) => q.eq("pageId", childA.pageId))
+          .unique(),
+        edge: await ctx.db.get("pageCanvasEdgesV2", edgeId),
+        relation: await ctx.db.get("pageRelations", relationId),
+        nesting: await ctx.db.get("pageNestingRequests", legacyRequestId),
+        requests: await ctx.db.query("deletionRequests").collect(),
+        ballots: await ctx.db.query("deletionBallots").collect(),
+      }));
+    const state = await readState();
+    expect(state.parent).toMatchObject({
+      trashState: "root",
+      archivedByProfileId: member.profileId,
+      trashDescendantCount: 2,
+    });
+    expect(state.childA).toMatchObject({
+      parentPageId: parent.pageId,
+      trashState: "descendant",
+    });
+    expect(state.childB).toMatchObject({
+      parentPageId: parent.pageId,
+      trashState: "descendant",
+    });
+    expect(state.placementA).toEqual(placementBefore);
+    expect(state.edge).toMatchObject({
+      rootPageId: parent.pageId,
+      archivedAt: null,
+    });
+    expect(state.relation?.archivedAt).toBeNull();
+    expect(state.nesting?.status).toBe("pending");
+    expect(state.requests).toEqual([]);
+    expect(state.ballots).toEqual([]);
+    // Relacija sa obrisanom stranicom se ne prikazuje dok je stranica u Korpi.
+    const hidden = await asMember.query(api.areasV2.listRelations, {
+      startupId: startupA,
+      pageId: memberTask.pageId,
+    });
+    expect(hidden.relations).toEqual([]);
+
+    await asActor.mutation(api.trash.restore, {
+      target: { kind: "page", id: parent.pageId },
+    });
+    const restored = await readState();
+    expect(restored.parent?.archivedAt).toBeNull();
+    expect(restored.parent?.trashState).toBeUndefined();
+    expect(restored.childA).toMatchObject({
+      archivedAt: null,
+      parentPageId: parent.pageId,
+    });
+    expect(restored.childA?.trashState).toBeUndefined();
+    expect(restored.childA?.archivedWithPageId).toBeUndefined();
+    expect(restored.placementA).toEqual(placementBefore);
+    const visible = await asMember.query(api.areasV2.listRelations, {
+      startupId: startupA,
+      pageId: memberTask.pageId,
+    });
+    expect(visible.relations).toEqual([
+      expect.objectContaining({ _id: relationId }),
+    ]);
   });
 
   test("backfill je idempotentan, čuva legacy i karantiniše nevalidnu vezu", async () => {
@@ -2062,6 +2255,7 @@ describe("Areas V2 backend", () => {
     const {
       t,
       actor,
+      member,
       startupA,
       startupB,
       areaA1,
@@ -2129,13 +2323,16 @@ describe("Areas V2 backend", () => {
         title: "Tudji roditelj",
       },
     );
-    const pending = await asActor.mutation(api.areasV2.requestNesting, {
+    // PROSTOR K03: stari otvoreni zahtev se upisuje direktno (javni API ga
+    // više ne pravi); verifikator ga i dalje proverava.
+    await insertLegacyPageNesting(t, {
       startupId: startupA,
+      areaId: areaA1,
       childPageId: requestChild.pageId,
       targetParentPageId: foreignParent.pageId,
+      requesterProfileId: actor.profileId,
+      parentAuthorProfileId: member.profileId,
     });
-    expect(pending.nestingStatus).toBe("pending");
-    expect(pending.requestId).not.toBeNull();
 
     await t.run(async (ctx) => {
       const now = Date.now();
@@ -2281,7 +2478,7 @@ describe("Areas V2 backend", () => {
   });
 
   test("verifier otkriva cikluse, nevažeći pending target i oštećen viewport", async () => {
-    const { t, actor, startupA, areaA1, asActor, asMember } =
+    const { t, actor, member, startupA, areaA1, asActor, asMember } =
       await seedAreasV2Workspace();
     const cycleRoot = await asActor.mutation(api.areasV2.createPage, {
       startupId: startupA,
@@ -2311,12 +2508,14 @@ describe("Areas V2 backend", () => {
       kind: "note",
       title: "Pending roditelj",
     });
-    const request = await asActor.mutation(api.areasV2.requestNesting, {
+    await insertLegacyPageNesting(t, {
       startupId: startupA,
+      areaId: areaA1,
       childPageId: requestChild.pageId,
       targetParentPageId: requestParent.pageId,
+      requesterProfileId: actor.profileId,
+      parentAuthorProfileId: member.profileId,
     });
-    expect(request.nestingStatus).toBe("pending");
     await asActor.mutation(api.areasV2.saveViewport, {
       startupId: startupA,
       areaId: areaA1,
@@ -2528,7 +2727,8 @@ describe("Areas V2 backend", () => {
     ).toMatchObject({ areaId: areaA2, rootPageId: parent.pageId });
   });
 
-  test("premeštanje pod TUĐU stranicu u drugoj oblasti seli oblast i traži odobrenje", async () => {
+  // PROSTOR K03 (P4): pod tuđu stranicu u drugoj oblasti seli se odmah.
+  test("premeštanje pod TUĐU stranicu u drugoj oblasti seli oblast i odmah ugnežđava", async () => {
     const { t, startupA, areaA1, areaA2, asActor, asMember } =
       await seedAreasV2Workspace();
     const foreignParent = await asMember.mutation(api.areasV2.createPage, {
@@ -2553,13 +2753,13 @@ describe("Areas V2 backend", () => {
       targetParentPageId: foreignParent.pageId,
     });
 
-    expect(result.nestingStatus).toBe("pending");
-    expect(result.requestId).not.toBeNull();
-    // Oblast JESTE promenjena iako ugnježdavanje čeka odobrenje — posledica
-    // dvokoraka koju UI mora da saopšti.
+    expect(result).toEqual({ nestingStatus: "none", requestId: null });
     expect(await t.run((ctx) => ctx.db.get("pages", child.pageId))).toMatchObject(
-      { areaId: areaA2, parentPageId: null },
+      { areaId: areaA2, parentPageId: foreignParent.pageId },
     );
+    expect(
+      await t.run((ctx) => ctx.db.query("pageNestingRequests").collect()),
+    ).toEqual([]);
   });
 
   test("roditelj iz treće oblasti se odbija", async () => {

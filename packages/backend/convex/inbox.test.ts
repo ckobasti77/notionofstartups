@@ -805,10 +805,13 @@ describe("inbox.markAllRead", () => {
 });
 
 describe("inbox.pending", () => {
-  test("vraća samo moje stavke iz sva tri izvora, najnovije prvo", async () => {
+  // PROSTOR K03 (P4, P22): glasanja o brisanju i zahtevi za ugnežđavanje su
+  // ugašeni — stari otvoreni zahtevi se više ne nude kao „Čeka tebe" ni kad
+  // čekaju baš mene. Nove stavke (`idea_vote`) dodaje K05.
+  test("stari izvori (glasanja i oba zahteva) se više ne vraćaju, ni moji", async () => {
     const { t, me, other, a, b, asMe } = await seed();
-    const ids = await t.run(async (ctx) => {
-      const deletion = await insertDeletion(ctx, {
+    await t.run(async (ctx) => {
+      await insertDeletion(ctx, {
         startupId: a.startupId,
         requester: other.profileId,
         voter: me.profileId,
@@ -826,7 +829,7 @@ describe("inbox.pending", () => {
         title: "Roditelj",
         createdBy: me.profileId,
       });
-      const pageNesting = await insertPageNesting(ctx, {
+      await insertPageNesting(ctx, {
         scope: b,
         childPageId: child,
         parentPageId: parent,
@@ -846,7 +849,7 @@ describe("inbox.pending", () => {
         author: me.profileId,
         title: "Ideja roditelj",
       });
-      const ideaNesting = await insertIdeaNesting(ctx, {
+      await insertIdeaNesting(ctx, {
         startupId: a.startupId,
         childIdeaId: childIdea,
         parentIdeaId: parentIdea,
@@ -890,55 +893,12 @@ describe("inbox.pending", () => {
         createdAt: BASE + 5_000,
       });
 
-      return { deletion, pageNesting, ideaNesting };
     });
 
-    const result = await asMe.query(api.inbox.pending, {});
-
-    expect(result.truncated).toBe(false);
-    expect(result.items.map((item) => item.kind)).toEqual([
-      "page_nesting",
-      "idea_nesting",
-      "deletion_vote",
-    ]);
-    const [pageItem, ideaItem, voteItem] = result.items;
-    expect(pageItem).toEqual({
-      kind: "page_nesting",
-      requestId: ids.pageNesting,
-      childTitle: "Dete",
-      parentTitle: "Roditelj",
-      startup: { _id: b.startupId, name: "Scan Me", logoUrl: null },
-      requesterName: "Ana",
-      createdAt: BASE + 2_000,
-      targetType: "approvals",
-      targetId: ids.pageNesting,
-    });
-    expect(ideaItem).toEqual({
-      kind: "idea_nesting",
-      requestId: ids.ideaNesting,
-      childTitle: "Ideja samo sa tekstom",
-      parentTitle: "Ideja roditelj",
-      startup: { _id: a.startupId, name: "Cluck Rush", logoUrl: null },
-      requesterName: "Ana",
-      createdAt: BASE + 1_000,
-      targetType: "approvals",
-      targetId: ids.ideaNesting,
-    });
-    expect(voteItem).toEqual({
-      kind: "deletion_vote",
-      ballotId: ids.deletion.ballotId,
-      requestId: ids.deletion.requestId,
-      title: "Stara beleška",
-      targetKind: "page",
-      startup: { _id: a.startupId, name: "Cluck Rush", logoUrl: null },
-      requesterName: "Ana",
-      createdAt: BASE,
-      targetType: "approvals",
-      targetId: ids.deletion.requestId,
-    });
+    expect(await asMe.query(api.inbox.pending, {})).toEqual({ items: [], truncated: false });
   });
 
-  test("samo pending: odlučeni zahtevi, odgovoreni listići i zastareli listići otpadaju", async () => {
+  test("ni otvoreni ni odlučeni stari zahtevi i listići ne prave stavke", async () => {
     const { t, me, other, a, asMe } = await seed();
     await t.run(async (ctx) => {
       // Moj glas je već dat.
@@ -1015,16 +975,10 @@ describe("inbox.pending", () => {
       }
     });
 
-    const result = await asMe.query(api.inbox.pending, {});
-
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toMatchObject({
-      kind: "deletion_vote",
-      title: "Otvoreno",
-    });
+    expect(await asMe.query(api.inbox.pending, {})).toEqual({ items: [], truncated: false });
   });
 
-  test("startup bez članstva, napušten i arhiviran su izostavljeni", async () => {
+  test("stari zahtevi iz startupa bez članstva, napuštenog i arhiviranog se ne vraćaju", async () => {
     const { t, me, other, a, c, d, e, asMe } = await seed();
     await t.run(async (ctx) => {
       await insertDeletion(ctx, {
@@ -1083,15 +1037,10 @@ describe("inbox.pending", () => {
       }
     });
 
-    const result = await asMe.query(api.inbox.pending, {});
-
-    expect(result.items.map((item) => item.startup._id)).toEqual([
-      a.startupId,
-    ]);
-    expect(result.items[0]).toMatchObject({ title: "Vidi se" });
+    expect(await asMe.query(api.inbox.pending, {})).toEqual({ items: [], truncated: false });
   });
 
-  test("arhivirano dete ili roditelj se preskače", async () => {
+  test("stari zahtevi sa živim ili arhiviranim detetom se ne vraćaju", async () => {
     const { t, me, other, a, asMe } = await seed();
     await t.run(async (ctx) => {
       const parent = await insertNote(ctx, {
@@ -1148,16 +1097,10 @@ describe("inbox.pending", () => {
       });
     });
 
-    const result = await asMe.query(api.inbox.pending, {});
-
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toMatchObject({
-      kind: "page_nesting",
-      childTitle: "Živo dete",
-    });
+    expect(await asMe.query(api.inbox.pending, {})).toEqual({ items: [], truncated: false });
   });
 
-  test("granica po izvoru: truncated i najviše INBOX_PENDING_CAP po izvoru", async () => {
+  test("ni više od INBOX_PENDING_CAP starih zahteva ne pravi stavke ni truncated", async () => {
     const { t, me, other, a, asMe } = await seed();
     await t.run(async (ctx) => {
       const parent = await insertNote(ctx, {
@@ -1182,16 +1125,7 @@ describe("inbox.pending", () => {
       }
     });
 
-    const result = await asMe.query(api.inbox.pending, {});
-
-    expect(result.truncated).toBe(true);
-    expect(result.items).toHaveLength(INBOX_PENDING_CAP);
-    // Najstariji (indeks 0) je taj koji ne staje.
-    expect(
-      result.items.some(
-        (item) => item.kind === "page_nesting" && item.childTitle === "Dete 0",
-      ),
-    ).toBe(false);
+    expect(await asMe.query(api.inbox.pending, {})).toEqual({ items: [], truncated: false });
   });
 
   test("bez stavki: prazan spisak", async () => {

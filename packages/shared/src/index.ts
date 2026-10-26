@@ -377,3 +377,13 @@ export {
   UNKNOWN_REVISION_AUTHOR,
   type RevisionKind,
 } from "./revisions";
+
+export {
+  formatTrashAge,
+  RESTORED_TO_AREA_ROOT,
+  restoredMessage,
+  subpagesLabel,
+  TRASH_SEGMENTS,
+  trashMetaLabel,
+  type TrashKind,
+} from "./trash";

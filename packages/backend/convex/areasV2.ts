@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -16,7 +16,6 @@ import {
   requireProfileInStartup,
   requireStartupMember,
 } from "./lib/auth";
-import { contributionTargetKey } from "./lib/collaboration";
 import {
   latestRevision,
   recordRevision,
@@ -34,15 +33,21 @@ import {
   syncPageBodyMirror,
 } from "./lib/page_content";
 import {
+  assertCanChangeChildren,
+  assertCanMovePage,
+  assertCanTouchLockedBranch,
   canChangeTaskStatus,
   canComment,
   canEditArea,
   canEditPage,
   canLayoutOnMap,
+  canMovePage,
   conflictError,
   isPageLocked,
+  LEGACY_NESTING_MESSAGE,
   LOCKED_PAGE_MESSAGE,
   permissionError,
+  type Actor,
 } from "./lib/permissions";
 import {
   cleanPageContent,
@@ -74,6 +79,7 @@ import {
   syncTaskAssigneeMirrors,
 } from "./lib/task_assignees";
 import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
+import { trashPageTree } from "./lib/trash";
 import {
   archiveCheckpointCanvasEdgesForArchivedPage,
   archiveCheckpointCanvasEdgesForMovedPage,
@@ -106,7 +112,6 @@ const MAX_WIDTH = 720;
 const MAX_HEIGHT = 1_000;
 const MAX_AREA_BODY_LENGTH = 20_000;
 const MAX_BATCH_LAYOUT_UPDATES = 100;
-const MAX_NESTING_INBOX_ITEMS = 100;
 const MAX_LEGACY_AREA_EDGE_ROWS = 1_000;
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -226,6 +231,11 @@ const moveResultValidator = v.object({
   nestingStatus: v.union(v.literal("none"), v.literal("pending")),
   requestId: v.union(v.id("pageNestingRequests"), v.null()),
 });
+/**
+ * PROSTOR P4: premeštanje je uvek odmah (`none`), ali tip ostaje širok da stari
+ * klijenti koji još proveravaju `"pending"` i dalje prolaze tsc (P25).
+ */
+type MoveResult = Infer<typeof moveResultValidator>;
 const relationPageValidator = v.object({
   pageId: v.id("pages"),
   title: v.string(),
@@ -365,7 +375,7 @@ async function requireScope(
   return { area, root };
 }
 
-async function upsertPlacement(
+export async function upsertPlacement(
   ctx: MutationCtx,
   args: {
     page: Doc<"pages">;
@@ -421,7 +431,7 @@ async function upsertPlacement(
   }
 }
 
-async function assertCanvasCapacity(
+export async function assertCanvasCapacity(
   ctx: ReadCtx,
   startupId: Id<"startups">,
   areaId: Id<"startupAreas">,
@@ -588,44 +598,6 @@ async function listActiveLegacyAreaEdges(
   return rows.filter((edge) => edge.archivedAt == null);
 }
 
-async function upsertActiveLegacyRootEdgeProjection(
-  ctx: MutationCtx,
-  edge: Doc<"pageCanvasEdgesV2">,
-  now: number,
-) {
-  if (edge.rootPageId !== null) return;
-  const legacy = await ctx.db
-    .query("pageEdges")
-    .withIndex("by_areaId_and_pairKey", (q) =>
-      q.eq("areaId", edge.areaId).eq("pairKey", edge.pairKey),
-    )
-    .unique();
-  const value = {
-    startupId: edge.startupId,
-    areaId: edge.areaId,
-    nodeAId: edge.nodeAId,
-    nodeBId: edge.nodeBId,
-    pairKey: edge.pairKey,
-    label: edge.label,
-    ...(edge.authorProfileId === undefined
-      ? {}
-      : { authorProfileId: edge.authorProfileId }),
-    archivedAt: null,
-    updatedAt: now,
-  };
-  if (legacy === null) {
-    await ctx.db.insert("pageEdges", {
-      ...value,
-      createdAt: edge.createdAt,
-    });
-    return;
-  }
-  if (legacy.startupId !== edge.startupId) {
-    throw new Error("Postojeća veza ne pripada ovom startupu.");
-  }
-  await ctx.db.patch("pageEdges", legacy._id, value);
-}
-
 export async function archiveCanvasEdgeWithLegacyProjection(
   ctx: MutationCtx,
   edge: Doc<"pageCanvasEdgesV2">,
@@ -652,7 +624,7 @@ export async function archiveCanvasEdgeWithLegacyProjection(
   });
 }
 
-async function archiveEdgesForMovedPage(
+export async function archiveEdgesForMovedPage(
   ctx: MutationCtx,
   page: Doc<"pages">,
   sourceRootPageId: CanvasRoot,
@@ -780,16 +752,6 @@ function cleanCanvasLabel(value: string | undefined) {
   return cleaned && cleaned.length > 0 ? cleaned : null;
 }
 
-function assertOwnedPage(
-  page: Doc<"pages">,
-  actorProfileId: Id<"profiles">,
-  message = "Možete menjati samo svoju stranicu.",
-) {
-  if (page.createdByProfileId !== actorProfileId) {
-    throw new Error(message);
-  }
-}
-
 function assertDirectCanvasPage(
   page: Doc<"pages">,
   rootPageId: CanvasRoot,
@@ -797,85 +759,6 @@ function assertDirectCanvasPage(
   if (page.parentPageId !== rootPageId) {
     throw new Error("Kartica ne pripada ovom kanvasu.");
   }
-}
-
-async function createPendingNestingRequest(
-  ctx: MutationCtx,
-  args: {
-    child: Doc<"pages">;
-    targetParent: Doc<"pages">;
-    requesterProfileId: Id<"profiles">;
-    position?: number;
-    x?: number;
-    y?: number;
-    now: number;
-  },
-) {
-  if (await pendingForChild(ctx, args.child._id)) {
-    throw new Error("Ova stranica već ima zahtev za ugnježđavanje na čekanju.");
-  }
-  await assertReparentDepth(ctx, args.child._id, args.targetParent._id);
-  await assertCanvasCapacity(
-    ctx,
-    args.child.startupId,
-    args.targetParent.areaId,
-    args.targetParent._id,
-  );
-  const placement = await getPlacement(ctx, args.child._id);
-  const proposedPosition =
-    args.x !== undefined && args.y !== undefined
-      ? { x: args.x, y: args.y }
-      : await getAvailableCanvasPosition(ctx, {
-          startupId: args.child.startupId,
-          areaId: args.targetParent.areaId,
-          rootPageId: args.targetParent._id,
-          width: placement?.width,
-          height: placement?.height,
-        });
-  const requestId = await ctx.db.insert("pageNestingRequests", {
-    startupId: args.child.startupId,
-    areaId: args.child.areaId,
-    childPageId: args.child._id,
-    sourceParentPageId: args.child.parentPageId,
-    targetParentPageId: args.targetParent._id,
-    requesterProfileId: args.requesterProfileId,
-    parentAuthorProfileId: args.targetParent.createdByProfileId,
-    expectedTreeRevision: args.child.treeRevision ?? 0,
-    ...(args.position === undefined
-      ? {}
-      : { proposedPosition: cleanPagePosition(args.position, args.now) }),
-    proposedX: clamp(proposedPosition.x, -100_000, 100_000),
-    proposedY: clamp(proposedPosition.y, -100_000, 100_000),
-    status: "pending",
-    createdAt: args.now,
-    updatedAt: args.now,
-    resolvedAt: null,
-  });
-  await recordActivity(ctx, {
-    startupId: args.child.startupId,
-    actorProfileId: args.requesterProfileId,
-    action: "nesting_requested",
-    targetType: "request",
-    targetId: requestId,
-    title: `Zatraženo je ugnježđavanje stranice „${args.child.title}”`,
-  });
-  const requester = await ctx.db.get("profiles", args.requesterProfileId);
-  const nestingCopy = notificationCopy.nestingVoteRequested(
-    args.child.title,
-    args.targetParent.title,
-    requester?.displayName ?? "Član tima",
-  );
-  await createNotification(ctx, {
-    recipientProfileId: args.targetParent.createdByProfileId,
-    startupId: args.child.startupId,
-    type: "vote_requested",
-    title: nestingCopy.title,
-    body: nestingCopy.body,
-    targetType: "approvals",
-    targetId: requestId,
-    actorProfileId: args.requesterProfileId,
-  });
-  return requestId;
 }
 
 /** Podnosilac zahteva za ugnježđavanje saznaje ishod, bez obzira na smer. */
@@ -904,22 +787,6 @@ async function notifyNestingResolution(
     targetId: args.request._id,
     actorProfileId: args.actorProfileId,
   });
-}
-
-async function cancelPendingRequestsForChild(
-  ctx: MutationCtx,
-  childPageId: Id<"pages">,
-  now: number,
-  excludeRequestId?: Id<"pageNestingRequests">,
-) {
-  const pending = await pendingForChild(ctx, childPageId);
-  if (pending !== null && pending._id !== excludeRequestId) {
-    await ctx.db.patch("pageNestingRequests", pending._id, {
-      status: "cancelled",
-      resolvedAt: now,
-      updatedAt: now,
-    });
-  }
 }
 
 // Stranica može biti na bilo kojoj strani relacije, pa se čitaju oba para
@@ -966,111 +833,6 @@ async function listActiveRelationsTouchingPage(
   return Array.from(rows.values());
 }
 
-async function archiveRelationsForPage(
-  ctx: MutationCtx,
-  pageId: Id<"pages">,
-  now: number,
-) {
-  const rows = await listActiveRelationsTouchingPage(ctx, pageId);
-  for (const relation of rows) {
-    await ctx.db.patch("pageRelations", relation._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
-  }
-}
-
-async function archiveAllCanvasEdgesForPage(
-  ctx: MutationCtx,
-  pageId: Id<"pages">,
-  now: number,
-) {
-  const [asA, asB] = await Promise.all([
-    ctx.db
-      .query("pageCanvasEdgesV2")
-      .withIndex("by_nodeAId_and_archivedAt", (q) =>
-        q.eq("nodeAId", pageId).eq("archivedAt", null),
-      )
-      .take(MAX_CANVAS_EDGES + 1),
-    ctx.db
-      .query("pageCanvasEdgesV2")
-      .withIndex("by_nodeBId_and_archivedAt", (q) =>
-        q.eq("nodeBId", pageId).eq("archivedAt", null),
-      )
-      .take(MAX_CANVAS_EDGES + 1),
-  ]);
-  const rows = new Map([...asA, ...asB].map((edge) => [edge._id, edge]));
-  if (rows.size > MAX_CANVAS_EDGES) {
-    throw new Error("Stranica ima previše veza za jednu atomsku radnju.");
-  }
-  for (const edge of rows.values()) {
-    await archiveCanvasEdgeWithLegacyProjection(ctx, edge, now);
-  }
-}
-
-async function recoverForeignPageContributions(
-  ctx: MutationCtx,
-  page: Doc<"pages">,
-  now: number,
-) {
-  const contributions = await ctx.db
-    .query("contentContributions")
-    .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
-      q
-        .eq("targetKey", contributionTargetKey("page", page._id))
-        .eq("archivedAt", null),
-    )
-    .take(201);
-  if (contributions.length > 200) {
-    throw new Error("Stranica ima previše doprinosa za jedno atomsko arhiviranje.");
-  }
-  const recoveries = new Map<Id<"profiles">, Id<"recoveredContent">>();
-  for (const contribution of contributions) {
-    const authorProfileId = contribution.authorProfileId;
-    if (
-      contribution.attribution === "author" &&
-      authorProfileId !== undefined &&
-      authorProfileId !== page.createdByProfileId
-    ) {
-      let recoveredId = recoveries.get(authorProfileId);
-      if (recoveredId === undefined) {
-        recoveredId = await ctx.db.insert("recoveredContent", {
-          startupId: page.startupId,
-          title: `Sačuvan sadržaj iz „${page.title}”`,
-          sourceKind: "page",
-          sourceTargetId: page._id,
-          createdByProfileId: authorProfileId,
-          archivedAt: null,
-          createdAt: now,
-          updatedAt: now,
-        });
-        recoveries.set(authorProfileId, recoveredId);
-      }
-      await ctx.db.patch("contentContributions", contribution._id, {
-        targetKind: "recovered",
-        targetKey: contributionTargetKey("recovered", recoveredId),
-        targetId: recoveredId,
-        updatedAt: now,
-      });
-      continue;
-    }
-    await ctx.db.patch("contentContributions", contribution._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
-  }
-  for (const [authorProfileId, recoveredId] of recoveries) {
-    await recordActivity(ctx, {
-      startupId: page.startupId,
-      actorProfileId: authorProfileId,
-      action: "content_recovered",
-      targetType: "recovered",
-      targetId: recoveredId,
-      title: `Sačuvan je doprinos iz stranice „${page.title}”`,
-    });
-  }
-}
-
 export async function moveWithinArea(
   ctx: MutationCtx,
   args: {
@@ -1082,7 +844,7 @@ export async function moveWithinArea(
     y?: number;
     now: number;
   },
-) {
+): Promise<MoveResult> {
   const targetParentPageId = args.targetParent?._id ?? null;
   if (args.child.parentPageId === targetParentPageId) {
     const pending = await pendingForChild(ctx, args.child._id);
@@ -1098,38 +860,8 @@ export async function moveWithinArea(
       requestId: null,
     };
   }
-  if (
-    args.targetParent !== null &&
-    args.targetParent.createdByProfileId !== args.actorProfileId
-  ) {
-    const pending = await pendingForChild(ctx, args.child._id);
-    if (
-      pending !== null &&
-      pending.targetParentPageId === args.targetParent._id &&
-      pending.requesterProfileId === args.actorProfileId
-    ) {
-      return {
-        nestingStatus: "pending" as const,
-        requestId: pending._id,
-      };
-    }
-    if (pending !== null) {
-      throw new Error("Ova stranica već ima drugi zahtev na čekanju.");
-    }
-    const requestId = await createPendingNestingRequest(ctx, {
-      child: args.child,
-      targetParent: args.targetParent,
-      requesterProfileId: args.actorProfileId,
-      position: args.position,
-      x: args.x,
-      y: args.y,
-      now: args.now,
-    });
-    return {
-      nestingStatus: "pending" as const,
-      requestId,
-    };
-  }
+  // PROSTOR P4: ugnežđavanje je uvek direktno — dozvole (R5/R6) proverava
+  // pozivalac; ovde ostaju ciklus, dubina i kapacitet kanvasa.
   if (args.targetParent !== null) {
     await assertReparentDepth(ctx, args.child._id, args.targetParent._id);
   }
@@ -1152,192 +884,6 @@ export async function moveWithinArea(
     nestingStatus: "none" as const,
     requestId: null,
   };
-}
-
-export async function archivePageWithV2Sidecars(
-  ctx: MutationCtx,
-  page: Doc<"pages">,
-  actorProfileId: Id<"profiles">,
-  now = Date.now(),
-) {
-  await archiveCheckpointCanvasEdgesForArchivedPage(ctx, page, now);
-  const children = await ctx.db
-    .query("pages")
-    .withIndex("by_parentPageId_and_archivedAt", (q) =>
-      q.eq("parentPageId", page._id).eq("archivedAt", null),
-    )
-    .take(MAX_CANVAS_PAGES + 1);
-  if (children.length > MAX_CANVAS_PAGES) {
-    throw new Error(
-      `Stranica ima više od ${MAX_CANVAS_PAGES} direktnih stavki.`,
-    );
-  }
-  await assertCanvasCapacity(
-    ctx,
-    page.startupId,
-    page.areaId,
-    page.parentPageId,
-    Math.max(0, children.length - 1),
-  );
-  const innerEdges = await ctx.db
-    .query("pageCanvasEdgesV2")
-    .withIndex("by_scope_active_pair", (q) =>
-      q
-        .eq("startupId", page.startupId)
-        .eq("areaId", page.areaId)
-        .eq("rootPageId", page._id)
-        .eq("archivedAt", null),
-    )
-    .take(MAX_CANVAS_EDGES + 1);
-  if (innerEdges.length > MAX_CANVAS_EDGES) {
-    throw new Error("Ugnježđeni kanvas ima previše veza za arhiviranje.");
-  }
-  const destinationEdges = await ctx.db
-    .query("pageCanvasEdgesV2")
-    .withIndex("by_scope_active_pair", (q) =>
-      q
-        .eq("startupId", page.startupId)
-        .eq("areaId", page.areaId)
-        .eq("rootPageId", page.parentPageId)
-        .eq("archivedAt", null),
-    )
-    .take(MAX_CANVAS_EDGES + 1);
-  if (destinationEdges.length > MAX_CANVAS_EDGES) {
-    throw new Error("Odredišni kanvas već ima previše aktivnih veza.");
-  }
-  const retainedDestinationEdges = destinationEdges.filter(
-    (edge) => edge.nodeAId !== page._id && edge.nodeBId !== page._id,
-  );
-  const occupiedDestinationKeys = new Set(
-    retainedDestinationEdges.map((edge) => edge.pairKey),
-  );
-  const childIds = new Set(children.map((child) => child._id));
-  const childrenById = new Map(children.map((child) => [child._id, child]));
-  const innerEdgeDecisions = new Map<
-    Id<"pageCanvasEdgesV2">,
-    "move" | "archive"
-  >();
-  let addedDestinationEdges = 0;
-  for (const edge of innerEdges) {
-    if (
-      !childIds.has(edge.nodeAId) ||
-      !childIds.has(edge.nodeBId) ||
-      childrenById.get(edge.nodeAId)?.kind !==
-        childrenById.get(edge.nodeBId)?.kind ||
-      occupiedDestinationKeys.has(edge.pairKey)
-    ) {
-      innerEdgeDecisions.set(edge._id, "archive");
-      continue;
-    }
-    occupiedDestinationKeys.add(edge.pairKey);
-    addedDestinationEdges += 1;
-    innerEdgeDecisions.set(edge._id, "move");
-  }
-  if (
-    retainedDestinationEdges.length + addedDestinationEdges >
-    MAX_CANVAS_EDGES
-  ) {
-    throw new Error(
-      `Odredišni kanvas može imati najviše ${MAX_CANVAS_EDGES} veza.`,
-    );
-  }
-  const [archivedPlacement, rootedViewports] = await Promise.all([
-    getPlacement(ctx, page._id),
-    ctx.db
-      .query("pageCanvasViewports")
-      .withIndex("by_rootPageId", (q) => q.eq("rootPageId", page._id))
-      .take(MAX_CANVAS_PAGES + 1),
-  ]);
-  if (rootedViewports.length > MAX_CANVAS_PAGES) {
-    throw new Error("Stranica ima previše viewport zapisa za arhiviranje.");
-  }
-  await recoverForeignPageContributions(ctx, page, now);
-  await archiveAllCanvasEdgesForPage(ctx, page._id, now);
-  await archiveRelationsForPage(ctx, page._id, now);
-  for (const edge of innerEdges) {
-    if (innerEdgeDecisions.get(edge._id) === "move") {
-      await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-        rootPageId: page.parentPageId,
-        updatedAt: now,
-      });
-      await upsertActiveLegacyRootEdgeProjection(
-        ctx,
-        { ...edge, rootPageId: page.parentPageId, updatedAt: now },
-        now,
-      );
-    } else {
-      await ctx.db.patch("pageCanvasEdgesV2", edge._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-  }
-  for (const child of children) {
-    const placement = await getPlacement(ctx, child._id);
-    const targetPosition = await getAvailableCanvasPosition(ctx, {
-      startupId: child.startupId,
-      areaId: child.areaId,
-      rootPageId: page.parentPageId,
-      excludePageId: child._id,
-      width: placement?.width,
-      height: placement?.height,
-    });
-    await ctx.db.patch("pages", child._id, {
-      parentPageId: page.parentPageId,
-      treeRevision: (child.treeRevision ?? 0) + 1,
-      updatedByProfileId: actorProfileId,
-      updatedAt: now,
-    });
-    await upsertPlacement(ctx, {
-      page: { ...child, parentPageId: page.parentPageId },
-      rootPageId: page.parentPageId,
-      actorProfileId,
-      x: targetPosition.x,
-      y: targetPosition.y,
-      width: placement?.width,
-      height: placement?.height,
-      now,
-    });
-    await cancelPendingRequestsForChild(ctx, child._id, now);
-  }
-  if (archivedPlacement !== null) {
-    await ctx.db.delete("pageCanvasPlacements", archivedPlacement._id);
-  }
-  for (const viewport of rootedViewports) {
-    await ctx.db.delete("pageCanvasViewports", viewport._id);
-  }
-  await cancelPendingRequestsForChild(ctx, page._id, now);
-  const targetRequests = await ctx.db
-    .query("pageNestingRequests")
-    .withIndex(
-      "by_targetParentPageId_and_status_and_createdAt",
-      (q) => q.eq("targetParentPageId", page._id).eq("status", "pending"),
-    )
-    .take(MAX_CANVAS_PAGES + 1);
-  if (targetRequests.length > MAX_CANVAS_PAGES) {
-    throw new Error("Stranica ima previše zahteva za jedno arhiviranje.");
-  }
-  for (const request of targetRequests) {
-    await ctx.db.patch("pageNestingRequests", request._id, {
-      status: "cancelled",
-      resolvedAt: now,
-      updatedAt: now,
-    });
-  }
-  await ctx.db.patch("pages", page._id, {
-    archivedAt: now,
-    treeRevision: (page.treeRevision ?? 0) + 1,
-    updatedByProfileId: actorProfileId,
-    updatedAt: now,
-  });
-  await recordActivity(ctx, {
-    startupId: page.startupId,
-    actorProfileId,
-    action: "page_archived",
-    targetType: "page",
-    targetId: page._id,
-    title: `„${page.title}” je arhiviran/a`,
-  });
 }
 
 export const resolveRoute = query({
@@ -1618,10 +1164,7 @@ async function assembleCanvas(
           // Raspored (pozicija, veličina) menja svaki član (PROSTOR P1, D20).
           canMove: canLayoutOnMap(member),
           canResize: canLayoutOnMap(member),
-          canDetach:
-            root !== null &&
-            (page.createdByProfileId === profile._id ||
-              root.createdByProfileId === profile._id),
+          canDetach: root !== null && canMovePage(member, page, root, null),
           canEdit: canEditPage(member, page),
           isLocked: isPageLocked(page),
           creator,
@@ -1640,8 +1183,9 @@ async function assembleCanvas(
         target: edge.nodeBId,
         label: edge.label,
         kind: "canvas" as const,
-        canDelete: edge.authorProfileId === profile._id,
-        canRequestDeletion: edge.authorProfileId !== profile._id,
+        // Veze i relacije menja svaki član (PROSTOR D20); glasanja nema (P4).
+        canDelete: true,
+        canRequestDeletion: false,
       }));
     const visibleRelations = rawRelations
       .slice(0, MAX_RELATIONS_PER_AREA)
@@ -1658,8 +1202,8 @@ async function assembleCanvas(
         target: pageBId,
         label: relation.label,
         kind: "relation" as const,
-        canDelete: relation.authorProfileId === profile._id,
-        canRequestDeletion: relation.authorProfileId !== profile._id,
+        canDelete: true,
+        canRequestDeletion: false,
       }));
     const checkpointIds = new Set<Id<"taskCheckpoints">>();
     for (const edge of rawCheckpointEdges.slice(0, MAX_CANVAS_EDGES)) {
@@ -1719,49 +1263,12 @@ async function assembleCanvas(
         _id: edge._id,
         source: edge.endpointA,
         target: edge.endpointB,
-        canDelete: edge.authorProfileId === profile._id,
-        canRequestDeletion: edge.authorProfileId !== profile._id,
+        canDelete: true,
+        canRequestDeletion: false,
       }));
-    const rawGhosts =
-      root === null
-        ? []
-        : await ctx.db
-            .query("pageNestingRequests")
-            .withIndex(
-              "by_targetParentPageId_and_status_and_createdAt",
-              (q) =>
-                q
-                  .eq("targetParentPageId", root._id)
-                  .eq("status", "pending"),
-            )
-            .take(MAX_CANVAS_PAGES + 1);
-    const ghosts = [];
-    for (const request of rawGhosts.slice(0, MAX_CANVAS_PAGES)) {
-      const child = await ctx.db.get("pages", request.childPageId);
-      if (
-        child === null ||
-        child.archivedAt !== null ||
-        child.startupId !== args.startupId ||
-        child.areaId !== args.areaId
-      ) {
-        continue;
-      }
-      ghosts.push({
-        requestId: request._id,
-        pageId: child._id,
-        title: child.title,
-        kind: child.kind,
-        sourceParentPageId: request.sourceParentPageId,
-        targetParentPageId: request.targetParentPageId,
-        x: request.proposedX ?? 0,
-        y: request.proposedY ?? 0,
-        status: "pending" as const,
-        requester: await getProfileSummary(ctx, request.requesterProfileId),
-        canApprove: request.parentAuthorProfileId === profile._id,
-        canReject: request.parentAuthorProfileId === profile._id,
-        canWithdraw: request.requesterProfileId === profile._id,
-      });
-    }
+    // Zahteva za ugnežđavanje više nema (PROSTOR P4): duhovi se ne crtaju, a
+    // polje ostaje u validatoru zbog starih klijenata (P25).
+    const ghosts: Infer<typeof ghostValidator>[] = [];
     const ownerProfileId =
       root === null
         ? areaBody?.ownerProfileId ?? member.startup.createdByProfileId
@@ -1785,8 +1292,7 @@ async function assembleCanvas(
         rawPages.length > MAX_CANVAS_PAGES ||
         rawEdges.length > MAX_CANVAS_EDGES ||
         rawRelations.length > MAX_RELATIONS_PER_AREA ||
-        rawCheckpointEdges.length > MAX_CANVAS_EDGES ||
-        rawGhosts.length > MAX_CANVAS_PAGES,
+        rawCheckpointEdges.length > MAX_CANVAS_EDGES,
       scope: {
         kind: root === null ? ("area" as const) : ("page" as const),
         startupId: args.startupId,
@@ -2033,17 +1539,18 @@ export const createPage = mutation({
     nestingStatus: v.union(v.literal("none"), v.literal("pending")),
     requestId: v.union(v.id("pageNestingRequests"), v.null()),
   }),
-  handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+  handler: async (ctx, args): Promise<{ pageId: Id<"pages"> } & MoveResult> => {
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const { root } = await requireScope(
       ctx,
       args.startupId,
       args.areaId,
       args.rootPageId,
     );
-    const needsApproval =
-      root !== null && root.createdByProfileId !== profile._id;
-    const actualParentPageId = needsApproval ? null : args.rootPageId;
+    // PROSTOR P4: nova kartica ide odmah pod koren (R6 nad korenom).
+    assertCanChangeChildren(actor, root);
+    const actualParentPageId = args.rootPageId;
     await assertCanvasCapacity(
       ctx,
       args.startupId,
@@ -2104,29 +1611,13 @@ export const createPage = mutation({
       y: canvasPosition.y,
       now,
     });
-    if (!needsApproval && root !== null) {
+    if (root !== null) {
       await assertReparentDepth(ctx, createdPage._id, root._id);
     }
-    if (!needsApproval || root === null) {
-      return {
-        pageId,
-        nestingStatus: "none" as const,
-        requestId: null,
-      };
-    }
-    const requestId = await createPendingNestingRequest(ctx, {
-      child: createdPage,
-      targetParent: root,
-      requesterProfileId: profile._id,
-      position: args.position,
-      x: args.x,
-      y: args.y,
-      now,
-    });
     return {
       pageId,
-      nestingStatus: "pending" as const,
-      requestId,
+      nestingStatus: "none" as const,
+      requestId: null,
     };
   },
 });
@@ -2371,13 +1862,9 @@ export const archivePage = mutation({
     const page = await requireStrictVisiblePage(ctx, args.pageId, {
       startupId: args.startupId,
     });
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    assertOwnedPage(
-      page,
-      profile._id,
-      "Tuđa stranica se arhivira samo kroz odobreni timski postupak.",
-    );
-    await archivePageWithV2Sidecars(ctx, page, profile._id);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    // PROSTOR P3: cela grana ide u Korpu (svaki član, R7 + D6).
+    await trashPageTree(ctx, { actor, page, now: Date.now() });
     return null;
   },
 });
@@ -2663,12 +2150,7 @@ export const connectPages = mutation({
     ]);
     assertDirectCanvasPage(source, args.rootPageId);
     assertDirectCanvasPage(target, args.rootPageId);
-    if (
-      source.createdByProfileId !== profile._id &&
-      target.createdByProfileId !== profile._id
-    ) {
-      throw new Error("Vezu možete praviti samo od ili ka svojoj kartici.");
-    }
+    // Veze pravi svaki član (PROSTOR D20).
     const key = pairKey(source._id, target._id);
     const existing = await ctx.db
       .query("pageCanvasEdgesV2")
@@ -2770,7 +2252,7 @@ export const disconnectPages = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     await requireScope(
       ctx,
       args.startupId,
@@ -2787,9 +2269,7 @@ export const disconnectPages = mutation({
     ) {
       throw new Error("Veza nije pronađena na ovom kanvasu.");
     }
-    if (edge.authorProfileId !== profile._id) {
-      throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-    }
+    // Vezu uklanja svaki član (PROSTOR D20).
     const now = Date.now();
     await archiveCanvasEdgeWithLegacyProjection(ctx, edge, now);
     return null;
@@ -2810,7 +2290,7 @@ export const listRelations = query({
     const page = await requireStrictVisiblePage(ctx, args.pageId, {
       startupId: args.startupId,
     });
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     // Stranica može biti na bilo kojoj strani relacije, pa se čitaju oba para
     // indeksa — stari (note/task) i novi (A/B) — i rezultat se dedupira.
     const relationBatches = await Promise.all(
@@ -2885,8 +2365,9 @@ export const listRelations = query({
           parentPageId: linked.parentPageId,
           areaId: linked.areaId,
         },
-        canDelete: relation.authorProfileId === profile._id,
-        canRequestDeletion: relation.authorProfileId !== profile._id,
+        // Relacije menja svaki član (PROSTOR D20).
+        canDelete: true,
+        canRequestDeletion: false,
       });
     }
     // Veže se sve sa svim, pa su kandidati sve aktivne stranice startupa bez
@@ -2901,12 +2382,7 @@ export const listRelations = query({
       .take(MAX_RELATION_CANDIDATES * 3 + 1);
     const validCandidates = [];
     for (const candidate of rawCandidates) {
-      if (
-        candidate._id === page._id ||
-        linkedIds.has(candidate._id) ||
-        (page.createdByProfileId !== profile._id &&
-          candidate.createdByProfileId !== profile._id)
-      ) {
+      if (candidate._id === page._id || linkedIds.has(candidate._id)) {
         continue;
       }
       validCandidates.push({
@@ -2948,12 +2424,7 @@ export const createRelation = mutation({
         startupId: args.startupId,
       }),
     ]);
-    if (
-      pageA.createdByProfileId !== profile._id &&
-      pageB.createdByProfileId !== profile._id
-    ) {
-      throw new Error("Relaciju možete praviti samo sa svojom stranicom.");
-    }
+    // Relaciju pravi svaki član (PROSTOR D20).
     // Poredak endpointa je kanonski (isti `pairKey` bez obzira ko je izvor),
     // pa duplikat u suprotnom smeru ne može da nastane. Jedinstvenost para je
     // na nivou startupa jer relacija sme da spaja stranice različitih oblasti.
@@ -3015,7 +2486,7 @@ export const deleteRelation = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     const relation = await ctx.db.get("pageRelations", args.relationId);
     if (
       relation === null ||
@@ -3024,9 +2495,7 @@ export const deleteRelation = mutation({
     ) {
       throw new Error("Relacija nije pronađena.");
     }
-    if (relation.authorProfileId !== profile._id) {
-      throw new Error("Možete ukloniti samo relaciju koju ste napravili.");
-    }
+    // Relaciju uklanja svaki član (PROSTOR D20).
     const now = Date.now();
     await ctx.db.patch("pageRelations", relation._id, {
       archivedAt: now,
@@ -3047,7 +2516,8 @@ export const requestNesting = mutation({
   },
   returns: moveResultValidator,
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const [child, targetParent] = await Promise.all([
       requireStrictVisiblePage(ctx, args.childPageId, {
         startupId: args.startupId,
@@ -3056,13 +2526,21 @@ export const requestNesting = mutation({
         startupId: args.startupId,
       }),
     ]);
-    assertOwnedPage(child, profile._id, "Možete ugnježđavati samo svoju stranicu.");
     if (child.areaId !== targetParent.areaId) {
       throw new Error("Ugnježđavanje je moguće samo unutar iste oblasti.");
     }
     if (child._id === targetParent._id) {
       throw new Error("Stranica ne može biti sopstveni roditelj.");
     }
+    // PROSTOR P4: stari „zahtev" sada premešta odmah (R5 + R6).
+    const currentParent =
+      child.parentPageId === null
+        ? null
+        : await requireStrictVisiblePage(ctx, child.parentPageId, {
+            startupId: args.startupId,
+            areaId: child.areaId,
+          });
+    assertCanMovePage(actor, child, currentParent, targetParent);
     return await moveWithinArea(ctx, {
       child,
       targetParent,
@@ -3082,95 +2560,10 @@ export const approveNesting = mutation({
   },
   returns: v.object({ status: nestingStatusValidator }),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    const request = await ctx.db.get("pageNestingRequests", args.requestId);
-    if (
-      request === null ||
-      request.startupId !== args.startupId ||
-      request.status !== "pending"
-    ) {
-      throw new Error("Zahtev za ugnježđavanje nije aktivan.");
-    }
-    if (request.parentAuthorProfileId !== profile._id) {
-      throw new Error("Samo autor roditeljske stranice može odobriti zahtev.");
-    }
-    const [child, targetParent] = await Promise.all([
-      ctx.db.get("pages", request.childPageId),
-      ctx.db.get("pages", request.targetParentPageId),
-    ]);
-    const isStale =
-      child === null ||
-      child.archivedAt !== null ||
-      targetParent === null ||
-      targetParent.archivedAt !== null ||
-      child.startupId !== request.startupId ||
-      targetParent.startupId !== request.startupId ||
-      child.areaId !== request.areaId ||
-      targetParent.areaId !== request.areaId ||
-      child.parentPageId !== request.sourceParentPageId ||
-      (child.treeRevision ?? 0) !== request.expectedTreeRevision ||
-      targetParent.createdByProfileId !== request.parentAuthorProfileId;
-    if (isStale || child === null || targetParent === null) {
-      const now = Date.now();
-      await ctx.db.patch("pageNestingRequests", request._id, {
-        status: "cancelled",
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      return { status: "cancelled" as const };
-    }
-    try {
-      await assertReparentDepth(ctx, child._id, targetParent._id);
-    } catch {
-      const now = Date.now();
-      await ctx.db.patch("pageNestingRequests", request._id, {
-        status: "cancelled",
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      return { status: "cancelled" as const };
-    }
-    await assertCanvasCapacity(
-      ctx,
-      child.startupId,
-      child.areaId,
-      targetParent._id,
-      // The pending ghost already occupies one canvas slot. Approval replaces
-      // that ghost with the real child, so it must not count as an extra card.
-      0,
-    );
-    const now = Date.now();
-    await applySameAreaReparent(ctx, {
-      child,
-      targetParentPageId: targetParent._id,
-      actorProfileId: profile._id,
-      position: request.proposedPosition,
-      x: request.proposedX,
-      y: request.proposedY,
-      now,
-      excludeRequestId: request._id,
-    });
-    await ctx.db.patch("pageNestingRequests", request._id, {
-      status: "approved",
-      resolvedAt: now,
-      updatedAt: now,
-    });
-    await recordActivity(ctx, {
-      startupId: request.startupId,
-      actorProfileId: profile._id,
-      action: "nesting_resolved",
-      targetType: "request",
-      targetId: request._id,
-      title: `Odobreno je ugnježđavanje stranice „${child.title}”`,
-    });
-    await notifyNestingResolution(ctx, {
-      request,
-      childTitle: child.title,
-      approved: true,
-      actorProfileId: profile._id,
-      actorName: profile.displayName,
-    });
-    return { status: "approved" as const };
+    await requireStartupMember(ctx, args.startupId);
+    // PROSTOR P4: odobravanje ugnežđavanja je ugašeno; stari klijent dobija
+    // jasnu poruku, a zahtev ostaje kakav jeste (`closeLegacyRequests`).
+    throw permissionError("STARI_TOK", LEGACY_NESTING_MESSAGE);
   },
 });
 
@@ -3251,28 +2644,25 @@ export const detachPage = mutation({
     const page = await requireStrictVisiblePage(ctx, args.pageId, {
       startupId: args.startupId,
     });
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const pending = await pendingForChild(ctx, page._id);
-    const parent =
-      page.parentPageId === null
-        ? null
-        : await requireStrictVisiblePage(ctx, page.parentPageId, {
-            startupId: args.startupId,
-            areaId: page.areaId,
-          });
-    const canDetachActual =
-      page.createdByProfileId === profile._id ||
-      parent?.createdByProfileId === profile._id;
-    if (canDetachActual && page.parentPageId !== null) {
+    if (page.parentPageId !== null) {
+      // PROSTOR P4 (R5): svaki član odvaja stranicu na vrh oblasti; stari
+      // zahtev deteta se pri tome zatvara (`applySameAreaReparent`).
+      const parent = await requireStrictVisiblePage(ctx, page.parentPageId, {
+        startupId: args.startupId,
+        areaId: page.areaId,
+      });
+      assertCanMovePage(actor, page, parent, null);
       await moveWithinArea(ctx, {
         child: page,
         targetParent: null,
-        actorProfileId: profile._id,
+        actorProfileId: actor.profile._id,
         now: Date.now(),
       });
       return { status: "detached" as const };
     }
-    if (pending !== null && pending.requesterProfileId === profile._id) {
+    if (pending !== null) {
       const now = Date.now();
       await ctx.db.patch("pageNestingRequests", pending._id, {
         status: "withdrawn",
@@ -3281,19 +2671,7 @@ export const detachPage = mutation({
       });
       return { status: "withdrawn" as const };
     }
-    if (pending !== null && pending.parentAuthorProfileId === profile._id) {
-      const now = Date.now();
-      await ctx.db.patch("pageNestingRequests", pending._id, {
-        status: "rejected",
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      return { status: "rejected" as const };
-    }
-    if (page.parentPageId === null && pending === null) {
-      return { status: "none" as const };
-    }
-    throw new Error("Nemate pravo da odvojite ovu stranicu.");
+    return { status: "none" as const };
   },
 });
 
@@ -3305,81 +2683,13 @@ export const listNestingInbox = query({
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    const [rawIncoming, rawOutgoing] = await Promise.all([
-      ctx.db
-        .query("pageNestingRequests")
-        .withIndex(
-          "by_startupId_and_parentAuthorProfileId_and_status_and_createdAt",
-          (q) =>
-            q
-              .eq("startupId", args.startupId)
-              .eq("parentAuthorProfileId", profile._id)
-              .eq("status", "pending"),
-        )
-        .order("desc")
-        .take(MAX_NESTING_INBOX_ITEMS + 1),
-      ctx.db
-        .query("pageNestingRequests")
-        .withIndex(
-          "by_startupId_and_requesterProfileId_and_status_and_createdAt",
-          (q) =>
-            q
-              .eq("startupId", args.startupId)
-              .eq("requesterProfileId", profile._id)
-              .eq("status", "pending"),
-        )
-        .order("desc")
-        .take(MAX_NESTING_INBOX_ITEMS + 1),
-    ]);
-    const present = async (requests: typeof rawIncoming) => {
-      const items = [];
-      for (const request of requests.slice(0, MAX_NESTING_INBOX_ITEMS)) {
-        const [child, targetParent, requester] = await Promise.all([
-          ctx.db.get("pages", request.childPageId),
-          ctx.db.get("pages", request.targetParentPageId),
-          getProfileSummary(ctx, request.requesterProfileId),
-        ]);
-        if (
-          child === null ||
-          child.archivedAt !== null ||
-          targetParent === null ||
-          targetParent.archivedAt !== null ||
-          child.startupId !== args.startupId ||
-          targetParent.startupId !== args.startupId ||
-          child.areaId !== request.areaId ||
-          targetParent.areaId !== request.areaId
-        ) {
-          continue;
-        }
-        items.push({
-          requestId: request._id,
-          child: {
-            pageId: child._id,
-            title: child.title,
-            kind: child.kind,
-            parentPageId: child.parentPageId,
-          },
-          targetParent: {
-            pageId: targetParent._id,
-            title: targetParent.title,
-            kind: targetParent.kind,
-          },
-          requester,
-          createdAt: request.createdAt,
-          canApprove: request.parentAuthorProfileId === profile._id,
-          canReject: request.parentAuthorProfileId === profile._id,
-          canWithdraw: request.requesterProfileId === profile._id,
-        });
-      }
-      return items;
-    };
+    await requireStartupMember(ctx, args.startupId);
+    // PROSTOR P4: zahteva za ugnežđavanje više nema; stari zahtevi se ne nude
+    // kao radnje (zatvara ih `closeLegacyRequests`). Oblik ostaje (P25).
     return {
-      incoming: await present(rawIncoming),
-      outgoing: await present(rawOutgoing),
-      truncated:
-        rawIncoming.length > MAX_NESTING_INBOX_ITEMS ||
-        rawOutgoing.length > MAX_NESTING_INBOX_ITEMS,
+      incoming: [] as Infer<typeof nestingInboxItemValidator>[],
+      outgoing: [] as Infer<typeof nestingInboxItemValidator>[],
+      truncated: false,
     };
   },
 });
@@ -3389,11 +2699,12 @@ export async function movePageAcrossAreasWithSidecars(
   args: {
     page: Doc<"pages">;
     targetAreaId: Id<"startupAreas">;
-    actorProfileId: Id<"profiles">;
+    actor: Actor;
     position?: number;
     now: number;
   },
-) {
+): Promise<MoveResult> {
+  const actorProfileId = args.actor.profile._id;
   if (args.page.areaId === args.targetAreaId) {
     throw new Error("Stranica je već u ciljnoj oblasti.");
   }
@@ -3403,14 +2714,14 @@ export async function movePageAcrossAreasWithSidecars(
     movedPages.some(
       (item) =>
         item.startupId !== args.page.startupId ||
-        item.areaId !== args.page.areaId ||
-        item.createdByProfileId !== args.actorProfileId,
+        item.areaId !== args.page.areaId,
     )
   ) {
-    throw new Error(
-      "Grana sadrži aktivne stranice drugih autora ili neispravan opseg. Prvo ih odvojite.",
-    );
+    throw new Error("Grana sadrži stranicu iz neispravnog opsega.");
   }
+  // PROSTOR D6: granu sa zaključanom stranicom seli samo autor te stranice,
+  // vlasnik startupa ili admin.
+  assertCanTouchLockedBranch(args.actor, movedPages);
   await assertCanvasCapacity(
     ctx,
     args.page.startupId,
@@ -3705,7 +3016,7 @@ export async function movePageAcrossAreasWithSidecars(
         ? { position: cleanPagePosition(args.position, args.now) }
         : {}),
       treeRevision: (moved.treeRevision ?? 0) + 1,
-      updatedByProfileId: args.actorProfileId,
+      updatedByProfileId: actorProfileId,
       updatedAt: args.now,
     });
     const placement = isRoot
@@ -3718,7 +3029,7 @@ export async function movePageAcrossAreasWithSidecars(
         parentPageId,
       },
       rootPageId: parentPageId,
-      actorProfileId: args.actorProfileId,
+      actorProfileId,
       x: isRoot ? targetRootPosition.x : (placement?.x ?? 0),
       y: isRoot ? targetRootPosition.y : (placement?.y ?? 0),
       width: placement?.width,
@@ -3728,7 +3039,7 @@ export async function movePageAcrossAreasWithSidecars(
   }
   await recordActivity(ctx, {
     startupId: args.page.startupId,
-    actorProfileId: args.actorProfileId,
+    actorProfileId,
     action: "page_moved",
     targetType: "page",
     targetId: args.page._id,
@@ -3752,8 +3063,8 @@ export const movePage = mutation({
     const page = await requireStrictVisiblePage(ctx, args.pageId, {
       startupId: args.startupId,
     });
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    assertOwnedPage(page, profile._id, "Možete premeštati samo svoju stranicu.");
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     await requireArea(ctx, args.startupId, args.targetAreaId);
     const targetParent =
       args.targetParentPageId === null
@@ -3765,6 +3076,15 @@ export const movePage = mutation({
     if (targetParent?._id === page._id) {
       throw new Error("Stranica ne može biti sopstveni roditelj.");
     }
+    // PROSTOR P4 (R5 + R6): svaki član premešta odmah.
+    const currentParent =
+      page.parentPageId === null
+        ? null
+        : await requireStrictVisiblePage(ctx, page.parentPageId, {
+            startupId: args.startupId,
+            areaId: page.areaId,
+          });
+    assertCanMovePage(actor, page, currentParent, targetParent);
     const now = Date.now();
     if (page.areaId === args.targetAreaId) {
       return await moveWithinArea(ctx, {
@@ -3782,7 +3102,7 @@ export const movePage = mutation({
       await movePageAcrossAreasWithSidecars(ctx, {
         page,
         targetAreaId: args.targetAreaId,
-        actorProfileId: profile._id,
+        actor,
         now,
       });
       // OBAVEZNO ponovno čitanje: `page` u ruci je posle prvog koraka USTAJAO
@@ -3793,9 +3113,6 @@ export const movePage = mutation({
       if (moved === null) {
         throw new Error("Stranica nije pronađena posle premeštanja.");
       }
-      // Ako je ciljni roditelj TUĐ, ovo vraća `pending` — stranica je tada već
-      // promenila oblast i stoji u njenom korenu. Klijent to mora saopštiti
-      // doslovno, inače izgleda kao da se ništa nije desilo.
       return await moveWithinArea(ctx, {
         child: moved,
         targetParent,
@@ -3806,7 +3123,7 @@ export const movePage = mutation({
     return await movePageAcrossAreasWithSidecars(ctx, {
       page,
       targetAreaId: args.targetAreaId,
-      actorProfileId: profile._id,
+      actor,
       now,
     });
   },

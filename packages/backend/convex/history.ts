@@ -21,6 +21,7 @@ import {
 } from "./lib/history";
 import { writePageContent } from "./lib/page_content";
 import { nodeSearchText, requireVisiblePage } from "./lib/pages";
+import { unprunePageFiles } from "./lib/trash";
 import {
   assertCanEditPage,
   canEditArea,
@@ -269,6 +270,15 @@ export const restore = mutation({
       });
       if (!result.changed) {
         return { changed: false, revisionId: null, targetRevision: page.revision };
+      }
+      if (page.kind === "note") {
+        // Prilozi koje je `prune` sklonio, a vraćena verzija ih ponovo
+        // koristi, vraćaju se u belešku (PROSTOR D8).
+        await unprunePageFiles(ctx, {
+          page,
+          isReferenced: (fileId) => revision.content.includes(fileId),
+          now,
+        });
       }
       await recordActivity(ctx, {
         startupId: page.startupId,

@@ -348,6 +348,62 @@ export function assertCanChangeChildren(
 }
 
 /**
+ * R5: premeštanje/ugnežđavanje/odvajanje. Stranica po R2, a stari i novi
+ * roditelj po R6 (zaključan roditelj čuva spisak svoje dece — D4).
+ */
+export function assertCanMovePage(
+  actor: Actor,
+  page: PageLike & { title: string },
+  from: (PageLike & { title: string }) | null,
+  to: (PageLike & { title: string }) | null,
+): void {
+  assertCanEditPage(actor, page);
+  assertCanChangeChildren(actor, from);
+  assertCanChangeChildren(actor, to);
+}
+
+/** R7 bez zaključanih potomaka (njih proverava `lib/trash`, D6). */
+export function assertCanArchivePage(
+  actor: Actor,
+  page: PageLike & { title: string },
+  parent: (PageLike & { title: string }) | null,
+): void {
+  assertCanEditPage(actor, page);
+  assertCanChangeChildren(actor, parent);
+}
+
+/** D6: zaključana stranica u grani koja se briše ili seli u drugu oblast. */
+export function assertCanTouchLockedBranch(
+  actor: Actor,
+  branch: ReadonlyArray<PageLike & { title: string }>,
+): void {
+  for (const page of branch) {
+    if (canEditPage(actor, page)) continue;
+    throw permissionError(
+      "ZAKLJUCANO",
+      `„${page.title}” je zaključana — granu sa njom menja autor, vlasnik startupa ili admin.`,
+    );
+  }
+}
+
+/** R20: „Oporavljeno" uklanja onaj za koga je sačuvano ili menadžer. */
+export function canDismissRecovered(
+  actor: Actor,
+  recovered: Pick<Doc<"recoveredContent">, "startupId" | "createdByProfileId">,
+): boolean {
+  if (!inStartup(actor, recovered)) return false;
+  return (
+    recovered.createdByProfileId === actor.profile._id ||
+    isStartupManager(actor)
+  );
+}
+
+export const LEGACY_DELETION_VOTE_MESSAGE =
+  "Glasanje o brisanju više ne postoji. Obrisano ide u Korpu, odakle ga svako može vratiti.";
+export const LEGACY_NESTING_MESSAGE =
+  "Zahtevi za ugnežđavanje više ne postoje — premesti stranicu direktno.";
+
+/**
  * Konflikt revizije (P23). Poruka zadržava stari prefiks `KONFLIKT_IZMENA:`, pa
  * je prepoznaju i stari klijenti (`String(error).includes(...)`); novi čitaju
  * `data.code` i `data.currentRevision`.

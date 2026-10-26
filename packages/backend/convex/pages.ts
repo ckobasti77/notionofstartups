@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import {
-  archivePageWithV2Sidecars,
   movePageAcrossAreasWithSidecars,
   moveWithinArea,
 } from "./areasV2";
@@ -11,7 +10,11 @@ import { requireStartupMember } from "./lib/auth";
 import { insertContribution } from "./lib/collaboration";
 import { writePageContent } from "./lib/page_content";
 import {
+  assertCanChangeChildren,
   assertCanEditPage,
+  assertCanMovePage,
+  canArchivePage,
+  canEditPage,
   canLockPage,
   conflictError,
   isPageLocked,
@@ -28,6 +31,7 @@ import {
   validateWorkspacePageTarget,
 } from "./lib/page_creation";
 import { requireVisiblePage, summarizePage } from "./lib/pages";
+import { trashPageTree } from "./lib/trash";
 import {
   getProfileSummary,
   profileSummaryValidator as profileSummaryDisplayValidator,
@@ -350,7 +354,8 @@ export const create = mutation({
   },
   returns: v.id("pages"),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const now = Date.now();
     const target = await validateWorkspacePageTarget(ctx, {
       startupId: args.startupId,
@@ -371,11 +376,9 @@ export const create = mutation({
       args.areaId,
       args.parentPageId,
     );
-    if (parent !== null && parent.createdByProfileId !== profile._id) {
-      throw new Error(
-        "Za ugnježđavanje u tuđu stranicu potrebno je odobrenje njenog autora.",
-      );
-    }
+    // PROSTOR P4: podstranicu pod bilo koju stranicu pravi svaki član; spisak
+    // dece zaključane stranice menjaju samo autor, vlasnik startupa i admin.
+    assertCanChangeChildren(actor, parent);
     const page = prepareWorkspacePage(target, {
       title: args.title,
       content: args.content ?? "",
@@ -529,21 +532,18 @@ export const move = mutation({
   returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Možete pomerati samo svoju stranicu.");
-    }
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     await requirePageArea(ctx, page.startupId, args.areaId);
     if (args.parentPageId === page._id) throw new Error("Stranica ne može biti sopstveni roditelj.");
     const parent = await requirePageParent(ctx, page.startupId, args.areaId, args.parentPageId);
-    if (
-      parent !== null &&
-      parent.createdByProfileId !== profile._id
-    ) {
-      throw new Error(
-        "Za ugnježđavanje u tuđu stranicu potrebno je odobrenje njenog autora.",
-      );
-    }
+    // PROSTOR P4 (R5): svaki član premešta i ugnežđava odmah; zaključana
+    // stranica i spisak dece zaključanog roditelja ostaju autoru i menadžeru.
+    const currentParent =
+      page.parentPageId === null
+        ? null
+        : await requireVisiblePage(ctx, page.parentPageId);
+    assertCanMovePage(actor, page, currentParent, parent);
     let cursor = parent;
     for (let depth = 0; cursor !== null && depth < 64; depth += 1) {
       if (cursor._id === page._id) throw new Error("Premeštanje bi napravilo kružnu hijerarhiju.");
@@ -561,7 +561,7 @@ export const move = mutation({
       await movePageAcrossAreasWithSidecars(ctx, {
         page,
         targetAreaId: args.areaId,
-        actorProfileId: profile._id,
+        actor,
         position: args.position,
         now,
       });
@@ -591,11 +591,9 @@ export const archive = mutation({
   returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Tuđa stranica se briše samo jednoglasnim glasanjem.");
-    }
-    await archivePageWithV2Sidecars(ctx, page, profile._id);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    // PROSTOR P3: brisanje šalje celu granu u Korpu (svaki član, R7 + D6).
+    await trashPageTree(ctx, { actor, page, now: Date.now() });
     return page._id;
   },
 });
@@ -723,7 +721,7 @@ export const listAreaCanvasPages = query({
     kind: v.optional(pageKindValidator),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     await requirePageArea(ctx, args.startupId, args.areaId);
     const kind = args.kind;
     const filteredPages = kind
@@ -767,11 +765,12 @@ export const listAreaCanvasPages = query({
         return {
           ...p,
           creator: creator ? { displayName: creator.displayName, avatarUrl: creatorAvatarUrl } : null,
-          canEdit: p.createdByProfileId === profile._id,
-          canMove: p.createdByProfileId === profile._id,
-          canResize: p.createdByProfileId === profile._id,
-          canDeleteDirectly: p.createdByProfileId === profile._id,
-          canRequestDeletion: p.createdByProfileId !== profile._id,
+          // PROSTOR P1/P3: kartice su na vrhu oblasti (bez roditelja).
+          canEdit: canEditPage(actor, p),
+          canMove: true,
+          canResize: true,
+          canDeleteDirectly: canArchivePage(actor, p, null),
+          canRequestDeletion: false,
         };
       })
     );
@@ -789,9 +788,9 @@ export const listAreaCanvasPages = query({
         )
         .map((edge) => ({
           ...edge,
-          canEdit: edge.authorProfileId === profile._id,
-          canDeleteDirectly: edge.authorProfileId === profile._id,
-          canRequestDeletion: edge.authorProfileId !== profile._id,
+          canEdit: true,
+          canDeleteDirectly: true,
+          canRequestDeletion: false,
         })),
     };
   },
@@ -823,12 +822,11 @@ export const connectCanvasPages = mutation({
       nodeA.archivedAt !== null ||
       nodeB.archivedAt !== null ||
       nodeA.parentPageId !== null ||
-      nodeB.parentPageId !== null ||
-      (nodeA.createdByProfileId !== profile._id &&
-        nodeB.createdByProfileId !== profile._id)
+      nodeB.parentPageId !== null
     ) {
+      // PROSTOR D20: veze pravi svaki član; opseg (startup, oblast, vrh) ostaje.
       throw new Error(
-        "Vezu možete napraviti samo ako posedujete bar jednu karticu.",
+        "Poveži samo dostupne kartice sa kanvasa iste oblasti.",
       );
     }
     if (nodeA.kind !== nodeB.kind) {
@@ -880,22 +878,12 @@ export const disconnectCanvasPages = mutation({
     edgeId: v.id("pageEdges"),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     const edge = await ctx.db.get("pageEdges", args.edgeId);
     if (edge === null || edge.startupId !== args.startupId) {
       throw new Error("Veza nije pronađena.");
     }
-    const [nodeA, nodeB] = await Promise.all([
-      ctx.db.get("pages", edge.nodeAId),
-      ctx.db.get("pages", edge.nodeBId),
-    ]);
-    const ownsLegacyEndpoint =
-      edge.authorProfileId === undefined &&
-      (nodeA?.createdByProfileId === profile._id ||
-        nodeB?.createdByProfileId === profile._id);
-    if (edge.authorProfileId !== profile._id && !ownsLegacyEndpoint) {
-      throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-    }
+    // PROSTOR D20: vezu uklanja svaki član.
     if (edge.archivedAt === undefined || edge.archivedAt === null) {
       await ctx.db.delete("pageEdges", args.edgeId);
     }

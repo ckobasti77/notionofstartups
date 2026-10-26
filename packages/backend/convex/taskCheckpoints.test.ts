@@ -336,7 +336,9 @@ describe("task checkpoint entiteti", () => {
     expect(rows.map((row) => row.ordinal)).toEqual([1, 2, 3, 4]);
   });
 
-  test("arhiviranje ima Undo, član traži brisanje, a limit ostaje 100", async () => {
+  // PROSTOR K03 (P4): stari `requestDeletion` koraka ga odmah arhivira (svaki
+  // član, R2 nad zadatkom); „Poništi" i limit 100 ostaju.
+  test("arhiviranje ima Undo, stari requestDeletion odmah arhivira, a limit ostaje 100", async () => {
     const { startupId, areaId, asOwner, asMember } =
       await seedCheckpointWorkspace();
     const taskId = await asOwner.mutation(api.pages.create, {
@@ -362,12 +364,11 @@ describe("task checkpoint entiteti", () => {
       }),
     ).rejects.toThrow("najviše 100");
 
-    await asMember.mutation(api.collaboration.requestDeletion, {
-      target: { kind: "task_checkpoint", id: rows[0]._id },
-    });
-    await asOwner.mutation(api.taskCheckpoints.archiveOwn, {
-      checkpointId: rows[0]._id,
-    });
+    await expect(
+      asMember.mutation(api.collaboration.requestDeletion, {
+        target: { kind: "task_checkpoint", id: rows[0]._id },
+      }),
+    ).resolves.toBeNull();
     expect(
       await asOwner.query(api.taskCheckpoints.listForTask, {
         taskPageId: taskId,
@@ -449,7 +450,10 @@ describe("task checkpoint entiteti", () => {
     });
   });
 
-  test("checkpoint veze pokrivaju checkpoint, task i note uz dozvole, approval i soft unlink", async () => {
+  // PROSTOR K03 (D20, P3, P4): veze koraka pravi i uklanja svaki član, stari
+  // `requestDeletion` ih uklanja odmah, a brisanje stranice (Korpa) ne dira
+  // vezu — sakrivena je dok je stranica u Korpi i vraća se sa njom (D3).
+  test("checkpoint veze pokrivaju checkpoint, task i note: menja ih svaki član, soft unlink i Korpa", async () => {
     const {
       t,
       startupId,
@@ -510,13 +514,14 @@ describe("task checkpoint entiteti", () => {
     };
     const scope = { startupId, areaId, rootPageId: null };
 
-    await expect(
-      asMember.mutation(api.taskCheckpointCanvasEdges.connect, {
+    const memberEdgeId = await asMember.mutation(
+      api.taskCheckpointCanvasEdges.connect,
+      {
         ...scope,
         source: checkpointEndpointA,
         target: noteEndpoint,
-      }),
-    ).rejects.toThrow("svojoj stavci");
+      },
+    );
 
     const checkpointPairId = await asOwner.mutation(
       api.taskCheckpointCanvasEdges.connect,
@@ -551,50 +556,43 @@ describe("task checkpoint entiteti", () => {
     );
 
     const canvas = await asOwner.query(api.areasV2.getCanvas, scope);
-    expect(canvas.checkpointEdges).toHaveLength(3);
+    expect(canvas.checkpointEdges).toHaveLength(4);
     expect(
       canvas.checkpointEdges.map((edge) => edge._id),
     ).toEqual(
       expect.arrayContaining([
+        memberEdgeId,
         checkpointPairId,
         checkpointTaskId,
         checkpointNoteId,
       ]),
     );
+    expect(
+      canvas.checkpointEdges.every(
+        (edge) => edge.canDelete && !edge.canRequestDeletion,
+      ),
+    ).toBe(true);
 
     await expect(
       asMember.mutation(api.taskCheckpointCanvasEdges.disconnect, {
         ...scope,
         edgeId: checkpointTaskId,
       }),
-    ).rejects.toThrow("samo vezu koju ste napravili");
-    await asOwner.mutation(api.taskCheckpointCanvasEdges.disconnect, {
-      ...scope,
-      edgeId: checkpointTaskId,
-    });
+    ).resolves.toBeNull();
     expect(
       await t.run((ctx) =>
         ctx.db.get("taskCheckpointCanvasEdges", checkpointTaskId),
       ),
     ).toEqual(expect.objectContaining({ archivedAt: expect.any(Number) }));
 
-    const requestId = await asMember.mutation(
-      api.collaboration.requestDeletion,
-      {
+    await expect(
+      asMember.mutation(api.collaboration.requestDeletion, {
         target: {
           kind: "task_checkpoint_edge",
           id: checkpointNoteId,
         },
-      },
-    );
-    await asAssignee.mutation(api.collaboration.voteOnDeletion, {
-      requestId,
-      vote: "approve",
-    });
-    await asOwner.mutation(api.collaboration.voteOnDeletion, {
-      requestId,
-      vote: "approve",
-    });
+      }),
+    ).resolves.toBeNull();
     expect(
       await t.run((ctx) =>
         ctx.db.get("taskCheckpointCanvasEdges", checkpointNoteId),
@@ -618,12 +616,23 @@ describe("task checkpoint entiteti", () => {
         target: noteEndpoint,
       },
     );
-    await asOwner.mutation(api.pages.archive, { pageId: noteId });
+    await asAssignee.mutation(api.pages.archive, { pageId: noteId });
     expect(
       await t.run((ctx) =>
         ctx.db.get("taskCheckpointCanvasEdges", edgeToArchivedPage),
       ),
-    ).toEqual(expect.objectContaining({ archivedAt: expect.any(Number) }));
+    ).toEqual(expect.objectContaining({ archivedAt: null }));
+    const hidden = await asOwner.query(api.areasV2.getCanvas, scope);
+    expect(hidden.checkpointEdges.map((edge) => edge._id)).not.toContain(
+      edgeToArchivedPage,
+    );
+    await asMember.mutation(api.trash.restore, {
+      target: { kind: "page", id: noteId },
+    });
+    const visible = await asOwner.query(api.areasV2.getCanvas, scope);
+    expect(visible.checkpointEdges.map((edge) => edge._id)).toContain(
+      edgeToArchivedPage,
+    );
   });
 });
 

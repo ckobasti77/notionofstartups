@@ -583,14 +583,7 @@ export const connectAreaCanvasPages = mutation({
     if (source.kind !== target.kind) {
       throw new Error("Na podeljenom kanvasu poveži kartice istog tipa.");
     }
-    if (
-      source.createdByProfileId !== profile._id &&
-      target.createdByProfileId !== profile._id
-    ) {
-      throw new Error(
-        "Vezu možete napraviti samo ako posedujete bar jednu karticu.",
-      );
-    }
+    // Veze pravi svaki član (PROSTOR D20).
 
     const pairKey = [args.source, args.target].sort().join(":");
     const [existing, existingV2] = await Promise.all([
@@ -707,7 +700,7 @@ export const disconnectAreaCanvasPages = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     if (args.edgeIds.length > 100) {
       throw new Error("Ukloni najviše 100 veza odjednom.");
     }
@@ -718,17 +711,7 @@ export const disconnectAreaCanvasPages = mutation({
         throw new Error("Veza nije pronađena.");
       }
       await requirePageArea(ctx, args.startupId, edge.areaId);
-      const [source, target] = await Promise.all([
-        ctx.db.get("pages", edge.nodeAId),
-        ctx.db.get("pages", edge.nodeBId),
-      ]);
-      const ownsLegacyEndpoint =
-        edge.authorProfileId === undefined &&
-        (source?.createdByProfileId === profile._id ||
-          target?.createdByProfileId === profile._id);
-      if (edge.authorProfileId !== profile._id && !ownsLegacyEndpoint) {
-        throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-      }
+      // Vezu uklanja svaki član (PROSTOR D20).
       if (edge.archivedAt === undefined || edge.archivedAt === null) {
         const existingV2 = await ctx.db
           .query("pageCanvasEdgesV2")
@@ -741,17 +724,6 @@ export const disconnectAreaCanvasPages = mutation({
               .eq("pairKey", edge.pairKey),
           )
           .unique();
-        const ownsV2Endpoint =
-          existingV2?.authorProfileId === undefined &&
-          (source?.createdByProfileId === profile._id ||
-            target?.createdByProfileId === profile._id);
-        if (
-          existingV2 !== null &&
-          existingV2.authorProfileId !== profile._id &&
-          !ownsV2Endpoint
-        ) {
-          throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-        }
         if (existingV2 !== null) {
           await ctx.db.patch("pageCanvasEdgesV2", existingV2._id, {
             archivedAt: now,

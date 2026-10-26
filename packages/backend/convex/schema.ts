@@ -15,6 +15,7 @@ import {
   taskCheckpointCanvasEndpointValidator,
   taskPriorityValidator,
   taskStatusValidator,
+  trashStateValidator,
 } from "./lib/validators";
 
 const role = v.union(v.literal("admin"), v.literal("member"));
@@ -268,10 +269,22 @@ export default defineSchema({
     // Odsutno ili `null` = otključana.
     lockedAt: v.optional(v.union(v.number(), v.null())),
     lockedByProfileId: v.optional(v.union(v.id("profiles"), v.null())),
+    // Korpa (PROSTOR P3): ko je obrisao, i da li je stranica koren poteza
+    // (`root`, vidi se u Korpi) ili podstranica obrisana istim potezom
+    // (`descendant` + `archivedWithPageId`). Vraćanje briše sva četiri polja.
+    archivedByProfileId: v.optional(v.id("profiles")),
+    trashState: v.optional(trashStateValidator),
+    archivedWithPageId: v.optional(v.id("pages")),
+    trashDescendantCount: v.optional(v.number()),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_startupId_and_trashState_and_archivedAt", [
+      "startupId",
+      "trashState",
+      "archivedAt",
+    ])
     .index("by_areaId_and_kind_and_parentPageId_and_archivedAt_and_position", [
       "areaId",
       "kind",
@@ -460,6 +473,11 @@ export default defineSchema({
     category: pageFileCategoryValidator,
     position: v.number(),
     uploadedByProfileId: v.id("profiles"),
+    // Korpa (PROSTOR P3/P19): uklonjen prilog je `root` u Korpi; blob ostaje.
+    // Prilog koji je `prune` sklonio iz beleške ima `archivedAt` bez
+    // `trashState` (nije u Korpi, vraća ga „Vrati ovu verziju").
+    archivedByProfileId: v.optional(v.id("profiles")),
+    trashState: v.optional(trashStateValidator),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -468,6 +486,11 @@ export default defineSchema({
       "pageId",
       "archivedAt",
       "position",
+    ])
+    .index("by_startupId_and_trashState_and_archivedAt", [
+      "startupId",
+      "trashState",
+      "archivedAt",
     ])
     .index("by_storageId", ["storageId"]),
 
@@ -685,6 +708,9 @@ export default defineSchema({
     convertedAt: v.union(v.number(), v.null()),
     // Poruka iz koje je ideja nastala (chat „Pretvori u…", 04-CHAT.md 5c).
     sourceMessageId: v.optional(v.id("chatMessages")),
+    // Korpa (PROSTOR P3): obrisana ideja je uvek `root`.
+    archivedByProfileId: v.optional(v.id("profiles")),
+    trashState: v.optional(trashStateValidator),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -693,6 +719,11 @@ export default defineSchema({
       "startupId",
       "archivedAt",
       "updatedAt",
+    ])
+    .index("by_startupId_and_trashState_and_archivedAt", [
+      "startupId",
+      "trashState",
+      "archivedAt",
     ])
     .index("by_parentIdeaId_and_archivedAt", [
       "parentIdeaId",
@@ -869,6 +900,9 @@ export default defineSchema({
       v.literal("approve"),
       v.literal("reject"),
       v.literal("excused"),
+      // PROSTOR P4: glasanje je ugašeno; `migrations.closeLegacyRequests`
+      // otvorene listiće zatvara ovom vrednošću.
+      v.literal("cancelled"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1279,6 +1313,10 @@ export default defineSchema({
       v.literal("page_locked"),
       v.literal("page_unlocked"),
       v.literal("revision_restored"),
+      // PROSTOR (K03): Korpa.
+      v.literal("page_restored"),
+      v.literal("idea_archived"),
+      v.literal("idea_restored"),
     ),
     targetType: v.union(
       v.literal("startup"),

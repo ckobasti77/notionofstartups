@@ -178,9 +178,9 @@ describe("demokratske Canvas dozvole", () => {
     ]);
   });
 
-  test("tim menja tekst, veličinu i poziciju tuđe ideje; izmena teksta ide u Istoriju", async () => {
-    // PROSTOR P1/P6 (namerna promena pravila): ranije je sadržaj i veličinu
-    // menjao samo autor. Brisanje tuđe ideje (Korpa) menja K03.
+  test("tim menja tekst, veličinu i poziciju tuđe ideje i briše je u Korpu; izmena teksta ide u Istoriju", async () => {
+    // PROSTOR P1/P3/P6 (namerna promena pravila): ranije je sadržaj i veličinu
+    // menjao samo autor (K02), a tuđu ideju brisalo jednoglasno glasanje (K03).
     const { t, startupId, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
@@ -221,13 +221,21 @@ describe("demokratske Canvas dozvole", () => {
     const moved = await t.run((ctx) => ctx.db.get("ideaNodes", ideaId));
     expect(moved?.x).toBe(999);
     expect(moved?.y).toBe(999);
-    await expect(
-      asAdmin.mutation(api.ideas.archive, { startupId, ideaId }),
-    ).rejects.toThrow("jednoglasnim glasanjem");
+    const archived = await asAdmin.mutation(api.ideas.archive, {
+      startupId,
+      ideaId,
+    });
+    expect(archived).toMatchObject({ ideaId, recoveredId: null });
+    expect(await t.run((ctx) => ctx.db.get("ideaNodes", ideaId))).toMatchObject({
+      archivedAt: expect.any(Number),
+      trashState: "root",
+    });
   });
 
-  test("cross-owner ugnježđavanje traži autora Parenta, dozvoljava izvlačenje obe strane i odbija ciklus", async () => {
-    const { t, startupId, asAuthor, asMember, asAdmin } =
+  // PROSTOR K03 (P4): ugnežđavanje pod tuđu ideju je odmah, `resolveNesting`
+  // je STARI_TOK, izvlači svaki član, a ciklus se i dalje odbija.
+  test("ugnežđavanje ideje je direktno, resolveNesting je STARI_TOK, izvlači svaki član i ciklus se odbija", async () => {
+    const { t, startupId, author, member, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const childIdeaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
@@ -247,22 +255,13 @@ describe("demokratske Canvas dozvole", () => {
       api.collaboration.requestNesting,
       { startupId, childIdeaId, parentIdeaId },
     );
-    expect(requested.status).toBe("pending");
+    expect(requested).toEqual({ status: "approved", requestId: null });
     expect(
-      (await asAdmin.query(api.ideas.list, { startupId })).nodes.find(
-        (node) => node._id === childIdeaId,
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        parentIdeaId,
-        nestingModerationStatus: "pending",
-        canMove: true,
-      }),
-    );
+      await t.run((ctx) => ctx.db.get("ideaNodes", childIdeaId)),
+    ).toMatchObject({ parentIdeaId, x: 200, y: 120 });
     expect(
-      (await t.run((ctx) => ctx.db.get("ideaNodes", childIdeaId)))
-        ?.parentIdeaId,
-    ).toBeUndefined();
+      await t.run((ctx) => ctx.db.query("nestingRequests").collect()),
+    ).toEqual([]);
     await expect(
       asMember.mutation(api.collaboration.requestNesting, {
         startupId,
@@ -270,61 +269,53 @@ describe("demokratske Canvas dozvole", () => {
         parentIdeaId: childIdeaId,
       }),
     ).rejects.toThrow("kružnu hijerarhiju");
-    await asMember.mutation(api.collaboration.resolveNesting, {
-      requestId: requested.requestId!,
-      approve: false,
-    });
-    expect(
-      (await asAdmin.query(api.ideas.list, { startupId })).nodes.find(
-        (node) => node._id === childIdeaId,
-      )?.parentIdeaId,
-    ).toBeUndefined();
-    expect(
-      (await asAuthor.query(api.ideas.list, { startupId })).nodes.find(
-        (node) => node._id === childIdeaId,
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        parentIdeaId,
-        nestingModerationStatus: "rejected",
-      }),
-    );
-    expect(
-      (await asMember.query(api.ideas.list, { startupId })).nodes.find(
-        (node) => node._id === childIdeaId,
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        parentIdeaId,
-        nestingModerationStatus: "rejected",
-      }),
-    );
-    await asAuthor.mutation(api.collaboration.detachIdea, {
-      startupId,
-      ideaId: childIdeaId,
-    });
-    const requestedAgain = await asAuthor.mutation(
-      api.collaboration.requestNesting,
-      { startupId, childIdeaId, parentIdeaId },
-    );
-    await asMember.mutation(api.collaboration.resolveNesting, {
-      requestId: requestedAgain.requestId!,
-      approve: true,
-    });
-    expect(
-      (await t.run((ctx) => ctx.db.get("ideaNodes", childIdeaId)))
-        ?.parentIdeaId,
-    ).toBe(parentIdeaId);
-    await expect(
-      asAdmin.mutation(api.collaboration.detachIdea, {
+
+    // Stari otvoreni zahtev: odluka je ugašena, red ostaje kakav jeste.
+    const legacyRequestId = await t.run((ctx) =>
+      ctx.db.insert("nestingRequests", {
         startupId,
-        ideaId: childIdeaId,
+        childIdeaId,
+        parentIdeaId,
+        requesterProfileId: author.profileId,
+        parentAuthorProfileId: member.profileId,
+        proposedX: 5,
+        proposedY: 5,
+        status: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        resolvedAt: null,
       }),
-    ).rejects.toThrow("autor deteta ili direktnog Parenta");
-    await asMember.mutation(api.collaboration.detachIdea, {
+    );
+    const legacyError = await asMember
+      .mutation(api.collaboration.resolveNesting, {
+        requestId: legacyRequestId,
+        approve: true,
+      })
+      .catch((error: unknown) => error);
+    expect(String(legacyError)).toContain("Zahtevi za ugnežđavanje više ne postoje");
+    expect((legacyError as { data?: { code?: string } }).data?.code).toBe(
+      "STARI_TOK",
+    );
+    expect(
+      await t.run((ctx) => ctx.db.get("nestingRequests", legacyRequestId)),
+    ).toMatchObject({ status: "pending" });
+
+    // Prvo izvlačenje (admin nije autor ni deteta ni roditelja) zatvara stari
+    // zahtev koji UI prikazuje kao ugnežđavanje; drugo izvlači stvarno dete.
+    await asAdmin.mutation(api.collaboration.detachIdea, {
       startupId,
       ideaId: childIdeaId,
     });
+    expect(
+      await t.run((ctx) => ctx.db.get("nestingRequests", legacyRequestId)),
+    ).toMatchObject({ status: "cancelled" });
+    await asAdmin.mutation(api.collaboration.detachIdea, {
+      startupId,
+      ideaId: childIdeaId,
+    });
+    const detached = await t.run((ctx) => ctx.db.get("ideaNodes", childIdeaId));
+    expect(detached?.parentIdeaId).toBeUndefined();
+    expect(detached).toMatchObject({ x: 300, y: 220 });
 
     const first = await asAuthor.mutation(api.ideas.create, {
       startupId,
@@ -350,55 +341,89 @@ describe("demokratske Canvas dozvole", () => {
     ).rejects.toThrow("kružnu hijerarhiju");
   });
 
-  test("brisanje tuđeg sadržaja zahteva jednoglasnost, a prvi glas PROTIV odmah odbija", async () => {
-    const { t, startupId, asAuthor, asMember, asAdmin } =
+  // PROSTOR K03 (P3, P4): stari `requestDeletion` tuđe ideje je odmah šalje u
+  // Korpu (bez zahteva i listića), `voteOnDeletion` je STARI_TOK, a svaki član
+  // je vraća iz Korpe.
+  test("stari requestDeletion tuđe ideje je šalje u Korpu odmah; voteOnDeletion je STARI_TOK", async () => {
+    const { t, startupId, author, member, asAuthor, asMember, asAdmin } =
       await seedWorkspace();
     const ideaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
       title: "Za timsko glasanje",
       text: "Za timsko glasanje",
     });
-    const requestId = await asMember.mutation(
-      api.collaboration.requestDeletion,
-      { target: { kind: "idea", id: ideaId } },
-    );
-    await asAuthor.mutation(api.collaboration.voteOnDeletion, {
-      requestId,
-      vote: "approve",
+    await expect(
+      asMember.mutation(api.collaboration.requestDeletion, {
+        target: { kind: "idea", id: ideaId },
+      }),
+    ).resolves.toBeNull();
+    expect(await t.run((ctx) => ctx.db.get("ideaNodes", ideaId))).toMatchObject({
+      archivedAt: expect.any(Number),
+      archivedByProfileId: member.profileId,
+      trashState: "root",
     });
     expect(
-      (await t.run((ctx) => ctx.db.get("ideaNodes", ideaId)))?.archivedAt,
-    ).toBeNull();
-    await asAdmin.mutation(api.collaboration.voteOnDeletion, {
-      requestId,
-      vote: "reject",
-    });
+      await t.run((ctx) => ctx.db.query("deletionRequests").collect()),
+    ).toEqual([]);
     expect(
-      (await t.run((ctx) => ctx.db.get("deletionRequests", requestId)))
-        ?.status,
-    ).toBe("rejected");
-    expect(
-      (await t.run((ctx) => ctx.db.get("ideaNodes", ideaId)))?.archivedAt,
-    ).toBeNull();
+      await t.run((ctx) => ctx.db.query("deletionBallots").collect()),
+    ).toEqual([]);
 
-    const unanimousId = await asMember.mutation(
-      api.collaboration.requestDeletion,
-      { target: { kind: "idea", id: ideaId } },
+    // Stari otvoreni zahtev sa listićem: glas se više ne upisuje.
+    const legacy = await t.run(async (ctx) => {
+      const now = Date.now();
+      const requestId = await ctx.db.insert("deletionRequests", {
+        startupId,
+        targetKind: "idea",
+        targetId: ideaId,
+        targetTitle: "Za timsko glasanje",
+        requesterProfileId: member.profileId,
+        status: "pending",
+        eligibleCount: 3,
+        approveCount: 1,
+        rejectCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        resolvedAt: null,
+      });
+      const ballotId = await ctx.db.insert("deletionBallots", {
+        requestId,
+        startupId,
+        profileId: author.profileId,
+        vote: "pending",
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { requestId, ballotId };
+    });
+    const voteError = await asAuthor
+      .mutation(api.collaboration.voteOnDeletion, {
+        requestId: legacy.requestId,
+        vote: "approve",
+      })
+      .catch((error: unknown) => error);
+    expect(String(voteError)).toContain("Glasanje o brisanju više ne postoji");
+    expect((voteError as { data?: { code?: string } }).data?.code).toBe(
+      "STARI_TOK",
     );
-    await asAuthor.mutation(api.collaboration.voteOnDeletion, {
-      requestId: unanimousId,
-      vote: "approve",
-    });
-    await asAdmin.mutation(api.collaboration.voteOnDeletion, {
-      requestId: unanimousId,
-      vote: "approve",
-    });
     expect(
-      (await t.run((ctx) => ctx.db.get("ideaNodes", ideaId)))?.archivedAt,
-    ).toEqual(expect.any(Number));
+      await t.run((ctx) => ctx.db.get("deletionBallots", legacy.ballotId)),
+    ).toMatchObject({ vote: "pending" });
+    expect(
+      await t.run((ctx) => ctx.db.get("deletionRequests", legacy.requestId)),
+    ).toMatchObject({ status: "pending", approveCount: 1 });
+
+    await asAdmin.mutation(api.trash.restore, {
+      target: { kind: "idea", id: ideaId },
+    });
+    expect(await t.run((ctx) => ctx.db.get("ideaNodes", ideaId))).toMatchObject({
+      archivedAt: null,
+    });
   });
 
-  test("brisanje sopstvenog kontejnera oporavlja tuđe doprinose i izvlači dete", async () => {
+  // PROSTOR K03 (D3): brisanje ideje više ne pravi „Oporavljeno" — tuđi
+  // komentari ostaju uz ideju i vraćaju se sa njom; dete se i dalje izvlači.
+  test("brisanje kontejnera ideje izvlači dete, a tuđi komentari ostaju uz ideju u Korpi", async () => {
     const { t, startupId, asAuthor, asMember } = await seedWorkspace();
     const parentIdeaId = await asAuthor.mutation(api.ideas.create, {
       startupId,
@@ -431,16 +456,35 @@ describe("demokratske Canvas dozvole", () => {
       startupId,
       ideaId: parentIdeaId,
     });
-    expect(result.recoveredId).not.toBeNull();
-    const [child, foreignContribution] = await t.run(async (ctx) => [
-      await ctx.db.get("ideaNodes", childIdeaId),
-      await ctx.db.get("contentContributions", foreignContributionId),
-    ]);
-    expect(child?.archivedAt).toBeNull();
-    expect(child?.parentIdeaId).toBeUndefined();
-    expect(foreignContribution?.archivedAt).toBeNull();
-    expect(foreignContribution?.targetKind).toBe("recovered");
-    expect(foreignContribution?.targetId).toBe(result.recoveredId);
+    expect(result.recoveredId).toBeNull();
+    const state = await t.run(async (ctx) => ({
+      child: await ctx.db.get("ideaNodes", childIdeaId),
+      foreignContribution: await ctx.db.get(
+        "contentContributions",
+        foreignContributionId,
+      ),
+      recovered: await ctx.db.query("recoveredContent").collect(),
+    }));
+    expect(state.child?.archivedAt).toBeNull();
+    expect(state.child?.parentIdeaId).toBeUndefined();
+    expect(state.child).toMatchObject({ x: 340, y: 260 });
+    expect(state.foreignContribution).toMatchObject({
+      archivedAt: null,
+      targetKind: "idea",
+      targetId: parentIdeaId,
+    });
+    expect(state.recovered).toEqual([]);
+
+    await asMember.mutation(api.trash.restore, {
+      target: { kind: "idea", id: parentIdeaId },
+    });
+    const contributions = await asMember.query(
+      api.collaboration.listContributions,
+      { target: { kind: "idea", id: parentIdeaId } },
+    );
+    expect(contributions.map((row) => row._id)).toContain(
+      foreignContributionId,
+    );
   });
 
   test("admin ne vidi privatne misli drugog člana", async () => {

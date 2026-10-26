@@ -353,6 +353,58 @@ export const backfillChatReads = migrations.define({
 export const run = migrations.runner();
 
 /**
+ * PROSTOR P4: glasanje o brisanju i odobravanje ugnežđavanja su ugašeni. Ove
+ * migracije zatvaraju zaostale OTVORENE zahteve i listiće (`cancelled`), da
+ * stari podaci nigde ne vise kao „na čekanju". Zatvoreni redovi se ne diraju,
+ * ništa se ne briše. Paketno (`defaultBatchSize`) i idempotentno: drugi prolaz
+ * ne menja ništa. Run ih NE pokreće — po želji, posle deploy-a:
+ *
+ *   npx convex run migrations:closeLegacyRequests
+ */
+export const closeLegacyDeletionRequests = migrations.define({
+  table: "deletionRequests",
+  migrateOne: (_ctx, row) => {
+    if (row.status !== "pending") return;
+    const now = Date.now();
+    return { status: "cancelled" as const, resolvedAt: now, updatedAt: now };
+  },
+});
+
+export const closeLegacyDeletionBallots = migrations.define({
+  table: "deletionBallots",
+  migrateOne: (_ctx, row) => {
+    if (row.vote !== "pending") return;
+    return { vote: "cancelled" as const, updatedAt: Date.now() };
+  },
+});
+
+export const closeLegacyPageNestingRequests = migrations.define({
+  table: "pageNestingRequests",
+  migrateOne: (_ctx, row) => {
+    if (row.status !== "pending") return;
+    const now = Date.now();
+    return { status: "cancelled" as const, resolvedAt: now, updatedAt: now };
+  },
+});
+
+export const closeLegacyIdeaNestingRequests = migrations.define({
+  table: "nestingRequests",
+  migrateOne: (_ctx, row) => {
+    if (row.status !== "pending") return;
+    const now = Date.now();
+    return { status: "cancelled" as const, resolvedAt: now, updatedAt: now };
+  },
+});
+
+/** Sve četiri zatvaranja jednom komandom (internalMutation; nastavlja posle pada). */
+export const closeLegacyRequests = migrations.runner([
+  internal.migrations.closeLegacyDeletionRequests,
+  internal.migrations.closeLegacyDeletionBallots,
+  internal.migrations.closeLegacyPageNestingRequests,
+  internal.migrations.closeLegacyIdeaNestingRequests,
+]);
+
+/**
  * Ceo chat backfill jednom komandom, u ispravnom redosledu: prvo kanali
  * (`backfillChatChannels`), pa readovi (`backfillChatReads`) — readovi zavise od
  * postojanja kanala. Ako prvi padne, staje i ne nastavlja; ponovni poziv nastavlja

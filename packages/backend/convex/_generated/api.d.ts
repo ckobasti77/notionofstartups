@@ -55,6 +55,7 @@ import type * as lib_profile_summary from "../lib/profile_summary.js";
 import type * as lib_task_assignees from "../lib/task_assignees.js";
 import type * as lib_task_checkpoint_canvas_edges from "../lib/task_checkpoint_canvas_edges.js";
 import type * as lib_task_checkpoints from "../lib/task_checkpoints.js";
+import type * as lib_trash from "../lib/trash.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as migrations from "../migrations.js";
 import type * as myDay from "../myDay.js";
@@ -78,6 +79,7 @@ import type * as taskCheckpointCanvasEdges from "../taskCheckpointCanvasEdges.js
 import type * as taskCheckpoints from "../taskCheckpoints.js";
 import type * as tasks from "../tasks.js";
 import type * as thoughts from "../thoughts.js";
+import type * as trash from "../trash.js";
 
 import type {
   ApiFromModules,
@@ -133,6 +135,7 @@ declare const fullApi: ApiFromModules<{
   "lib/task_assignees": typeof lib_task_assignees;
   "lib/task_checkpoint_canvas_edges": typeof lib_task_checkpoint_canvas_edges;
   "lib/task_checkpoints": typeof lib_task_checkpoints;
+  "lib/trash": typeof lib_trash;
   "lib/validators": typeof lib_validators;
   migrations: typeof migrations;
   myDay: typeof myDay;
@@ -156,6 +159,7 @@ declare const fullApi: ApiFromModules<{
   taskCheckpoints: typeof taskCheckpoints;
   tasks: typeof tasks;
   thoughts: typeof thoughts;
+  trash: typeof trash;
 }>;
 
 /**

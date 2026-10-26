@@ -24,6 +24,23 @@ export const pageFileCategoryValidator = v.union(
   v.literal("document"),
 );
 
+/** Korpa: najviše stavki po strani `trash.list`. */
+export const TRASH_PAGE_MAX = 50;
+/** Korpa: brojevi segmenata se seku ovde („99+"). */
+export const TRASH_COUNT_CAP = 99;
+/** Korpa › Oporavljeno: najviše sačuvanih priloga po stavci u listi. */
+export const TRASH_RECOVERED_CONTRIBUTIONS = 20;
+
+/**
+ * Korpa (PROSTOR P3): `root` je stavka koju je neko obrisao (vidi se u Korpi),
+ * `descendant` je podstranica obrisana istim potezom (vraća se sa korenom).
+ * Odsutno polje = nije u Korpi (aktivno ili arhivirano pre Korpe — D2).
+ */
+export const trashStateValidator = v.union(
+  v.literal("root"),
+  v.literal("descendant"),
+);
+
 export const taskStatusValidator = v.union(
   v.literal("backlog"),
   v.literal("next"),
@@ -420,6 +437,10 @@ export const pageDocumentValidator = pageSummaryValidator.extend({
   tableColumnCount: v.optional(v.number()),
   sourceMessageId: v.optional(v.id("chatMessages")),
   lockedByProfileId: v.optional(v.union(v.id("profiles"), v.null())),
+  archivedByProfileId: v.optional(v.id("profiles")),
+  trashState: v.optional(trashStateValidator),
+  archivedWithPageId: v.optional(v.id("pages")),
+  trashDescendantCount: v.optional(v.number()),
 });
 
 export const startupDocumentValidator = v.object({

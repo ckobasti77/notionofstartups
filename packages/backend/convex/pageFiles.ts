@@ -16,6 +16,7 @@ import {
 } from "./lib/page_files";
 import { requireVisiblePage } from "./lib/pages";
 import { assertCanEditPage, canEditPage } from "./lib/permissions";
+import { trashFile, unprunePageFiles } from "./lib/trash";
 import { pageFileCategoryValidator } from "./lib/validators";
 
 // 30 min: veliki video na sporoj mobilnoj vezi ume da traje duže od 10 min,
@@ -64,20 +65,6 @@ async function requireAttachmentPage(
   }
   const actor = await requireStartupMember(ctx, page.startupId);
   return { page, profile: actor.profile, actor };
-}
-
-/**
- * Trajno brisanje (`remove`, `prune`) i dalje radi samo autor oblačića dok ga
- * K03 ne pretvori u meko brisanje (ODLUKA K02: ne širimo krug za nepovratnu
- * radnju). Dodavanje, preimenovanje i redosled menja svaki član (P1, P19).
- */
-function assertOwner(
-  createdByProfileId: Id<"profiles">,
-  profileId: Id<"profiles">,
-) {
-  if (createdByProfileId !== profileId) {
-    throw new Error("Fajlove ovog oblačića menja samo njegov autor.");
-  }
 }
 
 export const list = query({
@@ -310,19 +297,10 @@ export const remove = mutation({
     if (file === null || file.archivedAt !== null) {
       throw new Error("Fajl nije pronađen.");
     }
-    const { page, profile } = await requireAttachmentPage(ctx, file.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
-    const now = Date.now();
-    // Red se briše zajedno sa blobom — arhiviran prilog niko ne može da vrati,
-    // pa bi ostavljanje bloba samo trošilo prostor.
-    await ctx.db.delete(file._id);
-    await ctx.storage.delete(file.storageId);
-    const remaining = await listActivePageFiles(ctx, page._id);
-    for (const [position, row] of remaining.entries()) {
-      if (row.position === position) continue;
-      await ctx.db.patch("pageFiles", row._id, { position, updatedAt: now });
-    }
-    await syncPageFileSummary(ctx, page, profile._id, now);
+    const { page, actor } = await requireAttachmentPage(ctx, file.pageId);
+    // PROSTOR P19 (D8): uklanjanje je meko — prilog ide u Korpu, blob ostaje u
+    // storage-u, pa ga svaki član može vratiti. Pravo je R2 nad stranicom.
+    await trashFile(ctx, { actor, file, page, now: Date.now() });
     return null;
   },
 });
@@ -353,20 +331,26 @@ export const reorder = mutation({
 });
 
 /**
- * Briše priloge beleške koji više nisu referencirani u njenom telu. Klijent ga
+ * Sklanja priloge beleške koji više nisu referencirani u njenom telu. Klijent ga
  * zove posle uspešnog čuvanja sa id-jevima iz sačuvanog HTML-a. Id-jevi stižu
  * kao stringovi jer nalepljen sadržaj može da nosi tuđe ili neispravne
  * vrednosti — takve samo preskačemo, ne rušimo čišćenje.
+ *
+ * PROSTOR D8: sklanjanje je meko (arhiviran red bez `trashState`, blob ostaje),
+ * a prilog čiji se id vrati u telo (poništeno brisanje slike) se vraća.
  */
 export const prune = mutation({
   args: { pageId: v.id("pages"), keepFileIds: v.array(v.string()) },
   returns: v.object({ removed: v.number() }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
+    const { page, profile, actor } = await requireAttachmentPage(
+      ctx,
+      args.pageId,
+    );
     if (page.kind !== "note") {
       throw new Error("Čišćenje priloga radi samo za beleške.");
     }
-    assertOwner(page.createdByProfileId, profile._id);
+    assertCanEditPage(actor, page);
     const keep = new Set<Id<"pageFiles">>();
     for (const raw of args.keepFileIds) {
       const fileId = ctx.db.normalizeId("pageFiles", raw);
@@ -378,11 +362,19 @@ export const prune = mutation({
     for (const row of rows) {
       if (keep.has(row._id)) continue;
       if (now - row.createdAt < PRUNE_GRACE_MS) continue;
-      await ctx.db.delete(row._id);
-      await ctx.storage.delete(row.storageId);
+      await ctx.db.patch("pageFiles", row._id, {
+        archivedAt: now,
+        archivedByProfileId: profile._id,
+        updatedAt: now,
+      });
       removed += 1;
     }
-    if (removed > 0) {
+    const restored = await unprunePageFiles(ctx, {
+      page,
+      isReferenced: (fileId) => keep.has(fileId),
+      now,
+    });
+    if (removed > 0 || restored > 0) {
       const remaining = await listActivePageFiles(ctx, page._id);
       for (const [position, row] of remaining.entries()) {
         if (row.position === position) continue;
