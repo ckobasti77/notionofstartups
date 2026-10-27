@@ -1,3 +1,4 @@
+import { withNewRevisions } from '@devotion/shared';
 import { useSyncExternalStore } from 'react';
 
 import type { Id } from '@/convex/_generated/dataModel';
@@ -18,6 +19,18 @@ import type { CheckpointEndpoint } from '@/lib/canvas-endpoints';
  * backenda. Web isto radi kroz in-memory undo stack (`workspace-history.tsx`).
  * Id-jevi žive samo ovde — kad traka istekne, put nazad je desktop undo.
  */
+/**
+ * Jedan zadatak iz „Sredi rokove" (K19): rok i status OD PRE radnje i reviziju koju je
+ * radnja vratila. Oblik je ulaz `tasks.bulkRestoreSchedule` (isti kao shared `UndoItem`,
+ * samo sa tipiziranim id-jem i statusom).
+ */
+export type BulkScheduleItem = {
+  taskPageId: Id<'pages'>;
+  dueDate: number | null;
+  taskStatus: 'backlog' | 'next' | 'in_progress' | 'blocked' | 'done';
+  expectedRevision: number;
+};
+
 export type UndoAction =
   | { kind: 'thoughts'; nodeIds: Id<'thoughtNodes'>[]; edgeIds: Id<'thoughtEdges'>[] }
   | { kind: 'idea'; startupId: Id<'startups'>; ideaId: Id<'ideaNodes'> }
@@ -325,7 +338,18 @@ export type UndoAction =
       channelId: Id<'chatChannels'>;
       name: string;
       profileIds: Id<'profiles'>[];
-    };
+    }
+  /**
+   * „Sredi rokove" (PROSTOR K19): grupna izmena roka ili „Završi" nad najviše 50 zadataka.
+   * Inverzan upis, ne vraćanje arhiviranog: `items` nosi rok i status OD PRE radnje, pa je
+   * poništavanje `tasks.bulkRestoreSchedule`. Server preskače zadatak koji je u međuvremenu
+   * menjan (`expectedRevision` se ne poklapa), pa poništavanje nikad ne gazi tuđu izmenu.
+   *
+   * Ulančano poništavanje: kad jedno poništavanje promeni reviziju zadatka, starije još živo
+   * „Poništi" mora da očekuje novu (`chainBulkScheduleRevisions`), inače bi ga server
+   * preskočio. Rok vraćanja nema — kao i ostale vrste bez `undoUntil`.
+   */
+  | { kind: 'bulkSchedule'; startupId: Id<'startups'>; items: BulkScheduleItem[] };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */
@@ -491,6 +515,31 @@ export function dropUndo(key: number): void {
   if (visibleKey === key) visibleKey = null;
   publish();
   scheduleExpiry();
+}
+
+/**
+ * Ulančano „Poništi" za `bulkSchedule` (K19, K06-3): posle uspešnog `bulkRestoreSchedule`
+ * server vraća nove revizije vraćenih zadataka. Svaka još živa stavka `bulkSchedule` koja
+ * sadrži te zadatke dobija novu `expectedRevision` — inače bi starije „Poništi" ispalo
+ * „u međuvremenu menjan". Stavke bez pogođenih zadataka ostaju ISTI objekat (nema
+ * objavljivanja kad se ništa ne menja).
+ */
+export function chainBulkScheduleRevisions(
+  revisions: ReadonlyArray<{ taskPageId: string; revision: number }>,
+): void {
+  if (revisions.length === 0) return;
+  let changed = false;
+  entries = entries.map((entry) => {
+    const action = entry.action;
+    if (action.kind !== 'bulkSchedule') return entry;
+    const items = withNewRevisions(action.items, revisions) as BulkScheduleItem[];
+    if (items.every((item, index) => item.expectedRevision === action.items[index]?.expectedRevision)) {
+      return entry;
+    }
+    changed = true;
+    return { ...entry, action: { ...action, items } };
+  });
+  if (changed) publish();
 }
 
 /**

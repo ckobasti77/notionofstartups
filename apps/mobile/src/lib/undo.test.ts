@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import type { Id } from '@/convex/_generated/dataModel';
 
 import {
+  chainBulkScheduleRevisions,
   clearUndo,
   dropUndo,
   getUndoSnapshotForTest,
@@ -11,6 +12,7 @@ import {
   popUndo,
   pushUndo,
   showUndoNotice,
+  type BulkScheduleItem,
   type UndoAction,
 } from './undo';
 
@@ -251,5 +253,74 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     clearUndo();
     expect(getUndoSnapshotForTest().notice).toBeNull();
     expect(getUndoSnapshotForTest().stack).toEqual([]);
+  });
+});
+
+describe('lib/undo — „Sredi rokove" (PROSTOR K19)', () => {
+  const DAY = 86_400_000;
+  const item = (id: string, expectedRevision: number): BulkScheduleItem => ({
+    taskPageId: id as Id<'pages'>,
+    dueDate: 1_000 * DAY,
+    taskStatus: 'next',
+    expectedRevision,
+  });
+  const bulk = (items: BulkScheduleItem[]): UndoAction => ({
+    kind: 'bulkSchedule',
+    startupId: 's1' as Id<'startups'>,
+    items,
+  });
+  const itemsOf = (label: string) => {
+    const entry = getUndoSnapshotForTest().stack.find((candidate) => candidate.label === label);
+    if (entry?.action.kind !== 'bulkSchedule') throw new Error('Očekivana je stavka bulkSchedule.');
+    return entry.action.items;
+  };
+
+  test('nova vrsta nosi rok i status OD PRE radnje i reviziju posle nje, bez roka', () => {
+    pushUndo({ label: 'Sređeno: 2 zadatka → sutra.', action: bulk([item('p1', 4), item('p2', 7)]) });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({
+      kind: 'bulkSchedule',
+      startupId: 's1',
+      items: [
+        { taskPageId: 'p1', dueDate: 1_000 * DAY, taskStatus: 'next', expectedRevision: 4 },
+        { taskPageId: 'p2', dueDate: 1_000 * DAY, taskStatus: 'next', expectedRevision: 7 },
+      ],
+    });
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+  });
+
+  test('ulančano poništavanje: starije stavke dobijaju nove revizije samo za vraćene zadatke', () => {
+    pushUndo({ label: 'Prva', action: bulk([item('p1', 4), item('p2', 4)]) });
+    pushUndo({ label: 'Tuđa vrsta', action: checkpointAction('c') });
+    pushUndo({ label: 'Druga', action: bulk([item('p1', 6), item('p3', 6)]) });
+
+    chainBulkScheduleRevisions([
+      { taskPageId: 'p1', revision: 9 },
+      { taskPageId: 'p3', revision: 8 },
+    ]);
+
+    expect(itemsOf('Prva').map((entry) => [entry.taskPageId, entry.expectedRevision])).toEqual([
+      ['p1', 9],
+      ['p2', 4],
+    ]);
+    expect(itemsOf('Druga').map((entry) => [entry.taskPageId, entry.expectedRevision])).toEqual([
+      ['p1', 9],
+      ['p3', 8],
+    ]);
+    // Stavka druge vrste ostaje netaknuta.
+    expect(getUndoSnapshotForTest().stack.find((entry) => entry.label === 'Tuđa vrsta')?.action).toEqual(
+      checkpointAction('c'),
+    );
+  });
+
+  test('ništa se ne objavljuje kad nijedna stavka nema vraćeni zadatak ili je revizija ista', () => {
+    pushUndo({ label: 'Prva', action: bulk([item('p1', 4)]) });
+    const before = getUndoSnapshotForTest().stack;
+
+    chainBulkScheduleRevisions([]);
+    chainBulkScheduleRevisions([{ taskPageId: 'nema-ga', revision: 12 }]);
+    chainBulkScheduleRevisions([{ taskPageId: 'p1', revision: 4 }]);
+
+    expect(getUndoSnapshotForTest().stack).toBe(before);
   });
 });

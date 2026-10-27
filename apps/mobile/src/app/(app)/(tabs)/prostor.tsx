@@ -6,11 +6,7 @@ import { StyleSheet, View } from 'react-native';
 import { EmptyState } from '@/components/empty-state';
 import { CommandCenter } from '@/components/komandni-centar/command-center';
 import { NoStartupState, useHasNoStartups } from '@/components/no-startup-state';
-import {
-  openProstorDestination,
-  ProstorHub,
-  ProstorTempRows,
-} from '@/components/prostor/prostor-hub';
+import { ProstorHub } from '@/components/prostor/prostor-hub';
 import { TabScreen } from '@/components/tab-screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -23,9 +19,9 @@ import { radius } from '@/theme/tokens';
 /**
  * Tab „Prostor" = početna startupa (PROSTOR P18, plan K07 §4.2). Bez segmenata:
  * naslov je ime startupa (birač), na vrhu su redovi Zadaci · Dokumenti · Ideje ·
- * Kanali · Korpa (E4), ispod njih Komandni centar, a na dnu privremeni Puls
- * nedelje i Aktivnost (do K19). Oblasti su iza reda „Dokumenti" (`/oblasti`), a
- * ekran oblasti je `/oblast/[id]` (K14).
+ * Kanali · Korpa (E4), ispod njih blokovi Komandnog centra 2.0 (K19: Za tebe,
+ * Trijaža, Čeka tebe, Nedavne izmene, Puls nedelje, Tim). Oblasti su iza reda
+ * „Dokumenti" (`/oblasti`), a ekran oblasti je `/oblast/[id]` (K14).
  */
 export default function ProstorScreen() {
   const router = useRouter();
@@ -70,7 +66,6 @@ export default function ProstorScreen() {
           key={activeStartupId}
           startupId={activeStartupId}
           header={<ProstorHub startupId={activeStartupId} />}
-          footer={<ProstorTempRows onOpen={(destination) => openProstorDestination(router, destination)} />}
         />
       )}
     </TabScreen>

@@ -1,8 +1,8 @@
 /**
  * Redovi početne startupa na telefonu (PROSTOR P18, plan K07 §4.2): Zadaci ·
- * Dokumenti · Ideje · Kanali · Korpa, pa privremeni Puls nedelje · Aktivnost
- * (dok K19 ne napravi blokove). Čista logika — bez React-a; deli je Dizajn
- * katalog i test.
+ * Dokumenti · Ideje · Kanali · Korpa. Puls nedelje i Nedavne izmene su od K19
+ * blokovi Komandnog centra (`components/komandni-centar/`). Čista logika — bez
+ * React-a; deli je Dizajn katalog i test.
  */
 
 export type ProstorHubDestination =
@@ -10,9 +10,7 @@ export type ProstorHubDestination =
   | 'oblasti'
   | 'ideje'
   | 'kanali'
-  | 'korpa'
-  | 'puls'
-  | 'aktivnost';
+  | 'korpa';
 
 export type ProstorHubRow = {
   id: ProstorHubDestination;
@@ -26,12 +24,6 @@ export const PROSTOR_HUB_ROWS: ReadonlyArray<ProstorHubRow> = [
   { id: 'ideje', title: 'Ideje' },
   { id: 'kanali', title: 'Kanali' },
   { id: 'korpa', title: 'Korpa' },
-];
-
-/** Privremeni redovi na dnu Prostora do Komandnog centra 2.0 (K19). */
-export const PROSTOR_TEMP_ROWS: ReadonlyArray<ProstorHubRow> = [
-  { id: 'puls', title: 'Puls nedelje' },
-  { id: 'aktivnost', title: 'Aktivnost' },
 ];
 
 /** „1 oblast" · „3 oblasti" · „21 oblast" · „11 oblasti". */

@@ -5,7 +5,6 @@ import {
   hubRowValue,
   ideaVotesLabel,
   PROSTOR_HUB_ROWS,
-  PROSTOR_TEMP_ROWS,
 } from './prostor-hub-model';
 
 describe('Prostor — redovi početne startupa (K09, P18)', () => {
@@ -19,7 +18,6 @@ describe('Prostor — redovi početne startupa (K09, P18)', () => {
     ]);
     // Dokumenti vode na listu oblasti (do K14 ekran oblasti je u Prostoru).
     expect(PROSTOR_HUB_ROWS.find((row) => row.title === 'Dokumenti')?.id).toBe('oblasti');
-    expect(PROSTOR_TEMP_ROWS.map((row) => row.id)).toEqual(['puls', 'aktivnost']);
   });
 
   test('broj oblasti sa srpskom množinom', () => {

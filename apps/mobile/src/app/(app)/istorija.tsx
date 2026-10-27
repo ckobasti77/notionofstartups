@@ -42,12 +42,15 @@ export default function IstorijaScreen() {
     setBusyKey(entry.key);
     haptics.tap();
     try {
-      await runUndo(entry.action);
+      const outcome = await runUndo(entry.action);
       // Bez `advertiseNext` — traka na dnu ne sme da iskoči kad se korisnik
       // vrati sa ovog ekrana na nešto što ovde nije ni video.
       popUndo(entry.key);
       haptics.success();
-      AccessibilityInfo.announceForAccessibility('Vraćeno.');
+      AccessibilityInfo.announceForAccessibility(typeof outcome === 'string' ? outcome : 'Vraćeno.');
+      // Grupno poništavanje (K19) javlja šta je vraćeno, a šta preskočeno; traka nije
+      // na ovom ekranu, pa ishod ide u obaveštenje.
+      if (typeof outcome === 'string') Alert.alert('Poništavanje', outcome);
     } catch (error) {
       haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Vraćanje nije uspelo.'));

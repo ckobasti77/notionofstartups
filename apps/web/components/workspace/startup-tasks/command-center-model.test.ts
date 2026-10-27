@@ -61,11 +61,12 @@ describe("zone Komandnog centra", () => {
     const zones = buildZones(TASKS, context());
     expect(zones.map((zone) => [zone.id, zone.rows.map((row) => row.id)])).toEqual([
       ["gori", ["kasni", "hitno"]],
+      ["zastarelo", []],
       ["danas", ["danas"]],
       ["nedelja", ["sutra"]],
       ["kasnije", ["bez-roka"]],
     ]);
-    const [gori, danas] = zones;
+    const [gori, , danas] = zones;
     expect(danas.rows[0]).toMatchObject({ areaLabel: "Marketing", planned: true, planEntryId: "e1" });
     // PROSTOR P1 (namerna promena pravila): otključan zadatak menja svaki član.
     expect(gori.rows[0].permissions.status.allowed).toBe(true);
@@ -79,7 +80,26 @@ describe("zone Komandnog centra", () => {
     );
     expect(locked[0].rows[0].permissions.status.allowed).toBe(true);
     expect(locked[0].rows[0].permissions.due.allowed).toBe(false);
-    expect(locked[1].rows[0].permissions.status.allowed).toBe(false);
+    expect(locked[2].rows[0].permissions.status.allowed).toBe(false);
+  });
+
+  test("zastarelo (rok stariji od 14 dana) se izdvaja iz Gori, ostalo prekoračeno ostaje", () => {
+    const zones = buildZones(
+      [
+        task({ _id: "juce", dueDate: noon("2026-10-23") }),
+        task({ _id: "granica", dueDate: noon("2026-10-10") }),
+        task({ _id: "staro", dueDate: noon("2026-10-09") }),
+        task({ _id: "davno", dueDate: noon("2026-08-01"), taskStatus: "blocked" }),
+        task({ _id: "hitno", taskPriority: "urgent" }),
+      ],
+      context(),
+    );
+    const byId = Object.fromEntries(zones.map((zone) => [zone.id, zone.rows.map((row) => row.id)]));
+    expect(byId.gori).toEqual(expect.arrayContaining(["juce", "granica", "hitno"]));
+    expect(byId.gori).toHaveLength(3);
+    expect(byId.zastarelo).toEqual(expect.arrayContaining(["staro", "davno"]));
+    expect(byId.zastarelo).toHaveLength(2);
+    expect(zoneRowCount(zones)).toBe(5);
   });
 
   test("zaključan: dok se izvršioci učitavaju, niko osim kreatora ne menja status", () => {
@@ -110,8 +130,8 @@ describe("zone Komandnog centra", () => {
   test("promena roka seli red u drugu zonu (optimistička slika → nova zona)", () => {
     const moved = TASKS.map((item) => (item._id === "bez-roka" ? { ...item, dueDate: noon("2026-10-24") } : item));
     const zones = buildZones(moved, context());
-    expect(zones[1].rows.map((row) => row.id)).toEqual(["danas", "bez-roka"]);
-    expect(zones[3].rows).toEqual([]);
+    expect(zones[2].rows.map((row) => row.id)).toEqual(["danas", "bez-roka"]);
+    expect(zones[4].rows).toEqual([]);
   });
 });
 

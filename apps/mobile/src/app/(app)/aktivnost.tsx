@@ -1,27 +1,14 @@
 import { usePaginatedQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import {
-  Activity,
-  Building2,
-  FileText,
-  FolderTree,
-  Mail,
-  PenLine,
-  RotateCcw,
-  Trash2,
-  TriangleAlert,
-  Users,
-  Vote,
-  type LucideIcon,
-} from 'lucide-react-native';
-import { useState } from 'react';
+import { Activity, TriangleAlert } from 'lucide-react-native';
 import { ActivityIndicator, SectionList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useLiveNow } from '@/components/collab/use-live-now';
 import { EmptyState } from '@/components/empty-state';
-import { Avatar } from '@/components/ui/avatar';
+import { ActivityRow, openActivityTarget } from '@/components/komandni-centar/activity-row';
+import { activityRowModel } from '@/components/komandni-centar/command-blocks-model';
 import { LoadingSwap } from '@/components/ui/loading-swap';
-import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -30,45 +17,26 @@ import { StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useListRefresh } from '@/hooks/use-list-refresh';
-import {
-  formatActivityTime,
-  groupActivitiesByDay,
-  type ActivityItem,
-} from '@/lib/activity';
+import { groupActivitiesByDay } from '@/lib/activity';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius, space, type ColorTokens } from '@/theme/tokens';
+import { radius, space } from '@/theme/tokens';
 import { accessErrorMessage } from '@/lib/errors';
 
 const PAGE_SIZE = 30;
 
-/** Ikona i boja po vrsti radnje — kategorije iz `activities.action`. */
-function actionVisual(action: ActivityItem['action'], colors: ColorTokens): {
-  Icon: LucideIcon;
-  tint: string;
-} {
-  if (action.startsWith('page_')) return { Icon: FileText, tint: colors.info };
-  if (action === 'task_updated') return { Icon: FileText, tint: colors.primary };
-  if (action.startsWith('member_')) return { Icon: Users, tint: colors.info };
-  if (action.startsWith('invite_')) return { Icon: Mail, tint: colors.primary };
-  if (action.startsWith('deletion_')) return { Icon: Vote, tint: colors.destructive };
-  if (action.startsWith('nesting_')) return { Icon: FolderTree, tint: colors.warning };
-  if (action.startsWith('contribution_')) return { Icon: PenLine, tint: colors.info };
-  if (action === 'content_recovered') return { Icon: RotateCcw, tint: colors.success };
-  if (action === 'content_soft_deleted') return { Icon: Trash2, tint: colors.destructive };
-  return { Icon: Building2, tint: colors.primary };
-}
-
 /**
  * Ekran „Aktivnost" — hronološki trag promena tima (docs/mobile/02-EKRANI.md #8).
  * Paginirano preko `activity.listPaginated` (najnovije prvo), grupisano po danu.
- * Samo za čitanje; deli backend sa webom.
+ * Od PROSTOR K19 red je rečenica iz shared `formatActivity` sa vremenom
+ * `formatEditTime` i vodi kroz `activityTarget` — isto kao blok „Nedavne izmene" u
+ * Komandnom centru (`ActivityRow`). Samo za čitanje; deli backend sa webom.
  */
 export default function AktivnostScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { activeStartupId } = useActiveStartup();
-  const [now] = useState(() => Date.now());
+  const now = useLiveNow();
 
   const { results, status, loadMore } = usePaginatedQuery(
     api.activity.listPaginated,
@@ -100,7 +68,11 @@ export default function AktivnostScreen() {
               // dan je vizuelna celina.
               renderItem={({ item, index }) => (
                 <StaggerItem index={index}>
-                  <ActivityRow item={item} colors={colors} />
+                  <ActivityRow
+                    model={activityRowModel(item, now)}
+                    onOpen={(target) => openActivityTarget(router, target)}
+                    style={styles.row}
+                  />
                 </StaggerItem>
               )}
               renderSectionHeader={({ section }) => (
@@ -134,29 +106,7 @@ export default function AktivnostScreen() {
   );
 }
 
-function ActivityRow({ item, colors }: { item: ActivityItem; colors: ColorTokens }) {
-  const { Icon, tint } = actionVisual(item.action, colors);
-  return (
-    <Row
-      style={styles.row}
-      icon={
-        <View style={[styles.rowIcon, { backgroundColor: `${tint}22` }]}>
-          <Icon size={16} color={tint} />
-        </View>
-      }
-      title={item.title}
-      titleNumberOfLines={2}
-      subtitle={`${item.detail ? `${item.detail} · ` : ''}${formatActivityTime(item.createdAt)}`}
-      value={
-        item.actor ? (
-          <Avatar name={item.actor.displayName} uri={item.actor.avatarUrl} size={28} />
-        ) : undefined
-      }
-    />
-  );
-}
-
-/** Oblik `ActivityRow`: zaglavlje dana, pa ikonica-čip + dva reda teksta + avatar. */
+/** Oblik `ActivityRow`: zaglavlje dana, pa ikonica + dva reda teksta. */
 function ActivitySkeleton() {
   return (
     <View style={styles.skeleton} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje aktivnosti">
@@ -166,12 +116,11 @@ function ActivitySkeleton() {
         gap={space[4]}
         item={(index) => (
           <View style={styles.skeletonRow}>
-            <Skeleton width={32} height={32} borderRadius={radius.md} />
+            <Skeleton width={20} height={20} borderRadius={radius.sm} />
             <View style={styles.skeletonBody}>
               <Skeleton width={index % 2 === 0 ? '75%' : '62%'} height={15} />
               <Skeleton width="45%" height={12} />
             </View>
-            <Skeleton width={28} height={28} borderRadius={radius.full} />
           </View>
         )}
       />
@@ -217,13 +166,6 @@ const styles = StyleSheet.create({
     // Horizontalni razmak nosi lista (listContent), pa red poništava podrazumevani
     // paddingHorizontal iz <Row> da se ne dupla uvlačenje.
     paddingHorizontal: 0,
-  },
-  rowIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   footer: {
     paddingVertical: space[4],

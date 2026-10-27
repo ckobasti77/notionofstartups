@@ -1190,10 +1190,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenPage={openPage}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
-                links={[
-                  { label: "Puls nedelje", onSelect: () => navigateRoute({ kind: "puls" }) },
-                  { label: "Aktivnost", onSelect: () => navigateRoute({ kind: "activity" }) },
-                ]}
+                nav={{
+                  openMyTasks: () => navigateRoute(tasksRouteOf("moji")),
+                  openIdeas: () => navigateRoute({ kind: "ideas" }),
+                  openIdea: (ideaId) => navigateRoute({ kind: "ideas", ideaId }),
+                  openActivity: () => navigateRoute({ kind: "activity" }),
+                  openPuls: () => navigateRoute({ kind: "puls" }),
+                  openArea: (areaId) => navigateRoute({ kind: "area", areaId }),
+                }}
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "tasks" ? (
@@ -1218,7 +1222,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
             />
           ) : route.kind === "activity" ? (
-            <ActivityView startup={startup} />
+            <ActivityView
+              startup={startup}
+              onOpenPage={openPage}
+              onOpenIdea={(ideaId) => navigateRoute({ kind: "ideas", ideaId })}
+              onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
+            />
           ) : route.kind === "trash" ? (
             <TrashContainer
               key={`trash-${startup._id}`}

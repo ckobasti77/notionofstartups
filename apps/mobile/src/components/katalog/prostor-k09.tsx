@@ -5,7 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { TrashList, TrashListError, type TrashListState } from '@/components/korpa/trash-list';
 import type { TrashCounts, TrashItem } from '@/components/korpa/trash-model';
 import { TrashSegments } from '@/components/korpa/trash-segments';
-import { ProstorHubRows, ProstorTempRows } from '@/components/prostor/prostor-hub';
+import { ProstorHubRows } from '@/components/prostor/prostor-hub';
 import { Button } from '@/components/ui/button';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
@@ -159,9 +159,8 @@ export function ProstorK09Katalog() {
   return (
     <View style={styles.root}>
       <SectionHeader title="Prostor — redovi (K09)" />
-      <Caption label="Početna startupa: redovi na vrhu, Puls i Aktivnost privremeno na dnu." colors={colors} />
+      <Caption label="Početna startupa: redovi na vrhu; blokovi Komandnog centra su u sekciji K19." colors={colors} />
       <ProstorHubRows areaCount={4} channelsUnread={3} onOpen={(id) => setLog(`Otvori: ${id}`)} />
-      <ProstorTempRows onOpen={(id) => setLog(`Otvori: ${id}`)} />
       <Text style={[styles.log, { color: colors.mutedForeground }]}>{log}</Text>
 
       <SectionHeader title="Zaglavlje — naslov i meta (K09)" />

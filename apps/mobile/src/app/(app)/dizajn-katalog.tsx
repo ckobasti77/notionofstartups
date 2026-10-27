@@ -96,6 +96,7 @@ import {
   TextBlockField,
   TitleField,
 } from '@/components/me/task-panel-parts';
+import { KomandniCentarK19Katalog } from '@/components/katalog/komandni-centar-k19';
 import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
 import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
 import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
@@ -1058,6 +1059,9 @@ export default function DizajnKatalogScreen() {
 
         {/* PROSTOR K18: Beleške — lista, čipovi, brza beleška, brzi unos i „Pošalji u startup“. */}
         <ProstorK18Katalog />
+
+        {/* PROSTOR K19: Komandni centar 2.0 — blokovi, greška bloka i „Sredi rokove“. */}
+        <KomandniCentarK19Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 

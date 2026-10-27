@@ -21,23 +21,11 @@ import { useCompletionQueue } from "@/components/me/my-day/use-completion-queue"
 import type { TaskRowActions } from "@/components/me/task-row";
 import { ShortcutProvider } from "@/components/shortcuts/shortcut-provider";
 import { Button } from "@/components/ui/button";
-import { CommandCenterBody } from "@/components/workspace/command-center-view";
-import {
-  buildZones,
-  COMMAND_CENTER_LIST,
-  filterByMember,
-  workloadCounts,
-  zoneRowCount,
-  type CommandCenterAssignee,
-  type CommandCenterTask,
-  type CommandCenterZone,
-} from "@/components/workspace/startup-tasks/command-center-model";
 import { STARTUP_FLIP_MAX_ROWS } from "@/components/workspace/startup-tasks/constants";
 import { TaskMetaChips } from "@/components/workspace/startup-tasks/task-meta-chips";
 import { TaskQuickCreate } from "@/components/workspace/startup-tasks/task-quick-create";
 import { useMoveFocus } from "@/components/workspace/startup-tasks/use-move-focus";
 import { buildTaskSections, TasksBody, tasksListName, useBoardAllowed, type TasksMode } from "@/components/workspace/tasks-view";
-import type { WorkloadEntry, WorkloadFilter } from "@/components/workspace/workload-strip";
 import { useFlip } from "@/lib/motion";
 import { useTaskListShortcuts } from "@/lib/shortcuts/use-task-list-shortcuts";
 import { cn } from "@/lib/utils";
@@ -47,13 +35,11 @@ import { fakeId } from "../fixtures/ids";
 import { IZLOG_PROFILE } from "../fixtures/me";
 import { IZLOG_NOW } from "../fixtures/now";
 import {
-  IZLOG_ST_ASSIGNEES,
   IZLOG_ST_DETAIL,
   IZLOG_ST_MEMBERS,
   IZLOG_ST_MY_TASKS,
   IZLOG_ST_PLANNED,
   IZLOG_ST_STARTUP,
-  IZLOG_ST_TASKS,
 } from "../fixtures/startup-tasks";
 import { IzlogPanel } from "./panel-zadatka";
 
@@ -64,8 +50,8 @@ const AREA_LABELS = new Map(IZLOG_ST_STARTUP.areas.map((area) => [area._id as st
 
 type PanelState = { title: string; key: string; creator: boolean; origin: HTMLElement | null; openedAt: number };
 
-/** Radnje reda nad lokalnim podacima (izlog ne zove mutacije). */
-function useLocalActions<T extends StartupTaskLike>({
+/** Radnje reda nad lokalnim podacima (izlog ne zove mutacije). Koristi ga i `komandni-centar`. */
+export function useLocalActions<T extends StartupTaskLike>({
   setTasks,
   setPlanned,
   flip,
@@ -120,133 +106,6 @@ function useLocalActions<T extends StartupTaskLike>({
     onJoin,
     onOpen,
   };
-}
-
-/** Komandni centar u izlogu: zone, opterećenje, radnje u redu, panel, prečice. */
-function IzlogKomandniCentar({ initial = IZLOG_ST_TASKS, loading = false }: { initial?: CommandCenterTask[]; loading?: boolean }) {
-  const [tasks, setTasks] = useState<CommandCenterTask[]>(initial);
-  const [assignees, setAssignees] = useState(IZLOG_ST_ASSIGNEES);
-  const [planned, setPlanned] = useState(IZLOG_ST_PLANNED);
-  const [memberFilter, setMemberFilter] = useState<WorkloadFilter>(null);
-  const [laterOpen, setLaterOpen] = useState(false);
-  const [panel, setPanel] = useState<PanelState | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
-  const zonesRef = useRef<CommandCenterZone[]>([]);
-  const { capture } = useFlip(listRef);
-  const flip = () => {
-    if (zoneRowCount(zonesRef.current) <= STARTUP_FLIP_MAX_ROWS) capture();
-  };
-  const completion = useCompletionQueue({
-    listRef,
-    locate: (key) => locateStartupRow(COMMAND_CENTER_LIST, zonesRef.current, key),
-    flipCapture: flip,
-    commit: async (row, done, previous) =>
-      setTasks((current) =>
-        current.map((item) =>
-          item._id === row.id
-            ? { ...item, taskStatus: done ? "done" : previous && previous !== "open" && previous !== "done" ? previous : "next" }
-            : item,
-        ),
-      ),
-  });
-  const move = useMoveFocus(listRef, completion.announcement);
-  const actions = useLocalActions<CommandCenterTask>({
-    setTasks,
-    setPlanned,
-    flip,
-    completion,
-    moved: move.moved,
-    onOpen: (row) => {
-      const origin = listRef.current?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(row.key)}"] [data-row-title]`) ?? null;
-      setPanel({ title: row.title, key: row.key, creator: row.permissions.priority.allowed, origin, openedAt: performance.now() });
-      setPanelOpen(true);
-    },
-    onJoin: (row) => {
-      setAssignees((current) => {
-        const next = new Map(current);
-        const people: CommandCenterAssignee[] = next.get(row.id) ?? [];
-        next.set(row.id, [...people, { profileId: ME, displayName: IZLOG_PROFILE.displayName, avatarUrl: null }]);
-        return next;
-      });
-      toast.success("Sad si na zadatku.");
-    },
-  });
-
-  const visible = useMemo(() => filterByMember(tasks, memberFilter, assignees), [tasks, memberFilter, assignees]);
-  const zones = useMemo(
-    () =>
-      buildZones(visible, {
-        now: IZLOG_NOW,
-        profileId: ME,
-        startup: STARTUP_MINI,
-        areaLabels: AREA_LABELS,
-        assigneesByTaskId: assignees,
-        plannedKeys: planned,
-        holds: completion.holds,
-        pending: completion.pending,
-      }),
-    [visible, assignees, planned, completion.holds, completion.pending],
-  );
-  useLayoutEffect(() => {
-    zonesRef.current = zones;
-  });
-  const open = tasks.filter((item) => item.taskStatus !== "done");
-  const workload: WorkloadEntry[] = workloadCounts(
-    open,
-    IZLOG_ST_MEMBERS.map((member) => member._id),
-    assignees,
-    IZLOG_NOW,
-  ).map((count) => {
-    const member = IZLOG_ST_MEMBERS.find((item) => item._id === count.key);
-    return { ...count, name: member?.displayName ?? "Nedodeljeno", avatar: member ?? null };
-  });
-  const shortcuts = useTaskListShortcuts({
-    listRef,
-    getRow: (key) => findStartupRow(zonesRef.current, key),
-    actions,
-    enabled: !panelOpen,
-  });
-
-  return (
-    <div className="desk-surface overflow-hidden rounded-2xl border bg-background">
-      <CommandCenterBody
-        startupName={IZLOG_ST_STARTUP.name}
-        now={IZLOG_NOW}
-        loading={loading}
-        totalOpen={open.length}
-        filteredTotal={filterByMember(open, memberFilter, assignees).length}
-        hasMore={false}
-        workload={workload}
-        memberFilter={memberFilter}
-        onMemberFilter={setMemberFilter}
-        zones={zones}
-        assigneesByTaskId={assignees}
-        laterOpen={laterOpen}
-        onLaterOpenChange={setLaterOpen}
-        actions={actions}
-        listRef={listRef}
-        selectedKey={shortcuts.selectedKey}
-        activeKey={panelOpen ? (panel?.key ?? null) : null}
-        request={shortcuts.request}
-        onListFocus={shortcuts.onListFocus}
-        announcement={move.announcement}
-        onCreateTask={noop}
-      />
-      {panel ? (
-        <IzlogPanel
-          key={`${panel.key}:${panel.openedAt}`}
-          kind={panel.creator ? "kreator" : "clan"}
-          title={panel.title}
-          origin={panel.origin}
-          openedAt={panel.openedAt}
-          open={panelOpen}
-          onClose={() => setPanelOpen(false)}
-          openLabel="full"
-        />
-      ) : null}
-    </div>
-  );
 }
 
 /** Moji zadaci u startupu — tabla (kartice sa radnjama, prelaz između kolona Flip-om). */
@@ -518,21 +377,13 @@ function IzlogDetalj() {
   );
 }
 
-/** Zadaci u startupu (K17): Komandni centar sa radnjama (i prazan / učitavanje), tabla, brzo pravljenje, detalj sa čipovima. */
+/** Zadaci u startupu (K17): tabla, brzo pravljenje, detalj sa čipovima. Komandni centar je ekran `komandni-centar` (K19). */
 export default function ZadaciStartupEkran({ varijanta }: IzlogEkranProps) {
   if (varijanta === "brzo-pravljenje") return <IzlogBrzoPravljenje />;
   if (varijanta === "detalj") return <IzlogDetalj />;
   return (
     <ShortcutProvider>
-      {varijanta === "tabla" ? (
-        <IzlogTabla />
-      ) : (
-        <IzlogKomandniCentar
-          key={varijanta}
-          initial={varijanta === "prazan" ? [] : IZLOG_ST_TASKS}
-          loading={varijanta === "ucitavanje"}
-        />
-      )}
+      <IzlogTabla />
     </ShortcutProvider>
   );
 }

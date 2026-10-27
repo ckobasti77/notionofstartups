@@ -94,6 +94,13 @@ describe('Komandni centar na telefonu — sekcije sa redovima', () => {
     expect(stranger.permissions.status.reason).toBeTruthy();
   });
 
+  test('vlasnik startupa i admin (isManager) menjaju tuđ zaključan zadatak (K19, paritet sa webom)', () => {
+    const manager = startupRow(task('t', { lockedAt: 1 }), { ...context(), isManager: true });
+    expect(Object.values(manager.permissions).every((perm) => perm.allowed)).toBe(true);
+    const member = startupRow(task('t', { lockedAt: 1 }), { ...context(), isManager: false });
+    expect(member.permissions.due.allowed).toBe(false);
+  });
+
   test('zaključan: dok se izvršioci ne učitaju, ne-kreator nije izvršilac; segment „Moji" ga pretpostavlja', () => {
     const loading = startupRow(task('t', { lockedAt: 1 }), context({ assigneeIdsByTask: null }));
     expect(loading.permissions.status.allowed).toBe(false);

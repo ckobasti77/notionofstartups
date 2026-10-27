@@ -1,8 +1,6 @@
 import { hubUnreadLabel, pendingIdeaVotes } from '@devotion/shared';
 import { useRouter } from 'expo-router';
 import {
-  Activity,
-  ChartColumn,
   FolderClosed,
   Lightbulb,
   ListTodo,
@@ -24,7 +22,6 @@ import { MIN_TOUCH_TARGET, radius } from '@/theme/tokens';
 import {
   hubRowValue,
   PROSTOR_HUB_ROWS,
-  PROSTOR_TEMP_ROWS,
   type ProstorHubDestination,
   type ProstorHubRow,
 } from './prostor-hub-model';
@@ -35,8 +32,6 @@ const ROW_ICON: Record<ProstorHubDestination, LucideIcon> = {
   ideje: Lightbulb,
   kanali: MessageCircle,
   korpa: Trash2,
-  puls: ChartColumn,
-  aktivnost: Activity,
 };
 
 const ROW_HINT: Record<ProstorHubDestination, string> = {
@@ -45,8 +40,6 @@ const ROW_HINT: Record<ProstorHubDestination, string> = {
   ideje: 'Otvara ideje tima',
   kanali: 'Otvara chat ovog startupa',
   korpa: 'Otvara obrisano',
-  puls: 'Otvara nedeljni pregled',
-  aktivnost: 'Otvara sve izmene tima',
 };
 
 /**
@@ -78,20 +71,6 @@ export function ProstorHubRows({
           unread={row.id === 'kanali' ? channelsUnread : 0}
           onOpen={onOpen}
         />
-      ))}
-    </View>
-  );
-}
-
-/**
- * Privremeni ulazi u Puls i Aktivnost na dnu Prostora (K07 §4.2): nestaju kad
- * K19 napravi blokove „Puls nedelje" i „Nedavne izmene".
- */
-export function ProstorTempRows({ onOpen }: { onOpen: (destination: ProstorHubDestination) => void }) {
-  return (
-    <View>
-      {PROSTOR_TEMP_ROWS.map((row) => (
-        <HubRow key={row.id} row={row} value={null} unread={0} onOpen={onOpen} />
       ))}
     </View>
   );
@@ -161,7 +140,7 @@ export function ProstorHub({ startupId }: { startupId: Id<'startups'> }) {
 }
 
 /** Kuda vodi red Prostora (stack ekrani iznad tabova, sa „nazad" u Prostor). */
-export function openProstorDestination(
+function openProstorDestination(
   router: ReturnType<typeof useRouter>,
   destination: ProstorHubDestination,
 ): void {
@@ -180,12 +159,6 @@ export function openProstorDestination(
       return;
     case 'korpa':
       router.push('/korpa');
-      return;
-    case 'puls':
-      router.push('/puls');
-      return;
-    case 'aktivnost':
-      router.push('/aktivnost');
       return;
   }
 }

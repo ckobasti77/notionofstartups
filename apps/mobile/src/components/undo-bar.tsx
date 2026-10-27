@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUndoRunner } from '@/hooks/use-undo-runner';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import { hideUndoBar, popUndo, useUndoBarEntry, useUndoNotice } from '@/lib/undo';
+import { hideUndoBar, popUndo, showUndoNotice, useUndoBarEntry, useUndoNotice } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, SHADOW_COLOR, text } from '@/theme/tokens';
 
@@ -136,12 +136,19 @@ export function UndoBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
     setBusy(true);
     haptics.tap();
     try {
-      await runUndo(entry.action);
+      const outcome = await runUndo(entry.action);
       haptics.success();
-      AccessibilityInfo.announceForAccessibility('Vraćeno.');
-      // Traka odmah nudi SLEDEĆU stavku (ako ima) — višekoračno poništavanje u
-      // mestu, isto što `Ctrl+Z` radi ponovljen na webu.
-      popUndo(entry.key, { advertiseNext: true });
+      AccessibilityInfo.announceForAccessibility(typeof outcome === 'string' ? outcome : 'Vraćeno.');
+      if (typeof outcome === 'string') {
+        // Grupno poništavanje (K19) javlja šta je vraćeno, a šta preskočeno — ta poruka
+        // zauzima traku umesto sledeće stavke, da se ne izgubi.
+        popUndo(entry.key);
+        showUndoNotice({ label: outcome });
+      } else {
+        // Traka odmah nudi SLEDEĆU stavku (ako ima) — višekoračno poništavanje u
+        // mestu, isto što `Ctrl+Z` radi ponovljen na webu.
+        popUndo(entry.key, { advertiseNext: true });
+      }
     } catch (error) {
       // Traka namerno OSTAJE — serverska poruka („Vreme za Undo je isteklo.",
       // limit checkpointa…) se prikaže, a korisnik traku zatvara sam.

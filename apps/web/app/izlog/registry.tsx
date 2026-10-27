@@ -5,6 +5,7 @@ import BiracDatumaEkran from "./ekrani/birac-datuma";
 import BrziUnosEkran from "./ekrani/brzi-unos";
 import InboxEkran from "./ekrani/inbox";
 import IstorijaIzmenaEkran from "./ekrani/istorija-izmena";
+import KomandniCentarEkran from "./ekrani/komandni-centar";
 import KomentariEkran from "./ekrani/komentari";
 import IsplanirajEkran from "./ekrani/isplaniraj";
 import IdejeEkran from "./ekrani/ideje";
@@ -75,7 +76,7 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
   "zadaci-startup": {
     naslov: "Zadaci u startupu",
     korak: "K17",
-    varijante: ["komandni-centar", "tabla", "brzo-pravljenje", "detalj", "prazan", "ucitavanje"],
+    varijante: ["tabla", "brzo-pravljenje", "detalj"],
     Komponenta: ZadaciStartupEkran,
   },
   "ljuska-startup": {
@@ -126,6 +127,12 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K16",
     varijante: ["tabla", "lista", "detalj", "detalj-clan", "tabla-clan", "prazno", "ucitavanje", "greska"],
     Komponenta: IdejeEkran,
+  },
+  "komandni-centar": {
+    naslov: "Komandni centar — blokovi, Zastarelo, Sredi rokove",
+    korak: "K19",
+    varijante: ["pun", "zatrpan", "sredi-rokove", "prazan", "greska-bloka", "ucitavanje", "aktivnost"],
+    Komponenta: KomandniCentarEkran,
   },
   beleske: {
     naslov: "Beleške — mešano, filter, izmena, slanje u startup",
