@@ -28,6 +28,8 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const archiveThoughtEdges = useMutation(api.thoughts.archiveEdges);
   const restoreCheckpoint = useMutation(api.taskCheckpoints.restoreOwn);
   const restoreContribution = useMutation(api.collaboration.restoreOwnContribution);
+  const restoreComment = useMutation(api.comments.restore);
+  const restoreFromTrash = useMutation(api.trash.restore);
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
   const connectPages = useMutation(api.areasV2.connectPages);
@@ -75,6 +77,12 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
           return;
         case 'contribution':
           await restoreContribution({ contributionId: action.contributionId });
+          return;
+        case 'comment':
+          await restoreComment({ commentId: action.commentId });
+          return;
+        case 'trashRestore':
+          await restoreFromTrash({ target: { kind: 'page', id: action.pageId } });
           return;
         case 'pageMove':
           // Inverz poteza je isti poziv sa PRETHODNIM koordinatama (nema „restore"
@@ -340,6 +348,8 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
       archiveThoughtEdges,
       restoreCheckpoint,
       restoreContribution,
+      restoreComment,
+      restoreFromTrash,
       movePages,
       resizePage,
       connectPages,

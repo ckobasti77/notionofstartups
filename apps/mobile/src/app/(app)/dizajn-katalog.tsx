@@ -98,6 +98,7 @@ import {
 } from '@/components/me/task-panel-parts';
 import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
 import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
+import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
 import { UndoBar } from '@/components/undo-bar';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
@@ -1042,6 +1043,9 @@ export default function DizajnKatalogScreen() {
 
         {/* PROSTOR K09: redovi Prostora, zaglavlje, Korpa, traka bez „Poništi“. */}
         <ProstorK09Katalog />
+
+        {/* PROSTOR K12: komentari, unos sa @, zaključano i „uređuje“. */}
+        <ProstorK12Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 

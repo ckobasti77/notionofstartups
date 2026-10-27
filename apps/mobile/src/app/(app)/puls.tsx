@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { PulseBar, type PulseSegment } from '@/components/ui/pulse-bar';
 import { Row } from '@/components/ui/row';
+import { UndoBar } from '@/components/undo-bar';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
@@ -194,6 +195,7 @@ export default function PulsScreen() {
           )}
         </LoadingSwap>
       </ScrollView>
+      <UndoBar />
     </View>
   );
 }

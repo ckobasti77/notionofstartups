@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
+import { UndoBar } from '@/components/undo-bar';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -264,6 +265,7 @@ export default function PretragaScreen() {
         </LoadingSwap>
       )}
       </KeyboardAvoidingView>
+      <UndoBar />
     </View>
   );
 }

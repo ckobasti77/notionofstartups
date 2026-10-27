@@ -147,6 +147,25 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     expect('secondary' in (getUndoSnapshotForTest().bar ?? {})).toBe(false);
   });
 
+  test('K12 — uklonjen komentar nosi serverski rok, a Korpa nema rok; traka prikazuje poslednju', () => {
+    const until = Date.now() + 8_000;
+    pushUndo({
+      label: 'Komentar je uklonjen.',
+      action: { kind: 'comment', commentId: 'c1' as Id<'contentContributions'> },
+      undoUntil: until,
+    });
+    expect(getUndoSnapshotForTest().bar?.undoUntil).toBe(until);
+    pushUndo({
+      label: '„Plan" je u Korpi.',
+      action: { kind: 'trashRestore', pageId: 'pg1' as Id<'pages'> },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({ kind: 'trashRestore', pageId: 'pg1' });
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+    // Oba ostaju u „Istoriji radnji" dok ne isteknu.
+    expect(snapshot.stack.map((entry) => entry.action.kind)).toEqual(['trashRestore', 'comment']);
+  });
+
   test('K09 — poruka bez „Poništi" (Korpa) smenjuje traku, a stek ostaje netaknut', () => {
     let opened = 0;
     push('Prva', 'a');

@@ -1,7 +1,7 @@
 import { RichText, useEditorBridge } from '@10play/tentap-editor';
 import * as Clipboard from 'expo-clipboard';
 import { useMutation, useQuery } from 'convex/react';
-import { Check, CloudOff, Copy, Info, RefreshCw, TriangleAlert } from 'lucide-react-native';
+import { Check, CloudOff, Copy, Info, RefreshCw, Replace, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,6 +18,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 
+import {
+  conflictCopy,
+  conflictFromError,
+  LOCK_NOTICE,
+  OVERWRITE_NOTICE,
+  type ConflictInfo,
+} from '@/components/collab/collab-model';
 import { NoteInsertSheet, type NoteInsertPick } from '@/components/stranica/note-insert-sheet';
 import { NoteLinkSheet } from '@/components/stranica/note-link-sheet';
 import { NoteReader } from '@/components/stranica/note-reader';
@@ -28,6 +35,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import {
   EMPTY_NOTE_HTML,
+  extractNoteFileIds,
   NOTE_CONTENT_LIMIT,
   noteBlockLossSentence,
   noteBlockSignature,
@@ -81,7 +89,7 @@ const MAX_AUTO_RETRIES = 4;
 const PRIME_ATTEMPTS = 8;
 const PRIME_TIMEOUT_MS = 400;
 
-type SaveState =
+export type SaveState =
   | 'saved'
   | 'dirty'
   | 'saving'
@@ -99,6 +107,10 @@ export function NoteEditor({
   remoteRevision,
   canEdit,
   canEditBody,
+  remoteUpdater,
+  onEditActivity,
+  onSaveStateChange,
+  onRemountRequest,
 }: {
   pageId: Id<'pages'>;
   startupId: Id<'startups'>;
@@ -107,8 +119,19 @@ export function NoteEditor({
   remoteRevision: number;
   /** Autor stranice — sme da menja naslov. */
   canEdit: boolean;
-  /** Autor + telo je njegovo (ili prazno) — sme da menja sadržaj. */
+  /** Isto što `canEdit` (od PROSTOR-a telo menja svaki član otključane stranice). */
   canEditBody: boolean;
+  /** Ko je poslednji menjao i kad — za tekst konflikta (živ `pages.get`). */
+  remoteUpdater?: { name: string | null; at: number };
+  /** Svaki unos (naslov, telo) — hrani „<Ime> uređuje". */
+  onEditActivity?: () => void;
+  /** Stanje čuvanja prema ekranu: dok se čuva, ekran ne dozvoljava brisanje ni vraćanje verzije. */
+  onSaveStateChange?: (state: SaveState) => void;
+  /**
+   * Traži remontiranje editora sa svežim telom (tentap `initialContent` se čita samo pri
+   * kreiranju): posle „Učitaj najnoviju" kad je editor bio sklonjen zbog zaključavanja.
+   */
+  onRemountRequest?: () => void;
 }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -117,6 +140,7 @@ export function NoteEditor({
 
   const generateUploadUrl = useMutation(api.pageFiles.generateUploadUrl);
   const attach = useMutation(api.pageFiles.attach);
+  const pruneNoteFiles = useMutation(api.pageFiles.prune);
 
   const [title, setTitle] = useState(remoteTitle);
   const [saveState, setSaveState] = useState<SaveState>('saved');
@@ -124,6 +148,8 @@ export function NoteEditor({
   const [insertOpen, setInsertOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [lostBlocks, setLostBlocks] = useState<NoteBlockKind[]>([]);
+  /** Nacrt je ostao bez prava izmene (zaključano dok si pisao/la): čeka odluku korisnika. */
+  const [orphaned, setOrphaned] = useState(false);
 
   // Nacrt živi u refovima, ne u stanju: kucanje ne sme da prerenderuje WebView.
   const titleRef = useRef(remoteTitle);
@@ -133,6 +159,9 @@ export function NoteEditor({
   const inFlightRef = useRef(false);
   const queuedRef = useRef(false);
   const conflictRef = useRef(false);
+  const conflictInfoRef = useRef<ConflictInfo | null>(null);
+  const activityRef = useRef(onEditActivity);
+  activityRef.current = onEditActivity;
   const retriesRef = useRef(0);
   const htmlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -203,6 +232,8 @@ export function NoteEditor({
   }, [noteFiles]);
   const fileUrlsRef = useRef(fileUrls);
   fileUrlsRef.current = fileUrls;
+  const hasNoteFilesRef = useRef(hasNoteFiles);
+  hasNoteFilesRef.current = hasNoteFiles;
 
   const editorTheme = useMemo(
     () => ({
@@ -278,15 +309,28 @@ export function NoteEditor({
         content: contentChanged ? nextContent : savedRef.current.content,
       };
       retriesRef.current = 0;
+      // Tek posle uspešnog čuvanja se sklanjaju prilozi izbačeni iz tela. Unija sačuvanog
+      // snimka i živog nacrta štiti upload koji je stigao posle snimka; server dodatno ne
+      // dira redove mlađe od grace perioda (isto kao web `use-page-autosave`).
+      if (contentChanged && hasNoteFilesRef.current) {
+        const keepFileIds = Array.from(
+          new Set([...extractNoteFileIds(nextContent), ...extractNoteFileIds(htmlRef.current)]),
+        );
+        void pruneNoteFiles({ pageId, keepFileIds }).catch(() => {
+          // Sklanjanje ne sme da prekine čuvanje; sledeće čuvanje pokušava opet.
+        });
+      }
       const stillDirty =
         titleRef.current.trim() !== savedRef.current.title ||
         (permissionsRef.current.canEditBody &&
           !noteContentEquals(htmlRef.current, savedRef.current.content));
       setSaveState(stillDirty ? 'dirty' : 'saved');
     } catch (error) {
-      if (String(error).includes('KONFLIKT_IZMENA')) {
+      const conflict = conflictFromError(error);
+      if (conflict !== null) {
         // Nacrt ostaje netaknut; dalji autosave staje dok korisnik ne odluči.
         conflictRef.current = true;
+        conflictInfoRef.current = conflict;
         queuedRef.current = false;
         setSaveState('conflict');
       } else {
@@ -300,7 +344,7 @@ export function NoteEditor({
         scheduleSave();
       }
     }
-  }, [enqueue, pageId, scheduleSave, startupId, updatePage]);
+  }, [enqueue, pageId, pruneNoteFiles, scheduleSave, startupId, updatePage]);
 
   /**
    * ČUVAR GUBITKA. Poredi telo koje je editor VRATIO sa telom koje je dobio. Ako
@@ -371,6 +415,7 @@ export function NoteEditor({
   }, [handleFirstHtml, markDirty, scheduleSave]);
 
   const handleContentChange = useCallback(() => {
+    activityRef.current?.();
     if (htmlTimerRef.current) clearTimeout(htmlTimerRef.current);
     htmlTimerRef.current = setTimeout(() => {
       htmlTimerRef.current = null;
@@ -438,6 +483,7 @@ export function NoteEditor({
 
   const changeTitle = useCallback(
     (value: string) => {
+      activityRef.current?.();
       titleRef.current = value;
       setTitle(value);
       if (value.trim() === '') {
@@ -549,9 +595,38 @@ export function NoteEditor({
     adoptNextHtmlRef.current = true;
     editorRef.current?.setContent(remoteContent || EMPTY_NOTE_HTML);
     conflictRef.current = false;
+    conflictInfoRef.current = null;
     retriesRef.current = 0;
     setSaveState('saved');
-  }, [remoteContent, remoteRevision, remoteTitle]);
+    if (orphaned) {
+      // Editor je bio sklonjen: nov WebView nosi zamrznut sadržaj, pa ekran remontira belešku.
+      setOrphaned(false);
+      onRemountRequest?.();
+    }
+  }, [onRemountRequest, orphaned, remoteContent, remoteRevision, remoteTitle]);
+
+  /**
+   * „Prepiši": isti upis, ali preko tuđe izmene — osnova postaje revizija sa servera
+   * (iz greške, a rezerva je živa `remoteRevision`). Tuđa verzija ostaje u Istoriji
+   * izmena. Šalje se samo ono što je korisnik menjao (`save` poredi sa poslednjim
+   * sačuvanim), pa tuđe izmene polja koje nije dirao ostaju.
+   */
+  const overwrite = useCallback(() => {
+    baseRevisionRef.current = conflictInfoRef.current?.currentRevision ?? remoteRevision;
+    conflictRef.current = false;
+    conflictInfoRef.current = null;
+    retriesRef.current = 0;
+    setSaveState('dirty');
+    void save();
+  }, [remoteRevision, save]);
+
+  const confirmOverwrite = useCallback(() => {
+    haptics.warning();
+    Alert.alert('Prepisati tuđu izmenu?', OVERWRITE_NOTICE, [
+      { text: 'Otkaži', style: 'cancel' },
+      { text: 'Prepiši', style: 'destructive', onPress: overwrite },
+    ]);
+  }, [overwrite]);
 
   /**
    * Vraća zapamćenu selekciju pa izvršava komandu. Android gubi tiptap selekciju
@@ -636,22 +711,54 @@ export function NoteEditor({
       ? null
       : `Ova beleška sadrži ${noteBlockLossSentence(lostBlocks)} koju telefon ne ume da učita bez gubitka. Ovde je prikaz veran originalu, a uređivanje je na webu.`;
 
-  const lockReason = !canEdit
-    ? 'Sadržaj i naslov menja samo autor beleške.'
-    : lossReason !== null
-      ? lossReason
-      : !canEditBody
-        ? 'Raniji zajednički sadržaj je zaključan. Naslov možeš da menjaš, telo se uređuje na webu kroz potpisani doprinos.'
-        : null;
+  // Od PROSTOR-a nepristupačnost znači samo `zaključano` (svaki član menja otključanu).
+  const lockReason = !canEdit ? LOCK_NOTICE : lossReason;
 
   // Kad čuvar okine, editor se odmontira i ostaje verno čitanje SERVERSKE verzije
   // — telo koje je WebView vratio se ne prikazuje i nikad ne stigne do baze.
-  const showEditor = bodyEditable && saveState !== 'lossy';
+  const showEditor = bodyEditable && saveState !== 'lossy' && !orphaned;
+
+  useEffect(() => {
+    if (!canEdit && saveState !== 'saved' && saveState !== 'conflict' && saveState !== 'lossy') {
+      setOrphaned(true);
+    }
+  }, [canEdit, saveState]);
+
+  const conflictText = conflictCopy({
+    subject: 'page',
+    updaterName: remoteUpdater?.name ?? null,
+    updatedAt: remoteUpdater?.at ?? conflictInfoRef.current?.updatedAt ?? null,
+    now: Date.now(),
+  });
+
+  const stateRef = useRef(onSaveStateChange);
+  stateRef.current = onSaveStateChange;
+  useEffect(() => {
+    stateRef.current?.(saveState);
+  }, [saveState]);
 
   return (
     <View style={styles.container}>
+      {orphaned ? (
+        // Stranica je zaključana dok si pisao/la: nacrt se ne sme izgubiti tiho (P23).
+        <ConflictBanner
+          colors={colors}
+          title="Stranica je zaključana dok si menjao/la"
+          body="Tvoje izmene nisu sačuvane. Kopiraj ih pre nego što učitaš najnoviju verziju."
+          onCopy={copyDraft}
+          onLoadTeam={loadTeamVersion}
+        />
+      ) : null}
+
       {saveState === 'conflict' ? (
-        <ConflictBanner colors={colors} onCopy={copyDraft} onLoadTeam={loadTeamVersion} />
+        <ConflictBanner
+          colors={colors}
+          title={conflictText.title}
+          body={conflictText.body}
+          onCopy={copyDraft}
+          onLoadTeam={loadTeamVersion}
+          onOverwrite={confirmOverwrite}
+        />
       ) : null}
 
       <View style={[styles.head, { borderBottomColor: colors.border }]}>
@@ -762,27 +869,30 @@ export function NoteEditor({
 
 function ConflictBanner({
   colors,
+  title,
+  body,
   onCopy,
   onLoadTeam,
+  onOverwrite,
 }: {
   colors: ColorTokens;
+  title: string;
+  body: string;
   onCopy: () => void;
   onLoadTeam: () => void;
+  /** Bez njega nema „Prepiši" (npr. stranica je zaključana dok si pisao/la). */
+  onOverwrite?: () => void;
 }) {
   return (
     <View
       accessibilityRole="alert"
       style={[styles.conflict, { backgroundColor: `${colors.warning}1F`, borderColor: colors.warning }]}>
-      <Text style={[styles.conflictTitle, { color: colors.foreground }]}>
-        Neko iz tima je izmenio ovu belešku.
-      </Text>
-      <Text style={[styles.conflictText, { color: colors.mutedForeground }]}>
-        Tvoj nacrt je ostao netaknut. Kopiraj ga pre nego što učitaš timsku verziju.
-      </Text>
+      <Text style={[styles.conflictTitle, { color: colors.foreground }]}>{title}</Text>
+      <Text style={[styles.conflictText, { color: colors.mutedForeground }]}>{body}</Text>
       <View style={styles.conflictActions}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Kopiraj moj nacrt"
+          accessibilityLabel="Kopiraj moju verziju"
           onPress={onCopy}
           style={({ pressed }) => [
             styles.conflictBtn,
@@ -790,22 +900,34 @@ function ConflictBanner({
             pressed && { backgroundColor: colors.muted },
           ]}>
           <Copy size={16} color={colors.foreground} />
-          <Text style={[styles.conflictBtnText, { color: colors.foreground }]}>Kopiraj nacrt</Text>
+          <Text style={[styles.conflictBtnText, { color: colors.foreground }]}>Kopiraj</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Učitaj timsku verziju"
+          accessibilityLabel="Učitaj najnoviju verziju"
           onPress={onLoadTeam}
+          style={({ pressed }) => [
+            styles.conflictBtn,
+            { borderColor: colors.border },
+            pressed && { backgroundColor: colors.muted },
+          ]}>
+          <RefreshCw size={16} color={colors.foreground} />
+          <Text style={[styles.conflictBtnText, { color: colors.foreground }]}>Učitaj najnoviju</Text>
+        </Pressable>
+        {onOverwrite === undefined ? null : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Prepiši tuđu izmenu mojom verzijom"
+          onPress={onOverwrite}
           style={({ pressed }) => [
             styles.conflictBtn,
             { borderColor: colors.border, backgroundColor: colors.primary },
             pressed && { opacity: 0.85 },
           ]}>
-          <RefreshCw size={16} color={colors.primaryForeground} />
-          <Text style={[styles.conflictBtnText, { color: colors.primaryForeground }]}>
-            Učitaj timsku
-          </Text>
+          <Replace size={16} color={colors.primaryForeground} />
+          <Text style={[styles.conflictBtnText, { color: colors.primaryForeground }]}>Prepiši</Text>
         </Pressable>
+        )}
       </View>
     </View>
   );
@@ -945,11 +1067,14 @@ const styles = StyleSheet.create({
   },
   conflictActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 4,
   },
   conflictBtn: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: 120,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -959,7 +1084,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   conflictBtnText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: fontWeight.semibold,
   },
   toolbarWrap: {

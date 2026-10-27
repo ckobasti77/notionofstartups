@@ -16,11 +16,12 @@ import { useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Input } from '@/components/ui/input';
-import { CheckpointContributionsSheet } from '@/components/zadatak/checkpoint-contributions-sheet';
+import { CommentsSheet } from '@/components/collab/comments-sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { MAX_TASK_CHECKPOINTS } from '@/lib/task-meta';
 import { pushUndo } from '@/lib/undo';
@@ -38,26 +39,35 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text, type ColorTokens } from '@/
  *
  * Ulančavanje koraka (`setChainedToPrevious` / `setAllChained`) je sada i ovde:
  * ikonica lanca po redu i „Poveži sve / Razveži sve" u zaglavlju sekcije. Autor
- * briše svoj korak direktno, a tuđi kroz glasanje tima (`requestDeletion`) — isti
- * put koji web `task-checkpoint-list` nudi.
+ * briše korak direktno kad sme (`canDeleteDirectly`, PROSTOR P1/P3) uz traku
+ * „Poništi" — glasanja tima o brisanju više nema.
  *
- * Svaki red nosi i nit doprinosa (C13, `CheckpointContributionsSheet`) — prva
- * ikonica u redu akcija, isti redosled kao web. Akcije su u svom redu ispod
+ * Svaki red nosi i Komentare koraka (`CommentsSheet` sa ciljem `task_checkpoint`) —
+ * prva ikonica u redu akcija, isti redosled kao web. Akcije su u svom redu ispod
  * naslova, svaka cela 44pt meta (K20) — četiri u istom redu sa tekstom ne
  * stanu na uskom telefonu.
  */
 export function TaskCheckpointList({
   taskPageId,
+  startupId,
   canCreate,
   onDeleted,
   onInputFocus,
+  onOpenComments,
 }: {
   taskPageId: Id<'pages'>;
+  /** Startup zadatka — za članove koje komentar može da pomene. */
+  startupId: Id<'startups'>;
   canCreate: boolean;
   /** Posle direktnog brisanja koraka (traka „Poništi" je nudi) — panel se zatvara da je traka vidljiva. */
   onDeleted?: () => void;
   /** Fokus u polju za korak; dobija red sa poljem da ga panel doskrola iznad tastature. */
   onInputFocus?: (field: View | null) => void;
+  /**
+   * Panel (već Modal) ne sme da otvara drugi Modal (iOS): umesto sheet-a Komentara koraka
+   * poziva ovo, a panel se zatvara i otvara pun ekran zadatka. Bez njega list otvara sheet.
+   */
+  onOpenComments?: (item: TaskCheckpoint) => void;
 }) {
   const colors = useThemeColors();
   const checkpoints = useQuery(api.taskCheckpoints.listForTask, { taskPageId });
@@ -80,7 +90,6 @@ export function TaskCheckpointList({
   const archiveOwn = useMutation(api.taskCheckpoints.archiveOwn);
   const setChained = useMutation(api.taskCheckpoints.setChainedToPrevious);
   const setAllChained = useMutation(api.taskCheckpoints.setAllChained);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const addRowRef = useRef<View>(null);
   const editRowRef = useRef<View>(null);
@@ -88,12 +97,16 @@ export function TaskCheckpointList({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<Id<'taskCheckpoints'> | null>(null);
   const [editingText, setEditingText] = useState('');
-  /** `null` = nit doprinosa je zatvorena; vrednost je korak čija se nit gleda (C13). */
+  /** `null` = Komentari su zatvoreni; vrednost je korak čiji se komentari gledaju. */
   const [threadFor, setThreadFor] = useState<TaskCheckpoint | null>(null);
+  // Poslednji korak ostaje montiran dok traje izlazna animacija sheet-a.
+  const lastThreadRef = useRef<TaskCheckpoint | null>(null);
+  if (threadFor !== null) lastThreadRef.current = threadFor;
+  const sheetFor = threadFor ?? lastThreadRef.current;
 
   const notifyError = (error: unknown) => {
     haptics.error();
-    Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+    Alert.alert('Nešto nije prošlo', accessErrorMessage(error, 'Pokušaj ponovo.'));
   };
 
   const toggle = (item: TaskCheckpoint) => {
@@ -137,41 +150,20 @@ export function TaskCheckpointList({
   };
 
   const remove = (item: TaskCheckpoint) => {
-    haptics.warning();
-    // Autor briše direktno; ko nije autor pokreće glasanje tima. Bez druge grane
-    // član tima nije imao NIKAKAV put da traži brisanje tuđeg koraka.
-    const direct = item.canDeleteDirectly;
-    Alert.alert(
-      direct ? 'Obriši korak' : 'Zatraži brisanje koraka',
-      direct
-        ? `„${item.text}"`
-        : `„${item.text}" — korak nije tvoj, pa se pokreće glasanje tima o brisanju.`,
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: direct ? 'Obriši' : 'Zatraži',
-          style: 'destructive',
-          onPress: () =>
-            void (
-              direct
-                ? archiveOwn({ checkpointId: item._id }).then((result) => {
-                    // Traka „Poništi" (PARITET A6) — tekst = web toast. Serverski
-                    // rok (`undoUntil`) vodi tajmer trake.
-                    pushUndo({
-                      label: 'Korak je obrisan.',
-                      action: { kind: 'checkpoint', checkpointId: result.checkpointId },
-                      undoUntil: result.undoUntil,
-                    });
-                    // Panel zadatka (K13) se zatvara da traka ispod njega bude vidljiva.
-                    onDeleted?.();
-                  })
-                : requestDeletion({ target: { kind: 'task_checkpoint', id: item._id } })
-            )
-              .then(() => haptics.success())
-              .catch(notifyError),
-        },
-      ],
-    );
+    haptics.tap();
+    // Briše se odmah; „Poništi" (traka) vraća korak do `undoUntil` sa servera.
+    void archiveOwn({ checkpointId: item._id })
+      .then((result) => {
+        haptics.success();
+        pushUndo({
+          label: 'Korak je obrisan.',
+          action: { kind: 'checkpoint', checkpointId: result.checkpointId },
+          undoUntil: result.undoUntil,
+        });
+        // Panel zadatka (K13) se zatvara da traka ispod njega bude vidljiva.
+        onDeleted?.();
+      })
+      .catch(notifyError);
   };
 
   /**
@@ -316,21 +308,7 @@ export function TaskCheckpointList({
               <View
                 key={item._id}
                 ref={isEditing ? editRowRef : undefined}
-                style={[
-                  styles.row,
-                  {
-                    borderColor: item.completed
-                      ? `${colors.success}55`
-                      : item.locked
-                        ? colors.border
-                        : `${colors.warning}55`,
-                    backgroundColor: item.completed
-                      ? `${colors.success}14`
-                      : item.locked
-                        ? colors.muted
-                        : `${colors.warning}12`,
-                  },
-                ]}
+                style={[styles.row, { borderBottomColor: colors.border }]}
               >
                 <View style={styles.rowMain}>
                   <View
@@ -396,16 +374,16 @@ export function TaskCheckpointList({
                 </View>
 
                 <View style={styles.rowActions}>
-                  {/* Doprinosi stoje PRE lanca/olovke/kante — isti redosled kao web
+                  {/* Komentari stoje PRE lanca/olovke/kante — isti redosled kao web
                     `task-checkpoint-list.tsx`. Prikazuju se UVEK: svaki član sme
-                    da piše (`addContribution` traži samo članstvo), za razliku od
-                    olovke i kante koje zavise od vlasništva. */}
+                    da komentariše, za razliku od olovke i kante koje zavise od dozvole. */}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Doprinosi: ${item.text}`}
+                    accessibilityLabel={`Komentari: ${item.text}`}
                     onPress={() => {
                       haptics.tap();
-                      setThreadFor(item);
+                      if (onOpenComments) onOpenComments(item);
+                      else setThreadFor(item);
                     }}
                     style={styles.rowAction}
                   >
@@ -457,7 +435,7 @@ export function TaskCheckpointList({
                     </Pressable>
                   ) : null}
 
-                  {item.canDeleteDirectly || item.canRequestDeletion ? (
+                  {item.canDeleteDirectly ? (
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={
@@ -478,7 +456,17 @@ export function TaskCheckpointList({
         </View>
       )}
 
-      <CheckpointContributionsSheet checkpoint={threadFor} onClose={() => setThreadFor(null)} />
+      {sheetFor === null ? null : (
+        <CommentsSheet
+          // Nov korak = novo polje: nacrt iz prošlog koraka ne sme da procuri.
+          key={sheetFor._id}
+          target={{ kind: 'task_checkpoint', id: sheetFor._id }}
+          startupId={startupId}
+          title={sheetFor.text}
+          visible={threadFor !== null}
+          onClose={() => setThreadFor(null)}
+        />
+      )}
     </View>
   );
 }
@@ -580,14 +568,12 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   rows: {
-    gap: 8,
+    gap: 0,
   },
   row: {
     gap: 2,
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     minHeight: MIN_TOUCH_TARGET,
   },
   rowMain: {

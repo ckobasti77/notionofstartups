@@ -258,6 +258,16 @@ export type UndoAction =
    */
   | { kind: 'pageCreate'; startupId: Id<'startups'>; pageId: Id<'pages'> }
   /**
+   * Uklonjen komentar (PROSTOR K12). Inverz je `comments.restore`; server ga prima do
+   * `undoUntil` (8 s), pa stavka nosi isti rok. Komentar ide u arhivu, nikad se ne briše.
+   */
+  | { kind: 'comment'; commentId: Id<'contentContributions'> }
+  /**
+   * Stranica poslata u Korpu (PROSTOR K12, P3). Inverz je `trash.restore` — vraća celu
+   * granu koja je otišla istim potezom. Nema roka: Korpa ne čisti sama.
+   */
+  | { kind: 'trashRestore'; pageId: Id<'pages'> }
+  /**
    * Završen (ili vraćen) zadatak u startupu iz Moj dan (K12). Inverzan upis, ne
    * vraćanje arhiviranog: `status` je status OD PRE radnje (npr. „U toku"), pa je
    * poništavanje isti `tasks.updateMetadata` poziv — isto što web radi kroz

@@ -11,6 +11,7 @@ import { exitFade, listLayout, useListEntering } from '@/components/motion';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
+import { UndoBar } from '@/components/undo-bar';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -227,6 +228,7 @@ export default function OblastiScreen() {
           onClose={() => setCreateAreaOpen(false)}
         />
       ) : null}
+      <UndoBar />
     </View>
   );
 }
