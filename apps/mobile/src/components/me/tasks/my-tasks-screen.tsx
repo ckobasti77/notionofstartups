@@ -432,6 +432,7 @@ function MyTasksContent({ retry }: { retry: () => void }) {
         readStored={readStoredDestination}
         rememberedArea={readLastArea}
         onSubmit={quickAdd.submit}
+        onSubmitNote={quickAdd.submitNote}
       />
     </View>
   );

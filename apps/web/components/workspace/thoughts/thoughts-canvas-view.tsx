@@ -1194,7 +1194,7 @@ function ThoughtsCanvasBody({
             data-canvas-zoom-modifier={canvasNavigation.zoomModifierPressed}
             tabIndex={0}
             role="application"
-            aria-label={`Moje misli za ${startup.name}`}
+            aria-label={`Mapa beleški za ${startup.name}`}
             onKeyDownCapture={handleKeyDown}
           >
             <ReactFlow<ThoughtFlowNode, ThoughtFlowEdge>
@@ -1382,9 +1382,9 @@ function ThoughtsCanvasBody({
 
               <Panel position="top-right" className="!m-3 sm:!m-4">
                 <CanvasActionRail
-                  ariaLabel={`Akcije privatnog kanvasa za ${firstName}`}
+                  ariaLabel={`Akcije mape beleški za ${firstName}`}
                   identity={{
-                    label: "Moje misli",
+                    label: "Beleške",
                     icon: Sparkles,
                     count: nodes.length,
                     className: "bg-primary/10 text-primary",
@@ -1483,7 +1483,7 @@ function ThoughtsCanvasBody({
             {loadingFirstPage ? (
               <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center" role="status">
                 <span className="flex items-center gap-2 rounded-xl border border-border/75 bg-card/90 px-4 py-3 text-sm font-medium shadow-lg backdrop-blur">
-                  <LoaderCircle className="size-4 animate-spin text-primary" /> Učitavam privatni kanvas…
+                  <LoaderCircle className="size-4 animate-spin text-primary" /> Učitavam mapu beleški…
                 </span>
               </div>
             ) : nodes.length === 0 ? (

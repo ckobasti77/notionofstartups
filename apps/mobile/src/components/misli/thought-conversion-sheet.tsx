@@ -1,18 +1,24 @@
+import { defaultSendTarget, noteDisplayTitle, sentToStartupMessage } from '@devotion/shared';
 import { useMutation } from 'convex/react';
 import { useRouter } from 'expo-router';
 import { ArrowDown, Lightbulb } from 'lucide-react-native';
 import { useMemo, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
+import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
+import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
 import { misaoWord, thoughtDisplayTitle, vezaWord } from '@/lib/thought-layout';
+import { showUndoNotice } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, text } from '@/theme/tokens';
+
+import { SendToStartupSheet, type SendTarget } from './send-to-startup-sheet';
 
 /** Backend `MAX_BULK_ITEMS` — `convertToIdeas` prima najviše 50 misli. */
 const MAX_BULK = 50;
@@ -53,30 +59,70 @@ function successMessage(ideaCount: number, edgeCount: number): string {
   return message;
 }
 
-/**
- * Korak 1 od 2 — misao postaje timska ideja (PARITET A1, uzor web
- * `thought-conversion-dialog.tsx`). Bez izbora destinacije: `convertToIdeas` uvek
- * cilja kanvas Ideja istog startupa; zadatak/beleška se prave iz odobrene ideje
- * (korak 2, na Idejama). Original se NE arhivira — misao ostaje privatna.
- */
-export function ThoughtConversionSheet({
-  open,
-  startupId,
-  nodes,
-  onClose,
-  onConverted,
-}: {
+/** Cilj „Pošalji u startup": startup u kome sam aktivan član. */
+export type ConversionTarget = SendTarget & { _id: Id<'startups'> };
+
+type ConversionBase = {
   open: boolean;
-  startupId: Id<'startups'>;
   nodes: ThoughtConversionNode[];
   onClose: () => void;
   /** Po uspehu (posle zatvaranja) — npr. kanvas čisti selekciju. */
   onConverted?: () => void;
-}) {
+};
+
+/**
+ * Dva načina rada (isti sheet, isti `convertToIdeas`):
+ *
+ * - **Kanvas** (`startupId`): cilj je startup kanvasa, bez izbora. Tekstovi i
+ *   Alert posle uspeha ostaju kakvi su bili.
+ * - **Beleške** (`targets` + `sourceStartupId`, PROSTOR P7/K18): „Pošalji u
+ *   startup" — korisnik bira ciljni startup (podrazumevano startup same
+ *   beleške, inače prvi); lične beleške i beleške drugog startupa takođe mogu
+ *   da pređu u ideju. Po uspehu traka sa „Otvori" vodi na Ideje tog startupa.
+ */
+export type ThoughtConversionSheetProps = ConversionBase &
+  (
+    | { startupId: Id<'startups'>; targets?: undefined; sourceStartupId?: undefined }
+    | {
+        startupId?: undefined;
+        targets: ReadonlyArray<ConversionTarget>;
+        /** Startup iz koga beleška dolazi (`null` = lična) — određuje podrazumevani cilj. */
+        sourceStartupId: Id<'startups'> | null;
+      }
+  );
+
+/**
+ * Korak 1 od 2 — misao postaje timska ideja (PARITET A1, uzor web
+ * `thought-conversion-dialog.tsx`). Original se NE arhivira — misao ostaje
+ * privatna; zadatak/beleška se prave iz odobrene ideje (korak 2, na Idejama).
+ */
+export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
+  const { open, nodes, onClose, onConverted } = props;
   const colors = useThemeColors();
   const router = useRouter();
+  const { activeStartupId, setActiveStartupId } = useActiveStartup();
   const convertToIdeas = useMutation(api.thoughts.convertToIdeas);
   const [busy, setBusy] = useState(false);
+
+  // „Pošalji u startup": izbor cilja. Dok korisnik ništa nije dodirnuo, važi
+  // podrazumevani (startup same beleške, inače prvi); izabran startup koji je
+  // u međuvremenu nestao iz liste pada na podrazumevani. Svako otvaranje kreće iznova.
+  const targets = props.targets ?? [];
+  const pick = props.targets !== undefined;
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setChosen(null);
+  }
+  const fallbackTarget = pick
+    ? defaultSendTarget(
+        { startupId: props.sourceStartupId },
+        targets.map((target) => target._id),
+      )
+    : null;
+  const selectedTargetId =
+    chosen !== null && targets.some((target) => target._id === chosen) ? chosen : fallbackTarget;
 
   // Poslednji neprazan skup — telo ostaje tokom izlazne animacije sheet-a.
   const lastNodesRef = useRef<ThoughtConversionNode[]>([]);
@@ -101,32 +147,83 @@ export function ThoughtConversionSheet({
 
   const submit = async () => {
     if (busy) return;
+    const targetStartupId = (pick ? selectedTargetId : props.startupId) as Id<'startups'> | null;
+    if (targetStartupId === null) return;
     if (count > MAX_BULK) {
       haptics.warning();
-      Alert.alert('Previše misli', `Odaberi najviše ${MAX_BULK} misli za slanje u Ideje.`);
+      Alert.alert(
+        pick ? 'Previše beleški' : 'Previše misli',
+        pick
+          ? `Odaberi najviše ${MAX_BULK} beleški za slanje u startup.`
+          : `Odaberi najviše ${MAX_BULK} misli za slanje u Ideje.`,
+      );
       return;
     }
     setBusy(true);
     haptics.tap();
     try {
       const result = await convertToIdeas({
-        startupId,
+        startupId: targetStartupId,
         nodeIds: ordered.map((node) => node._id),
       });
       haptics.success();
       onClose();
       onConverted?.();
-      Alert.alert('Poslato u Ideje', successMessage(result.ideaIds.length, result.createdEdgeCount), [
-        { text: 'U redu', style: 'cancel' },
-        { text: 'Otvori Ideje', onPress: () => router.push({ pathname: '/ideje' }) },
-      ]);
+      if (pick) {
+        // Traka (ne Alert): poruka iz shared-a, isto što web kaže u toastu; „Otvori"
+        // prebacuje na ciljni startup i vodi na njegove Ideje.
+        const target = targets.find((item) => item._id === targetStartupId);
+        const message = sentToStartupMessage(target?.name ?? 'startup');
+        const ideaId = result.ideaIds[0];
+        AccessibilityInfo.announceForAccessibility(message);
+        showUndoNotice({
+          label: message,
+          secondary: {
+            label: 'Otvori',
+            // Nova ideja (kao na webu); bez id-ja lista Ideja tog startupa.
+            onPress: () =>
+              openStartupEntity(router, setActiveStartupId, {
+                startupId: targetStartupId,
+                href: ideaId
+                  ? { pathname: '/ideja/[id]', params: { id: ideaId } }
+                  : { pathname: '/ideje' },
+                currentStartupId: activeStartupId,
+              }),
+          },
+        });
+      } else {
+        Alert.alert('Poslato u Ideje', successMessage(result.ideaIds.length, result.createdEdgeCount), [
+          { text: 'U redu', style: 'cancel' },
+          { text: 'Otvori Ideje', onPress: () => router.push({ pathname: '/ideje' }) },
+        ]);
+      }
     } catch (error) {
       haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Misao nije poslata u Ideje.'));
+      Alert.alert(
+        'Greška',
+        accessErrorMessage(error, pick ? 'Beleška nije poslata. Pokušaj ponovo.' : 'Misao nije poslata u Ideje.'),
+      );
     } finally {
       setBusy(false);
     }
   };
+
+  if (pick) {
+    return (
+      <SendToStartupSheet
+        visible={open}
+        titles={ordered.map((node) =>
+          noteDisplayTitle({ title: node.title ?? null, text: node.text ?? '' }),
+        )}
+        targets={targets}
+        selectedId={selectedTargetId}
+        busy={busy}
+        onSelect={setChosen}
+        onSubmit={() => void submit()}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <Sheet visible={open} onClose={onClose} maxHeight="85%" style={styles.sheet}>

@@ -5,11 +5,12 @@ import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { Building2, LoaderCircle, Sparkles } from "lucide-react";
-import { pendingIdeaVotes } from "@devotion/shared";
+import { pendingIdeaVotes, type QuickAddKind } from "@devotion/shared";
 
 import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
 import { InboxSkeleton } from "@/components/me/inbox/inbox-skeleton";
+import { NotesSkeleton } from "@/components/me/notes/notes-skeleton";
 import { MyTasksSkeleton } from "@/components/me/tasks/my-tasks-skeleton";
 import { buildMyDay, firstNameOf, openByStartup, openTodayCount } from "@/components/me/my-day/my-day-model";
 import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
@@ -104,7 +105,7 @@ const ThoughtsCanvasView = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
-        <LoaderCircle className="mr-2 size-4 animate-spin text-primary" /> Otvaram privatni kanvas…
+        <LoaderCircle className="mr-2 size-4 animate-spin text-primary" /> Otvaram mapu beleški…
       </div>
     ),
   },
@@ -121,6 +122,17 @@ const MyTasksContainer = dynamic(
     loading: () => (
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
         <MyTasksSkeleton />
+      </div>
+    ),
+  },
+);
+
+const NotesContainer = dynamic(
+  () => import("@/components/me/notes/notes-container").then((module) => module.NotesContainer),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
+        <NotesSkeleton />
       </div>
     ),
   },
@@ -255,7 +267,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [quickAdd, setQuickAdd] = useState<{
     open: boolean;
     preset: { startupId: Id<"startups"> } | null;
-  }>({ open: false, preset: null });
+    kind: QuickAddKind;
+  }>({ open: false, preset: null, kind: "task" });
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
@@ -922,6 +935,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     setQuickAdd({
       open: true,
       preset: startup && !isMeRoute(route) ? { startupId: startup._id } : null,
+      // Iz Beleški se brzi unos otvara kao Beleška (P7, K18).
+      kind: route.kind === "me-notes" ? "note" : "task",
     });
   }
 
@@ -1012,7 +1027,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         ? "Inbox"
         : route.kind === "me-chat"
           ? "Poruke"
-          : "Moj dan";
+          : route.kind === "me-notes"
+            ? "Beleške"
+            : "Moj dan";
   // Zvono startupa je ugašeno (P11, K07 E7): Inbox u „Ja" nosi sva obaveštenja.
   const notificationCount = inboxUnread?.total.count ?? 0;
   const notificationCapped = inboxUnread?.total.capped ?? false;
@@ -1135,6 +1152,17 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenInStartup={openInStartup}
               />
             </WorkspaceErrorBoundary>
+          ) : route.kind === "me-notes" ? (
+            <WorkspaceErrorBoundary key="me-notes" title="Beleške se ne mogu učitati" className="m-4 min-h-[20rem]">
+              <NotesContainer
+                today={today}
+                startups={startups}
+                onOpenMap={(mapStartupId) => openInStartup(mapStartupId, { route: { kind: "thoughts" } })}
+                onOpenIdea={(ideaStartupId, ideaId) =>
+                  openInStartup(ideaStartupId, { route: { kind: "ideas", ideaId } })
+                }
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "thoughts" ? (
             <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
@@ -1165,7 +1193,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 links={[
                   { label: "Puls nedelje", onSelect: () => navigateRoute({ kind: "puls" }) },
                   { label: "Aktivnost", onSelect: () => navigateRoute({ kind: "activity" }) },
-                  { label: "Moje misli", onSelect: () => navigateRoute({ kind: "thoughts" }) },
                 ]}
               />
             </WorkspaceErrorBoundary>
@@ -1315,6 +1342,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         startups={startups}
         preset={quickAdd.preset}
         onOpenTask={(taskStartupId, pageId) => openInStartup(taskStartupId, { pageId })}
+        initialKind={quickAdd.kind}
+        onOpenNotes={() => goToMe({ kind: "me-notes" })}
       />
       <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => navigateRoute({ kind: "area", areaId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
@@ -1322,7 +1351,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         openPage(pageId);
       }} onNavigate={(route) => {
         setSearchOpen(false);
-        navigateRoute(route);
+        // Beleške su u „Ja": lični prikaz ide kroz `goToMe` (smer trake, pamćenje prikaza).
+        if (isMeRoute(route)) goToMe(route);
+        else navigateRoute(route);
       }} />
       <ProfileDialog key={`${profileOpen}-${profile.updatedAt}`} open={profileOpen} onOpenChange={setProfileOpen} profile={profile} />
       {destinationRequest ? <ThoughtDestinationPicker key={`${startup._id}-${destinationRequest.nodeIds.join("-")}`} open startup={startup} selectedCount={destinationRequest.nodeIds.length} onOpenChange={(open) => { if (!open) cancelDestinationPicker(); }} onSelect={completeDestinationPicker} /> : null}

@@ -1,4 +1,11 @@
-import { quickAddCall, quickAddSuccessMessage, type QuickAddDraft } from '@devotion/shared';
+import {
+  quickAddCall,
+  quickAddNoteCall,
+  quickAddNoteSuccessMessage,
+  quickAddSuccessMessage,
+  type QuickAddDraft,
+  type QuickAddNoteDraft,
+} from '@devotion/shared';
 import { useMutation, usePaginatedQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
@@ -13,6 +20,7 @@ import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
 import { rememberDestination } from '@/lib/quick-add-memory';
 import { pushUndo } from '@/lib/undo';
 
+import { useCreateNote } from '../misli/use-create-note';
 import type { QuickAddStartupOption } from './quick-add-sheet';
 import { failed, type PlanRef } from './use-row-mutations';
 
@@ -21,6 +29,11 @@ import { failed, type PlanRef } from './use-row-mutations';
  * `QuickAddContainer`: lični zadatak (`personalTasks.create`) ili zadatak u
  * startupu (`pages.create`, pa `myDay.plan` ako je čekirano „Dodaj i u Moj dan").
  * Izdvojeno iz Moj dan (K12) da ga koristi i ekran Moji zadaci (K13).
+ *
+ * `submitNote` je režim „Beleška" (K18): `thoughts.createNote` kroz isti tok kao
+ * polje „Brza beleška…" i FAB na ekranu Beleške (`useCreateNote`: haptika, najava,
+ * traka „Poništi" sa „Otvori"). Poruka i provera teksta su iz shared-a, kao na webu.
+ * Ne pamti odredište: zapamćeno odredište i oblast pripadaju brzom unosu zadatka.
  */
 export function useQuickAdd({
   dayKey,
@@ -35,6 +48,7 @@ export function useQuickAdd({
   const { activeStartupId, setActiveStartupId } = useActiveStartup();
   const createPersonal = useMutation(api.personalTasks.create);
   const createPage = useMutation(api.pages.create);
+  const createNote = useCreateNote();
   const { results } = usePaginatedQuery(api.startups.listForCurrent, {}, { initialNumItems: 50 });
   const startups = useMemo<QuickAddStartupOption[]>(
     () =>
@@ -101,5 +115,16 @@ export function useQuickAdd({
     }
   };
 
-  return { startups, submit };
+  const submitNote = async (draft: QuickAddNoteDraft) => {
+    const call = quickAddNoteCall(draft);
+    if (call.fn === 'invalid') throw new Error(call.reason ?? 'Unesi tekst beleške.');
+    // Id-jevi su prošli kroz shared nacrt kao stringovi; potiču iz `startups.listForCurrent`.
+    await createNote({
+      startupId: call.args.startupId as Id<'startups'> | null,
+      text: call.args.text,
+      message: quickAddNoteSuccessMessage(draft.destination, startups),
+    });
+  };
+
+  return { startups, submit, submitNote };
 }

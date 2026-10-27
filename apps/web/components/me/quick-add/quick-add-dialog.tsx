@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useRef, useState, type ComponentPropsWithoutRef, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { useId, useRef, useState, type ComponentPropsWithoutRef, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import { CalendarDays, CornerDownLeft, LoaderCircle } from "lucide-react";
 import {
+  cleanNoteText,
   cleanQuickAddTitle,
   defaultAddToMyDay,
   DUE_SHORTCUT_LABELS,
@@ -11,12 +12,16 @@ import {
   formatDateShort,
   matchDueShortcut,
   NO_AREA_REASON,
+  NOTE_TEXT_MAX,
+  QUICK_ADD_KINDS,
   QUICK_ADD_TITLE_MAX,
   resolveArea,
   resolveDestination,
   type DueShortcut,
   type QuickAddDestination,
   type QuickAddDraft,
+  type QuickAddKind,
+  type QuickAddNoteDraft,
   type QuickAddStartup,
   type StoredDestination,
 } from "@devotion/shared";
@@ -44,19 +49,24 @@ export type QuickAddDialogProps = {
   rememberedArea?: (startupId: string) => string | null;
   /** Napravi zadatak; greška (poruka servera) se prikazuje ispod polja. */
   onSubmit: (draft: QuickAddDraft) => Promise<void>;
+  /** Napravi belešku (PROSTOR P7, K18); greška se prikazuje ispod polja. */
+  onSubmitNote: (draft: QuickAddNoteDraft) => Promise<void>;
+  /** Početna vrsta: iz Beleški se otvara kao Beleška, inače Zadatak. */
+  initialKind?: QuickAddKind;
   /** Izlog: početni nacrt i greška. */
   initialDraft?: Partial<QuickAddDraft>;
   initialError?: string | null;
 };
 
 /**
- * Brzi unos (P8, plan K07 §2): naslov, odredište Lično ili startup + oblast,
- * čipovi roka i „Dodaj i u Moj dan". Enter dodaje i zatvara, Ctrl/⌘+Enter
- * dodaje i ostavlja otvoreno, Esc zatvara. Dijalog ulazi iz scale 0,96
+ * Brzi unos (P8, plan K07 §2): vrsta Zadatak ili Beleška; zadatak ima naslov,
+ * odredište Lično ili startup + oblast, čipove roka i „Dodaj i u Moj dan",
+ * beleška samo tekst i odredište. Enter dodaje i zatvara, Ctrl/⌘+Enter
+ * dodaje i ostavlja otvoreno, Esc zatvara (u belešci je Shift+Enter nov red). Dijalog ulazi iz scale 0,96
  * (`MotionDialog`, trenutak 4).
  */
 export function QuickAddDialog({ open, onOpenChange, ...props }: QuickAddDialogProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   return (
     <MotionDialog
       open={open}
@@ -81,14 +91,18 @@ function QuickAddForm({
   readStored,
   rememberedArea,
   onSubmit,
+  onSubmitNote,
+  initialKind = "task",
   initialDraft,
   initialError = null,
   inputRef,
   onClose,
 }: Omit<QuickAddDialogProps, "open" | "onOpenChange"> & {
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>;
   onClose: () => void;
 }) {
+  const [kind, setKind] = useState<QuickAddKind>(initialKind);
+  // Isto polje za naslov zadatka i tekst beleške: ukucano ostaje pri promeni vrste.
   const [title, setTitle] = useState(initialDraft?.title ?? "");
   const [destination, setDestination] = useState<QuickAddDestination>(
     () => initialDraft?.destination ?? resolveDestination(readStored?.() ?? null, startups, { preset, rememberedArea }),
@@ -110,11 +124,12 @@ function QuickAddForm({
   const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState(false);
   const errorId = useId();
-  const titleCheck = cleanQuickAddTitle(title);
+  const isNote = kind === "note";
+  const titleCheck = isNote ? cleanNoteText(title) : cleanQuickAddTitle(title);
   const addToMyDay = addOverride ?? defaultAddToMyDay(dueDate, now);
   const selectedStartup =
     destination.kind === "startup" ? startups.find((startup) => startup._id === destination.startupId) : undefined;
-  const missingArea = destination.kind === "startup" && destination.areaId === null;
+  const missingArea = !isNote && destination.kind === "startup" && destination.areaId === null;
   const canSubmit = titleCheck.ok && !missingArea && !busy;
   const shownError = error ?? (titleCheck.ok ? null : titleCheck.reason);
 
@@ -123,20 +138,29 @@ function QuickAddForm({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit({ title, destination, dueDate, addToMyDay });
+      if (isNote) await onSubmitNote({ destination, text: title });
+      else await onSubmit({ title, destination, dueDate, addToMyDay });
       setTitle("");
       if (stay) inputRef.current?.focus();
       else onClose();
     } catch (cause) {
-      setError(cause instanceof Error && cause.message ? cause.message : "Zadatak nije dodat. Pokušaj ponovo.");
+      setError(
+        cause instanceof Error && cause.message
+          ? cause.message
+          : isNote
+            ? "Beleška nije sačuvana. Pokušaj ponovo."
+            : "Zadatak nije dodat. Pokušaj ponovo.",
+      );
       inputRef.current?.focus();
     } finally {
       setBusy(false);
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    // U belešci je Shift+Enter nov red.
+    if (isNote && event.shiftKey) return;
     event.preventDefault();
     void submit(event.ctrlKey || event.metaKey);
   };
@@ -159,24 +183,59 @@ function QuickAddForm({
   return (
     <div className="flex flex-col">
       <div className="px-5 pb-3 pt-4">
-        <p aria-hidden="true" className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-          Brzi unos
-        </p>
-        <input
-          ref={inputRef}
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value);
-            setError(null);
-          }}
-          onKeyDown={onKeyDown}
-          maxLength={QUICK_ADD_TITLE_MAX + 1}
-          placeholder="Šta treba uraditi?"
-          aria-label="Naslov zadatka"
-          aria-invalid={shownError ? true : undefined}
-          aria-describedby={shownError ? errorId : undefined}
-          className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-        />
+        <ChipGroup label="Vrsta unosa" hideLabel>
+          {QUICK_ADD_KINDS.map((option) => (
+            <Chip
+              key={option.kind}
+              selected={kind === option.kind}
+              onSelect={(event) => {
+                setKind(option.kind);
+                setError(null);
+                // Prelazak na Zadatak: prelomi redova iz beleške postaju razmaci.
+                if (option.kind === "task") setTitle((current) => current.replace(/\s*\r?\n\s*/gu, " "));
+                // Polje se zamenjuje (jedan red ↔ više redova): fokus ide u njega samo posle
+                // klika; strelicama u grupi fokus ostaje na čipu vrste.
+                if (event.detail > 0) window.requestAnimationFrame(() => inputRef.current?.focus());
+              }}
+            >
+              {option.label}
+            </Chip>
+          ))}
+        </ChipGroup>
+        {isNote ? (
+          <textarea
+            ref={inputRef as React.RefObject<HTMLTextAreaElement | null>}
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              setError(null);
+            }}
+            onKeyDown={onKeyDown}
+            maxLength={NOTE_TEXT_MAX + 1}
+            rows={3}
+            placeholder="Šta ti je na umu?"
+            aria-label="Tekst beleške"
+            aria-invalid={shownError ? true : undefined}
+            aria-describedby={shownError ? errorId : undefined}
+            className="mt-3 w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-base leading-6 outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          />
+        ) : (
+          <input
+            ref={inputRef as React.RefObject<HTMLInputElement | null>}
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              setError(null);
+            }}
+            onKeyDown={onKeyDown}
+            maxLength={QUICK_ADD_TITLE_MAX + 1}
+            placeholder="Šta treba uraditi?"
+            aria-label="Naslov zadatka"
+            aria-invalid={shownError ? true : undefined}
+            aria-describedby={shownError ? errorId : undefined}
+            className="mt-3 h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          />
+        )}
         {shownError ? (
           <p id={errorId} role="alert" className="mt-1.5 text-sm text-destructive">
             {shownError}
@@ -202,7 +261,7 @@ function QuickAddForm({
           ))}
         </ChipGroup>
 
-        {selectedStartup ? (
+        {selectedStartup && !isNote ? (
           selectedStartup.areas.length > 0 ? (
             <ChipGroup label="Oblast">
               {selectedStartup.areas.map((area) => (
@@ -224,6 +283,8 @@ function QuickAddForm({
           )
         ) : null}
 
+        {isNote ? null : (
+          <>
         <ChipGroup label="Rok">
           {DUE_SHORTCUTS.map((shortcut) => {
             const value = dueShortcutValue(shortcut, now);
@@ -260,15 +321,25 @@ function QuickAddForm({
           <Checkbox checked={addToMyDay} onCheckedChange={(checked) => setAddOverride(checked)} />
           Dodaj i u Moj dan
         </label>
+          </>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
         <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-          <Kbd>Enter</Kbd> dodaje · <Kbd>Ctrl+Enter</Kbd> dodaje i ostaje · <Kbd>Esc</Kbd> zatvara
+          {isNote ? (
+            <>
+              <Kbd>Enter</Kbd> čuva · <Kbd>Shift+Enter</Kbd> nov red · <Kbd>Ctrl+Enter</Kbd> čuva i ostaje · <Kbd>Esc</Kbd> zatvara
+            </>
+          ) : (
+            <>
+              <Kbd>Enter</Kbd> dodaje · <Kbd>Ctrl+Enter</Kbd> dodaje i ostaje · <Kbd>Esc</Kbd> zatvara
+            </>
+          )}
         </p>
         <Button type="button" disabled={!canSubmit} onClick={() => void submit(false)} className="ml-auto">
           {busy ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <CornerDownLeft aria-hidden="true" />}
-          Dodaj
+          {isNote ? "Sačuvaj" : "Dodaj"}
         </Button>
       </div>
     </div>
@@ -276,7 +347,16 @@ function QuickAddForm({
 }
 
 /** Grupa čipova kao `radiogroup`: strelice biraju, jedno Tab mesto. */
-function ChipGroup({ label, children }: { label: string; children: ReactNode }) {
+function ChipGroup({
+  label,
+  hideLabel = false,
+  children,
+}: {
+  label: string;
+  /** Labela samo za čitač ekrana (grupa bez kolone sa nazivom). */
+  hideLabel?: boolean;
+  children: ReactNode;
+}) {
   const labelId = useId();
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"];
@@ -299,7 +379,11 @@ function ChipGroup({ label, children }: { label: string; children: ReactNode }) 
     <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
       <span
         id={labelId}
-        className="w-14 shrink-0 pt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+        className={
+          hideLabel
+            ? "sr-only"
+            : "w-14 shrink-0 pt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+        }
       >
         {label}
       </span>
@@ -355,7 +439,7 @@ function Chip({
   children,
 }: {
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (event: MouseEvent<HTMLButtonElement>) => void;
   title?: string;
   children: ReactNode;
 }) {

@@ -156,7 +156,7 @@ export function CommandCenterView({
   /** „Puni prikaz" iz panela. */
   onOpenFull: (pageId: Id<"pages">) => void;
   onCreateTask: () => void;
-  /** Privremeni ulazi (Puls, Aktivnost, Moje misli) dok ih K18/K19 ne smeste u blokove. */
+  /** Privremeni ulazi (Puls, Aktivnost) dok ih K19 ne smesti u blokove; Beleške su u „Ja" (K18). */
   links?: ReadonlyArray<CommandCenterLink>;
 }) {
   const overview = useQuery(api.tasks.commandCenter, { startupId: startup._id });
@@ -306,8 +306,8 @@ export type CommandCenterBodyProps = {
   announcement: string;
   onCreateTask: () => void;
   /**
-   * PROSTOR K08: Puls, Aktivnost i Moje misli više nisu u meniju startupa
-   * (P11). Do Komandnog centra 2.0 (K19) i Beleški (K18) ulaz je ovde.
+   * PROSTOR K08: Puls i Aktivnost više nisu u meniju startupa (P11). Do
+   * Komandnog centra 2.0 (K19) ulaz je ovde; Beleške su u „Ja" (K18).
    */
   links?: ReadonlyArray<CommandCenterLink>;
 };

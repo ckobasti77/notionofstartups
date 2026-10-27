@@ -12,6 +12,7 @@
  *   pa `myDay.plan` ako je čekirano.
  */
 import { dayDiff, type DayKey, DUE_SHORTCUTS, type DueShortcut, dueShortcutValue } from "./dates";
+import { cleanNoteText, noteCreatedMessage } from "./notes";
 import type { TaskPriorityKey } from "./task-sort";
 
 /** Isto kao `MAX_PERSONAL_TASK_TITLE_LENGTH` i naslov stranice na serveru. */
@@ -130,7 +131,8 @@ export type TitleCheck = { ok: true; title: string } | { ok: false; reason: stri
 
 /** Prazan naslov = dugme onemogućeno (bez poruke); predug = poruka. */
 export function cleanQuickAddTitle(raw: string): TitleCheck {
-  const title = raw.trim();
+  // Naslov je jedan red: prelomi (npr. iz beleške) postaju razmak.
+  const title = raw.replace(/\s*\r?\n\s*/gu, " ").trim();
   if (title.length === 0) return { ok: false, reason: null };
   if (title.length > QUICK_ADD_TITLE_MAX) {
     return { ok: false, reason: `Naslov može imati najviše ${QUICK_ADD_TITLE_MAX} znakova.` };
@@ -223,4 +225,46 @@ export function quickAddSuccessMessage(
   const area = startup?.areas.find((item) => item._id === destination.areaId);
   const name = startup?.name ?? "startup";
   return area ? `Dodato u ${name} · ${area.label}.` : `Dodato u ${name}.`;
+}
+
+// --- Beleška u brzom unosu (PROSTOR P7, K18) -------------------------------
+
+/** Vrsta brzog unosa: zadatak (podrazumevano) ili beleška. */
+export type QuickAddKind = "task" | "note";
+
+export const QUICK_ADD_KINDS: ReadonlyArray<{ kind: QuickAddKind; label: string }> = [
+  { kind: "task", label: "Zadatak" },
+  { kind: "note", label: "Beleška" },
+];
+
+export type QuickAddNoteDraft = { destination: QuickAddDestination; text: string };
+
+export type QuickAddNoteCall =
+  | { fn: "thoughts.createNote"; args: { startupId: string | null; text: string } }
+  | { fn: "invalid"; reason: string | null };
+
+/**
+ * Koji poziv pravi belešku iz nacrta. Oblast se ne traži (beleška nema oblast):
+ * odredište je samo Lično ili startup.
+ */
+export function quickAddNoteCall(draft: QuickAddNoteDraft): QuickAddNoteCall {
+  const text = cleanNoteText(draft.text);
+  if (!text.ok) return { fn: "invalid", reason: text.reason };
+  return {
+    fn: "thoughts.createNote",
+    args: {
+      startupId: draft.destination.kind === "personal" ? null : draft.destination.startupId,
+      text: text.text,
+    },
+  };
+}
+
+/** Poruka posle pravljenja beleške: „Beleška je sačuvana u Lično." / „…u Cluck Rush." */
+export function quickAddNoteSuccessMessage(
+  destination: QuickAddDestination,
+  startups: ReadonlyArray<Pick<QuickAddStartup, "_id" | "name">>,
+): string {
+  if (destination.kind === "personal") return noteCreatedMessage(null);
+  const startup = startups.find((item) => item._id === destination.startupId);
+  return noteCreatedMessage(startup?.name ?? "startup");
 }

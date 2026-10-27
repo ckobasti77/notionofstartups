@@ -247,8 +247,11 @@ export type UndoAction =
    */
   | { kind: 'ideaCreate'; startupId: Id<'startups'>; ideaId: Id<'ideaNodes'> }
   /**
-   * Napravljena misao (P4: „nova povezana misao"). Inverz je `archiveNodes` — koji
-   * arhivira i ivicu ka izvoru (`thoughts.ts:943-955`), pa `edgeId` nije potreban.
+   * Napravljena misao (P4: „nova povezana misao") ili beleška (PROSTOR K18: polje
+   * „Brza beleška…", FAB i režim Beleška u brzom unosu — lična ili u startupu).
+   * Inverz je `archiveNodes` — koji arhivira i ivicu ka izvoru
+   * (`thoughts.ts:943-955`), pa `edgeId` nije potreban. Arhiviranje beleške iz
+   * liste/detalja koristi `thoughts` (vraća `restoreNodes`).
    */
   | { kind: 'thoughtCreate'; nodeId: Id<'thoughtNodes'> }
   /**

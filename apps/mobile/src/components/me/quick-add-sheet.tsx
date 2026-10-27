@@ -1,22 +1,28 @@
 import {
+  cleanNoteText,
   cleanQuickAddTitle,
   defaultAddToMyDay,
   dueShortcutValue,
   formatDateShort,
   matchDueShortcut,
   NO_AREA_REASON,
+  NOTE_TEXT_MAX,
+  QUICK_ADD_KINDS,
   QUICK_ADD_TITLE_MAX,
   resolveArea,
   resolveDestination,
   type DueShortcut,
   type QuickAddDestination,
   type QuickAddDraft,
+  type QuickAddKind,
+  type QuickAddNoteDraft,
   type QuickAddStartup,
   type StoredDestination,
 } from '@devotion/shared';
 import { useRef, useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { SegmentedControl } from '@/components/chat/segmented-control';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { haptics } from '@/lib/haptics';
@@ -40,7 +46,16 @@ export type QuickAddSheetProps = {
   rememberedArea?: (startupId: string) => string | null;
   /** Napravi zadatak; greška (poruka servera) se prikazuje ispod polja. */
   onSubmit: (draft: QuickAddDraft) => Promise<void>;
+  /**
+   * Napravi belešku (režim „Beleška", K18); greška se prikazuje ispod polja. Obavezan
+   * prop: svaki ekran koji otvara brzi unos mora da nudi i belešku.
+   */
+  onSubmitNote: (draft: QuickAddNoteDraft) => Promise<void>;
+  /** Vrsta sa kojom se sheet otvara (podrazumevano zadatak; Dizajn katalog traži belešku). */
+  initialKind?: QuickAddKind;
 };
+
+const KIND_OPTIONS = QUICK_ADD_KINDS.map((option) => ({ id: option.kind, label: option.label }));
 
 /**
  * Brzi unos (P8, plan K07 §2 i trenutak 4) — par web `QuickAddDialog`: naslov,
@@ -49,6 +64,10 @@ export type QuickAddSheetProps = {
  * promeniš). Sheet ulazi odozdo (`Sheet`, spring) i podiže se iznad tastature;
  * „Gotovo" na tastaturi dodaje i zatvara. Pravila odredišta, roka i poziva su
  * iz `@devotion/shared` (`quick-add.ts`), isto kao na webu.
+ *
+ * Prekidač „Zadatak | Beleška" (K18) je na vrhu. U režimu Beleška nema oblasti,
+ * roka ni „Dodaj i u Moj dan": polje je višelinijsko („Šta ti je na umu?"), a
+ * odredište je Lično ili startup (čipovi „Gde" ostaju). Tok zadatka je isti kao pre.
  */
 export function QuickAddSheet({ visible, onClose, ...props }: QuickAddSheetProps) {
   // Svako otvaranje počinje od praznog nacrta (nova sesija forme).
@@ -70,10 +89,15 @@ function QuickAddForm({
   readStored,
   rememberedArea,
   onSubmit,
+  onSubmitNote,
+  initialKind = 'task',
 }: QuickAddSheetProps) {
   const colors = useThemeColors();
   const inputRef = useRef<TextInput>(null);
+  const [kind, setKind] = useState<QuickAddKind>(initialKind);
+  const isNote = kind === 'note';
   const [title, setTitle] = useState('');
+  const [noteText, setNoteText] = useState('');
   const [destination, setDestination] = useState<QuickAddDestination>(() =>
     resolveDestination(readStored?.() ?? null, startups, { preset, rememberedArea }),
   );
@@ -101,26 +125,49 @@ function QuickAddForm({
     dueChoice === null ? null : dueChoice === 'date' ? customDue : dueShortcutValue(dueChoice, now);
   const addToMyDay = addOverride ?? defaultAddToMyDay(dueDate, now);
   const titleCheck = cleanQuickAddTitle(title);
+  const noteCheck = cleanNoteText(noteText);
   const selectedStartup =
     destination.kind === 'startup' ? startups.find((startup) => startup._id === destination.startupId) : undefined;
   const missingArea = destination.kind === 'startup' && destination.areaId === null;
-  const canSubmit = titleCheck.ok && !missingArea && !busy;
-  const shownError = error ?? (titleCheck.ok ? null : titleCheck.reason);
+  // Beleška nema oblast: startup bez oblasti ne smeta pri pravljenju beleške.
+  const canSubmit = isNote ? noteCheck.ok && !busy : titleCheck.ok && !missingArea && !busy;
+  const activeCheck = isNote ? noteCheck : titleCheck;
+  const shownError = error ?? (activeCheck.ok ? null : activeCheck.reason);
 
   const submit = async () => {
     if (!canSubmit) return;
     setBusy(true);
     setError(null);
     try {
-      await onSubmit({ title, destination, dueDate, addToMyDay });
+      if (isNote) await onSubmitNote({ text: noteText, destination });
+      else await onSubmit({ title, destination, dueDate, addToMyDay });
       onClose();
     } catch (cause) {
       haptics.error();
-      setError(cause instanceof Error && cause.message ? cause.message : 'Zadatak nije dodat. Pokušaj ponovo.');
+      setError(
+        cause instanceof Error && cause.message
+          ? cause.message
+          : isNote
+            ? 'Beleška nije sačuvana. Pokušaj ponovo.'
+            : 'Zadatak nije dodat. Pokušaj ponovo.',
+      );
       inputRef.current?.focus();
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Promena vrste ne gubi ono što je već ukucano: prazno polje druge vrste preuzima
+   * tekst (beleška → zadatak u jednom redu), a novo polje odmah dobija fokus.
+   */
+  const switchKind = (next: QuickAddKind) => {
+    if (next === kind) return;
+    setError(null);
+    if (next === 'note' && noteText.trim() === '') setNoteText(title);
+    if (next === 'task' && title.trim() === '') setTitle(noteText.replace(/\s*\n+\s*/g, ' ').trim());
+    setFocusOnMount(true);
+    setKind(next);
   };
 
   const pickStartup = (startupId: string | null) => {
@@ -168,31 +215,63 @@ function QuickAddForm({
             style={styles.scroll}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled">
+            <SegmentedControl options={KIND_OPTIONS} value={kind} onChange={switchKind} />
+
             <View style={styles.field}>
               <Text style={[styles.overline, { color: colors.mutedForeground }]}>Brzi unos</Text>
-              <TextInput
-                ref={inputRef}
-                value={title}
-                onChangeText={(next) => {
-                  setTitle(next);
-                  setError(null);
-                }}
-                placeholder="Šta treba uraditi?"
-                placeholderTextColor={colors.mutedForeground}
-                accessibilityLabel="Naslov zadatka"
-                autoFocus={focusOnMount}
-                maxLength={QUICK_ADD_TITLE_MAX + 1}
-                returnKeyType="done"
-                onSubmitEditing={() => void submit()}
-                style={[
-                  styles.input,
-                  {
-                    color: colors.foreground,
-                    backgroundColor: colors.surface,
-                    borderColor: shownError ? colors.danger : colors.input,
-                  },
-                ]}
-              />
+              {isNote ? (
+                <TextInput
+                  key="note"
+                  ref={inputRef}
+                  value={noteText}
+                  onChangeText={(next) => {
+                    setNoteText(next);
+                    setError(null);
+                  }}
+                  multiline
+                  textAlignVertical="top"
+                  placeholder="Šta ti je na umu?"
+                  placeholderTextColor={colors.mutedForeground}
+                  selectionColor={colors.primary}
+                  accessibilityLabel="Tekst beleške"
+                  autoFocus={focusOnMount}
+                  maxLength={NOTE_TEXT_MAX + 1}
+                  style={[
+                    styles.input,
+                    styles.noteInput,
+                    {
+                      color: colors.foreground,
+                      backgroundColor: colors.surface,
+                      borderColor: shownError ? colors.danger : colors.input,
+                    },
+                  ]}
+                />
+              ) : (
+                <TextInput
+                  key="task"
+                  ref={inputRef}
+                  value={title}
+                  onChangeText={(next) => {
+                    setTitle(next);
+                    setError(null);
+                  }}
+                  placeholder="Šta treba uraditi?"
+                  placeholderTextColor={colors.mutedForeground}
+                  accessibilityLabel="Naslov zadatka"
+                  autoFocus={focusOnMount}
+                  maxLength={QUICK_ADD_TITLE_MAX + 1}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void submit()}
+                  style={[
+                    styles.input,
+                    {
+                      color: colors.foreground,
+                      backgroundColor: colors.surface,
+                      borderColor: shownError ? colors.danger : colors.input,
+                    },
+                  ]}
+                />
+              )}
               {shownError ? (
                 <Text
                   accessibilityRole="alert"
@@ -221,7 +300,7 @@ function QuickAddForm({
               ))}
             </ChipGroup>
 
-            {selectedStartup ? (
+            {!isNote && selectedStartup ? (
               selectedStartup.areas.length > 0 ? (
                 <ChipGroup label="Oblast" scroll>
                   {selectedStartup.areas.map((area) => (
@@ -245,31 +324,35 @@ function QuickAddForm({
               )
             ) : null}
 
-            <DueChoiceChips
-              now={now}
-              selected={dueChoice === null ? 'none' : dueChoice}
-              dateLabel={customDue === null ? null : formatDateShort(customDue)}
-              onShortcut={(shortcut) => setDueChoice(shortcut)}
-              onPickDate={() => {
-                Keyboard.dismiss();
-                setFocusOnMount(false);
-                setPickingDate(true);
-              }}
-              onNone={() => setDueChoice(null)}
-            />
+            {isNote ? null : (
+              <>
+                <DueChoiceChips
+                  now={now}
+                  selected={dueChoice === null ? 'none' : dueChoice}
+                  dateLabel={customDue === null ? null : formatDateShort(customDue)}
+                  onShortcut={(shortcut) => setDueChoice(shortcut)}
+                  onPickDate={() => {
+                    Keyboard.dismiss();
+                    setFocusOnMount(false);
+                    setPickingDate(true);
+                  }}
+                  onNone={() => setDueChoice(null)}
+                />
 
-            <ToggleRow
-              label="Dodaj i u Moj dan"
-              checked={addToMyDay}
-              onChange={(next) => setAddOverride(next)}
-            />
+                <ToggleRow
+                  label="Dodaj i u Moj dan"
+                  checked={addToMyDay}
+                  onChange={(next) => setAddOverride(next)}
+                />
+              </>
+            )}
           </ScrollView>
 
           {/* Dugmad izvan skrola: uz tastaturu na malom ekranu ostaju vidljiva. */}
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
             <Button label="Otkaži" variant="ghost" size="md" onPress={onClose} style={styles.actionButton} />
             <Button
-              label="Dodaj"
+              label={isNote ? 'Sačuvaj' : 'Dodaj'}
               size="md"
               loading={busy}
               disabled={!canSubmit}
@@ -345,6 +428,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
+  },
+  noteInput: {
+    minHeight: 112,
+    maxHeight: 200,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   error: {
     ...text.body,

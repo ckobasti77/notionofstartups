@@ -115,11 +115,11 @@ export function ThoughtConversionDialog({
           <div className="space-y-5 px-5 py-5 sm:px-6">
             <div
               className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2"
-              aria-label="Tok: Moje misli, Ideje, Zadatak ili beleška"
+              aria-label="Tok: Beleške, Ideje, Zadatak ili beleška"
             >
               <div className="rounded-xl border border-primary/30 bg-primary/8 px-3 py-3 text-center">
                 <LockKeyhole className="mx-auto size-4 text-primary" />
-                <p className="mt-1.5 text-xs font-bold">Moje misli</p>
+                <p className="mt-1.5 text-xs font-bold">Beleške</p>
                 <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
                   privatno
                 </p>
@@ -143,7 +143,7 @@ export function ThoughtConversionDialog({
                 <FileCheck2 className="mx-auto size-4 text-muted-foreground" />
                 <p className="mt-1.5 text-xs font-bold">Rad</p>
                 <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
-                  task ili note
+                  zadatak ili beleška
                 </p>
               </div>
             </div>
@@ -172,7 +172,7 @@ export function ThoughtConversionDialog({
 
             <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
               <LockKeyhole className="mt-0.5 size-3.5 shrink-0" />
-              Original ostaje privatan u „Mojim mislima“. U Idejama se pravi
+              Original ostaje privatan u „Beleškama“. U Idejama se pravi
               timska kopija za glasanje i dalju obradu.
             </p>
           </div>

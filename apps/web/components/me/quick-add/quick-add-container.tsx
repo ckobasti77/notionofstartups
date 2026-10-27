@@ -3,7 +3,15 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { quickAddCall, quickAddSuccessMessage, type QuickAddDraft } from "@devotion/shared";
+import {
+  quickAddCall,
+  quickAddNoteCall,
+  quickAddNoteSuccessMessage,
+  quickAddSuccessMessage,
+  type QuickAddDraft,
+  type QuickAddKind,
+  type QuickAddNoteDraft,
+} from "@devotion/shared";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -27,6 +35,10 @@ export type QuickAddContainerProps = {
   preset?: { startupId: Id<"startups">; areaId?: Id<"startupAreas"> | null } | null;
   /** „Otvori" iz toasta za zadatak u startupu (postojeći detalj stranice). */
   onOpenTask: (startupId: Id<"startups">, pageId: Id<"pages">) => void;
+  /** Početna vrsta unosa; iz Beleški se otvara kao Beleška. */
+  initialKind?: QuickAddKind;
+  /** „Otvori" iz toasta za belešku: ekran Beleške. */
+  onOpenNotes: () => void;
 };
 
 /** Toast „Poništi" traje 8 s (plan K07 E6). */
@@ -46,16 +58,22 @@ export function QuickAddContainer({
   startups,
   preset,
   onOpenTask,
+  initialKind,
+  onOpenNotes,
 }: QuickAddContainerProps) {
   const createPersonal = useMutation(api.personalTasks.create);
   const archivePersonal = useMutation(api.personalTasks.archive);
   const createPage = useMutation(api.pages.create);
   const archivePage = useMutation(api.areasV2.archivePage);
   const plan = useMutation(api.myDay.plan);
+  const createNote = useMutation(api.thoughts.createNote);
+  const archiveNotes = useMutation(api.thoughts.archiveNodes);
   // „Otvori" iz toasta može stići i 8 s kasnije: uvek najnoviji rukovalac ljuske.
   const openTaskRef = useRef(onOpenTask);
+  const openNotesRef = useRef(onOpenNotes);
   useLayoutEffect(() => {
     openTaskRef.current = onOpenTask;
+    openNotesRef.current = onOpenNotes;
   });
 
   const options = useMemo<QuickAddStartupOption[]>(
@@ -123,6 +141,33 @@ export function QuickAddContainer({
     }
   };
 
+  /** Beleška (P7, K18): thoughts.createNote; „Poništi" arhivira, „Otvori" vodi u Beleške. */
+  const submitNote = async (draft: QuickAddNoteDraft) => {
+    const call = quickAddNoteCall(draft);
+    if (call.fn === "invalid") throw new Error(call.reason ?? "Unesi tekst beleške.");
+    const message = quickAddNoteSuccessMessage(draft.destination, options);
+    try {
+      const noteId = await createNote({
+        startupId: call.args.startupId as Id<"startups"> | null,
+        text: call.args.text,
+      });
+      toast.success(message, {
+        duration: UNDO_MS,
+        action: {
+          label: "Poništi",
+          onClick: () => {
+            void archiveNotes({ nodeIds: [noteId] })
+              .then(() => toast.info("Unos je poništen."))
+              .catch((error: unknown) => toast.error(accessErrorMessage(error, "Poništavanje nije uspelo.")));
+          },
+        },
+        cancel: { label: "Otvori", onClick: () => openNotesRef.current() },
+      });
+    } catch (error) {
+      throw new Error(accessErrorMessage(error, "Beleška nije sačuvana. Pokušaj ponovo."));
+    }
+  };
+
   return (
     <QuickAddDialog
       open={open}
@@ -133,6 +178,8 @@ export function QuickAddContainer({
       readStored={readStoredDestination}
       rememberedArea={readLastArea}
       onSubmit={submit}
+      onSubmitNote={submitNote}
+      initialKind={initialKind}
     />
   );
 }

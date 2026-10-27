@@ -478,6 +478,7 @@ function CommandCenterBody({
         readStored={readStoredDestination}
         rememberedArea={readLastArea}
         onSubmit={quickAdd.submit}
+        onSubmitNote={quickAdd.submitNote}
       />
     </View>
   );

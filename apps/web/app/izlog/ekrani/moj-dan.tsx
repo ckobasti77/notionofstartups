@@ -223,6 +223,7 @@ function IzlogMojDan({ initial, initialMode, side }: { initial: MyDayOverviewDat
         onOpenChange={setQuickOpen}
         now={IZLOG_NOW}
         startups={QUICK_ADD_STARTUPS}
+        onSubmitNote={() => new Promise((resolve) => window.setTimeout(resolve, 250))}
         onSubmit={async (draft) => {
           await new Promise((resolve) => window.setTimeout(resolve, 250));
           const n = (counter.current += 1);

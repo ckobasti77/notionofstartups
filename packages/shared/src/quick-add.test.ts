@@ -10,6 +10,8 @@ import {
   parseStoredDestination,
   QUICK_ADD_TITLE_MAX,
   quickAddCall,
+  quickAddNoteCall,
+  quickAddNoteSuccessMessage,
   quickAddSuccessMessage,
   resolveArea,
   resolveDestination,
@@ -202,6 +204,35 @@ describe("koji poziv pravi zadatak (E16)", () => {
     );
     expect(quickAddSuccessMessage({ kind: "startup", startupId: "s2", areaId: null }, STARTUPS)).toBe(
       "Dodato u Scan Me.",
+    );
+  });
+});
+
+describe("brzi unos: beleška (K18)", () => {
+  test("poziv: lično → startupId null, startup → id; oblast se ne traži", () => {
+    expect(quickAddNoteCall({ destination: { kind: "personal" }, text: "  zapis  " })).toEqual({
+      fn: "thoughts.createNote",
+      args: { startupId: null, text: "zapis" },
+    });
+    expect(
+      quickAddNoteCall({ destination: { kind: "startup", startupId: "s2", areaId: null }, text: "ideja" }),
+    ).toEqual({ fn: "thoughts.createNote", args: { startupId: "s2", text: "ideja" } });
+  });
+
+  test("prazan tekst nema poruke, predug ima", () => {
+    expect(quickAddNoteCall({ destination: { kind: "personal" }, text: "   " })).toEqual({
+      fn: "invalid",
+      reason: null,
+    });
+    expect(
+      quickAddNoteCall({ destination: { kind: "personal" }, text: "x".repeat(12_001) }),
+    ).toMatchObject({ fn: "invalid", reason: expect.stringContaining("12000") });
+  });
+
+  test("poruka uspeha", () => {
+    expect(quickAddNoteSuccessMessage({ kind: "personal" }, STARTUPS)).toBe("Beleška je sačuvana u Lično.");
+    expect(quickAddNoteSuccessMessage({ kind: "startup", startupId: "s1", areaId: null }, STARTUPS)).toBe(
+      "Beleška je sačuvana u Cluck Rush.",
     );
   });
 });

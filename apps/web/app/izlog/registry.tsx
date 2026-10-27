@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 
+import BeleskeEkran from "./ekrani/beleske";
 import BiracDatumaEkran from "./ekrani/birac-datuma";
 import BrziUnosEkran from "./ekrani/brzi-unos";
 import InboxEkran from "./ekrani/inbox";
@@ -49,7 +50,7 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     varijante: ["obican", "prazan", "pretrpan", "po-startupu", "ucitavanje", "greska"],
     Komponenta: MojDanEkran,
   },
-  "brzi-unos": { naslov: "Brzi unos", korak: "K10", varijante: ["licno", "startup", "greska"], Komponenta: BrziUnosEkran },
+  "brzi-unos": { naslov: "Brzi unos", korak: "K10", varijante: ["licno", "startup", "greska", "beleska"], Komponenta: BrziUnosEkran },
   isplaniraj: { naslov: "Isplaniraj dan", korak: "K10", varijante: ["obican", "prazan"], Komponenta: IsplanirajEkran },
   "moji-zadaci": {
     naslov: "Moji zadaci",
@@ -125,5 +126,11 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K16",
     varijante: ["tabla", "lista", "detalj", "detalj-clan", "tabla-clan", "prazno", "ucitavanje", "greska"],
     Komponenta: IdejeEkran,
+  },
+  beleske: {
+    naslov: "Beleške — mešano, filter, izmena, slanje u startup",
+    korak: "K18",
+    varijante: ["mesano", "filter-startup", "izmena", "prazno", "pretraga-prazna", "posalji", "ucitavanje", "greska"],
+    Komponenta: BeleskeEkran,
   },
 };

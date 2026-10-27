@@ -206,6 +206,7 @@ describe("workspace URL route contract", () => {
       expect(readWorkspaceRouteCandidate("?view=me-tasks")).toEqual({ kind: "me-tasks" });
       expect(readWorkspaceRouteCandidate("?view=me-inbox")).toEqual({ kind: "me-inbox" });
       expect(readWorkspaceRouteCandidate("?view=me-chat")).toEqual({ kind: "me-chat" });
+      expect(readWorkspaceRouteCandidate("?view=me-notes")).toEqual({ kind: "me-notes" });
       expect(readWorkspaceRouteCandidate("?view=me-chat&channelId=ch-1")).toEqual({
         kind: "me-chat",
         channelId: "ch-1",
@@ -217,7 +218,7 @@ describe("workspace URL route contract", () => {
     });
 
     it("razlikuje opseg: me-* je lični, sve ostalo startup", () => {
-      for (const kind of ["me-today", "me-tasks", "me-inbox", "me-chat"] as const) {
+      for (const kind of ["me-today", "me-tasks", "me-inbox", "me-chat", "me-notes"] as const) {
         expect(isMeRoute({ kind })).toBe(true);
         expect(routeScope({ kind })).toBe("me");
       }
@@ -253,6 +254,34 @@ describe("workspace URL route contract", () => {
       expect(
         readWorkspaceLocation("?view=me-inbox"),
       ).toEqual({ route: { kind: "me-inbox" }, startupId: null, hasExplicitView: true });
+      // Beleške (K18): povratni put, i startupId iz URL-a Beleške ne nosi.
+      expect(
+        workspaceRouteHref(
+          { kind: "me-notes" },
+          "https://example.test/?view=thoughts&startupId=startup-4",
+          "startup-4" as never,
+        ),
+      ).toBe("/?view=me-notes");
+      expect(readWorkspaceLocation("?view=me-notes")).toEqual({
+        route: { kind: "me-notes" },
+        startupId: null,
+        hasExplicitView: true,
+      });
+    });
+
+    it("Mapa beleški ostaje po startupu: view=thoughts nosi startupId (K18)", () => {
+      expect(
+        workspaceRouteHref(
+          { kind: "thoughts" },
+          "https://example.test/?view=me-notes",
+          "startup-4" as never,
+        ),
+      ).toBe("/?view=thoughts&startupId=startup-4");
+      expect(readWorkspaceLocation("?view=thoughts&startupId=startup-4")).toEqual({
+        route: { kind: "thoughts" },
+        startupId: "startup-4",
+        hasExplicitView: true,
+      });
     });
 
     it("stari linkovi sa startupId rade kao pre", () => {
@@ -309,6 +338,7 @@ describe("workspace URL route contract", () => {
         { kind: "me-tasks" },
         { kind: "me-inbox" },
         { kind: "me-chat", channelId: "ch-1" as never },
+        { kind: "me-notes" },
       ] satisfies WorkspaceRoute[]) {
         expect(workspaceRouteAfterStartupSwitch(route)).toEqual({ kind: "today" });
       }

@@ -244,7 +244,7 @@ export function MyDayScreen() {
               <CheckSquare2 size={22} color={colors.foreground} />
             </IconButton>
             {/* Beleške (PROSTOR P18): stalni ulaz umesto stavke „Misli" u Više;
-                ruta zadržava ime zbog deep linkova, ekran Beleški pravi K18. */}
+                ruta zadržava ime zbog deep linkova (ekran Beleški, K18). */}
             <IconButton
               accessibilityLabel="Beleške"
               onPress={() => {
@@ -378,6 +378,7 @@ export function MyDayScreen() {
         readStored={readStoredDestination}
         rememberedArea={readLastArea}
         onSubmit={quickAdd.submit}
+        onSubmitNote={quickAdd.submitNote}
       />
     </View>
   );

@@ -8,6 +8,7 @@ export const ME_ROUTE_KINDS = [
   "me-tasks",
   "me-inbox",
   "me-chat",
+  "me-notes",
 ] as const satisfies ReadonlyArray<MeRoute["kind"]>;
 
 export function isMeRoute(route: { kind: string }): route is MeRoute {
@@ -52,6 +53,7 @@ export function readWorkspaceRouteCandidate(
   if (view === "me-today") return { kind: "me-today" };
   if (view === "me-tasks") return { kind: "me-tasks" };
   if (view === "me-inbox") return { kind: "me-inbox" };
+  if (view === "me-notes") return { kind: "me-notes" };
   if (view === "me-chat") {
     const channelId = params.get("channelId")?.trim();
     return channelId

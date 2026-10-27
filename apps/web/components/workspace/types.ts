@@ -25,7 +25,9 @@ export type MeRoute =
   | { kind: "me-today" }
   | { kind: "me-tasks" }
   | { kind: "me-inbox" }
-  | { kind: "me-chat"; channelId?: Id<"chatChannels"> };
+  | { kind: "me-chat"; channelId?: Id<"chatChannels"> }
+  /** Beleške (PROSTOR P7, K18): moje misli iz svih startupa + lične. */
+  | { kind: "me-notes" };
 
 /** Filter Zadataka startupa (PROSTOR P11): Svi (podrazumevano) · Moji · osoba. */
 export type TasksFilter = "svi" | "moji";

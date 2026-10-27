@@ -3,7 +3,7 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import {
-  Brain,
+  NotebookPen,
   CheckSquare2,
   FileText,
   Lightbulb,
@@ -72,7 +72,7 @@ export function SearchDialog({
         <DialogHeader className="sr-only">
           <DialogTitle>Pretraga</DialogTitle>
           <DialogDescription>
-            Pretraži stranice, zadatke, ideje, misli i poruke u startupu.
+            Pretraži stranice, zadatke, ideje, beleške i poruke u startupu.
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-3 border-b px-4">
@@ -91,7 +91,7 @@ export function SearchDialog({
             <EmptyState
               icon={Search}
               title="Pronađi ono što ti treba"
-              description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, misli i poruke ovog startupa."
+              description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, beleške i poruke ovog startupa."
               className="min-h-60 border-0 bg-transparent"
             />
           ) : (
@@ -230,15 +230,15 @@ function SearchResults({
         </Group>
       ) : null}
       {thoughts.length > 0 ? (
-        <Group title="Misli">
+        <Group title="Beleške">
           {thoughts.map((node) => (
             <ResultRow
               key={node._id}
-              icon={<Brain className="size-4" />}
+              icon={<NotebookPen className="size-4" />}
               title={nodePrimary(node)}
               subtitle={nodeSubtitle(node)}
               onClick={() => {
-                onNavigate({ kind: "thoughts" });
+                onNavigate({ kind: "me-notes" });
                 onClose();
               }}
             />

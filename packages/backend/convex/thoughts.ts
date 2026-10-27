@@ -1835,6 +1835,30 @@ export const listMine = query({
 });
 
 /**
+ * Jedna moja beleška po id-ju (detalj na telefonu; lične beleške nemaju Mapu,
+ * pa ih `getConnectedGroup` ne vidi). Tuđa, arhivirana, nepostojeća i beleška
+ * iz startupa van opsega daju isti odgovor — `null` (ne odaje da postoji).
+ */
+export const getNote = query({
+  args: { nodeId: v.id("thoughtNodes") },
+  returns: v.union(noteItemValidator, v.null()),
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    const node = await ctx.db.get("thoughtNodes", args.nodeId);
+    if (
+      node === null ||
+      node.ownerProfileId !== profile._id ||
+      node.archivedAt !== null
+    ) {
+      return null;
+    }
+    const scope = await listMyActiveStartups(ctx, profile._id);
+    if (!noteVisibleIn(node.startupId, scope)) return null;
+    return noteItem(node, scope);
+  },
+});
+
+/**
  * Nova beleška. Lična (`startupId: null`): bez Mape, pozicija (0, 0). U
  * startupu: član, Mapa se pravi po potrebi i beleška dobija slobodno mesto
  * (podbeleška ide ispod roditelja). Prazan naslov = prvi red teksta.

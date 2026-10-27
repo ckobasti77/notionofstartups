@@ -101,6 +101,7 @@ import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
 import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
 import { ProstorK14Katalog } from '@/components/katalog/prostor-k14';
 import { ProstorK17Katalog } from '@/components/katalog/prostor-k17';
+import { ProstorK18Katalog } from '@/components/katalog/prostor-k18';
 import { UndoBar } from '@/components/undo-bar';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
@@ -1054,6 +1055,9 @@ export default function DizajnKatalogScreen() {
 
         {/* PROSTOR K17: Ideje — čipovi faza, lista, Faza i „Pretvori“, red u Prostoru. */}
         <ProstorK17Katalog />
+
+        {/* PROSTOR K18: Beleške — lista, čipovi, brza beleška, brzi unos i „Pošalji u startup“. */}
+        <ProstorK18Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1174,6 +1178,9 @@ export default function DizajnKatalogScreen() {
             throw new Error('Zadatak nije dodat. Pokušaj ponovo.');
           }
           setK12Log(`Dodato: ${draft.title.trim()}`);
+        }}
+        onSubmitNote={async (draft) => {
+          setK12Log(`Beleška: ${draft.text.trim().slice(0, 40)}`);
         }}
       />
       <DatePickerSheet

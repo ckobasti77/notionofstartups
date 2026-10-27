@@ -491,6 +491,7 @@ export default function ZadaciScreen() {
         readStored={readStoredDestination}
         rememberedArea={readLastArea}
         onSubmit={quickAdd.submit}
+        onSubmitNote={quickAdd.submitNote}
       />
     </View>
   );

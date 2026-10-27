@@ -573,3 +573,57 @@ describe("Beleške: Pošalji u startup", () => {
     ]);
   });
 });
+
+describe("Beleške: jedna beleška (getNote)", () => {
+  test("vlasnik čita lične i startup beleške, svi ostali dobijaju null", async () => {
+    const s = await seed();
+    const personal = await s.asMe.mutation(api.thoughts.createNote, {
+      startupId: null,
+      text: "Lična za detalj",
+    });
+    const inA = await s.asMe.mutation(api.thoughts.createNote, {
+      startupId: s.a,
+      title: "Plan",
+      text: "Tekst u startupu",
+    });
+
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: personal })).toMatchObject({
+      _id: personal,
+      startupId: null,
+      startup: null,
+      title: "Lična za detalj",
+      text: "Lična za detalj",
+    });
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: inA })).toMatchObject({
+      _id: inA,
+      startupId: s.a,
+      startup: { _id: s.a, name: "Cluck Rush", logoUrl: null },
+    });
+
+    // Tuđa beleška (ni admin, ni član istog startupa) ne postoji za drugoga.
+    expect(await s.asAna.query(api.thoughts.getNote, { nodeId: personal })).toBeNull();
+    expect(await s.asAna.query(api.thoughts.getNote, { nodeId: inA })).toBeNull();
+    expect(await s.asAdmin.query(api.thoughts.getNote, { nodeId: personal })).toBeNull();
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: s.anaPersonal })).toBeNull();
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: s.anaInA })).toBeNull();
+  });
+
+  test("arhivirana beleška, napušten i arhiviran startup, arhiviran profil i neprijavljen", async () => {
+    const s = await seed();
+    const personal = await s.asMe.mutation(api.thoughts.createNote, {
+      startupId: null,
+      text: "Biće u arhivi",
+    });
+    await s.asMe.mutation(api.thoughts.archiveNodes, { nodeIds: [personal] });
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: personal })).toBeNull();
+    await s.asMe.mutation(api.thoughts.restoreNodes, { nodeIds: [personal] });
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: personal })).not.toBeNull();
+
+    // Beleške iz startupa koji sam napustio ili koji je arhiviran se ne vide.
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: s.leftNote })).toBeNull();
+    expect(await s.asMe.query(api.thoughts.getNote, { nodeId: s.archivedStartupNote })).toBeNull();
+
+    await expect(s.asGone.query(api.thoughts.getNote, { nodeId: personal })).rejects.toThrow();
+    await expect(s.t.query(api.thoughts.getNote, { nodeId: personal })).rejects.toThrow();
+  });
+});

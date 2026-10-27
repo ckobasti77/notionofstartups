@@ -45,11 +45,11 @@ const DEBOUNCE_MS = 300;
 /**
  * Pretraga preko celog ekrana (spec §M3.4). Otvara se iz ikonice u `AppHeader`.
  * Pet grupa: „Stranice" i „Zadaci" iz `search.pages` (po `kind`), „Ideje" i
- * „Misli" iz `search.ideasAndThoughts`, „Poruke" iz `chat.searchMessages`.
+ * „Beleške" iz `search.ideasAndThoughts`, „Poruke" iz `chat.searchMessages`.
  * Debounce na unosu, autofokus, dva prazna stanja (pre kucanja / bez rezultata).
  *
- * Misao vodi pravo na svoj detalj (`/misao/[id]` — rezultat nosi pravi `_id`, a
- * pretraga vraća samo tvoje nearhivirane misli, iste uslove kao detalj). Ideja
+ * Beleška vodi pravo na svoj detalj (`/misao/[id]` — rezultat nosi pravi `_id`, a
+ * pretraga vraća samo tvoje nearhivirane beleške, iste uslove kao detalj). Ideja
  * ostaje na nivou sekcije (lista `/ideje` — ekran ideje traži `ideas.list` skup).
  */
 export default function PretragaScreen() {
@@ -169,7 +169,7 @@ export default function PretragaScreen() {
         <EmptyState
           icon={<Search size={40} color={colors.mutedForeground} />}
           title="Pronađi ono što ti treba"
-          description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, misli i poruke ovog startupa."
+          description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, beleške i poruke ovog startupa."
         />
       ) : activeStartupId === null ? (
         // Bez izabranog startupa pretraga nema opseg — jasna poruka umesto
@@ -231,14 +231,14 @@ export default function PretragaScreen() {
                   </Section>
                 ) : null}
                 {thoughts.length > 0 ? (
-                  <Section title="Misli" count={thoughts.length}>
+                  <Section title="Beleške" count={thoughts.length}>
                     {thoughts.map((n, index) => (
                       <StaggerItem key={n._id} index={index}>
                         <NodeRow
                           node={n}
                           tint={colors.primary}
                           icon={Brain}
-                          openHint="otvori misao"
+                          openHint="otvori belešku"
                           colors={colors}
                           onPress={() => openThought(n._id)}
                         />
@@ -383,7 +383,7 @@ function NodeRow({
   node: { title: string | null; text: string };
   tint: string;
   icon: LucideIcon;
-  // Label imenuje ODREDIŠTE (misao → njen detalj, ideja → lista ideja), da
+  // Label imenuje ODREDIŠTE (beleška → njen detalj, ideja → lista ideja), da
   // ekran-čitač tačno zna kuda tap vodi (kao MessageRow: „Otvori razgovor …").
   openHint: string;
   colors: ColorTokens;

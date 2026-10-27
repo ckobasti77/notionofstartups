@@ -1,3 +1,4 @@
+import { NOTE_ARCHIVED_MESSAGE, NOTE_SEND_TITLE } from '@devotion/shared';
 import { useMutation, usePaginatedQuery } from 'convex/react';
 import {
   Archive,
@@ -39,13 +40,13 @@ const DUPLICATE_OFFSET = 38;
 export type ThoughtActionsView = 'menu' | 'connect' | 'nest' | 'size';
 
 const VIEW_TITLE: Record<Exclude<ThoughtActionsView, 'menu'>, string> = {
-  connect: 'Poveži sa misli',
+  connect: 'Poveži sa beleškom',
   nest: 'Ugnjezdi u…',
   size: 'Veličina oblačića',
 };
 
 /**
- * Akcije nad jednom misli (PARITET A1) — mobilni pandan web context meniju i
+ * Akcije nad jednom beleškom na Mapi (PARITET A1; K18: tekstovi „beleška”) — mobilni pandan web context meniju i
  * NodeToolbar-u sa kanvasa: povezivanje, ugnježdavanje, izdvajanje, glavna misao,
  * dupliranje, veličina oblačića, slanje u Ideje, arhiviranje. Isti obrazac kao
  * `page-actions-sheet.tsx`: JEDAN sheet sa pod-prikazima („akcija → cilj"), ne
@@ -68,19 +69,22 @@ export function ThoughtActionsSheet({
 }: {
   open: boolean;
   node: Doc<'thoughtNodes'> | null;
-  /** Mapa misli postoji samo po startupu (lične beleške nemaju Mapu, PROSTOR P7). */
+  /**
+   * Mapa beleški postoji samo po startupu (lične beleške nemaju Mapu, PROSTOR P7):
+   * njima služi `NoteActionsSheet`, ovaj sheet se za njih ne otvara.
+   */
   startupId: Id<'startups'>;
-  /** Korak na kom se sheet otvara — „Poveži sa misli…" sa detalja preskače meni. */
+  /** Korak na kom se sheet otvara — „Poveži sa beleškom…" sa detalja preskače meni. */
   initialView?: ThoughtActionsView;
   onClose: () => void;
   /**
-   * „Pošalji u Ideje": roditelj zatvara OVAJ sheet pa (uz pauzu) otvara konverzioni
+   * „Pošalji u startup": roditelj zatvara OVAJ sheet pa (uz pauzu) otvara konverzioni
    * — dva istovremena modala na Androidu gutaju `onRequestClose`.
    */
   onConvert: (nodes: Doc<'thoughtNodes'>[]) => void;
-  /** „Nova povezana misao…": isti handoff ugovor kao `onConvert`. */
+  /** „Nova povezana beleška…": isti handoff ugovor kao `onConvert`. */
   onCreateConnected?: (node: Doc<'thoughtNodes'>) => void;
-  /** Detalj misli: prebaci upit na `skip` PRE mutacije (trka sa ErrorBoundary). */
+  /** Detalj beleške: prebaci upit na `skip` PRE mutacije (trka sa ErrorBoundary). */
   onBeforeArchive?: () => void;
   onArchived?: () => void;
   onArchiveFailed?: () => void;
@@ -113,7 +117,7 @@ export function ThoughtActionsSheet({
     open && node !== null && (view === 'connect' || view === 'nest') ? { startupId } : 'skip',
     { initialNumItems: 50 },
   );
-  // Postojeće veze — da „Poveži" obeleži već povezane misli umesto da server baci.
+  // Postojeće veze — da „Poveži” obeleži već povezane beleške umesto da server baci.
   const { results: edgeResults } = usePaginatedQuery(
     api.thoughts.listEdges,
     open && node !== null && view === 'connect' ? { startupId } : 'skip',
@@ -162,15 +166,15 @@ export function ThoughtActionsSheet({
   const archive = () => {
     if (busyId !== null) return;
     haptics.warning();
-    Alert.alert('Arhivirati misao?', `„${title}" se sklanja sa kanvasa. Veze idu sa njom.`, [
+    Alert.alert('Arhivirati belešku?', `„${title}” se sklanja sa Mape. Veze idu sa njom.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Arhiviraj',
         style: 'destructive',
         onPress: () =>
           void runAction('archive', async () => {
-            // Detalj mora da preskoči svoj upit PRE nego što misao nestane —
-            // inače pretplata baci „Misao nije pronađena." pre `router.back()`.
+            // Detalj mora da preskoči svoj upit PRE nego što beleška nestane —
+            // inače pretplata vrati „nije pronađena” pre `router.back()`.
             onBeforeArchive?.();
             try {
               await archiveNodes({ nodeIds: [target._id] });
@@ -181,7 +185,7 @@ export function ThoughtActionsSheet({
             // Traka „Poništi" je jedini put nazad — backend nema upit za arhivu
             // (`restoreNodes` sam vraća i veze pale uz čvor).
             pushUndo({
-              label: 'Misao je arhivirana.',
+              label: NOTE_ARCHIVED_MESSAGE,
               action: { kind: 'thoughts', nodeIds: [target._id], edgeIds: [] },
             });
             onArchived?.();
@@ -203,16 +207,16 @@ export function ThoughtActionsSheet({
           </Text>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
             <Row
-              title="Pošalji u Ideje"
-              subtitle="Misao postaje timska ideja; original ostaje privatan"
+              title={NOTE_SEND_TITLE}
+              subtitle="Tim dobija ideju; beleška ostaje privatna"
               onPress={() => onConvert([target])}
               disabled={busyId !== null}
               style={styles.row}
               icon={<Send size={20} color={colors.mutedForeground} />}
             />
             <Row
-              title="Poveži sa misli…"
-              subtitle="Veza ka drugoj misli, vidljiva na kanvasu"
+              title="Poveži sa beleškom…"
+              subtitle="Veza ka drugoj beleški, vidljiva na Mapi"
               onPress={() => setView('connect')}
               disabled={busyId !== null}
               style={styles.row}
@@ -220,7 +224,7 @@ export function ThoughtActionsSheet({
             />
             <Row
               title="Ugnjezdi u…"
-              subtitle="Misao postaje deo grupe i putuje sa njom"
+              subtitle="Beleška postaje deo grupe i putuje sa njom"
               onPress={() => setView('nest')}
               disabled={busyId !== null}
               style={styles.row}
@@ -229,11 +233,11 @@ export function ThoughtActionsSheet({
             {target.parentThoughtId !== undefined ? (
               <Row
                 title="Izdvoji iz grupe"
-                subtitle="Vraća misao na vrh kanvasa, gde je i stajala"
+                subtitle="Vraća belešku na vrh Mape, gde je i stajala"
                 onPress={() =>
                   void runAction('detach', async () => {
                     await detachNode({ nodeId: target._id });
-                    return 'Misao je izdvojena iz grupe.';
+                    return 'Beleška je izdvojena iz grupe.';
                   })
                 }
                 disabled={busyId !== null}
@@ -244,8 +248,8 @@ export function ThoughtActionsSheet({
               />
             ) : null}
             <Row
-              title={target.isParent ? 'Ukloni oznaku glavne' : 'Proglasi glavnom misli'}
-              subtitle="Glavna misao se ističe kao stožer grupe"
+              title={target.isParent ? 'Ukloni oznaku glavne' : 'Proglasi glavnom beleškom'}
+              subtitle="Glavna beleška se ističe kao stožer grupe"
               onPress={() =>
                 void runAction('toggle-parent', async () => {
                   await toggleNodeParent({ nodeId: target._id, isParent: !target.isParent });
@@ -270,7 +274,7 @@ export function ThoughtActionsSheet({
                     offsetX: DUPLICATE_OFFSET,
                     offsetY: DUPLICATE_OFFSET,
                   });
-                  return 'Misao je duplirana.';
+                  return 'Beleška je duplirana.';
                 })
               }
               disabled={busyId !== null}
@@ -281,8 +285,8 @@ export function ThoughtActionsSheet({
             />
             {onCreateConnected ? (
               <Row
-                title="Nova povezana misao…"
-                subtitle="Nova misao, odmah povezana sa ovom"
+                title="Nova povezana beleška…"
+                subtitle="Nova beleška, odmah povezana sa ovom"
                 onPress={() => onCreateConnected(target)}
                 disabled={busyId !== null}
                 style={styles.row}
@@ -301,7 +305,7 @@ export function ThoughtActionsSheet({
             />
             <Row
               title="Arhiviraj"
-              subtitle={'Sklanja misao; traka „Poništi" vraća'}
+              subtitle={'Sklanja belešku; traka „Poništi” vraća'}
               onPress={archive}
               disabled={busyId !== null}
               showChevron={false}
@@ -318,14 +322,14 @@ export function ThoughtActionsSheet({
             onPress={() => setView('menu')}
             disabled={busyId !== null}
             showChevron={false}
-            accessibilityLabel={`Nazad na akcije misli — ${VIEW_TITLE[view]}`}
+            accessibilityLabel={`Nazad na akcije beleške — ${VIEW_TITLE[view]}`}
             style={styles.row}
             icon={<ChevronLeft size={22} color={colors.foreground} />}
           />
           <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
             {view === 'connect' || view === 'nest' ? (
               candidates.status === 'LoadingFirstPage' ? (
-                <Loading label="Učitavanje misli" />
+                <Loading label="Učitavanje beleški" />
               ) : (
                 <CandidateList
                   view={view}
@@ -336,13 +340,13 @@ export function ThoughtActionsSheet({
                   onConnect={(targetId, targetTitle) =>
                     void runAction(targetId, async () => {
                       await createEdge({ startupId, nodeAId: target._id, nodeBId: targetId });
-                      return `Misao je povezana sa „${targetTitle}".`;
+                      return `Beleška je povezana sa „${targetTitle}”.`;
                     })
                   }
                   onNest={(targetId, targetTitle) =>
                     void runAction(targetId, async () => {
                       await nestNode({ childNodeId: target._id, parentNodeId: targetId });
-                      return `Misao je ugnježdena u „${targetTitle}".`;
+                      return `Beleška je ugnježdena u „${targetTitle}”.`;
                     })
                   }
                   onLoadMore={
@@ -446,8 +450,8 @@ function CandidateList({
     return (
       <Text style={[styles.empty, { color: colors.mutedForeground }]}>
         {view === 'connect'
-          ? 'Nema druge misli za povezivanje.'
-          : 'Nema druge misli u koju bi se ova ugnjezdila.'}
+          ? 'Nema druge beleške za povezivanje.'
+          : 'Nema druge beleške u koju bi se ova ugnjezdila.'}
       </Text>
     );
   }

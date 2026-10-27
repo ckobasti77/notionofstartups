@@ -187,6 +187,34 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     expect(snapshot.stack.map((entry) => entry.action.kind)).toContain('ideaStage');
   });
 
+  test('K18 — nova beleška: inverz je arhiviranje, a „Otvori” je druga radnja trake', () => {
+    let opened = 0;
+    pushUndo({
+      label: 'Beleška je sačuvana u Lično.',
+      action: { kind: 'thoughtCreate', nodeId: 'n1' as Id<'thoughtNodes'> },
+      secondary: { label: 'Otvori', onPress: () => (opened += 1) },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({ kind: 'thoughtCreate', nodeId: 'n1' });
+    expect(snapshot.bar?.secondary?.label).toBe('Otvori');
+    snapshot.bar?.secondary?.onPress();
+    expect(opened).toBe(1);
+    // Nema serverskog roka: beleška se vraća/arhivira dok traka stoji i iz „Istorije radnji”.
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+  });
+
+  test('K18 — arhivirana beleška se vraća kroz `thoughts` (restoreNodes), bez veza', () => {
+    pushUndo({
+      label: 'Beleška je arhivirana.',
+      action: { kind: 'thoughts', nodeIds: ['n1' as Id<'thoughtNodes'>], edgeIds: [] },
+    });
+    expect(getUndoSnapshotForTest().bar?.action).toEqual({
+      kind: 'thoughts',
+      nodeIds: ['n1'],
+      edgeIds: [],
+    });
+  });
+
   test('K09 — poruka bez „Poništi" (Korpa) smenjuje traku, a stek ostaje netaknut', () => {
     let opened = 0;
     push('Prva', 'a');

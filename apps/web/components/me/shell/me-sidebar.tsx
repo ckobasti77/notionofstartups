@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, type ComponentType } from "react";
-import { CheckSquare2, Inbox, LogOut, MessageCircle, Sun, UserRound } from "lucide-react";
+import { CheckSquare2, Inbox, LogOut, MessageCircle, NotebookPen, Sun, UserRound } from "lucide-react";
 
 import { NumberRoll } from "@/components/motion/number-roll";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { StartupChip } from "../startup-chip";
 import { unreadMessagesPhrase, unreadPhrase } from "./scope";
 
-export type MeNavKey = "me-today" | "me-tasks" | "me-inbox" | "me-chat";
+export type MeNavKey = "me-today" | "me-tasks" | "me-inbox" | "me-chat" | "me-notes";
 
 export type MeSidebarStartup = {
   id: Id<"startups">;
@@ -48,6 +48,7 @@ const NAV: Array<{ key: MeNavKey; label: string; icon: ComponentType<{ className
   { key: "me-tasks", label: "Moji zadaci", icon: CheckSquare2 },
   { key: "me-inbox", label: "Inbox", icon: Inbox },
   { key: "me-chat", label: "Poruke", icon: MessageCircle },
+  { key: "me-notes", label: "Beleške", icon: NotebookPen },
 ];
 
 function countFor(key: MeNavKey, counts: MeSidebarProps["counts"]) {
@@ -64,7 +65,7 @@ function ariaCount(key: MeNavKey, value: number, capped: boolean) {
 }
 
 /**
- * Meni opsega „Ja" (PLAN §3.2): zaglavlje sa profilom, četiri prikaza ličnog
+ * Meni opsega „Ja" (PLAN §3.2): zaglavlje sa profilom, pet prikaza ličnog
  * nivoa i kratka lista startupa sa brojem mojih otvorenih zadataka — klik
  * prelazi u startup (Komandni centar).
  */
