@@ -318,6 +318,20 @@ export function undoOutcome(result: {
 
 // --- Puls nedelje -------------------------------------------------------------
 
+/**
+ * Korak „sada" za karticu Pulsa (K23). `now` iz `useToday` se menja pri svakom
+ * povratku u aplikaciju posle 60 s, a svaka nova vrednost je NOVA pretplata na
+ * težak `puls.getWeekly`. Kartici (prekoračeno i „zapelo" se računaju u danima)
+ * je dovoljan korak od 15 min; sve zone imaju pomak deljiv sa 15 min, pa
+ * zaokružen trenutak nikad ne pređe u prethodni lokalni dan.
+ */
+export const PULSE_NOW_STEP_MS = 15 * 60_000;
+
+/** `now` zaokružen naniže na `PULSE_NOW_STEP_MS` — stabilan argument pretplate. */
+export function pulseCardNow(now: number): number {
+  return Math.floor(now / PULSE_NOW_STEP_MS) * PULSE_NOW_STEP_MS;
+}
+
 /** Granice tekuće nedelje (ponedeljak 00:00 lokalno) za `puls.getWeekly`. */
 export function currentWeekBounds(
   now: number,

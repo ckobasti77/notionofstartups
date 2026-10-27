@@ -18,7 +18,7 @@ import {
 } from '@/lib/thought-layout';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, text } from '@/theme/tokens';
+import { text } from '@/theme/tokens';
 
 /**
  * Misao nad kojom se otvaraju akcije na kanvasu. Sve stiže uz `node:actions` /
@@ -213,8 +213,6 @@ export function ThoughtNodeActionsSheet({
             busy={busy}
             onConnect={() => onStartConnect(thought)}
             onBreak={breakEdge}
-            // Misli su privatne — tuđe misli na platnu nema, pa ni glasanja.
-            onRequestDeletion={() => undefined}
           />
 
           <NodeSizeSection

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useEffect, useRef } from "react";
+import { useQuery } from "convex/react";
 import {
   AtSign,
   BellRing,
@@ -13,23 +13,12 @@ import {
   MessageCircle,
   MessageSquare,
   MessageSquareText,
-  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
-import { inboxUnreadWord } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState, ProfileAvatar, formatActivityTime, isToday } from "@/components/workspace/workspace-ui";
 import { usePushNotifications, type PushState } from "@/hooks/use-push-notifications";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -79,233 +68,6 @@ export const TYPE_ICON: Record<string, typeof CheckSquare2> = {
 /** Prekoračen rok je jedini tip koji sme da nosi crvenu. */
 export const LOUD_TYPES = new Set(["task_overdue"]);
 
-export function NotificationsSheet({
-  open,
-  onOpenChange,
-  startupId,
-  onOpenNotification,
-  onOpenSettings,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  startupId: Id<"startups">;
-  onOpenNotification: (item: NotificationItem) => void;
-  /** Otvara dijalog „Obaveštenja i zvuci". Dijalog živi u shell-u kao zaseban
-   * modal (ne ugnježđen u ovaj Sheet), pa se otvara preko callback-a. */
-  onOpenSettings: () => void;
-}) {
-  const { results, status, loadMore } = usePaginatedQuery(
-    api.notifications.list,
-    open ? { startupId } : "skip",
-    { initialNumItems: 25 },
-  );
-  const unread = useQuery(
-    api.notifications.unreadCount,
-    open ? { startupId } : "skip",
-  );
-  const markAllRead = useMutation(api.notifications.markAllRead);
-  const [markingAll, setMarkingAll] = useState(false);
-
-  const items = results as unknown as Array<NotificationItem>;
-  const groups = useMemo(() => {
-    const today: Array<NotificationItem> = [];
-    const earlier: Array<NotificationItem> = [];
-    for (const item of items) {
-      (isToday(item.createdAt) ? today : earlier).push(item);
-    }
-    return { today, earlier };
-  }, [items]);
-
-  async function handleMarkAll() {
-    setMarkingAll(true);
-    try {
-      await markAllRead({ startupId });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Označavanje nije uspelo.",
-      );
-    } finally {
-      setMarkingAll(false);
-    }
-  }
-
-  const unreadCount = unread?.count ?? 0;
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="border-b border-border/70 px-5 py-4 pr-14">
-          <SheetTitle className="text-base">Obaveštenja</SheetTitle>
-          <SheetDescription>
-            {unreadCount === 0
-              ? "Sve je pročitano."
-              : `${unreadCount}${unread?.capped ? "+" : ""} ${inboxUnreadWord(unreadCount)}.`}
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="space-y-2 border-b border-border/70 px-5 py-3">
-          <PushToggle />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-full justify-start text-xs text-muted-foreground"
-            onClick={onOpenSettings}
-          >
-            <SlidersHorizontal className="size-3.5" /> Obaveštenja i zvuci
-          </Button>
-        </div>
-
-        {unreadCount > 0 ? (
-          <div className="flex justify-end border-b border-border/70 px-5 py-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              disabled={markingAll}
-              onClick={handleMarkAll}
-            >
-              Označi sve kao pročitane
-            </Button>
-          </div>
-        ) : null}
-
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="px-5 py-4">
-            {status === "LoadingFirstPage" ? (
-              <div className="space-y-3">
-                {[0, 1, 2, 3].map((item) => (
-                  <Skeleton key={item} className="h-16 rounded-xl" />
-                ))}
-              </div>
-            ) : items.length === 0 ? (
-              <EmptyState
-                icon={BellRing}
-                title="Još nema obaveštenja"
-                description="Ovde stižu zadaci, glasovi i rokovi."
-                className="min-h-40"
-              />
-            ) : (
-              <div className="space-y-5">
-                {groups.today.length > 0 ? (
-                  <NotificationGroup
-                    label="Danas"
-                    items={groups.today}
-                    onOpenNotification={onOpenNotification}
-                  />
-                ) : null}
-                {groups.earlier.length > 0 ? (
-                  <NotificationGroup
-                    label="Ranije"
-                    items={groups.earlier}
-                    onOpenNotification={onOpenNotification}
-                  />
-                ) : null}
-                {status === "CanLoadMore" || status === "LoadingMore" ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    disabled={status === "LoadingMore"}
-                    onClick={() => loadMore(25)}
-                  >
-                    {status === "LoadingMore" ? "Učitavam…" : "Učitaj još"}
-                  </Button>
-                ) : null}
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function NotificationGroup({
-  label,
-  items,
-  onOpenNotification,
-}: {
-  label: string;
-  items: Array<NotificationItem>;
-  onOpenNotification: (item: NotificationItem) => void;
-}) {
-  return (
-    <section>
-      <h3 className="mb-2 text-sm font-semibold">
-        {label}
-      </h3>
-      <ul className="space-y-1.5">
-        {items.map((item) => (
-          <li key={item._id}>
-            <NotificationRow item={item} onOpen={onOpenNotification} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function NotificationRow({
-  item,
-  onOpen,
-}: {
-  item: NotificationItem;
-  onOpen: (item: NotificationItem) => void;
-}) {
-  const Icon = TYPE_ICON[item.type] ?? BellRing;
-  const unread = item.readAt === null;
-  const loud = LOUD_TYPES.has(item.type);
-
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(item)}
-      className={cn(
-        "flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60",
-        unread && "bg-accent/40",
-      )}
-    >
-      <span
-        className={cn(
-          "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg",
-          loud
-            ? "bg-destructive/12 text-destructive"
-            : "bg-muted text-muted-foreground",
-        )}
-      >
-        {item.actor === null ? (
-          <Icon className="size-4" aria-hidden="true" />
-        ) : (
-          <ProfileAvatar profile={item.actor} className="size-8" />
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span
-          className={cn(
-            "block text-sm leading-5",
-            unread ? "font-semibold" : "text-muted-foreground",
-          )}
-        >
-          {item.title}
-        </span>
-        {item.body ? (
-          <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-            {item.body}
-          </span>
-        ) : null}
-        <span className="mt-1 block text-[0.6875rem] text-muted-foreground">
-          {formatActivityTime(item.createdAt)}
-        </span>
-      </span>
-      {unread ? (
-        <span className="mt-2 size-2 shrink-0 rounded-full bg-primary">
-          <span className="sr-only">Nepročitano</span>
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
 const PUSH_COPY: Record<
   PushState,
   { title: string; description: string } | null
@@ -341,7 +103,11 @@ const PUSH_COPY: Record<
   },
 };
 
-function PushToggle() {
+/**
+ * Prijem obaveštenja na ovom uređaju (web push). Od K08 se zvono startupa više
+ * ne montira, pa prekidač živi i u dijalogu „Obaveštenja i zvuci" (K23).
+ */
+export function PushToggle() {
   const { state, busy, error, enable, disable } = usePushNotifications();
   const deviceCount = useQuery(api.pushSubscriptions.myDeviceCount, {});
   const copy = PUSH_COPY[state];

@@ -275,7 +275,12 @@ function PageContent({
       {/* „Podstranice" su sekcija unutar stranice (tap u Prostoru otvara stranicu, ne
           roni u podstranice), skupljena podrazumevano. Ispod nje „Povezane stavke". */}
       <BlockBoundary title="Podstranice nisu učitane.">
-        <SubpagesSection pageId={page._id} startupId={page.startupId} areaId={page.areaId} />
+        <SubpagesSection
+          pageId={page._id}
+          startupId={page.startupId}
+          areaId={page.areaId}
+          canCreate={page.permissions.canEdit}
+        />
       </BlockBoundary>
       <BlockBoundary title="Povezano nije učitano.">
         <RelationsSection

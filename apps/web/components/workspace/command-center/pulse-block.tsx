@@ -2,7 +2,13 @@
 
 import { useMemo } from "react";
 import { ChevronRight } from "lucide-react";
-import { COMMAND_BLOCK_TEXT, currentWeekBounds, weekPulseFacts, type WeekPulseFact } from "@devotion/shared";
+import {
+  COMMAND_BLOCK_TEXT,
+  currentWeekBounds,
+  pulseCardNow,
+  weekPulseFacts,
+  type WeekPulseFact,
+} from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import { useQueryResult } from "@/components/workspace/workspace-error-boundary";
@@ -62,10 +68,13 @@ export function PulseView({ status, onRetry, facts, onOpen }: PulseViewProps) {
 /**
  * Kontejner „Puls nedelje": `puls.getWeekly` za tekuću nedelju (granice računa
  * klijent, upit ne čita sat). Dok se `now` osvežava poslednji odgovor važi.
+ * `now` ide u koracima od 15 min (`pulseCardNow`, K23): povratak na karticu
+ * pregledača ne pravi novu pretplatu na težak upit.
  */
 export function PulseBlock({ startupId, now, onOpen }: { startupId: Id<"startups">; now: number; onOpen: () => void }) {
   const retry = useBlockRetry();
-  const bounds = useMemo(() => currentWeekBounds(now), [now]);
+  const cardNow = pulseCardNow(now);
+  const bounds = useMemo(() => currentWeekBounds(cardNow), [cardNow]);
   const result = useQueryResult(api.puls.getWeekly, { startupId, ...bounds });
   const data = useLastReady(result.data);
   const facts = useMemo(() => (data === undefined ? [] : weekPulseFacts(data.summary)), [data]);

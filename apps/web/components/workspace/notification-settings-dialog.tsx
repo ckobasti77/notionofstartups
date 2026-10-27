@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { PushToggle } from "@/components/workspace/notifications-panel";
 import { api } from "@/convex/_generated/api";
 import type { NotificationType } from "@/convex/lib/notifications";
 import {
@@ -88,6 +89,8 @@ export function NotificationSettingsDialog({
         </DialogHeader>
 
         <div className="max-h-[60vh] space-y-6 overflow-y-auto px-6 py-5">
+          {/* Prijem na OVOM uređaju (web push) — jedini prekidač za pregledač. */}
+          <PushToggle />
           {settings === undefined ? (
             <div className="space-y-3">
               <span className="sr-only" role="status" aria-live="polite">

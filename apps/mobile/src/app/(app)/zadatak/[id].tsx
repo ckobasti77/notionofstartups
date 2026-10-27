@@ -1,6 +1,7 @@
 import {
   assigneesChipValue,
   describeDue,
+  htmlToPlainText,
   PRIORITY_LABELS,
   reopenStatus,
   STATUS_LABELS,
@@ -25,6 +26,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,6 +52,7 @@ import { PlanButton } from '@/components/me/task-panel-sheet';
 import { useRowMutations } from '@/components/me/use-row-mutations';
 import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
 import { RelationsSection } from '@/components/stranica/relations-section';
+import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
 import { BlockBoundary } from '@/components/collab/block-boundary';
 import { TaskMetaSheet, type TaskMetaView } from '@/components/zadatak/task-meta-sheet';
@@ -60,6 +63,7 @@ import { taskPermissionsOf } from '@/components/zadatak/task-permissions';
 import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonCard, SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
@@ -72,7 +76,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 
 /** Zatvaranje jednog sheet-a pa otvaranje drugog: iOS ne prikazuje modal dok se prethodni skida. */
 const SHEET_CHAIN_MS = 350;
@@ -165,6 +169,11 @@ export default function ZadatakScreen() {
     () => new Map(assigneeList.map((person) => [person.profileId as string, person.displayName])),
     [assigneeList],
   );
+  // Stari tekst tela zadatka ostaje vidljiv samo za čitanje (par web K11-6, K23).
+  // `useMemo` iznad ranih return-a: telo ume da ima do 80.000 znakova, a ekran se
+  // prerenderuje na otkucaj prisustva i živi sat.
+  const pageContent = page?.content;
+  const legacyContext = useMemo(() => htmlToPlainText(pageContent ?? ''), [pageContent]);
 
   if (page === undefined || profile === undefined) {
     return (
@@ -431,6 +440,29 @@ export default function ZadatakScreen() {
               </BlockBoundary>
             </View>
 
+            {/* Podstranice zadatka kao lista (par web K11; zadatak nema mapu, P14). */}
+            <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>
+              <BlockBoundary title="Podstranice nisu učitane.">
+                <SubpagesSection
+                  pageId={pageId}
+                  startupId={page.startupId}
+                  areaId={page.areaId}
+                  canCreate={canEditAll}
+                  inline
+                  showDivider={false}
+                />
+              </BlockBoundary>
+            </View>
+
+            {legacyContext ? (
+              <View style={[styles.section, { borderTopColor: colors.border }]}>
+                <SectionHeader title="Dodatni kontekst" />
+                <Text selectable style={[styles.legacyContext, { color: colors.foreground }]}>
+                  {legacyContext}
+                </Text>
+              </View>
+            ) : null}
+
             <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>
               <CommentsEntryRow summary={commentsSummary} onPress={() => setCommentsOpen(true)} />
             </View>
@@ -580,6 +612,11 @@ const styles = StyleSheet.create({
   flush: {
     paddingHorizontal: 0,
     paddingTop: 0,
+  },
+  legacyContext: {
+    ...text.body,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   planRow: {
     paddingTop: 4,

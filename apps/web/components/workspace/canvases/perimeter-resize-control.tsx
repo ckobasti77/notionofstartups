@@ -29,8 +29,11 @@ import {
 import styles from "./perimeter-resize-control.module.css";
 import { isCanvasSpacePanActive } from "./use-canvas-navigation";
 
-/** `organic` još koristi Mapa beleški (`thoughts/`); Mapa oblasti i ideja je `rounded`. */
-export type PerimeterResizeShape = "organic" | "rounded";
+/**
+ * Sve Mape (oblast, ideje, koraci, beleške) koriste pravougaonu karticu
+ * (PROSTOR P15). Organski oblik je uklonjen u K23 — više ga niko nije koristio.
+ */
+export type PerimeterResizeShape = "rounded";
 
 type ActiveResize = {
   pointerId: number;
@@ -41,9 +44,6 @@ type ActiveResize = {
   latest: ResizeParams;
   moved: boolean;
 };
-
-const ORGANIC_PATH =
-  "M 42 0 A 58 44 0 0 1 100 44 A 52 56 0 0 1 48 100 A 48 54 0 0 1 0 46 A 42 46 0 0 1 42 0 Z";
 
 function roundedPath(width: number, height: number, radius = 20) {
   const rx = Math.min(49, (radius / Math.max(width, 1)) * 100);
@@ -63,13 +63,12 @@ function roundedPath(width: number, height: number, radius = 20) {
 }
 
 function shapePath(
-  shape: PerimeterResizeShape,
+  _shape: PerimeterResizeShape,
   width: number,
   height: number,
   cornerRadius?: number,
 ) {
-  if (shape === "rounded") return roundedPath(width, height, cornerRadius);
-  return ORGANIC_PATH;
+  return roundedPath(width, height, cornerRadius);
 }
 
 export function PerimeterResizeControl<NodeType extends Node>({

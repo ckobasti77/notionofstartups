@@ -50,7 +50,8 @@ const DEBOUNCE_MS = 300;
  *
  * Beleška vodi pravo na svoj detalj (`/misao/[id]` — rezultat nosi pravi `_id`, a
  * pretraga vraća samo tvoje nearhivirane beleške, iste uslove kao detalj). Ideja
- * ostaje na nivou sekcije (lista `/ideje` — ekran ideje traži `ideas.list` skup).
+ * takođe vodi na svoj detalj (`/ideja/[id]`, K23 paritet sa webom): pretraga je
+ * u aktivnom startupu, a detalj čita isti `ideas.list` skup tog startupa.
  */
 export default function PretragaScreen() {
   const colors = useThemeColors();
@@ -113,10 +114,9 @@ export default function PretragaScreen() {
     haptics.tap();
     router.push({ pathname: '/razgovor/[id]', params: { id } });
   };
-  // Ideja nema deep-link (ekran ideje čita iz `ideas.list` skupa) — vodi na listu.
-  const openIdeas = () => {
+  const openIdea = (id: Id<'ideaNodes'>) => {
     haptics.tap();
-    router.push({ pathname: '/ideje' });
+    router.push({ pathname: '/ideja/[id]', params: { id } });
   };
   const openThought = (id: Id<'thoughtNodes'>) => {
     haptics.tap();
@@ -222,9 +222,9 @@ export default function PretragaScreen() {
                           node={n}
                           tint={colors.mutedForeground}
                           icon={Lightbulb}
-                          openHint="otvori listu ideja"
+                          openHint="otvori ideju"
                           colors={colors}
-                          onPress={openIdeas}
+                          onPress={() => openIdea(n._id)}
                         />
                       </StaggerItem>
                     ))}
@@ -383,7 +383,7 @@ function NodeRow({
   node: { title: string | null; text: string };
   tint: string;
   icon: LucideIcon;
-  // Label imenuje ODREDIŠTE (beleška → njen detalj, ideja → lista ideja), da
+  // Label imenuje ODREDIŠTE (beleška → njen detalj, ideja → njen detalj), da
   // ekran-čitač tačno zna kuda tap vodi (kao MessageRow: „Otvori razgovor …").
   openHint: string;
   colors: ColorTokens;

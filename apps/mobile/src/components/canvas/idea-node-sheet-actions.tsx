@@ -18,7 +18,7 @@ import {
 } from '@/lib/thought-layout';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, text } from '@/theme/tokens';
+import { text } from '@/theme/tokens';
 
 /**
  * Ideja nad kojom se otvaraju akcije na kanvasu. Sve stiže uz `node:actions` /
@@ -78,7 +78,6 @@ export function IdeaNodeActionsSheet({
   const updateLayout = useMutation(api.ideas.updateLayout);
   const resetLayoutSize = useMutation(api.ideas.resetLayoutSize);
   const disconnect = useMutation(api.ideas.disconnect);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   /** Jedna brava za CEO sheet (veličina + veze) — kao u sheet-u kartice. */
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -184,23 +183,6 @@ export function IdeaNodeActionsSheet({
     ]);
   };
 
-  const requestEdgeDeletion = (edge: NodeEdgeRow) => {
-    if (busy !== null) return;
-    setBusy(edge._id);
-    haptics.tap();
-    void requestDeletion({ target: { kind: 'idea_edge', id: edge._id as Id<'ideaEdges'> } })
-      .then(() => {
-        haptics.success();
-        onClose();
-        Alert.alert('Poslato', 'Glasanje o brisanju veze je pokrenuto.');
-      })
-      .catch((error: unknown) => {
-        haptics.error();
-        Alert.alert('Greška', accessErrorMessage(error, 'Zahtev nije poslat.'));
-      })
-      .finally(() => setBusy(null));
-  };
-
   const activePreset = idea?.manuallySized
     ? activeThoughtSizePreset(idea.width)
     : null;
@@ -247,7 +229,7 @@ export function IdeaNodeActionsSheet({
             canConnect={idea.canConnect && idea.nodeCount >= 2}
             connectSubtitle={
               !idea.canConnect
-                ? 'Vezu možete praviti samo sa svoje kartice.'
+                ? 'Veza ovde nije dostupna.'
                 : idea.nodeCount < 2
                   ? 'Na mapi nema druge ideje.'
                   : 'Zatim dodirni ideju sa kojom se povezuje'
@@ -256,7 +238,6 @@ export function IdeaNodeActionsSheet({
             busy={busy}
             onConnect={() => onStartConnect(idea)}
             onBreak={breakEdge}
-            onRequestDeletion={requestEdgeDeletion}
           />
 
           <NodeSizeSection

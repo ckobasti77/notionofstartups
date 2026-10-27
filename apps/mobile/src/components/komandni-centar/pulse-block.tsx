@@ -1,4 +1,4 @@
-import { currentWeekBounds, weekPulseFacts } from '@devotion/shared';
+import { currentWeekBounds, pulseCardNow, weekPulseFacts } from '@devotion/shared';
 import { useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
@@ -51,13 +51,15 @@ export function PulseView({ line, onOpen }: { line: string | undefined; onOpen: 
 
 /**
  * Kontejner: `puls.getWeekly` sa granicama nedelje koje računa klijent
- * (`currentWeekBounds`); `now` je iz `useToday()` (menja se tek u ponoć), pa se
- * argumenti upita ne menjaju ceo dan.
+ * (`currentWeekBounds`). `now` iz `useToday()` se menja u ponoć i pri povratku u
+ * aplikaciju posle 60 s, pa ide u koracima od 15 min (`pulseCardNow`, K23) —
+ * inače bi svaki povratak bio nova pretplata na težak upit.
  */
 export function PulseBlock({ startupId }: { startupId: Id<'startups'> }) {
   const router = useRouter();
   const { now } = useToday();
-  const bounds = useMemo(() => currentWeekBounds(now), [now]);
+  const cardNow = pulseCardNow(now);
+  const bounds = useMemo(() => currentWeekBounds(cardNow), [cardNow]);
   const weekly = useQuery(api.puls.getWeekly, { startupId, ...bounds });
   const line = weekly ? pulseLine(weekPulseFacts(weekly.summary)) : undefined;
   return <PulseView line={line} onOpen={() => router.push('/puls')} />;

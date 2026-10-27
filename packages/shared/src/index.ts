@@ -485,6 +485,8 @@ export {
   COMMAND_BLOCK_TEXT,
   currentWeekBounds,
   forYouTasks,
+  PULSE_NOW_STEP_MS,
+  pulseCardNow,
   rescheduleCandidates,
   rescheduleChange,
   rescheduleOutcome,

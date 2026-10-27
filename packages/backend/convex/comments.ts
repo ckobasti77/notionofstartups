@@ -22,7 +22,10 @@ import {
   getProfileSummary,
   profileSummaryValidator,
 } from "./lib/profile_summary";
-import { COMMENT_COUNT_TARGETS_MAX } from "./lib/validators";
+import {
+  COMMENT_COUNT_TARGETS_MAX,
+  COMMENT_PAGE_MAX,
+} from "./lib/validators";
 
 /**
  * Komentari na stranici, zadatku (i njegovim koracima), opisu oblasti i ideji
@@ -80,6 +83,12 @@ export const list = query({
   },
   returns: paginationResultValidator(commentValidator),
   handler: async (ctx, args) => {
+    const { numItems } = args.paginationOpts;
+    if (!Number.isInteger(numItems) || numItems < 1 || numItems > COMMENT_PAGE_MAX) {
+      throw new Error(
+        `Po stranici možete učitati najviše ${COMMENT_PAGE_MAX} komentara.`,
+      );
+    }
     const resolved = await resolveCommentTarget(ctx, args.target);
     const actor = await requireStartupMember(ctx, resolved.startupId);
     const result = await ctx.db

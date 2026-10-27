@@ -13,7 +13,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, text } from '@/theme/tokens';
+import { text } from '@/theme/tokens';
 
 /**
  * Checkpoint oblačić nad kojim se otvaraju akcije. Sve stiže uz `node:actions` /
@@ -80,7 +80,6 @@ export function CheckpointNodeSheet({
   const savePlacement = useMutation(api.taskCheckpoints.saveCanvasPlacement);
   const resetCanvasSize = useMutation(api.taskCheckpoints.resetCanvasSize);
   const disconnectEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   // Jedna brava za CEO sheet (veličina + veze) — kao u sheet-u kartice.
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -196,26 +195,6 @@ export function CheckpointNodeSheet({
     ]);
   };
 
-  const requestEdgeDeletion = (edge: NodeEdgeRow) => {
-    if (busy !== null) return;
-    setBusy(edge._id);
-    haptics.tap();
-    void requestDeletion({
-      target: { kind: 'task_checkpoint_edge', id: edge._id as Id<'taskCheckpointCanvasEdges'> },
-    })
-      .then(() => {
-        haptics.success();
-        onClose();
-        // Prikaz glasanja već postoji na ekranu „Odobrenja" („Veza checkpointa").
-        Alert.alert('Poslato', 'Glasanje o brisanju veze je pokrenuto.');
-      })
-      .catch((error: unknown) => {
-        haptics.error();
-        Alert.alert('Greška', accessErrorMessage(error, 'Zahtev nije poslat.'));
-      })
-      .finally(() => setBusy(null));
-  };
-
   const isCompact =
     checkpoint !== null &&
     checkpoint.manuallySized &&
@@ -275,7 +254,7 @@ export function CheckpointNodeSheet({
             canConnect={checkpoint.canMove && checkpoint.nodeCount >= 2}
             connectSubtitle={
               !checkpoint.canMove
-                ? 'Vezu možete praviti samo od ili ka svojoj stavci.'
+                ? 'Veza ovde nije dostupna.'
                 : checkpoint.nodeCount < 2
                   ? 'Na mapi nema druge stavke.'
                   : 'Zatim dodirni korak ili karticu sa kojom se povezuje'
@@ -284,12 +263,11 @@ export function CheckpointNodeSheet({
             busy={busy}
             onConnect={() => onStartConnect(checkpoint)}
             onBreak={breakEdge}
-            onRequestDeletion={requestEdgeDeletion}
           />
 
           <NodeSizeSection
             canResize={checkpoint.canMove}
-            deniedNote="Veličinu i položaj koraka menja autor zadatka."
+            deniedNote="Veličinu i položaj koraka ovde ne možeš da menjaš."
             options={options}
             busy={busy}
             hint={

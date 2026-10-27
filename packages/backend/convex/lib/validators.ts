@@ -119,6 +119,8 @@ export const COMMENT_COUNT_CAP = 20;
 export const COMMENT_COUNT_TARGETS_MAX = 100;
 /** Komentari: koliko traje „Poništi" posle uklanjanja. */
 export const COMMENT_UNDO_MS = 8_000;
+/** Komentari: najviše redova po strani `comments.list` (klijenti traže 20–50). */
+export const COMMENT_PAGE_MAX = 100;
 
 // --- Chat (docs/mobile/04-CHAT.md) ---------------------------------------
 

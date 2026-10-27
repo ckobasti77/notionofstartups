@@ -4,6 +4,8 @@ import {
   BULK_RESCHEDULE_MAX,
   currentWeekBounds,
   forYouTasks,
+  PULSE_NOW_STEP_MS,
+  pulseCardNow,
   rescheduleChange,
   rescheduleCandidates,
   rescheduleOutcome,
@@ -225,6 +227,22 @@ describe("Puls nedelje i Tim", () => {
     // Backend traži prevWeekStart < weekStart < weekEnd, a razmak ≤ 8 dana (i kroz DST).
     expect(bounds.prevWeekStart).toBeLessThan(bounds.weekStart);
     expect(bounds.weekEnd - bounds.weekStart).toBeLessThanOrEqual(8 * 24 * HOUR);
+  });
+
+  test("kartica Pulsa: „sada” u koracima od 15 min, bez prelaza u prethodni dan (K23)", () => {
+    // Povratak u aplikaciju posle 1–14 min ne menja argument pretplate.
+    const base = startOfDayKey("2026-10-28", BG) + 9 * HOUR;
+    expect(pulseCardNow(base)).toBe(base);
+    expect(pulseCardNow(base + 60_000)).toBe(base);
+    expect(pulseCardNow(base + PULSE_NOW_STEP_MS - 1)).toBe(base);
+    expect(pulseCardNow(base + PULSE_NOW_STEP_MS)).toBe(base + PULSE_NOW_STEP_MS);
+    // Minut posle lokalne ponoći (i ponedeljka) ostaje u istom danu i nedelji.
+    const monday = startOfDayKey("2026-10-26", BG);
+    expect(pulseCardNow(monday + 60_000)).toBe(monday);
+    expect(currentWeekBounds(pulseCardNow(monday + 60_000), BG).weekStart).toBe(monday);
+    // Zona sa pomakom od pola sata: zaokruživanje ne vraća u prethodni dan.
+    const kolkataMidnight = startOfDayKey("2026-10-26", "Asia/Kolkata");
+    expect(pulseCardNow(kolkataMidnight + 60_000)).toBe(kolkataMidnight);
   });
 
   test("nedelja se računa i u ponedeljak u ponoć i u nedelju uveče", () => {

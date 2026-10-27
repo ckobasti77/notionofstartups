@@ -30,6 +30,7 @@ import {
   Lightbulb,
   MessageCircle,
   MessageSquare,
+  MessageSquareText,
   Settings,
   Sparkles,
   TriangleAlert,
@@ -84,6 +85,9 @@ const TYPE_ICON: Record<string, LucideIcon> = {
   chat_message: MessageCircle,
   chat_mention: AtSign,
   chat_dm: MessageSquare,
+  // Komentari (PROSTOR P5): pominjanje nosi @ kao u chatu, nov komentar oblačić sa tekstom.
+  comment_mention: AtSign,
+  comment_added: MessageSquareText,
 };
 
 /** Prekoračen rok je jedini tip koji sme da nosi crvenu (isto pravilo kao web). */
