@@ -44,10 +44,32 @@ export function useQueryTolerant<Query extends FunctionReference<"query">>(
 }
 
 /**
+ * Isto kao `useQueryTolerant`, ali greška ostaje vidljiva pozivaocu (blok može
+ * da prikaže „… nije učitano." umesto večitog učitavanja). PROSTOR K10.
+ */
+export function useQueryResult<Query extends FunctionReference<"query">>(
+  query: Query,
+  args: Query["_args"] | "skip",
+): { data: FunctionReturnType<Query> | undefined; failed: boolean } {
+  const argsKey = args === "skip" ? "skip" : JSON.stringify(args);
+  const queryKey = getFunctionName(query);
+  const queries = useMemo(() => {
+    if (args === "skip") return {} as RequestForQueries;
+    return { value: { query, args } } as RequestForQueries;
+    // `queryKey`/`argsKey` vrednosno pokrivaju `query`/`args` (vidi `useQueryTolerant`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, argsKey]);
+  const result = useQueries(queries).value as FunctionReturnType<Query> | Error | undefined;
+  return result instanceof Error
+    ? { data: undefined, failed: true }
+    : { data: result, failed: false };
+}
+
+/**
  * Convex `useQuery` baca serversku grešku upita TOKOM rendera. Bez granice pad
  * jedne stranice (npr. pokvaren `pages.get`) obara ceo workspace do korenskog
  * `app/error.tsx`. Granica zadržava ostatak shell-a živim i prikazuje pravu
- * poruku u mestu — sa tehničkim detaljem i „Pokušaj ponovo" (remount dece, čime
+ * poruku u mestu (nikad sirov `error.message`) i „Pokušaj ponovo" (remount dece, čime
  * se Convex pretplata pravi iznova). Obrazac: `SearchResultsBoundary`.
  */
 export class WorkspaceErrorBoundary extends Component<
@@ -67,27 +89,15 @@ export class WorkspaceErrorBoundary extends Component<
     return (
       <div
         role="alert"
-        className={`grid min-h-64 place-items-center rounded-2xl border border-dashed border-border/70 bg-card/60 px-5 py-8 ${this.props.className ?? ""}`}
+        className={`grid min-h-40 place-items-center rounded-xl border border-dashed border-border px-5 py-8 ${this.props.className ?? ""}`}
       >
         <div className="w-full max-w-md text-center">
-          <span className="mx-auto grid size-11 place-items-center rounded-2xl bg-destructive/10 text-destructive">
-            <TriangleAlert className="size-5" aria-hidden="true" />
-          </span>
-          <h2 className="mt-4 text-lg font-semibold tracking-tight">
-            {this.props.title ?? "Greška na serveru"}
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {accessErrorMessage(error, "Server je prijavio grešku pri učitavanju ovog prikaza.")}
+          <TriangleAlert className="mx-auto size-5 text-muted-foreground" aria-hidden="true" />
+          <h2 className="mt-3 text-sm font-semibold">{this.props.title ?? "Prikaz nije učitan."}</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            {accessErrorMessage(error, "Pokušaj ponovo za nekoliko trenutaka.")}
           </p>
-          <details className="mt-3 text-left">
-            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-              Tehnički detalji
-            </summary>
-            <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/50 p-3 font-mono text-[11px] leading-5 text-muted-foreground">
-              {error.message}
-            </pre>
-          </details>
-          <Button className="mt-5" onClick={() => this.setState({ error: null })}>
+          <Button className="mt-4" variant="outline" onClick={() => this.setState({ error: null })}>
             <RefreshCw className="size-4" />
             Pokušaj ponovo
           </Button>

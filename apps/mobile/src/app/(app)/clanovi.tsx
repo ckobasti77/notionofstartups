@@ -89,7 +89,7 @@ export default function ClanoviScreen() {
     haptics.warning();
     Alert.alert(
       `Ukloniti ${displayName}?`,
-      'Odmah gubi pristup ovom startupu i skida se sa svih zadataka gde je izvršilac — zadaci ostaju, samo bez njega/nje.',
+      'Gubi pristup startupu i skida se sa svih zadataka. Zadaci ostaju.',
       [
         { text: 'Otkaži', style: 'cancel' },
         {
@@ -115,7 +115,7 @@ export default function ClanoviScreen() {
       <ScreenHeader
         title="Članovi tima"
         onBack={() => router.back()}
-        eyebrow={count > 0 ? `${capped ? `${count}+` : count} ${membersWord(count)}` : undefined}
+        subtitle={count > 0 ? `${capped ? `${count}+` : count} ${membersWord(count)}` : undefined}
         actions={
           activeStartupId && isAdmin ? (
             <IconButton
@@ -131,13 +131,13 @@ export default function ClanoviScreen() {
       />
       {activeStartupId === null ? (
         <EmptyState
-          icon={<Users size={40} color={colors.mutedForeground} />}
+          icon={<Users size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Članovi se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
       ) : members && members.length === 0 ? (
         <EmptyState
-          icon={<Users size={40} color={colors.mutedForeground} />}
+          icon={<Users size={20} color={colors.mutedForeground} />}
           title="Nema članova"
           description="Ovaj startup još nema aktivnih članova."
         />
@@ -148,7 +148,7 @@ export default function ClanoviScreen() {
           skeleton={
             <View style={styles.list}>
               <View
-                style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+               >
                 <SkeletonList
                   count={5}
                   item={(index) => <SkeletonRow index={index} leading="circle" subtitle />}
@@ -164,7 +164,7 @@ export default function ClanoviScreen() {
               {/* Jedna kartica sa vlas-linijama umesto niza odvojenih kartica — ista
                   informacija na osetno manje piksela. */}
               <View
-                style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+               >
                 <StaggerGroup>
                   {members.map((member, index) => (
                     <StaggerItem key={member.membershipId} index={index}>
@@ -255,9 +255,9 @@ function ClanoviError({ message, onRetry }: { message: string; onRetry: () => vo
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Članovi tima" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Članovi se ne mogu učitati"
-        description={message || 'Došlo je do greške.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Članovi nisu učitani."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -272,13 +272,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     gap: 8,
   },
-  group: {
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
   row: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
   },
   removeBtn: {
     width: MIN_TOUCH_TARGET,

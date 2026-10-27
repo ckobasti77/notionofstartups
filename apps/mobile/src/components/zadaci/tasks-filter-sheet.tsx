@@ -16,7 +16,7 @@ import {
 } from '@/lib/task-meta';
 import type { StartupMember } from '@/lib/tasks';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, text, type ColorTokens } from '@/theme/tokens';
 
 export type StatusFilter = 'all' | TaskStatus;
 export type PriorityFilter = 'all' | TaskPriority;
@@ -169,8 +169,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginBottom: 4,
   },
   scroll: {
@@ -184,10 +183,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionLabel: {
-    fontSize: 12,
+    ...text.body,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   chips: {
     flexDirection: 'row',

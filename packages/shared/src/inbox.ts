@@ -198,8 +198,22 @@ export function inboxTarget<D>(
 
 // --- „Čeka tebe" -------------------------------------------------------------
 
-/** Strukturni oblik stavke `inbox.pending`. */
+/**
+ * Strukturni oblik stavke `inbox.pending`. PROSTOR P22: novi izvor je samo
+ * `idea_vote` (ideja u fazi „Razmatra se" čeka moj glas; server je vraća uz
+ * `include: ["idea_vote"]`); glasanja o brisanju i zahtevi za ugnežđavanje se
+ * više ne emituju, ali ostaju u tipu zbog starih podataka.
+ */
 export type PendingItemLike =
+  | {
+      kind: "idea_vote";
+      ideaId: string;
+      title: string;
+      authorName: string | null;
+      upvotes: number;
+      downvotes: number;
+      startup: { _id: string };
+    }
   | {
       kind: "deletion_vote";
       ballotId: string;
@@ -217,14 +231,32 @@ export type PendingItemLike =
 
 /** Tekst stavke „Čeka tebe" (plan K07 §3, Inbox). */
 export function pendingTitle(item: PendingItemLike): string {
-  if (item.kind === "deletion_vote") return `Glasanje o brisanju: „${item.title}“`;
+  if (item.kind === "idea_vote") return `Glasaj o ideji „${item.title}“`;
+  if (item.kind === "deletion_vote") return `Brisanje: „${item.title}“`;
   const who = item.requesterName ?? "Neko";
   return `${who} predlaže da „${item.childTitle}“ pređe pod „${item.parentTitle}“`;
 }
 
-/** Stabilan ključ stavke (listić ili zahtev). */
+/** Stabilan ključ stavke (ideja, listić ili zahtev). */
 export function pendingKey(item: PendingItemLike): string {
+  if (item.kind === "idea_vote") return `idea_vote:${item.ideaId}`;
   return item.kind === "deletion_vote" ? `vote:${item.ballotId}` : `${item.kind}:${item.requestId}`;
+}
+
+/** Stavka traži glas (dugme „Glasaj"), za razliku od starog predloga („Pogledaj"). */
+export function pendingIsVote(item: Pick<PendingItemLike, "kind">): boolean {
+  return item.kind === "idea_vote" || item.kind === "deletion_vote";
+}
+
+/**
+ * Stavke koje se crtaju (PROSTOR P22, K16): samo `idea_vote`. Stare vrste
+ * (glasanje o brisanju, zahtev za ugnežđavanje) se više ne prikazuju ni kad
+ * ih stari backend vrati.
+ */
+export function pendingIdeaVotes<T extends { kind: string }>(
+  items: ReadonlyArray<T>,
+): Array<Extract<T, { kind: "idea_vote" }>> {
+  return items.filter((item): item is Extract<T, { kind: "idea_vote" }> => item.kind === "idea_vote");
 }
 
 /** „Čeka tebe" u izabranom opsegu: lično nikad nema odobrenja, startup filtrira. */
@@ -257,10 +289,10 @@ export function inboxEmptyCopy(segment: InboxSegment, scope: InboxScope): InboxE
       title: "Niko ne čeka tvoju odluku",
       description:
         scope.kind === "personal"
-          ? "Lične poruke nemaju odobrenja. Izaberi „Svi“ ili startup."
+          ? "Lične poruke nemaju ideje za glasanje. Izaberi „Svi“ ili startup."
           : filtered
             ? "U ovom startupu ništa ne čeka tvoju odluku."
-            : "Glasanja o brisanju i predlozi za premeštanje stižu ovde.",
+            : "Ideje koje tim razmatra stižu ovde.",
     };
   }
   return filtered

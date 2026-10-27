@@ -85,7 +85,7 @@ function ChannelIcon({
   if (channel.kind === 'area' && area !== null) {
     const tint = areaColor(colors, area.key);
     return (
-      <View style={[styles.iconBox, { backgroundColor: `${tint}22` }]}>
+      <View style={styles.iconBox}>
         <AreaIcon areaKey={area.key} size={20} color={tint} />
       </View>
     );
@@ -94,8 +94,8 @@ function ChannelIcon({
   const Icon = channel.kind === 'thread' ? MessagesSquare : Hash;
   return (
     <View
-      style={[styles.iconBox, { backgroundColor: colors.accent }]}>
-      <Icon size={20} color={colors.primary} />
+      style={styles.iconBox}>
+      <Icon size={20} color={colors.mutedForeground} />
     </View>
   );
 }

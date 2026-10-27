@@ -15,6 +15,8 @@ import {
   syncPageFileSummary,
 } from "./lib/page_files";
 import { requireVisiblePage } from "./lib/pages";
+import { assertCanEditPage, canEditPage } from "./lib/permissions";
+import { trashFile, unprunePageFiles } from "./lib/trash";
 import { pageFileCategoryValidator } from "./lib/validators";
 
 // 30 min: veliki video na sporoj mobilnoj vezi ume da traje duže od 10 min,
@@ -61,26 +63,17 @@ async function requireAttachmentPage(
   if (page.kind !== "file" && page.kind !== "note") {
     throw new Error("Ova stranica ne podržava fajlove.");
   }
-  const { profile } = await requireStartupMember(ctx, page.startupId);
-  return { page, profile };
-}
-
-function assertOwner(
-  createdByProfileId: Id<"profiles">,
-  profileId: Id<"profiles">,
-) {
-  if (createdByProfileId !== profileId) {
-    throw new Error("Fajlove ovog oblačića menja samo njegov autor.");
-  }
+  const actor = await requireStartupMember(ctx, page.startupId);
+  return { page, profile: actor.profile, actor };
 }
 
 export const list = query({
   args: { pageId: v.id("pages") },
   returns: v.array(pageFileValidator),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
+    const { page, actor } = await requireAttachmentPage(ctx, args.pageId);
     const rows = await listActivePageFiles(ctx, page._id);
-    const canManage = page.createdByProfileId === profile._id;
+    const canManage = canEditPage(actor, page);
     return await Promise.all(
       rows.map(async (row) => ({
         _id: row._id,
@@ -106,8 +99,8 @@ export const generateUploadUrl = mutation({
     expiresAt: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireAttachmentPage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const rows = await listActivePageFiles(ctx, page._id);
     if (rows.length >= MAX_PAGE_FILES) {
       throw new Error(
@@ -174,8 +167,8 @@ export const attach = mutation({
     }),
   ),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireAttachmentPage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
 
     const tokenHash = await hashUploadToken(args.token);
     const upload = await ctx.db
@@ -287,8 +280,8 @@ export const rename = mutation({
     if (file === null || file.archivedAt !== null) {
       throw new Error("Fajl nije pronađen.");
     }
-    const { page, profile } = await requireAttachmentPage(ctx, file.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, actor } = await requireAttachmentPage(ctx, file.pageId);
+    assertCanEditPage(actor, page);
     const name = cleanPageFileName(args.name);
     if (name === file.name) return null;
     await ctx.db.patch("pageFiles", file._id, { name, updatedAt: Date.now() });
@@ -304,19 +297,10 @@ export const remove = mutation({
     if (file === null || file.archivedAt !== null) {
       throw new Error("Fajl nije pronađen.");
     }
-    const { page, profile } = await requireAttachmentPage(ctx, file.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
-    const now = Date.now();
-    // Red se briše zajedno sa blobom — arhiviran prilog niko ne može da vrati,
-    // pa bi ostavljanje bloba samo trošilo prostor.
-    await ctx.db.delete(file._id);
-    await ctx.storage.delete(file.storageId);
-    const remaining = await listActivePageFiles(ctx, page._id);
-    for (const [position, row] of remaining.entries()) {
-      if (row.position === position) continue;
-      await ctx.db.patch("pageFiles", row._id, { position, updatedAt: now });
-    }
-    await syncPageFileSummary(ctx, page, profile._id, now);
+    const { page, actor } = await requireAttachmentPage(ctx, file.pageId);
+    // PROSTOR P19 (D8): uklanjanje je meko — prilog ide u Korpu, blob ostaje u
+    // storage-u, pa ga svaki član može vratiti. Pravo je R2 nad stranicom.
+    await trashFile(ctx, { actor, file, page, now: Date.now() });
     return null;
   },
 });
@@ -325,8 +309,8 @@ export const reorder = mutation({
   args: { pageId: v.id("pages"), fileIds: v.array(v.id("pageFiles")) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
-    assertOwner(page.createdByProfileId, profile._id);
+    const { page, profile, actor } = await requireAttachmentPage(ctx, args.pageId);
+    assertCanEditPage(actor, page);
     const rows = await listActivePageFiles(ctx, page._id);
     const byId = new Map(rows.map((row) => [row._id, row]));
     if (
@@ -347,20 +331,26 @@ export const reorder = mutation({
 });
 
 /**
- * Briše priloge beleške koji više nisu referencirani u njenom telu. Klijent ga
+ * Sklanja priloge beleške koji više nisu referencirani u njenom telu. Klijent ga
  * zove posle uspešnog čuvanja sa id-jevima iz sačuvanog HTML-a. Id-jevi stižu
  * kao stringovi jer nalepljen sadržaj može da nosi tuđe ili neispravne
  * vrednosti — takve samo preskačemo, ne rušimo čišćenje.
+ *
+ * PROSTOR D8: sklanjanje je meko (arhiviran red bez `trashState`, blob ostaje),
+ * a prilog čiji se id vrati u telo (poništeno brisanje slike) se vraća.
  */
 export const prune = mutation({
   args: { pageId: v.id("pages"), keepFileIds: v.array(v.string()) },
   returns: v.object({ removed: v.number() }),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireAttachmentPage(ctx, args.pageId);
+    const { page, profile, actor } = await requireAttachmentPage(
+      ctx,
+      args.pageId,
+    );
     if (page.kind !== "note") {
       throw new Error("Čišćenje priloga radi samo za beleške.");
     }
-    assertOwner(page.createdByProfileId, profile._id);
+    assertCanEditPage(actor, page);
     const keep = new Set<Id<"pageFiles">>();
     for (const raw of args.keepFileIds) {
       const fileId = ctx.db.normalizeId("pageFiles", raw);
@@ -372,11 +362,19 @@ export const prune = mutation({
     for (const row of rows) {
       if (keep.has(row._id)) continue;
       if (now - row.createdAt < PRUNE_GRACE_MS) continue;
-      await ctx.db.delete(row._id);
-      await ctx.storage.delete(row.storageId);
+      await ctx.db.patch("pageFiles", row._id, {
+        archivedAt: now,
+        archivedByProfileId: profile._id,
+        updatedAt: now,
+      });
       removed += 1;
     }
-    if (removed > 0) {
+    const restored = await unprunePageFiles(ctx, {
+      page,
+      isReferenced: (fileId) => keep.has(fileId),
+      now,
+    });
+    if (removed > 0 || restored > 0) {
       const remaining = await listActivePageFiles(ctx, page._id);
       for (const [position, row] of remaining.entries()) {
         if (row.position === position) continue;

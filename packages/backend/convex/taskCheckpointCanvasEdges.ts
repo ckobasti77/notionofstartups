@@ -48,7 +48,6 @@ async function requireEndpoint(
 ): Promise<{
   endpoint: TaskCheckpointCanvasEndpoint;
   page: Doc<"pages">;
-  ownerProfileId: Id<"profiles">;
 }> {
   if (endpoint.kind === "page") {
     const page = await requireVisiblePage(ctx, endpoint.id);
@@ -59,11 +58,7 @@ async function requireEndpoint(
     ) {
       throw new Error("Stranica nije prikazana na ovom Canvas-u.");
     }
-    return {
-      endpoint,
-      page,
-      ownerProfileId: page.createdByProfileId,
-    };
+    return { endpoint, page };
   }
 
   const checkpoint = await ctx.db.get("taskCheckpoints", endpoint.id);
@@ -85,11 +80,7 @@ async function requireEndpoint(
   ) {
     throw new Error("Checkpoint nije prikazan na ovom Canvas-u.");
   }
-  return {
-    endpoint,
-    page,
-    ownerProfileId: page.createdByProfileId,
-  };
+  return { endpoint, page };
 }
 
 export const connect = mutation({
@@ -119,14 +110,7 @@ export const connect = mutation({
       requireEndpoint(ctx, args.source, args),
       requireEndpoint(ctx, args.target, args),
     ]);
-    if (
-      source.ownerProfileId !== profile._id &&
-      target.ownerProfileId !== profile._id
-    ) {
-      throw new Error(
-        "Vezu možete praviti samo od ili ka svojoj stavci.",
-      );
-    }
+    // Veze koraka pravi svaki član (PROSTOR D20).
 
     const canonical = canonicalTaskCheckpointCanvasEndpoints(
       args.source,
@@ -194,7 +178,7 @@ export const disconnect = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     await requireCanvasScope(ctx, args);
     const edge = await ctx.db.get(
       "taskCheckpointCanvasEdges",
@@ -209,9 +193,7 @@ export const disconnect = mutation({
     ) {
       throw new Error("Checkpoint veza nije pronađena na ovom Canvas-u.");
     }
-    if (edge.authorProfileId !== profile._id) {
-      throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-    }
+    // Vezu uklanja svaki član (PROSTOR D20).
     const now = Date.now();
     await ctx.db.patch("taskCheckpointCanvasEdges", edge._id, {
       archivedAt: now,

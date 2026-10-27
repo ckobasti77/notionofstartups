@@ -27,7 +27,7 @@ import { MetaChip } from "../meta-chip";
 export const PANEL_TITLE_MAX = 200;
 
 /**
- * Naslov panela. Uređiv (kreator / lični): `textarea` od jednog reda koja raste,
+ * Naslov panela. Uređiv (svaki član dok zadatak nije zaključan / lični): `textarea` od jednog reda koja raste,
  * Enter ili blur čuva, Esc vraća staru vrednost. `data-panel-title` je cilj
  * „leteće kopije" naslova iz reda (trenutak 3).
  */
@@ -51,7 +51,7 @@ export function PanelTitle({
     if (!editing) setDraft(value);
   }
 
-  const className = "block w-full text-lg font-semibold leading-snug tracking-[-0.02em] text-foreground";
+  const className = "block w-full text-xl font-semibold leading-snug tracking-[-0.02em] text-foreground";
   if (!editable || !onCommit) {
     return (
       <p ref={titleRef as Ref<HTMLParagraphElement>} data-panel-title className={cn(className, "break-words")}>
@@ -104,15 +104,18 @@ export function PanelTitle({
   );
 }
 
-/** Overline sekcije panela (Koraci, Instrukcije, Beleška) sa opcionom bravom i desnom stranom. */
+/** Naslov sekcije (Koraci, Instrukcije, Beleška) sa opcionom bravom i desnom stranom (DIZAJN-SMIRENJE §2). */
 export function PanelSection({
   title,
   lockedReason,
   onDenied,
   aside,
+  as: Heading = "h3",
   children,
 }: {
   title: string;
+  /** Nivo naslova: `h3` u fioci (ispod naslova panela), `h2` na punoj strani. */
+  as?: "h2" | "h3";
   lockedReason?: string | null;
   /** Dodir na bravu (na dodiru nema tooltipa): kontejner pokaže razlog. */
   onDenied?: (reason: string) => void;
@@ -125,15 +128,15 @@ export function PanelSection({
     <section aria-labelledby={headingId} className="space-y-2">
       <div className="flex min-h-7 items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <h3 id={headingId} className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          <Heading id={headingId} className="text-sm font-semibold text-foreground">
             {title}
-          </h3>
+          </Heading>
           {lockedReason ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  aria-label="Samo za čitanje"
+                  aria-label={`${title}: samo za čitanje`}
                   aria-describedby={reasonId}
                   onClick={() => onDenied?.(lockedReason)}
                   className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted pointer-coarse:size-11"

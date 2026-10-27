@@ -1,15 +1,27 @@
 import type { ComponentType } from "react";
 
+import BeleskeEkran from "./ekrani/beleske";
 import BiracDatumaEkran from "./ekrani/birac-datuma";
 import BrziUnosEkran from "./ekrani/brzi-unos";
 import InboxEkran from "./ekrani/inbox";
+import IstorijaIzmenaEkran from "./ekrani/istorija-izmena";
+import KomandniCentarEkran from "./ekrani/komandni-centar";
+import KomentariEkran from "./ekrani/komentari";
 import IsplanirajEkran from "./ekrani/isplaniraj";
+import IdejeEkran from "./ekrani/ideje";
+import KorpaEkran from "./ekrani/korpa";
 import LjuskaEkran from "./ekrani/ljuska";
+import LjuskaStartupEkran from "./ekrani/ljuska-startup";
+import MapaEkran from "./ekrani/mapa";
 import MojDanEkran from "./ekrani/moj-dan";
 import MojiZadaciEkran from "./ekrani/moji-zadaci";
+import OblastEkran from "./ekrani/oblast";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
+import PodesavanjaStartupaEkran from "./ekrani/podesavanja-startupa";
 import PorukeEkran from "./ekrani/poruke";
+import StranicaEkran from "./ekrani/stranica";
+import ZadatakStranaEkran from "./ekrani/zadatak-strana";
 import ZadaciStartupEkran from "./ekrani/zadaci-startup";
 
 export type IzlogEkranProps = {
@@ -40,7 +52,7 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     varijante: ["obican", "prazan", "pretrpan", "po-startupu", "ucitavanje", "greska"],
     Komponenta: MojDanEkran,
   },
-  "brzi-unos": { naslov: "Brzi unos", korak: "K10", varijante: ["licno", "startup", "greska"], Komponenta: BrziUnosEkran },
+  "brzi-unos": { naslov: "Brzi unos", korak: "K10", varijante: ["licno", "startup", "greska", "beleska"], Komponenta: BrziUnosEkran },
   isplaniraj: { naslov: "Isplaniraj dan", korak: "K10", varijante: ["obican", "prazan"], Komponenta: IsplanirajEkran },
   "moji-zadaci": {
     naslov: "Moji zadaci",
@@ -65,7 +77,74 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
   "zadaci-startup": {
     naslov: "Zadaci u startupu",
     korak: "K17",
-    varijante: ["komandni-centar", "tabla", "brzo-pravljenje", "detalj", "prazan", "ucitavanje"],
+    varijante: ["tabla", "brzo-pravljenje", "detalj"],
     Komponenta: ZadaciStartupEkran,
+  },
+  "ljuska-startup": {
+    naslov: "Ljuska startupa — meni (PROSTOR)",
+    korak: "K08",
+    varijante: ["meni", "clan", "mobilni-meni"],
+    Komponenta: LjuskaStartupEkran,
+  },
+  korpa: {
+    naslov: "Korpa",
+    korak: "K08",
+    varijante: ["stranice", "ideje", "prilozi", "oporavljeno", "prazna", "ucitavanje", "greska"],
+    Komponenta: KorpaEkran,
+  },
+  "podesavanja-startupa": {
+    naslov: "Podešavanja startupa",
+    korak: "K20",
+    varijante: ["opste-admin", "opste-clan", "oblasti", "tim", "tim-clan", "pozivnice", "lozinke", "ucitavanje", "greska"],
+    Komponenta: PodesavanjaStartupaEkran,
+  },
+  stranica: {
+    naslov: "Stranica — dokument tima",
+    korak: "K10",
+    varijante: ["clan", "zakljucana-autor", "zakljucana-clan", "konflikt", "prisustvo", "tabela", "fajl", "ucitavanje", "obrisana", "greska"],
+    Komponenta: StranicaEkran,
+  },
+  komentari: {
+    naslov: "Komentari",
+    korak: "K10",
+    varijante: ["lista", "pominjanje", "izmena", "prazno", "greska", "ucitavanje"],
+    Komponenta: KomentariEkran,
+  },
+  "istorija-izmena": {
+    naslov: "Istorija izmena",
+    korak: "K10",
+    varijante: ["lista", "pregled", "potvrda", "zakljucano", "prazno", "ucitavanje", "greska"],
+    Komponenta: IstorijaIzmenaEkran,
+  },
+  "zadatak-strana": {
+    naslov: "Zadatak na celu stranu",
+    korak: "K11",
+    varijante: ["clan", "zakljucan", "sa-komentarima"],
+    Komponenta: ZadatakStranaEkran,
+  },
+  oblast: {
+    naslov: "Oblast — Pregled, Zadaci, Dokumenti",
+    korak: "K13",
+    varijante: ["pregled", "istorija", "opis-konflikt", "zadaci", "zadaci-tabla", "dokumenti", "prazna", "ucitavanje", "greska"],
+    Komponenta: OblastEkran,
+  },
+  mapa: { naslov: "Mapa — kartice, točkić, ugnežđavanje", korak: "K15", varijante: ["oblast-12", "ugnezdavanje", "neaktivna", "prazna", "pregled-fioka"], Komponenta: MapaEkran },
+  ideje: {
+    naslov: "Ideje — tabla, lista, detalj",
+    korak: "K16",
+    varijante: ["tabla", "lista", "detalj", "detalj-clan", "tabla-clan", "prazno", "ucitavanje", "greska"],
+    Komponenta: IdejeEkran,
+  },
+  "komandni-centar": {
+    naslov: "Komandni centar — blokovi, Zastarelo, Sredi rokove",
+    korak: "K19",
+    varijante: ["pun", "zatrpan", "sredi-rokove", "prazan", "greska-bloka", "ucitavanje", "aktivnost"],
+    Komponenta: KomandniCentarEkran,
+  },
+  beleske: {
+    naslov: "Beleške — mešano, filter, izmena, slanje u startup",
+    korak: "K18",
+    varijante: ["mesano", "filter-startup", "izmena", "prazno", "pretraga-prazna", "posalji", "ucitavanje", "greska"],
+    Komponenta: BeleskeEkran,
   },
 };

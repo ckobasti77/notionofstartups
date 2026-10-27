@@ -34,6 +34,8 @@ export type StartupTaskLike = {
   taskPriority: TaskPriorityKey | null;
   dueDate: number | null;
   createdByProfileId: string;
+  /** PROSTOR P1: `pageSummaryValidator.lockedAt`; odsutno = otključan. */
+  lockedAt?: number | null;
   checkpointTotal?: number;
   checkpointCompleted?: number;
   createdAt?: number;
@@ -53,13 +55,15 @@ export type StartupRowContext = {
   assumeAssignee?: boolean;
   /** Plan za danas: refKey → id stavke plana. */
   plannedKeys: ReadonlyMap<string, string>;
+  /** Vlasnik startupa ili admin — menja i zaključane zadatke (P1). */
+  isManager?: boolean;
 };
 
 /**
- * Red zadatka u startupu. Dozvole su ogledalo `tasks.updateMetadata`: kreator
- * vodi zadatak, izvršilac menja status, ostali vide zaključane radnje sa
- * razlogom (E15). Dok se izvršioci ne učitaju, ne-kreator nije izvršilac —
- * server je ionako izvor istine.
+ * Red zadatka u startupu. Dozvole su ogledalo `tasks.updateMetadata` (PROSTOR
+ * P1): svaki član menja sve; zaključan zadatak menjaju autor i menadžer, a
+ * izvršilac još i status (razlozi E15). Dok se izvršioci ne učitaju, ne-kreator
+ * nije izvršilac — server je ionako izvor istine.
  */
 export function rowFromStartupTask(task: StartupTaskLike, context: StartupRowContext): TaskRowModel {
   const key = myDayRefKey("task", task._id);
@@ -68,6 +72,11 @@ export function rowFromStartupTask(task: StartupTaskLike, context: StartupRowCon
   const isCreator = task.createdByProfileId === context.profileId;
   const isAssignee =
     context.assumeAssignee === true || (context.assigneeIds ?? []).includes(context.profileId);
+  const lockedForViewer =
+    task.lockedAt !== undefined &&
+    task.lockedAt !== null &&
+    !isCreator &&
+    context.isManager !== true;
   const total = task.checkpointTotal ?? 0;
   return {
     key,
@@ -84,17 +93,22 @@ export function rowFromStartupTask(task: StartupTaskLike, context: StartupRowCon
     planEntryId: entryId,
     done: status === "done",
     checkpoints: total > 0 ? { done: task.checkpointCompleted ?? 0, total } : null,
-    permissions: taskPermissions({ kind: "task", isCreator, isAssignee }),
+    permissions: taskPermissions({ kind: "task", isCreator, isAssignee, lockedForViewer }),
+    isAssignee,
     ...(task.createdAt === undefined ? {} : { createdAt: task.createdAt }),
   };
 }
 
 /**
  * „Priključi se" u meniju reda: svaki član sme sebe da doda (tasks.ts), pa se
- * nudi onome ko nije ni kreator ni izvršilac.
+ * nudi onome ko još nije izvršilac — i na zaključanom zadatku.
  */
-export function canJoinTask(row: Pick<TaskRowModel, "kind" | "permissions">): boolean {
-  return row.kind === "task" && row.permissions.assignees.selfOnly && !row.permissions.status.allowed;
+export function canJoinTask(
+  row: Pick<TaskRowModel, "kind" | "permissions" | "isAssignee">,
+): boolean {
+  return (
+    row.kind === "task" && row.permissions.assignees.allowed && row.isAssignee === false
+  );
 }
 
 export type StartupTaskPatch = {

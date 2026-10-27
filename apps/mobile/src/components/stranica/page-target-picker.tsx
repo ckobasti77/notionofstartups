@@ -156,13 +156,13 @@ function PickerLevel({
             <Row
               title={title}
               titleNumberOfLines={2}
-              subtitle={isCurrentParent ? 'Trenutni roditelj' : pageKindLabel(kind)}
+              subtitle={isCurrentParent ? 'Trenutna nadređena stavka' : pageKindLabel(kind)}
               onPress={isCurrentParent ? undefined : () => onPick(candidate._id, title)}
               disabled={isCurrentParent || busyId !== null}
               showChevron={busyId === null && !isCurrentParent}
               accessibilityLabel={
                 isCurrentParent
-                  ? `${title}, trenutni roditelj`
+                  ? `${title}, trenutna nadređena stavka`
                   : `Izaberi ${title}, ${pageKindLabel(kind)}`
               }
               style={[styles.row, indent]}
@@ -194,7 +194,7 @@ function PickerLevel({
                 )
               }
               icon={
-                <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+                <View style={styles.iconChip}>
                   <Icon size={16} color={tint} />
                 </View>
               }

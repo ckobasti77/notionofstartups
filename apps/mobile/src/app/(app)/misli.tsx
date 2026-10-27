@@ -1,231 +1,231 @@
-import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import {
+  arrangeNotes,
+  noteCreatedMessage,
+  noteFilterKey,
+  noteScopeArg,
+  NOTE_SEARCH_LIMIT,
+  NOTE_SEARCH_MIN,
+  NOTES_PAGE_SIZE,
+  notesCountLabel,
+  notesEmptyText,
+  notesMapStartupId,
+  resolveNoteFilter,
+  type NoteFilter,
+} from '@devotion/shared';
+import { usePaginatedQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { Brain, Crown, LayoutGrid, Plus, Search, TriangleAlert, Wand2 } from 'lucide-react-native';
+import { LayoutGrid, NotebookPen, Plus, Search, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThoughtCreateSheet } from '@/components/canvas/thought-create-sheet';
+import { useLiveNow } from '@/components/collab/use-live-now';
 import { EmptyState } from '@/components/empty-state';
-import { ThoughtActionsSheet } from '@/components/misli/thought-actions-sheet';
 import {
-  ThoughtConversionSheet,
-  type ThoughtConversionNode,
-} from '@/components/misli/thought-conversion-sheet';
+  hasMoreNotes,
+  noteRowModel,
+  noteSearchRowModel,
+  quickNoteTarget,
+  shouldAutoLoadNotes,
+  shouldLoadMoreOnEnd,
+  filterStartupId,
+  type NoteRowModel,
+} from '@/components/misli/misli-model';
+import { NoteActionsSheet, type ActionNote } from '@/components/misli/note-actions-sheet';
+import { NoteCreateSheet } from '@/components/misli/note-create-sheet';
+import { NoteQuickInput } from '@/components/misli/note-quick-input';
+import { NoteRow } from '@/components/misli/note-row';
+import { NoteScopeChips } from '@/components/misli/note-scope-chips';
+import { ThoughtConversionSheet, type ThoughtConversionNode } from '@/components/misli/thought-conversion-sheet';
+import { TidyNotesButton } from '@/components/misli/tidy-notes-button';
+import { useCreateNote } from '@/components/misli/use-create-note';
+import { useNoteSearch } from '@/components/misli/use-note-search';
+import { useMyStartups } from '@/components/misli/use-note-startups';
 import { UndoBar } from '@/components/undo-bar';
 import { FAB } from '@/components/ui/fab';
 import { IconButton } from '@/components/ui/icon-button';
-import { LoadingSwap } from '@/components/ui/loading-swap';
-import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SearchField } from '@/components/ui/search-field';
-import { Skeleton } from '@/components/ui/skeleton';
-import { SkeletonList } from '@/components/ui/skeletons';
-import { StaggerItem } from '@/components/ui/stagger';
-import { useActiveStartup } from '@/context/active-startup';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { api } from '@/convex/_generated/api';
-import type { Doc, Id } from '@/convex/_generated/dataModel';
+import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
-import { absoluteNodePosition } from '@/lib/canvas-position';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import { THOUGHT_SWATCH } from '@/lib/thought-colors';
-import { misaoWord, thoughtDisplayTitle, tidyGridPosition, vezaWord } from '@/lib/thought-layout';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius, text, type ColorTokens } from '@/theme/tokens';
 
-const PAGE_SIZE = 50;
-/** Backend `MAX_BULK_ITEMS` — `moveNodes` prima najviše 50 poteza. */
-const MAX_BULK = 50;
 /**
- * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (akcije → konverzija).
- * Dva istovremena RN `Modal`-a na Androidu umeju da progutaju `onRequestClose`
- * (vidi `page-actions-sheet.tsx`), pa se drugi otvara tek kad izlazna animacija
- * prvog (~200ms) sigurno prođe.
+ * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (radnje → izbor
+ * cilja). Dva istovremena RN `Modal`-a na Androidu umeju da progutaju
+ * `onRequestClose` (vidi `page-actions-sheet.tsx`), pa se drugi otvara tek kad
+ * izlazna animacija prvog (~200ms) sigurno prođe.
  */
 const SHEET_HANDOFF_MS = 320;
 
+type ListItem = { key: string; model: NoteRowModel; note: ActionNote };
+
 /**
- * Ekran „Misli" — NATIVE LISTA kao primarni prikaz (PARITET A1): na telefonu je
- * lista upotrebljivija od grafa i radi bez WebView-a. Graf ostaje dostupan iz
- * zaglavlja (isti dualitet kao `ideje.tsx`). Misli su privatne po vlasniku;
- * `listNodes`/`listEdges` su PAGINIRANI (za razliku od `ideas.list`), pa lista ide
- * kroz `usePaginatedQuery` + `FlatList` (obrazac `aktivnost.tsx`).
+ * Ekran „Beleške" (PROSTOR P7, K18; ruta ostaje `/misli` zbog deep linkova):
+ * moje beleške iz SVIH mojih startupa i lične na jednom mestu. Čipovi
+ * Sve · Lično · startup, polje „Brza beleška…" na vrhu liste, FAB „Nova
+ * beleška", pretraga (`searchMine`), radnje dugim pritiskom (Otvori · Pošalji u
+ * startup · Arhiviraj sa „Poništi"). „Mapa" i „Sredi raspored" postoje samo kad
+ * je izabran jedan startup — lične beleške nemaju Mapu.
  *
- * Veze se automatski dovlače do kraja (kao web embed) — služe brojaču veza po
- * misli, a bez celog skupa bi brojevi lagali.
+ * Lista je paginirana (`listMine`); strana može biti KRAĆA od `numItems` (beleške
+ * iz napuštenih startupa se izbacuju posle čitanja), pa se dovlači dok status
+ * nije `Exhausted` — do 300 beleški sama, dalje skrolom. Beleške su privatne po
+ * vlasniku: server vraća samo tvoje.
  */
 export default function MisliScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { activeStartupId } = useActiveStartup();
+  const now = useLiveNow(60_000);
+  const { startups, ready: startupsReady } = useMyStartups();
+  const createNote = useCreateNote();
 
-  const nodesQuery = usePaginatedQuery(
-    api.thoughts.listNodes,
-    activeStartupId ? { startupId: activeStartupId } : 'skip',
-    { initialNumItems: PAGE_SIZE },
+  const [chosen, setChosen] = useState<NoteFilter<Id<'startups'>>>({ kind: 'all' });
+  // Startup koji je nestao iz mojih (napušten) vraća prikaz na „Sve".
+  const filter = useMemo(
+    () =>
+      startupsReady
+        ? resolveNoteFilter(
+            chosen,
+            startups.map((startup) => startup._id),
+          )
+        : chosen,
+    [chosen, startups, startupsReady],
   );
-  const {
-    results: edgeResults,
-    status: edgesStatus,
-    loadMore: loadMoreEdges,
-  } = usePaginatedQuery(
-    api.thoughts.listEdges,
-    activeStartupId ? { startupId: activeStartupId } : 'skip',
-    { initialNumItems: 100 },
-  );
-  // Viewport kanvasa — „Sredi raspored" čuva postojeći zoom (može biti `null`:
-  // canvas dokument nastaje tek uz prvi čvor/viewport, `getCanvas` NIJE getOrCreate).
-  const canvas = useQuery(
-    api.thoughts.getCanvas,
-    activeStartupId ? { startupId: activeStartupId } : 'skip',
-  );
-  const moveNodes = useMutation(api.thoughts.moveNodes);
-  const saveViewport = useMutation(api.thoughts.saveViewport);
+  const filterKey = noteFilterKey(filter);
+  const scope = noteScopeArg(filter);
+  const mapStartupId = notesMapStartupId(filter);
+  const selectedStartup = mapStartupId === null ? null : (startups.find((item) => item._id === mapStartupId) ?? null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const list = usePaginatedQuery(api.thoughts.listMine, scope, { initialNumItems: NOTES_PAGE_SIZE });
+  const { searching, hits } = useNoteSearch(searchTerm, scope, filterKey);
+
+  const loaded = list.results.length;
+  useEffect(() => {
+    if (shouldAutoLoadNotes({ status: list.status, loaded, searching })) list.loadMore(NOTES_PAGE_SIZE);
+  }, [list.status, list.loadMore, loaded, searching]);
+
+  const items = useMemo<ListItem[]>(() => {
+    if (searching) {
+      return (hits ?? []).map((hit) => ({
+        key: hit._id,
+        model: noteSearchRowModel(hit, startups),
+        note: { _id: hit._id, title: hit.title, text: hit.text, startupId: hit.startupId },
+      }));
+    }
+    return arrangeNotes(list.results).map((row) => ({
+      key: row.note._id,
+      model: noteRowModel(row, now),
+      note: {
+        _id: row.note._id,
+        title: row.note.title,
+        text: row.note.text,
+        startupId: row.note.startupId,
+      },
+    }));
+  }, [searching, hits, startups, list.results, now]);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [actionNode, setActionNode] = useState<Doc<'thoughtNodes'> | null>(null);
-  const [conversionNodes, setConversionNodes] = useState<ThoughtConversionNode[] | null>(null);
-  const [tidyBusy, setTidyBusy] = useState(false);
-  const [connectFrom, setConnectFrom] = useState<{
-    id: Id<'thoughtNodes'>;
-    title: string;
-    x?: number;
-    y?: number;
-  } | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [actionNote, setActionNote] = useState<ActionNote | null>(null);
+  const [sendNodes, setSendNodes] = useState<ThoughtConversionNode[] | null>(null);
+  const [sendSource, setSendSource] = useState<Id<'startups'> | null>(null);
 
-  // Doslovno web filtriranje (`ideas-view.tsx:202-206`, isti obrazac za misli) —
-  // uživo, nad naslovom i tekstom UČITANIH misli (lista je paginirana).
-  const filteredNodes = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (term.length === 0) return nodesQuery.results;
-    return nodesQuery.results.filter(
-      (node) => (node.title?.toLowerCase().includes(term) ?? false) || node.text.toLowerCase().includes(term),
-    );
-  }, [nodesQuery.results, searchTerm]);
-
-  useEffect(() => {
-    if (edgesStatus === 'CanLoadMore') loadMoreEdges(200);
-  }, [edgesStatus, loadMoreEdges]);
-
-  const edgeCountByNode = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const edge of edgeResults) {
-      map.set(edge.nodeAId, (map.get(edge.nodeAId) ?? 0) + 1);
-      map.set(edge.nodeBId, (map.get(edge.nodeBId) ?? 0) + 1);
-    }
-    return map;
-  }, [edgeResults]);
-
-  const openCanvas = () => {
-    if (!activeStartupId) return;
+  const openNote = (id: Id<'thoughtNodes'>) => {
     haptics.tap();
-    router.push({
-      pathname: '/canvas/[kind]/[id]',
-      params: { kind: 'thoughts', id: activeStartupId },
-    });
+    router.push({ pathname: '/misao/[id]', params: { id } });
   };
 
-  /**
-   * „Sredi raspored": misli kreirane sa telefona padaju nasumično oko početka
-   * (`thought-create-sheet`, SPREAD) i preklapaju se — ovo je mobilna zamena za
-   * drag raspoređivanje. Samo TOP-LEVEL misli: ugnježdene imaju RELATIVNE
-   * koordinate i putuju sa roditeljem.
-   */
-  const requestTidy = () => {
-    if (!activeStartupId || tidyBusy) return;
-    const topLevel = nodesQuery.results.filter((node) => node.parentThoughtId === undefined);
-    if (topLevel.length === 0) {
-      haptics.warning();
-      Alert.alert('Nema šta da se sredi', 'Sve učitane misli su ugnježdene u druge misli.');
-      return;
-    }
-    const targets = topLevel.slice(0, MAX_BULK);
-    // Menja ručni raspored korisnika — upozorenje pre, ne posle.
-    haptics.warning();
-    Alert.alert(
-      'Srediti raspored?',
-      `${targets.length} ${misaoWord(targets.length)} (bez ugnježdenih) se raspoređuje u urednu mrežu na kanvasu. Ručni raspored tih misli se gubi.`,
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: 'Sredi',
-          onPress: () => void runTidy(targets, topLevel.length > targets.length),
-        },
-      ],
-    );
-  };
-
-  const runTidy = async (targets: Doc<'thoughtNodes'>[], truncated: boolean) => {
-    if (!activeStartupId) return;
-    setTidyBusy(true);
+  const openMap = () => {
+    if (mapStartupId === null) return;
     haptics.tap();
-    try {
-      await moveNodes({
-        moves: targets.map((node, index) => ({
-          nodeId: node._id,
-          ...tidyGridPosition(index, targets.length),
-        })),
-      });
-      // Mreža je u pozitivnom kvadrantu, pa viewport (0,0) — svetska tačka (0,0)
-      // u gornjem levom uglu — prikazuje celu mrežu. Zoom ostaje korisnikov.
-      await saveViewport({ startupId: activeStartupId, x: 0, y: 0, zoom: canvas?.zoom ?? 1 });
-      haptics.success();
-      Alert.alert(
-        'Raspored je sređen',
-        truncated
-          ? `Raspoređeno je prvih ${targets.length} misli; ostale su ostale gde su bile. Već otvoren kanvas prikazuje novi raspored, a sačuvan pogled važi od sledećeg otvaranja.`
-          : 'Misli su raspoređene u mrežu. Već otvoren kanvas prikazuje novi raspored, a sačuvan pogled važi od sledećeg otvaranja.',
-      );
-    } catch (error) {
-      haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Raspored nije sređen.'));
-    } finally {
-      setTidyBusy(false);
-    }
+    router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'thoughts', id: mapStartupId } });
   };
 
-  const loadingFirst = activeStartupId === null || nodesQuery.status === 'LoadingFirstPage';
-  const count = nodesQuery.results.length;
-  const hasMore = nodesQuery.status === 'CanLoadMore' || nodesQuery.status === 'LoadingMore';
-  const searchActive = searchTerm.trim().length > 0;
+  // Prazna strana uz „ima još" nije prazna lista (server izbacuje beleške napuštenih
+  // startupa posle čitanja): čeka se sledeća strana, kao na webu.
+  const loadingFirst =
+    list.status === 'LoadingFirstPage' || (!searching && list.results.length === 0 && list.status !== 'Exhausted');
+  const searchLoading = searching && hits === undefined;
+  const hasMore = hasMoreNotes(list.status);
   const refreshControl = useListRefresh();
+  const quickTarget = quickNoteTarget(filter, startups);
+
+  const countSubtitle = loadingFirst
+    ? undefined
+    : searching
+      ? hits === undefined
+        ? undefined
+        : notesCountLabel(items.length, items.length >= NOTE_SEARCH_LIMIT)
+      : items.length > 0 || hasMore
+        ? notesCountLabel(items.length, hasMore)
+        : undefined;
+
+  const empty = notesEmptyText(filter, {
+    searching,
+    startupName: selectedStartup?.name ?? null,
+  });
+
+  const emptyBody = loadingFirst || searchLoading ? (
+    <View
+      style={styles.skeleton}
+      accessible
+      accessibilityLiveRegion="polite"
+      accessibilityLabel="Učitavanje beleški">
+      <SkeletonList count={6} item={(index) => <SkeletonRow index={index} subtitle />} />
+    </View>
+  ) : (
+    <View style={styles.emptyWrap}>
+      <EmptyState
+        icon={
+          searching ? (
+            <Search size={20} color={colors.mutedForeground} />
+          ) : (
+            <NotebookPen size={20} color={colors.mutedForeground} />
+          )
+        }
+        title={empty.title}
+        description={empty.description ?? undefined}
+        actionLabel={searching ? 'Obriši pretragu' : 'Nova beleška'}
+        onAction={() => {
+          if (searching) {
+            setSearchTerm('');
+            return;
+          }
+          haptics.tap();
+          setCreateOpen(true);
+        }}
+      />
+    </View>
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
-        title="Misli"
-        eyebrow={
-          count > 0
-            ? searchActive
-              ? `${filteredNodes.length} od ${count}${hasMore ? '+' : ''}`
-              : `${count}${hasMore ? '+' : ''} ${misaoWord(count)}`
-            : undefined
-        }
+        title="Beleške"
+        subtitle={countSubtitle}
         onBack={() => router.back()}
         below={
-          activeStartupId !== null && count > 0 ? (
-            <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Pretraži misli…" />
-          ) : undefined
+          <View>
+            <SearchField
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Pretraži beleške…"
+              accessibilityLabel={`Pretraži beleške, najmanje ${NOTE_SEARCH_MIN} znaka`}
+            />
+            <NoteScopeChips value={filter} startups={startups} onChange={setChosen} />
+          </View>
         }
         actions={
-          activeStartupId ? (
+          mapStartupId !== null ? (
             <>
-              {count > 1 ? (
-                <IconButton
-                  accessibilityLabel="Sredi raspored misli u mrežu na kanvasu"
-                  disabled={tidyBusy}
-                  onPress={requestTidy}>
-                  {tidyBusy ? (
-                    <ActivityIndicator color={colors.primary} />
-                  ) : (
-                    <Wand2 size={22} color={colors.foreground} />
-                  )}
-                </IconButton>
-              ) : null}
-              <IconButton accessibilityLabel="Canvas prikaz misli" onPress={openCanvas}>
+              <TidyNotesButton startupId={mapStartupId} notes={list.results} />
+              <IconButton accessibilityLabel="Mapa beleški" onPress={openMap}>
                 <LayoutGrid size={22} color={colors.foreground} />
               </IconButton>
             </>
@@ -233,215 +233,93 @@ export default function MisliScreen() {
         }
       />
 
-      {activeStartupId === null ? (
-        <EmptyState
-          icon={<Brain size={40} color={colors.mutedForeground} />}
-          title="Izaberi startup"
-          description="Misli se vode po startupu. Izaberi ga iz zaglavlja."
-        />
-      ) : !loadingFirst && count === 0 ? (
-        <EmptyState
-          icon={<Brain size={40} color={colors.mutedForeground} />}
-          title="Još nema misli"
-          description="Misli su tvoj privatni prostor za razmišljanje. Kad sazru, šalju se timu u Ideje."
-          actionLabel="Nova misao"
-          onAction={() => {
-            haptics.tap();
-            setCreateOpen(true);
-          }}
-        />
-      ) : (
-        <LoadingSwap loading={loadingFirst} skeleton={<MisliSkeleton />}>
-          {loadingFirst ? null : filteredNodes.length === 0 ? (
-            <EmptyState
-              icon={<Search size={40} color={colors.mutedForeground} />}
-              title={`Nema rezultata za „${searchTerm.trim()}"`}
-              description="Pokušaj drugu reč ili obriši pretragu."
-              actionLabel="Obriši pretragu"
-              onAction={() => setSearchTerm('')}
-            />
-          ) : (
-            <FlatList
-              data={filteredNodes}
-              keyExtractor={(item) => item._id}
-              renderItem={({ item, index }) => (
-                <StaggerItem index={index}>
-                  <ThoughtRow
-                    node={item}
-                    edgeCount={edgeCountByNode.get(item._id) ?? 0}
-                    colors={colors}
-                    onPress={() => {
-                      haptics.tap();
-                      router.push({ pathname: '/misao/[id]', params: { id: item._id } });
-                    }}
-                    onLongPress={() => {
-                      haptics.select();
-                      setActionNode(item);
-                    }}
-                  />
-                </StaggerItem>
-              )}
-              onEndReachedThreshold={0.5}
-              onEndReached={() => {
-                if (nodesQuery.status === 'CanLoadMore') nodesQuery.loadMore(PAGE_SIZE);
-              }}
-              ListFooterComponent={
-                nodesQuery.status === 'LoadingMore' ? (
-                  <View style={styles.footer}>
-                    <ActivityIndicator color={colors.primary} />
-                  </View>
-                ) : searchActive && nodesQuery.status === 'CanLoadMore' ? (
-                  // Iskrena granica: filter gađa samo UČITANE misli (paginacija) —
-                  // bez ove poruke „nema rezultata" bi lagalo dok stranica 2+ postoji.
-                  <View style={styles.footer}>
-                    <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
-                      Pretraga važi nad učitanih {count} misli — skroluj za još.
-                    </Text>
-                  </View>
-                ) : null
-              }
-              // Donji padding čisti i FAB (do insets+72) i traku „Poništi" iznad
-              // njega (do ~insets+144) — poslednji red ne sme ni pod jedno.
-              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 152 }]}
-              showsVerticalScrollIndicator={false}
-              refreshControl={refreshControl}
-            />
-          )}
-        </LoadingSwap>
-      )}
-
-      {activeStartupId !== null ? (
-        <>
-          <FAB
-            icon={Plus}
-            accessibilityLabel="Nova misao"
-            onPress={() => {
-              haptics.tap();
-              setCreateOpen(true);
-            }}
-            style={{ bottom: insets.bottom + 16 }}
-          />
-          <ThoughtCreateSheet
-            open={createOpen || connectFrom !== null}
-            startupId={activeStartupId}
-            connectFrom={connectFrom}
-            onClose={() => {
-              setCreateOpen(false);
-              setConnectFrom(null);
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.key}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
+        ListHeaderComponent={
+          <NoteQuickInput
+            target={quickTarget === null ? null : { name: quickTarget.name, logoUrl: quickTarget.logoUrl }}
+            onSave={async (text) => {
+              await createNote({
+                startupId: quickTarget === null ? null : quickTarget._id,
+                text,
+                message: noteCreatedMessage(quickTarget?.name ?? null),
+              });
             }}
           />
-          <ThoughtActionsSheet
-            open={actionNode !== null}
-            node={actionNode}
-            startupId={activeStartupId}
-            onClose={() => setActionNode(null)}
-            onConvert={(nodes) => {
-              setActionNode(null);
-              setTimeout(() => setConversionNodes(nodes), SHEET_HANDOFF_MS);
-            }}
-            onCreateConnected={(node) => {
-              const at = absoluteNodePosition(nodesQuery.results, node._id, (n) => n.parentThoughtId);
-              const from = {
-                id: node._id,
-                title: thoughtDisplayTitle(node),
-                ...(at.complete ? { x: at.x, y: at.y } : {}),
-              };
-              setActionNode(null);
-              setTimeout(() => setConnectFrom(from), SHEET_HANDOFF_MS);
+        }
+        ListEmptyComponent={emptyBody}
+        renderItem={({ item }) => (
+          <NoteRow
+            model={item.model}
+            onOpen={() => openNote(item.note._id)}
+            onLongPress={() => {
+              haptics.select();
+              setActionNote(item.note);
             }}
           />
-          <ThoughtConversionSheet
-            open={conversionNodes !== null}
-            startupId={activeStartupId}
-            nodes={conversionNodes ?? []}
-            onClose={() => setConversionNodes(null)}
-          />
-          {/* Iznad FAB-a (56 + razmak) da „Poništi" ne legne pod dugme. */}
-          <UndoBar bottomOffset={72} />
-        </>
-      ) : null}
-    </View>
-  );
-}
-
-function ThoughtRow({
-  node,
-  edgeCount,
-  colors,
-  onPress,
-  onLongPress,
-}: {
-  node: Doc<'thoughtNodes'>;
-  edgeCount: number;
-  colors: ColorTokens;
-  onPress: () => void;
-  onLongPress: () => void;
-}) {
-  const title = thoughtDisplayTitle(node);
-  // Kad naslova nema, prvi red teksta je već u naslovu — podnaslov bi ga ponovio.
-  const preview = node.title?.trim() ? node.text.trim() || undefined : undefined;
-  const label = [
-    title,
-    edgeCount > 0 ? `${edgeCount} ${vezaWord(edgeCount)}` : null,
-    node.isParent ? 'glavna misao' : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
-
-  return (
-    <Row
-      style={styles.row}
-      icon={
-        <View
-          style={[styles.colorDot, { backgroundColor: THOUGHT_SWATCH[node.color] }]}
-          accessibilityElementsHidden
-        />
-      }
-      title={title}
-      titleNumberOfLines={preview ? 1 : 2}
-      subtitle={preview}
-      value={
-        node.isParent || edgeCount > 0 ? (
-          <View style={styles.valueWrap}>
-            {node.isParent ? <Crown size={16} color={colors.warning} /> : null}
-            {edgeCount > 0 ? (
-              <Text style={[styles.valueText, { color: colors.mutedForeground }]}>
-                {edgeCount} {vezaWord(edgeCount)}
-              </Text>
-            ) : null}
-          </View>
-        ) : undefined
-      }
-      onPress={onPress}
-      onLongPress={onLongPress}
-      accessibilityLabel={label}
-      accessibilityHint="Dugi pritisak otvara akcije misli."
-    />
-  );
-}
-
-/** Oblik `ThoughtRow`: tačka boje + dva reda teksta + brojač veza desno. */
-function MisliSkeleton() {
-  return (
-    <View
-      style={styles.skeleton}
-      accessible
-      accessibilityLiveRegion="polite"
-      accessibilityLabel="Učitavanje misli">
-      <SkeletonList
-        count={6}
-        gap={12}
-        item={(index) => (
-          <View style={styles.skeletonRow}>
-            <Skeleton width={14} height={14} borderRadius={radius.pill} />
-            <View style={styles.skeletonBody}>
-              <Skeleton width={index % 2 === 0 ? '70%' : '55%'} height={15} />
-              <Skeleton width="40%" height={12} />
-            </View>
-            <Skeleton width={44} height={12} />
-          </View>
         )}
+        onEndReachedThreshold={0.5}
+        onEndReached={() => {
+          if (!searching && shouldLoadMoreOnEnd(list.status)) list.loadMore(NOTES_PAGE_SIZE);
+        }}
+        ListFooterComponent={
+          !searching && list.status === 'LoadingMore' ? (
+            <View style={styles.footer}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : null
+        }
+        // Donji padding čisti i FAB (do insets+72) i traku „Poništi" iznad njega
+        // (do ~insets+144) — poslednji red ne sme ni pod jedno.
+        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 152 }]}
       />
+
+      <FAB
+        icon={Plus}
+        accessibilityLabel="Nova beleška"
+        onPress={() => {
+          haptics.tap();
+          setCreateOpen(true);
+        }}
+        style={{ bottom: insets.bottom + 16 }}
+      />
+      <NoteCreateSheet
+        open={createOpen}
+        startups={startups}
+        defaultStartupId={filterStartupId(filter)}
+        onClose={() => setCreateOpen(false)}
+      />
+      <NoteActionsSheet
+        open={actionNote !== null}
+        note={actionNote}
+        canSend={startups.length > 0}
+        onClose={() => setActionNote(null)}
+        onOpen={(note) => {
+          setActionNote(null);
+          openNote(note._id);
+        }}
+        onSend={(note) => {
+          setActionNote(null);
+          setTimeout(() => {
+            setSendSource(note.startupId);
+            setSendNodes([{ _id: note._id, title: note.title, text: note.text }]);
+          }, SHEET_HANDOFF_MS);
+        }}
+      />
+      <ThoughtConversionSheet
+        open={sendNodes !== null}
+        targets={startups}
+        sourceStartupId={sendSource}
+        nodes={sendNodes ?? []}
+        onClose={() => setSendNodes(null)}
+      />
+      {/* Iznad FAB-a (56 + razmak) da „Poništi" ne legne pod dugme. */}
+      <UndoBar bottomOffset={72} />
     </View>
   );
 }
@@ -455,11 +333,11 @@ function MisliError({ message, onRetry }: { message: string; onRetry: () => void
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Misli" onBack={() => router.back()} />
+      <ScreenHeader title="Beleške" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Misli se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju misli.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Beleške nisu učitane."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -470,48 +348,14 @@ function MisliError({ message, onRetry }: { message: string; onRetry: () => void
 const styles = StyleSheet.create({
   container: { flex: 1 },
   list: {
+    flexGrow: 1,
     paddingHorizontal: 16,
     paddingTop: 4,
   },
-  row: {
-    minHeight: 56,
-    paddingHorizontal: 0,
-    paddingVertical: 6,
-    borderRadius: radius.control,
-  },
-  colorDot: {
-    width: 14,
-    height: 14,
-    borderRadius: radius.pill,
-  },
-  valueWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  valueText: {
-    ...text.meta,
-  },
+  emptyWrap: { minHeight: 280 },
+  skeleton: { paddingTop: 4 },
   footer: {
     paddingVertical: 16,
     alignItems: 'center',
-  },
-  footerText: {
-    ...text.meta,
-    textAlign: 'center',
-    paddingHorizontal: 24,
-  },
-  skeleton: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  skeletonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  skeletonBody: {
-    flex: 1,
-    gap: 8,
   },
 });

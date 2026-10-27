@@ -135,3 +135,111 @@ describe("startups.isCurrentMember", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("oblasti startupa (PROSTOR K20)", () => {
+  async function seedAdmin() {
+    const base = await seedWorkspace();
+    const admin = await base.t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", { email: "admin@example.test" });
+      const profileId = await ctx.db.insert("profiles", {
+        userId,
+        displayName: "Admin",
+        email: "admin@example.test",
+        role: "admin",
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { userId, profileId };
+    });
+    const asAdmin = base.t.withIdentity({
+      subject: `${admin.userId}|test-session`,
+    });
+    return { ...base, asAdmin };
+  }
+
+  test("novi startup dobija oblasti Razvoj · Marketing · Prodaja · Ostalo sa starim ključevima", async () => {
+    const { t, asAdmin } = await seedAdmin();
+    const startupId = await asAdmin.mutation(api.startups.create, {
+      name: "Novi",
+    });
+    const areas = await t.run((ctx) =>
+      ctx.db
+        .query("startupAreas")
+        .withIndex("by_startupId_and_position", (q) => q.eq("startupId", startupId))
+        .take(10),
+    );
+    expect(areas.map((area) => [area.key, area.label, area.position])).toEqual([
+      ["dev", "Razvoj", 0],
+      ["marketing", "Marketing", 1],
+      ["sales", "Prodaja", 2],
+      ["other", "Ostalo", 3],
+    ]);
+  });
+
+  test("pravljenje novog startupa ne dira oblasti postojećeg", async () => {
+    const { t, asAdmin, startupId } = await seedAdmin();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("startupAreas", {
+        startupId,
+        key: "dev",
+        label: "Development",
+        position: 0,
+        createdAt: Date.now(),
+      });
+    });
+    await asAdmin.mutation(api.startups.create, { name: "Drugi" });
+    const stara = await t.run((ctx) =>
+      ctx.db
+        .query("startupAreas")
+        .withIndex("by_startupId_and_position", (q) => q.eq("startupId", startupId))
+        .take(10),
+    );
+    expect(stara.map((area) => area.label)).toEqual(["Development"]);
+  });
+
+  test("svaki član preimenuje, dodaje i preuređuje oblasti; nečlan ne može", async () => {
+    const { asMember, asOutsider, startupId } = await seedAdmin();
+    const first = await asMember.mutation(api.startups.createArea, {
+      startupId,
+      label: "Podrška",
+    });
+    const second = await asMember.mutation(api.startups.createArea, {
+      startupId,
+      label: "Finansije",
+    });
+    await asMember.mutation(api.startups.updateArea, {
+      areaId: first,
+      label: "Korisnička podrška",
+    });
+    await asMember.mutation(api.startups.reorderAreas, {
+      startupId,
+      orderedAreaIds: [second, first],
+    });
+    const detail = await asMember.query(api.startups.get, { startupId });
+    expect(detail?.areas.map((area) => area.label)).toEqual([
+      "Finansije",
+      "Korisnička podrška",
+    ]);
+    await expect(
+      asOutsider.mutation(api.startups.updateArea, { areaId: first, label: "X" }),
+    ).rejects.toThrow();
+    await expect(
+      asOutsider.mutation(api.startups.createArea, { startupId, label: "X" }),
+    ).rejects.toThrow();
+    await expect(
+      asMember.mutation(api.startups.updateArea, { areaId: first, label: "   " }),
+    ).rejects.toThrow(/obavezno/);
+  });
+
+  test("ime, opis i logo menja samo admin", async () => {
+    const { asMember, asAdmin, startupId } = await seedAdmin();
+    await expect(
+      asMember.mutation(api.startups.update, { startupId, name: "Novo ime" }),
+    ).rejects.toThrow(/administrator/i);
+    await asAdmin.mutation(api.startups.update, { startupId, name: "Novo ime" });
+    const detail = await asMember.query(api.startups.get, { startupId });
+    expect(detail?.name).toBe("Novo ime");
+  });
+});

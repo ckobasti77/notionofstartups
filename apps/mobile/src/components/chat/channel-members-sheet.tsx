@@ -193,7 +193,7 @@ export function ChannelMembersSheet({
                       ? 'Administrator'
                       : undefined
                 }
-                value={checked ? <Check size={18} color={colors.primary} /> : undefined}
+                value={checked ? <Check size={18} color={colors.primaryText} /> : undefined}
                 showChevron={false}
                 disabled={isOwner || saving}
                 onPress={() => toggle(member.profile._id)}
@@ -239,8 +239,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   meta: {
     ...text.meta,

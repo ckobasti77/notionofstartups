@@ -80,26 +80,31 @@ export function katalogInboxItems(now: number): InboxItemModel[] {
 }
 
 export function katalogInboxPending(now: number): InboxPendingModel[] {
+  // PROSTOR P22: „Čeka tebe" su samo ideje na glasanju (stare vrste ne postoje).
   return [
     {
-      kind: 'deletion_vote',
-      ballotId: 'katalog-b-1',
-      title: 'Stari cenovnik',
+      kind: 'idea_vote',
+      ideaId: 'katalog-i-1',
+      title: 'Referral program',
+      authorName: 'Ana Ilić',
+      upvotes: 3,
+      downvotes: 1,
       startup: SILLY,
       createdAt: now - 30 * HOUR,
-      targetType: 'approvals',
-      targetId: 'katalog-r-1',
+      targetType: 'ideas',
+      targetId: 'katalog-i-1',
     },
     {
-      kind: 'page_nesting',
-      requestId: 'katalog-r-2',
-      childTitle: 'Brošura',
-      parentTitle: 'Kampanja Q4',
-      requesterName: 'Milica Jovanović',
+      kind: 'idea_vote',
+      ideaId: 'katalog-i-2',
+      title: 'Novi onboarding za klijente',
+      authorName: null,
+      upvotes: 0,
+      downvotes: 0,
       startup: BEAUTY,
       createdAt: now - 50 * HOUR,
-      targetType: 'approvals',
-      targetId: 'katalog-r-2',
+      targetType: 'ideas',
+      targetId: 'katalog-i-2',
     },
   ];
 }

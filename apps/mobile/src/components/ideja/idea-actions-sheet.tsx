@@ -1,3 +1,4 @@
+import { IDEA_STAGE_LABELS } from '@devotion/shared';
 import { useMutation } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
 import {
@@ -6,6 +7,7 @@ import {
   ChevronLeft,
   Copy,
   FileOutput,
+  Flag,
   FolderInput,
   GitBranchPlus,
   Lightbulb,
@@ -17,6 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text } from 'react-native';
 
+import { convertHint } from '@/components/ideja/ideje-model';
 import { Row } from '@/components/ui/row';
 import { Sheet } from '@/components/ui/sheet';
 import { api } from '@/convex/_generated/api';
@@ -32,7 +35,7 @@ import {
 } from '@/lib/thought-layout';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 /** Čvor/ivica iz `ideas.list` — ista pretplata koju lista, detalj i kanvas drže. */
 export type IdeaListNode = FunctionReturnType<typeof api.ideas.list>['nodes'][number];
@@ -42,7 +45,7 @@ export type IdeaActionsView = 'menu' | 'connect' | 'nest' | 'size';
 
 const VIEW_TITLE: Record<Exclude<IdeaActionsView, 'menu'>, string> = {
   connect: 'Poveži sa idejom',
-  nest: 'Ugnjezdi u…',
+  nest: 'Ugnezdi u…',
   size: 'Veličina oblačića',
 };
 
@@ -54,7 +57,9 @@ export function ideaDisplayTitle(node: { title: string | null; text: string }): 
 /**
  * Akcije nad jednom idejom (PARITET A4) — mobilni pandan web gestovima sa kanvasa
  * (drag ručica→ručica za vezu, drop-na-karticu za gnježdenje) i dugmadima liste:
- * povezivanje, ugnježdavanje, izdvajanje, veličina, konverzija, brisanje sa undo.
+ * povezivanje, ugnježdavanje, izdvajanje, veličina, faza, konverzija, brisanje sa undo.
+ * PROSTOR (K17): sve ove radnje ima svaki član, osim faze i pretvaranja — njih
+ * uključuje `permissions` sa servera; telefon ne računa „autor" sam (R17).
  * Isti obrazac kao `thought-actions-sheet.tsx`: JEDAN sheet sa pod-prikazima, ne
  * ugnježdeni modali (Android guta `onRequestClose`); `busyId` brava.
  *
@@ -67,12 +72,12 @@ export function IdeaActionsSheet({
   idea,
   nodes,
   edges,
-  currentProfileId,
   startupId,
   initialView = 'menu',
   onClose,
   onEdit,
   onConvert,
+  onStage,
   onBranch,
   onArchived,
 }: {
@@ -80,7 +85,6 @@ export function IdeaActionsSheet({
   idea: IdeaListNode | null;
   nodes: IdeaListNode[];
   edges: IdeaListEdge[];
-  currentProfileId: Id<'profiles'>;
   startupId: Id<'startups'>;
   /** Korak na kom se sheet otvara (detalj ume da preskoči meni). */
   initialView?: IdeaActionsView;
@@ -91,8 +95,10 @@ export function IdeaActionsSheet({
    * kad je callback prosleđen (lista nema edit sheet).
    */
   onEdit?: () => void;
-  /** „Pretvori u stranicu": isti handoff ugovor kao `onEdit`. */
+  /** „Pretvori u zadatak ili belešku": isti handoff ugovor kao `onEdit`. */
   onConvert: (idea: IdeaListNode) => void;
+  /** „Promeni fazu": isti handoff ugovor; red postoji samo uz `permissions.canSetStage`. */
+  onStage?: (idea: IdeaListNode) => void;
   /**
    * „Nova grana ideje…": isti handoff ugovor kao `onEdit` — roditelj zatvara OVAJ
    * sheet pa (uz pauzu) otvara `IdeaCreateSheet` sa `parent` popunjenim.
@@ -120,7 +126,6 @@ export function IdeaActionsSheet({
   const updateLayout = useMutation(api.ideas.updateLayout);
   const resetLayoutSize = useMutation(api.ideas.resetLayoutSize);
   const archiveIdea = useMutation(api.ideas.archive);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const createIdea = useMutation(api.ideas.create);
 
   // Već povezane ideje — „Poveži" ih obeležava umesto da server tiho no-op-uje.
@@ -162,8 +167,8 @@ export function IdeaActionsSheet({
   const target = renderIdea;
 
   const title = ideaDisplayTitle(target);
-  const isMine = target.authorProfileId === currentProfileId;
   const activeSize = activeThoughtSizePreset(target.width);
+  const convert = convertHint(target);
   const candidates = nodes.filter((candidate) => candidate._id !== target._id);
 
   const duplicate = () =>
@@ -184,48 +189,30 @@ export function IdeaActionsSheet({
       return null;
     });
 
-  const archive = () => {
-    if (busyId !== null) return;
-    haptics.warning();
-    const direct = target.canDeleteDirectly;
-    Alert.alert(
-      direct ? 'Obrisati ideju?' : 'Zatražiti brisanje?',
-      direct
-        ? 'Ideja se uklanja iz kanvasa i liste. Diskusija ostaje sačuvana.'
-        : 'Ideja nije tvoja, pa se pokreće glasanje tima o brisanju.',
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: direct ? 'Obriši' : 'Zatraži',
-          style: 'destructive',
-          onPress: () =>
-            void runAction('archive', async () => {
-              if (!direct) {
-                await requestDeletion({ target: { kind: 'idea', id: target._id } });
-                return 'Glasanje o brisanju je pokrenuto.';
-              }
-              const result = await archiveIdea({ startupId, ideaId: target._id });
-              if (result.recoveredId !== null) {
-                // Server ODBIJA undo kad je arhiviranje izdvojilo tuđe izmene u
-                // „Oporavljeno" — traka bi nudila dugme koje garantovano pada
-                // (web radi isto, `ideas-canvas-view.tsx`).
-                onArchived?.();
-                return 'Ideja je obrisana, a tuđe izmene su sačuvane u „Oporavljeno".';
-              }
-              // Push PRE `onArchived` (router.back) — traka preživi navigaciju
-              // (modul-store) i pojavi se na ekranu ispod.
-              pushUndo({
-                label: 'Ideja je obrisana.',
-                action: { kind: 'idea', startupId, ideaId: result.ideaId },
-                undoUntil: result.undoUntil,
-              });
-              onArchived?.();
-              return null;
-            }),
-        },
-      ],
-    );
-  };
+  /**
+   * Brisanje je uvek u Korpu i vraća se (SMIRENJE §1.5): bez potvrde, sa trakom
+   * „Poništi". Svaki član briše (`permissions.canArchive`), pa nema glasanja.
+   */
+  const archive = () =>
+    void runAction('archive', async () => {
+      haptics.warning();
+      const result = await archiveIdea({ startupId, ideaId: target._id });
+      if (result.recoveredId !== null) {
+        // Server ODBIJA undo kad je arhiviranje izdvojilo tuđe izmene u
+        // „Oporavljeno" — traka bi nudila dugme koje garantovano pada.
+        onArchived?.();
+        return 'Ideja je u Korpi, a tuđe izmene su sačuvane u „Oporavljeno”.';
+      }
+      // Push PRE `onArchived` (router.back) — traka preživi navigaciju
+      // (modul-store) i pojavi se na ekranu ispod.
+      pushUndo({
+        label: `„${title}” je u Korpi.`,
+        action: { kind: 'idea', startupId, ideaId: result.ideaId },
+        undoUntil: result.undoUntil,
+      });
+      onArchived?.();
+      return null;
+    });
 
   return (
     <Sheet visible={open && idea !== null} onClose={close} style={styles.sheet}>
@@ -238,7 +225,7 @@ export function IdeaActionsSheet({
             {title}
           </Text>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
-            {target.canEdit && onEdit ? (
+            {target.permissions.canEdit && onEdit ? (
               <Row
                 title="Izmeni ideju"
                 subtitle="Naslov i tekst ideje"
@@ -270,17 +257,16 @@ export function IdeaActionsSheet({
             ) : null}
             <Row
               title="Poveži sa idejom…"
-              subtitle="Veza ka drugoj ideji, vidljiva na kanvasu"
+              subtitle="Veza ka drugoj ideji, vidljiva na Mapi"
               onPress={() => setView('connect')}
               disabled={busyId !== null}
               style={styles.row}
               icon={<Link2 size={20} color={colors.mutedForeground} />}
             />
-            {target.canEdit ? (
-              // Server: samo svoja kartica sme da se ugnjezdi (`requestNesting`).
+            {target.permissions.canEdit ? (
               <Row
-                title="Ugnjezdi u…"
-                subtitle="Kod tuđe kartice vlasnik odobrava predlog"
+                title="Ugnezdi u…"
+                subtitle="Kartica ulazi u grupu odmah"
                 onPress={() => setView('nest')}
                 disabled={busyId !== null}
                 style={styles.row}
@@ -290,7 +276,7 @@ export function IdeaActionsSheet({
             {target.canDetach ? (
               <Row
                 title="Izdvoji iz grupe"
-                subtitle="Vraća karticu na vrh kanvasa; povlači i predlog"
+                subtitle="Vraća karticu na vrh Mape"
                 onPress={() =>
                   void runAction('detach', async () => {
                     await detachIdea({ startupId, ideaId: target._id });
@@ -314,38 +300,44 @@ export function IdeaActionsSheet({
                 icon={<Scaling size={20} color={colors.mutedForeground} />}
               />
             ) : null}
-            {!target.convertedPageId ? (
-              // Već pretvorena ideja i dalje nema ovaj red (detalj tada nudi
-              // „Pretvorena u stranicu", `ideja/[id].tsx`). Neodobrena ideja OSTAJE
-              // vidljiva ali onemogućena — objašnjenje u podnaslovu (C16), umesto
-              // da red tiho nestane i pojavi se bez razloga.
+            {onStage && target.permissions.canSetStage ? (
               <Row
-                title="Pretvori u stranicu"
+                title="Promeni fazu"
+                subtitle={IDEA_STAGE_LABELS[target.stage]}
+                onPress={() => onStage(target)}
+                disabled={busyId !== null}
+                style={styles.row}
+                icon={<Flag size={20} color={colors.mutedForeground} />}
+              />
+            ) : null}
+            {convert.kind !== 'none' ? (
+              // Dugme samo kome server dozvoljava; odgovornom van faze „Odobreno"
+              // red stoji prigušen sa objašnjenjem (C16), umesto da nestane.
+              <Row
+                title="Pretvori u zadatak ili belešku"
                 subtitle={
-                  target.isApproved
-                    ? 'Odobrena ideja postaje zadatak ili beleška'
-                    : 'Treba više glasova za nego protiv.'
+                  convert.kind === 'button'
+                    ? 'Odobrena ideja postaje zadatak'
+                    : convert.text
                 }
                 onPress={() => onConvert(target)}
-                disabled={busyId !== null || !target.isApproved}
+                disabled={busyId !== null || convert.kind !== 'button'}
                 style={styles.row}
                 icon={<FileOutput size={20} color={colors.mutedForeground} />}
               />
             ) : null}
-            <Row
-              title={target.canDeleteDirectly ? 'Obriši ideju' : 'Zatraži brisanje'}
-              subtitle={
-                target.canDeleteDirectly
-                  ? 'Sklanja ideju; traka „Poništi" vraća'
-                  : 'Tuđa ideja se briše glasanjem tima'
-              }
-              onPress={archive}
-              disabled={busyId !== null}
-              showChevron={false}
-              style={styles.row}
-              icon={<Archive size={20} color={colors.destructive} />}
-              value={busyId === 'archive' ? <ActivityIndicator color={colors.primary} /> : undefined}
-            />
+            {target.permissions.canArchive ? (
+              <Row
+                title="Obriši"
+                subtitle="Ide u Korpu; traka „Poništi” vraća"
+                onPress={archive}
+                disabled={busyId !== null}
+                showChevron={false}
+                style={styles.row}
+                icon={<Archive size={20} color={colors.destructive} />}
+                value={busyId === 'archive' ? <ActivityIndicator color={colors.primary} /> : undefined}
+              />
+            ) : null}
           </ScrollView>
         </>
       ) : (
@@ -365,7 +357,7 @@ export function IdeaActionsSheet({
                 <Text style={[styles.empty, { color: colors.mutedForeground }]}>
                   {view === 'connect'
                     ? 'Nema druge ideje za povezivanje.'
-                    : 'Nema druge ideje u koju bi se ova ugnjezdila.'}
+                    : 'Nema druge ideje u koju bi se ova ugnezdila.'}
                 </Text>
               ) : (
                 candidates.map((candidate) => {
@@ -374,20 +366,13 @@ export function IdeaActionsSheet({
                   // podnaslovu — jasnije od tihog izostavljanja (isti obrazac kao
                   // misli; cikluse pri gnježdenju svejedno čuva server).
                   const alreadyConnected = view === 'connect' && connectedIds.has(candidate._id);
-                  // Server: bar jedna strana veze mora biti moja kartica.
-                  const needsMine =
-                    view === 'connect' &&
-                    !isMine &&
-                    candidate.authorProfileId !== currentProfileId;
                   const currentParent =
                     view === 'nest' && target.parentIdeaId === candidate._id;
                   const reason = alreadyConnected
                     ? 'Već povezana'
-                    : needsMine
-                      ? 'Veza traži tvoju karticu'
-                      : currentParent
-                        ? 'Trenutna grupa'
-                        : undefined;
+                    : currentParent
+                      ? 'Trenutna grupa'
+                      : undefined;
                   const disabled = busyId !== null || reason !== undefined;
                   return (
                     <Row
@@ -418,9 +403,9 @@ export function IdeaActionsSheet({
                                 childIdeaId: target._id,
                                 parentIdeaId: candidate._id,
                               });
-                              return result.status === 'approved'
-                                ? 'Ideja je ugnježdena.'
-                                : 'Predlog ugnježdenja je odmah vidljiv timu — vlasnik kartice ga odobrava u Odobrenjima.';
+                              // Server ugnježdava odmah za svakog člana (`status` je uvek `approved`).
+                              void result;
+                              return 'Ideja je ugnežđena.';
                             })
                       }
                       disabled={disabled}
@@ -513,8 +498,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

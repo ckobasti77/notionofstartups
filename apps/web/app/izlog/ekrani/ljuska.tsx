@@ -61,16 +61,14 @@ function sidebarFixture(startupIndex: number): ComponentProps<typeof WorkspaceSi
     onCreate: noop,
     onCreateArea: noop,
     onSearch: noop,
-    onAdmin: noop,
+    onOpenSettings: noop,
+    onOpenNotificationSettings: noop,
     onProfile: noop,
     onSignOut: noop,
     draggedPageId: null,
     activeDropPageId: null,
     activeDropAreaId: null,
-    pendingApprovals: 2,
-    unreadNotifications: 5,
     chatUnread: 3,
-    onOpenNotifications: noop,
     onDragPageStart: noop,
     onDragPageEnd: noop,
     onDragPageOver: noop,
@@ -159,8 +157,8 @@ function ShellPrimer({ initial }: { initial: RailScope }) {
               : { kind: "startup", startup, subtitle: "Komandni centar", onSearch: noop }
           }
           notifications={{
-            label: meActive ? "Inbox" : "Obaveštenja",
-            count: meActive ? IZLOG_INBOX_UNREAD : 5,
+            label: "Inbox",
+            count: IZLOG_INBOX_UNREAD,
             capped: false,
             onOpen: noop,
           }}

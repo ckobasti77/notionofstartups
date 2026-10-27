@@ -5,7 +5,6 @@ import {
   PRIORITY_LABELS,
   reopenStatus,
   STATUS_LABELS,
-  taskPermissions,
   type TaskPriorityKey,
   type TaskStatusKey,
 } from '@devotion/shared';
@@ -32,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { AssigneePickerList, assigneeCountLabel, assigneeLimitHint } from '@/components/zadatak/assignee-picker';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
+import { taskPermissionsOf } from '@/components/zadatak/task-permissions';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useQueryState, isGoneError } from '@/hooks/use-query-state';
@@ -284,10 +284,10 @@ function StartupTaskPanel({
   const page = useQueryState(api.pages.get, { pageId });
   const assignees = useQueryState(api.taskAssignees.listForTask, { taskPageId: pageId });
   const data = page.status === 'ready' ? page.data : null;
-  const isCreator = data !== null && ctx.profileId !== null && data.createdByProfileId === ctx.profileId;
+  // PROSTOR P1: izvršioce menja svaki član otključanog zadatka, pa se članovi učitavaju za sve.
   const members = useQueryState(
     api.startups.listMembers,
-    data && isCreator ? { startupId: data.startupId, limit: 50 } : 'skip',
+    data ? { startupId: data.startupId, limit: 50 } : 'skip',
   );
   const updateMetadata = useMutation(api.tasks.updateMetadata);
   const renamePage = useMutation(api.pages.update);
@@ -314,7 +314,8 @@ function StartupTaskPanel({
   const area = startup.areas.find((item) => item._id === data.areaId);
   const assigneeList = assignees.data;
   const isAssignee = assigneeList.some((person) => person.profileId === ctx.profileId);
-  const permissions = taskPermissions({ kind: 'task', isCreator, isAssignee });
+  // Dozvole iz `permissions` stranice (zaključano, D5), ne iz poređenja autora.
+  const permissions = taskPermissionsOf(data.permissions, isAssignee);
   const status = (data.taskStatus ?? 'backlog') as Exclude<TaskStatusKey, 'open'>;
   const priority = (data.taskPriority ?? null) as TaskPriorityKey | null;
   const dueDate = data.dueDate ?? null;
@@ -561,8 +562,14 @@ function StartupTaskPanel({
       <View style={styles.stack}>
         <TaskCheckpointList
           taskPageId={pageId}
+          startupId={data.startupId}
           canCreate={permissions.checkpoints.allowed}
           onDeleted={onClose}
+          // Panel je Modal: Komentari koraka se otvaraju na punom ekranu zadatka.
+          onOpenComments={() => {
+            onClose();
+            onOpenInStartup(data.startupId, pageId);
+          }}
           onInputFocus={ctx.revealField}
         />
         {permissions.checkpoints.allowed ? null : (
@@ -831,7 +838,7 @@ function PersonalTaskPanel({
 }
 
 /** „Dodaj u Moj dan" / „Ukloni iz Moj dan" (plan je lični — uvek dozvoljen). */
-function PlanButton({ planned, onPress }: { planned: boolean; onPress: () => void }) {
+export function PlanButton({ planned, onPress }: { planned: boolean; onPress: () => void }) {
   const colors = useThemeColors();
   return (
     <Button

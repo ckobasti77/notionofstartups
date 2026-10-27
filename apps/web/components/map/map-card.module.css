@@ -1,0 +1,19 @@
+/*
+ * Boja ideje (izbor korisnika, P4) — samo tačka pored vrste, nikad pozadina
+ * kartice (DIZAJN-SMIRENJE §1). Vrednosti su iste kao postojeća paleta ideja
+ * (`connected-canvas.module.css`, embed `.embed-node-dot`), bez novih boja.
+ */
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--map-dot, var(--muted-foreground));
+}
+
+.dot[data-color="neutral"] { --map-dot: oklch(0.58 0.025 266); }
+.dot[data-color="violet"] { --map-dot: oklch(0.57 0.2 294); }
+.dot[data-color="blue"] { --map-dot: oklch(0.58 0.17 249); }
+.dot[data-color="green"] { --map-dot: oklch(0.57 0.14 155); }
+.dot[data-color="amber"] { --map-dot: oklch(0.68 0.16 78); }
+.dot[data-color="rose"] { --map-dot: oklch(0.61 0.19 18); }

@@ -1,0 +1,407 @@
+"use client";
+
+import { useMemo, useState, useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
+import type { OptimisticLocalStore } from "convex/browser";
+import { useMutation } from "convex/react";
+import type { FunctionArgs } from "convex/server";
+import { toast } from "sonner";
+
+import type { MentionMember } from "@/components/collab/comment-composer";
+import { useLiveNow } from "@/components/collab/use-live-now";
+import type { ProfileWithAvatar, StartupWithAreas } from "@/components/workspace/types";
+import { useQueryResult, useQueryTolerant } from "@/components/workspace/workspace-error-boundary";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { Skeleton } from "@/components/ui/skeleton";
+import { accessErrorMessage } from "@/lib/errors";
+import type { Today } from "@/lib/today";
+
+// Mapa (xyflow) je teška: učitava se tek kad je izabrana, kao Mapa oblasti.
+const IdeasCanvasView = dynamic(
+  () => import("@/components/workspace/ideas-canvas-view").then((module) => module.IdeasCanvasView),
+  {
+    loading: () => (
+      <div role="status" aria-label="Učitavam mapu" className="px-4 sm:px-6 lg:px-8">
+        <Skeleton className="h-[60vh] w-full rounded-xl" />
+      </div>
+    ),
+  },
+);
+
+import { IdeaConvertDialog, IdeaCreateDialog, IdeaNestDialog } from "./idea-dialogs";
+import { IdeaDetailDrawer } from "./idea-detail-drawer";
+import type { IdeaActions } from "./idea-parts";
+import { IdeasScreen } from "./ideas-screen";
+import {
+  applyIdeaStage,
+  applyIdeaVote,
+  convertedMessage,
+  DEFAULT_IDEA_SORT,
+  filterIdeas,
+  ideaTitle,
+  IDEAS_VIEW_STORAGE_KEY,
+  nextIdeaSort,
+  readIdeasViewMode,
+  stageChangedMessage,
+  trashedMessage,
+  voteMessage,
+  writeIdeasViewMode,
+  type IdeaModel,
+  type IdeaSort,
+  type IdeasViewMode,
+} from "./ideas-model";
+
+/** Glas se odmah vidi (broj i `aria-pressed`); server potvrđuje ili vraća. */
+function optimisticVote(store: OptimisticLocalStore, args: FunctionArgs<typeof api.ideas.vote>) {
+  const current = store.getQuery(api.ideas.list, { startupId: args.startupId });
+  if (!current) return;
+  store.setQuery(api.ideas.list, { startupId: args.startupId }, {
+    ...current,
+    nodes: current.nodes.map((node) => (node._id === args.ideaId ? applyIdeaVote(node, args.voteType) : node)),
+  });
+}
+
+/** Kartica odmah prelazi u novu kolonu (Flip); `Pretvori` prati fazu „Odobreno". */
+function optimisticStage(store: OptimisticLocalStore, args: FunctionArgs<typeof api.ideas.setStage>) {
+  const current = store.getQuery(api.ideas.list, { startupId: args.startupId });
+  if (!current) return;
+  const at = Date.now();
+  store.setQuery(api.ideas.list, { startupId: args.startupId }, {
+    ...current,
+    nodes: current.nodes.map((node) => (node._id === args.ideaId ? applyIdeaStage(node, args.stage, at) : node)),
+  });
+}
+
+type CreateTarget = { parentIdeaId?: Id<"ideaNodes">; position?: { x: number; y: number } };
+
+/** Izbor prikaza živi u `localStorage` (K07 E15); promena u drugoj kartici se vidi i ovde. */
+const viewListeners = new Set<() => void>();
+function subscribeView(listener: () => void) {
+  viewListeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === IDEAS_VIEW_STORAGE_KEY) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    viewListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+function safeStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+function useIdeasViewMode(): [IdeasViewMode, (mode: IdeasViewMode) => void] {
+  const mode = useSyncExternalStore(
+    subscribeView,
+    () => readIdeasViewMode(safeStorage()),
+    () => "tabla" as const,
+  );
+  const [fallback, setFallback] = useState<IdeasViewMode | null>(null);
+  return [
+    fallback ?? mode,
+    (next) => {
+      writeIdeasViewMode(safeStorage(), next);
+      // Skladište koje ne radi (privatni režim): izbor važi do osvežavanja.
+      setFallback(readIdeasViewMode(safeStorage()) === next ? null : next);
+      viewListeners.forEach((listener) => listener());
+    },
+  ];
+}
+
+type IdeasViewProps = {
+  startup: StartupWithAreas;
+  profile: ProfileWithAvatar;
+  today: Today;
+  /** Otvoren detalj (iz URL-a). */
+  ideaId: Id<"ideaNodes"> | null;
+  onOpenIdea: (ideaId: Id<"ideaNodes"> | null) => void;
+  onOpenPage: (pageId: Id<"pages">) => void;
+  onOpenTrash: () => void;
+  onOpenChannel: (channelId: Id<"chatChannels">) => void;
+};
+
+/**
+ * Ideje startupa (PROSTOR P6, P16; K07 §5.9) — kontejner: `ideas.list` (R7),
+ * glas (`ideas.vote`, svaki član) i faza (`ideas.setStage`, samo kome je
+ * dozvoljeno) sa optimističkim upisom, pa Flip; detalj u fioci
+ * (`?ideaId=`), pretvaranje, brisanje u Korpu uz „Poništi" i Mapa.
+ */
+export function IdeasView(props: IdeasViewProps) {
+  // „Pokušaj ponovo" ponovo montira sadržaj (nova pretplata na `ideas.list`).
+  const [attempt, setAttempt] = useState(0);
+  return <IdeasContent key={attempt} {...props} retry={() => setAttempt((value) => value + 1)} />;
+}
+
+function IdeasContent({
+  startup,
+  profile,
+  today,
+  ideaId,
+  onOpenIdea,
+  onOpenPage,
+  onOpenTrash,
+  onOpenChannel,
+  retry,
+}: IdeasViewProps & { retry: () => void }) {
+  const startupId = startup._id;
+  const { data, failed } = useQueryResult(api.ideas.list, { startupId });
+  const membersData = useQueryTolerant(api.startups.listMembers, { startupId });
+  const now = useLiveNow(today.now);
+
+  const [mode, setMode] = useIdeasViewMode();
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<IdeaSort>(DEFAULT_IDEA_SORT);
+  const [announcement, setAnnouncement] = useState("");
+  // Dijalozi ostaju montirani i posle zatvaranja (izlazna animacija, povratak fokusa):
+  // cilj se pamti, a „otvoreno" je zasebno.
+  const [createTarget, setCreateTarget] = useState<CreateTarget>({});
+  const [createOpen, setCreateOpen] = useState(false);
+  const [convertId, setConvertId] = useState<Id<"ideaNodes"> | null>(null);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [nestId, setNestId] = useState<Id<"ideaNodes"> | null>(null);
+  const [nestOpen, setNestOpen] = useState(false);
+
+  const vote = useMutation(api.ideas.vote).withOptimisticUpdate(optimisticVote);
+  const setStage = useMutation(api.ideas.setStage).withOptimisticUpdate(optimisticStage);
+  const create = useMutation(api.ideas.create);
+  const archive = useMutation(api.ideas.archive);
+  const restore = useMutation(api.ideas.restoreOwn);
+  const convert = useMutation(api.ideas.convertToPage);
+  const nest = useMutation(api.collaboration.requestNesting);
+
+  const nodes = data?.nodes;
+  const ideas: ReadonlyArray<IdeaModel> | undefined = nodes;
+  const byId = useMemo(() => new Map((nodes ?? []).map((node) => [node._id as string, node])), [nodes]);
+  const members = useMemo<MentionMember[]>(
+    () =>
+      (membersData ?? []).map(({ profile: member }) => ({
+        profileId: member._id,
+        displayName: member.displayName,
+        avatarUrl: member.avatarUrl,
+      })),
+    [membersData],
+  );
+
+  /** Najava se prvo isprazni, da čitač ekrana ponovi isti tekst. */
+  function announce(message: string) {
+    setAnnouncement("");
+    window.setTimeout(() => setAnnouncement(message), 50);
+  }
+
+  const actions: IdeaActions = {
+    onOpen: (id) => onOpenIdea(id),
+    onVote: (idea, voteType) => {
+      const previous = idea.myVote;
+      void vote({ startupId, ideaId: idea._id, voteType })
+        .then(() => announce(voteMessage(previous, voteType)))
+        .catch((error: unknown) => toast.error(accessErrorMessage(error, "Glas nije sačuvan.")));
+    },
+    onSetStage: (idea, stage) => {
+      const previous = idea.storedStage;
+      if (previous === stage) return;
+      void setStage({ startupId, ideaId: idea._id, stage })
+        .then(() => {
+          const message = stageChangedMessage(stage);
+          announce(message);
+          toast.success(message, {
+            duration: 8_000,
+            action: {
+              label: "Poništi",
+              onClick: () =>
+                void setStage({ startupId, ideaId: idea._id, stage: previous }).catch((error: unknown) =>
+                  toast.error(accessErrorMessage(error, "Faza nije vraćena.")),
+                ),
+            },
+          });
+        })
+        .catch((error: unknown) => toast.error(accessErrorMessage(error, "Faza nije promenjena.")));
+    },
+    onConvert: (idea) => {
+      setConvertId(idea._id);
+      setConvertOpen(true);
+    },
+    onArchive: (idea) => {
+      const title = ideaTitle(idea);
+      // Fioka se zatvara odmah, da ne trepne „Ideja više nije ovde." dok stiže lista.
+      if (ideaId === idea._id) onOpenIdea(null);
+      void archive({ startupId, ideaId: idea._id })
+        .then(() => {
+          let trashed = true;
+          toast.success(trashedMessage(title), {
+            duration: 8_000,
+            action: {
+              label: "Poništi",
+              onClick: () => {
+                if (!trashed) return;
+                trashed = false;
+                void restore({ startupId, ideaId: idea._id }).catch((error: unknown) =>
+                  toast.error(accessErrorMessage(error, "Ideja nije vraćena.")),
+                );
+              },
+            },
+          });
+        })
+        .catch((error: unknown) => toast.error(accessErrorMessage(error, "Ideja nije obrisana.")));
+    },
+  };
+
+  async function createIdea(draft: { title: string; text: string }) {
+    try {
+      const target = createTarget;
+      await create({
+        startupId,
+        title: draft.title,
+        text: draft.text,
+        parentIdeaId: target.parentIdeaId,
+        x: target.position ? Math.round(target.position.x) : undefined,
+        y: target.position ? Math.round(target.position.y) : undefined,
+      });
+      toast.success(target.parentIdeaId ? "Nova grana ideje je dodata." : "Ideja je dodata u Predlog.");
+      return true;
+    } catch (error) {
+      toast.error(accessErrorMessage(error, "Ideja nije dodata."));
+      return false;
+    }
+  }
+
+  const convertIdea = convertId ? (byId.get(convertId) ?? null) : null;
+  async function convertSelected(input: { kind: "task" | "note"; areaId: string }) {
+    if (!convertIdea) return false;
+    const title = ideaTitle(convertIdea);
+    try {
+      const pageId = await convert({
+        startupId,
+        ideaId: convertIdea._id,
+        areaId: input.areaId as Id<"startupAreas">,
+        kind: input.kind,
+      });
+      toast.success(convertedMessage(input.kind, title), {
+        duration: 8_000,
+        action: { label: "Otvori", onClick: () => onOpenPage(pageId) },
+      });
+      return true;
+    } catch (error) {
+      toast.error(accessErrorMessage(error, "Ideja nije pretvorena."));
+      return false;
+    }
+  }
+
+  const nestIdea = nestId ? (byId.get(nestId) ?? null) : null;
+  async function nestSelected(parentId: string) {
+    if (!nestIdea) return false;
+    const parent = byId.get(parentId);
+    try {
+      await nest({ startupId, childIdeaId: nestIdea._id, parentIdeaId: parentId as Id<"ideaNodes"> });
+      toast.success(`„${ideaTitle(nestIdea)}” je ugnežđena u „${parent ? ideaTitle(parent) : "ideju"}”.`);
+      return true;
+    } catch (error) {
+      toast.error(accessErrorMessage(error, "Ugnežđavanje nije sačuvano."));
+      return false;
+    }
+  }
+
+  const detail = ideaId === null ? undefined : nodes === undefined ? undefined : (byId.get(ideaId) ?? null);
+  const createParent = createTarget.parentIdeaId ? byId.get(createTarget.parentIdeaId) : undefined;
+  // Mapa dobija ISTI niz dok se lista i pretraga ne promene (inače resinhronizuje
+  // čvorove na svaki render i vraća potez koji je u toku), a veze samo između prikazanih.
+  const mapNodes = useMemo(() => (nodes ? filterIdeas(nodes, query) : null), [nodes, query]);
+  const edges = data?.edges;
+  const mapEdges = useMemo(() => {
+    if (!edges || !mapNodes || !nodes || mapNodes === nodes) return edges ?? null;
+    const shown = new Set(mapNodes.map((node) => node._id as string));
+    return edges.filter((edge) => shown.has(edge.nodeAId) && shown.has(edge.nodeBId));
+  }, [edges, mapNodes, nodes]);
+  const openCreate = (target: CreateTarget) => {
+    setCreateTarget(target);
+    setCreateOpen(true);
+  };
+
+  return (
+    <>
+      <IdeasScreen
+        state={
+          failed
+            ? { status: "error", retry }
+            : ideas === undefined
+              ? { status: "loading" }
+              : { status: "ready", ideas }
+        }
+        mode={mode}
+        onModeChange={setMode}
+        query={query}
+        onQueryChange={setQuery}
+        now={now}
+        actions={actions}
+        activeIdeaId={ideaId}
+        sort={sort}
+        onSortChange={(key) => setSort((current) => nextIdeaSort(current, key))}
+        onCreate={() => openCreate({})}
+        announcement={announcement}
+        map={
+          data && mapNodes && mapEdges ? (
+            <IdeasCanvasView
+              startupId={startupId}
+              nodes={mapNodes}
+              edges={mapEdges}
+              canvasState={data.canvasState}
+              searchActive={query.trim().length > 0}
+              onClearSearch={() => setQuery("")}
+              onConvertIdea={(idea) => {
+                setConvertId(idea._id);
+                setConvertOpen(true);
+              }}
+              onEditIdea={(idea) => onOpenIdea(idea._id)}
+              onNestIdea={(idea) => {
+                setNestId(idea._id);
+                setNestOpen(true);
+              }}
+              onCreateIdea={(parentIdeaId, position) => openCreate({ parentIdeaId, position })}
+            />
+          ) : null
+        }
+      />
+      <IdeaDetailDrawer
+        startupId={startupId}
+        open={ideaId !== null}
+        idea={detail}
+        now={now}
+        members={members}
+        startupMembers={membersData}
+        selfProfileId={profile._id}
+        actions={actions}
+        onClose={() => onOpenIdea(null)}
+        onOpenPage={onOpenPage}
+        onOpenTrash={onOpenTrash}
+        onOpenChannel={onOpenChannel}
+        loadError={failed ? { retry } : null}
+      />
+      <IdeaCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        parentTitle={createParent ? ideaTitle(createParent) : null}
+        onCreate={createIdea}
+      />
+      <IdeaConvertDialog
+        open={convertOpen && convertIdea !== null}
+        onOpenChange={setConvertOpen}
+        ideaTitle={convertIdea ? ideaTitle(convertIdea) : ""}
+        areas={startup.areas}
+        onConvert={convertSelected}
+      />
+      <IdeaNestDialog
+        open={nestOpen && nestIdea !== null}
+        onOpenChange={setNestOpen}
+        ideaTitle={nestIdea ? ideaTitle(nestIdea) : ""}
+        candidates={(nodes ?? [])
+          .filter((node) => node._id !== nestId && node.parentIdeaId !== nestId)
+          .map((node) => ({ _id: node._id, title: ideaTitle(node) }))}
+        onNest={nestSelected}
+      />
+    </>
+  );
+}

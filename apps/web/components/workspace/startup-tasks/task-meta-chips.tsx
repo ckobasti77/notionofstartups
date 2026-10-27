@@ -1,14 +1,7 @@
 "use client";
 
-import { AlignLeft, ListChecks } from "lucide-react";
-import {
-  PERMISSION_REASONS,
-  type StartupTaskStatus,
-  type TaskPermissions,
-  type TaskPriorityKey,
-} from "@devotion/shared";
+import type { StartupTaskStatus, TaskPermissions, TaskPriorityKey } from "@devotion/shared";
 
-import { LockedMetaChip } from "@/components/me/meta-chip";
 import { DueMetaChip, PriorityChip } from "@/components/me/task-panel/panel-parts";
 import { AssigneesChip, StatusChip, type PanelPerson } from "@/components/me/task-panel/startup-task-panel-view";
 import { cn } from "@/lib/utils";
@@ -105,28 +98,6 @@ export function TaskMetaChips({
           />
         ),
       )}
-    </div>
-  );
-}
-
-/** Razlog za korake (ne-kreator): ko šta sme, umesto pasusa teksta. */
-export const CHECKPOINTS_LOCKED_REASON = `${PERMISSION_REASONS.checkpoints} Izvršilac označava urađeno, a svaki član može da doda doprinos.`;
-
-/**
- * Šta ne-kreator ne menja u instrukcijama i koracima — zaključani čipovi sa
- * razlogom (E15) umesto pasusa „Autor uređuje checkpoint…".
- */
-export function TaskContentLocks({ onDenied, className }: { onDenied?: (reason: string) => void; className?: string }) {
-  return (
-    <div role="group" aria-label="Samo za čitanje" className={cn("flex flex-wrap gap-2", className)}>
-      <LockedMetaChip
-        label="Instrukcije"
-        value="samo čitanje"
-        icon={AlignLeft}
-        reason={PERMISSION_REASONS.instructions}
-        onDenied={onDenied}
-      />
-      <LockedMetaChip label="Koraci" value="menja kreator" icon={ListChecks} reason={CHECKPOINTS_LOCKED_REASON} onDenied={onDenied} />
     </div>
   );
 }

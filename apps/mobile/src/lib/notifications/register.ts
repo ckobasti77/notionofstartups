@@ -110,7 +110,7 @@ export function useRegisterPushDevice(): () => Promise<PushRegistrationStatus> {
     if (Platform.OS !== "ios" && Platform.OS !== "android") {
       const result: PushRegistrationStatus = {
         state: "error",
-        reason: "Native push radi samo na telefonu (Android/iOS).",
+        reason: "Push obaveštenja rade samo na telefonu (Android/iOS).",
         detail: null,
       };
       setStatus(result);

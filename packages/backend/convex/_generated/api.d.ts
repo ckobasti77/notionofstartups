@@ -18,10 +18,12 @@ import type * as canvasPlacement from "../canvasPlacement.js";
 import type * as canvases from "../canvases.js";
 import type * as chat from "../chat.js";
 import type * as collaboration from "../collaboration.js";
+import type * as comments from "../comments.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as expoPush from "../expoPush.js";
 import type * as expoPushTokens from "../expoPushTokens.js";
+import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as ideas from "../ideas.js";
 import type * as inbox from "../inbox.js";
@@ -32,7 +34,10 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_chatPresence from "../lib/chatPresence.js";
 import type * as lib_chat_channels from "../lib/chat_channels.js";
 import type * as lib_collaboration from "../lib/collaboration.js";
+import type * as lib_comments from "../lib/comments.js";
 import type * as lib_day_key from "../lib/day_key.js";
+import type * as lib_history from "../lib/history.js";
+import type * as lib_idea_stages from "../lib/idea_stages.js";
 import type * as lib_my_day from "../lib/my_day.js";
 import type * as lib_my_scope from "../lib/my_scope.js";
 import type * as lib_notificationChannels from "../lib/notificationChannels.js";
@@ -40,16 +45,20 @@ import type * as lib_notificationSettingsCatalog from "../lib/notificationSettin
 import type * as lib_notificationTarget from "../lib/notificationTarget.js";
 import type * as lib_notifications from "../lib/notifications.js";
 import type * as lib_onboarding from "../lib/onboarding.js";
+import type * as lib_pagePresence from "../lib/pagePresence.js";
+import type * as lib_page_content from "../lib/page_content.js";
 import type * as lib_page_creation from "../lib/page_creation.js";
 import type * as lib_page_files from "../lib/page_files.js";
 import type * as lib_page_kinds from "../lib/page_kinds.js";
 import type * as lib_page_relations from "../lib/page_relations.js";
 import type * as lib_page_tables from "../lib/page_tables.js";
 import type * as lib_pages from "../lib/pages.js";
+import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_profile_summary from "../lib/profile_summary.js";
 import type * as lib_task_assignees from "../lib/task_assignees.js";
 import type * as lib_task_checkpoint_canvas_edges from "../lib/task_checkpoint_canvas_edges.js";
 import type * as lib_task_checkpoints from "../lib/task_checkpoints.js";
+import type * as lib_trash from "../lib/trash.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as migrations from "../migrations.js";
 import type * as myDay from "../myDay.js";
@@ -59,6 +68,7 @@ import type * as pageFiles from "../pageFiles.js";
 import type * as pageTables from "../pageTables.js";
 import type * as pages from "../pages.js";
 import type * as personalTasks from "../personalTasks.js";
+import type * as presence from "../presence.js";
 import type * as profiles from "../profiles.js";
 import type * as puls from "../puls.js";
 import type * as push from "../push.js";
@@ -72,6 +82,7 @@ import type * as taskCheckpointCanvasEdges from "../taskCheckpointCanvasEdges.js
 import type * as taskCheckpoints from "../taskCheckpoints.js";
 import type * as tasks from "../tasks.js";
 import type * as thoughts from "../thoughts.js";
+import type * as trash from "../trash.js";
 
 import type {
   ApiFromModules,
@@ -90,10 +101,12 @@ declare const fullApi: ApiFromModules<{
   canvases: typeof canvases;
   chat: typeof chat;
   collaboration: typeof collaboration;
+  comments: typeof comments;
   crons: typeof crons;
   dashboard: typeof dashboard;
   expoPush: typeof expoPush;
   expoPushTokens: typeof expoPushTokens;
+  history: typeof history;
   http: typeof http;
   ideas: typeof ideas;
   inbox: typeof inbox;
@@ -104,7 +117,10 @@ declare const fullApi: ApiFromModules<{
   "lib/chatPresence": typeof lib_chatPresence;
   "lib/chat_channels": typeof lib_chat_channels;
   "lib/collaboration": typeof lib_collaboration;
+  "lib/comments": typeof lib_comments;
   "lib/day_key": typeof lib_day_key;
+  "lib/history": typeof lib_history;
+  "lib/idea_stages": typeof lib_idea_stages;
   "lib/my_day": typeof lib_my_day;
   "lib/my_scope": typeof lib_my_scope;
   "lib/notificationChannels": typeof lib_notificationChannels;
@@ -112,16 +128,20 @@ declare const fullApi: ApiFromModules<{
   "lib/notificationTarget": typeof lib_notificationTarget;
   "lib/notifications": typeof lib_notifications;
   "lib/onboarding": typeof lib_onboarding;
+  "lib/pagePresence": typeof lib_pagePresence;
+  "lib/page_content": typeof lib_page_content;
   "lib/page_creation": typeof lib_page_creation;
   "lib/page_files": typeof lib_page_files;
   "lib/page_kinds": typeof lib_page_kinds;
   "lib/page_relations": typeof lib_page_relations;
   "lib/page_tables": typeof lib_page_tables;
   "lib/pages": typeof lib_pages;
+  "lib/permissions": typeof lib_permissions;
   "lib/profile_summary": typeof lib_profile_summary;
   "lib/task_assignees": typeof lib_task_assignees;
   "lib/task_checkpoint_canvas_edges": typeof lib_task_checkpoint_canvas_edges;
   "lib/task_checkpoints": typeof lib_task_checkpoints;
+  "lib/trash": typeof lib_trash;
   "lib/validators": typeof lib_validators;
   migrations: typeof migrations;
   myDay: typeof myDay;
@@ -131,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   pageTables: typeof pageTables;
   pages: typeof pages;
   personalTasks: typeof personalTasks;
+  presence: typeof presence;
   profiles: typeof profiles;
   puls: typeof puls;
   push: typeof push;
@@ -144,6 +165,7 @@ declare const fullApi: ApiFromModules<{
   taskCheckpoints: typeof taskCheckpoints;
   tasks: typeof tasks;
   thoughts: typeof thoughts;
+  trash: typeof trash;
 }>;
 
 /**

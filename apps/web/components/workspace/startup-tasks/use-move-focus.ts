@@ -45,7 +45,11 @@ export function useMoveFocus(
       const lost =
         active === null || active === document.body || (!root.contains(active) && !active.matches(INTERACTIVE));
       if (!lost) return;
-      root.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"] [data-row-focus]`)?.focus({ preventScroll: true });
+      // Red je mogao da izađe iz prikaza (npr. rok pomeren van liste „Za tebe"): fokus ide na prvi red, ne na body.
+      const target =
+        root.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"] [data-row-focus]`) ??
+        root.querySelector<HTMLElement>("[data-row-key] [data-row-focus]");
+      target?.focus({ preventScroll: true });
     }, 0);
   });
 

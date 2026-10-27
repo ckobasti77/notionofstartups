@@ -1,20 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import {
-  Copy,
-  ImageUp,
-  KeyRound,
-  LoaderCircle,
-  MailPlus,
-  Plus,
-  Settings2,
-  Trash2,
-  UserPlus,
-  UsersRound,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation } from "convex/react";
+import { ImageUp, LoaderCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { LOGO_MAX_BYTES, SETTINGS_TEXT } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,69 +16,32 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { MemberPasswordDialog } from "@/components/workspace/member-password-dialog";
-import type { StartupWithAreas } from "@/components/workspace/types";
-import { ProfileAvatar, StartupLogo } from "@/components/workspace/workspace-ui";
+import { StartupLogo } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 
+/**
+ * Dijalog „Novi startup" (samo admin). Podešavanja postojećeg startupa su
+ * ruta `?view=settings` (`settings/settings-container.tsx`, K20).
+ */
 export function AdminDialog({
   open,
   onOpenChange,
-  startup,
   onStartupCreated,
-  onCreateStartup,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  startup?: StartupWithAreas;
   onStartupCreated: (startupId: Id<"startups">) => void;
-  onCreateStartup?: () => void;
 }) {
   const createStartup = useMutation(api.startups.create);
-  const updateStartup = useMutation(api.startups.update);
   const generateLogoUploadUrl = useMutation(api.startups.generateLogoUploadUrl);
-  const setLogo = useMutation(api.startups.setLogo);
-  const removeLogo = useMutation(api.startups.removeLogo);
-  const addMember = useMutation(api.startups.addMember);
-  const removeMember = useMutation(api.startups.removeMember);
-  const createInvite = useMutation(api.invites.create);
-  const revokeInvite = useMutation(api.invites.revoke);
-  const members = useQuery(
-    api.startups.listMembers,
-    open && startup ? { startupId: startup._id, limit: 50 } : "skip",
-  );
-  const profiles = useQuery(
-    api.profiles.listAll,
-    open ? { limit: 50 } : "skip",
-  );
-  const invites = useQuery(
-    api.invites.list,
-    open && startup ? { startupId: startup._id, limit: 50 } : "skip",
-  );
-  const current = useQuery(api.profiles.getCurrent, open ? {} : "skip");
-  const [name, setName] = useState(startup?.name ?? "");
-  const [description, setDescription] = useState(startup?.description ?? "");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
-  const [profileId, setProfileId] = useState<string>("");
-  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [passwordTarget, setPasswordTarget] = useState<{
-    profileId: Id<"profiles">;
-    displayName: string;
-  } | null>(null);
-  const [now] = useState(() => Date.now());
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -102,433 +55,96 @@ export function AdminDialog({
     setLogoPreviewUrl(file ? URL.createObjectURL(file) : null);
   }
 
-  const availableProfiles = useMemo(
-    () =>
-      profiles?.filter(
-        (candidate) =>
-          !members?.some(({ profile }) => profile._id === candidate._id),
-      ) ?? [],
-    [members, profiles],
-  );
-  async function run(action: () => Promise<unknown>, success: string) {
-    setBusy(true);
-    try {
-      await action();
-      toast.success(success);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Promena nije sačuvana.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function saveStartup(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
-    await run(
-      async () => {
-        if (logoFile && logoFile.size > 2 * 1024 * 1024) {
-          throw new Error("Logo može imati najviše 2 MB.");
-        }
-        let uploadedLogoStorageId: Id<"_storage"> | undefined;
-        if (logoFile) {
-          const uploadUrl = await generateLogoUploadUrl({});
-          const response = await fetch(uploadUrl, {
-            method: "POST",
-            headers: { "Content-Type": logoFile.type || "application/octet-stream" },
-            body: logoFile,
-          });
-          if (!response.ok) throw new Error("Slanje logotipa nije uspelo.");
-          const upload = (await response.json()) as { storageId: Id<"_storage"> };
-          uploadedLogoStorageId = upload.storageId;
-        }
-        if (startup) {
-          await updateStartup({
-            startupId: startup._id,
-            name: name.trim(),
-            description: description.trim(),
-          });
-          if (uploadedLogoStorageId) {
-            await setLogo({
-              startupId: startup._id,
-              storageId: uploadedLogoStorageId,
-            });
-          }
-        } else {
-          const startupId = await createStartup({
-            name: name.trim(),
-            description: description.trim(),
-            logoStorageId: uploadedLogoStorageId,
-          });
-          onStartupCreated(startupId);
-          onOpenChange(false);
-        }
-        chooseLogo(null);
-        if (logoInputRef.current) logoInputRef.current.value = "";
-      },
-      startup ? "Startup je ažuriran." : "Startup je kreiran.",
-    );
-  }
-  async function invite(event: React.FormEvent) {
-    event.preventDefault();
-    if (!startup || !email.trim()) return;
     setBusy(true);
     try {
-      const result = await createInvite({
-        startupId: startup._id,
-        email: email.trim(),
+      if (logoFile && logoFile.size > LOGO_MAX_BYTES) {
+        throw new Error(SETTINGS_TEXT.logoTooBig);
+      }
+      let logoStorageId: Id<"_storage"> | undefined;
+      if (logoFile) {
+        const uploadUrl = await generateLogoUploadUrl({});
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": logoFile.type || "application/octet-stream" },
+          body: logoFile,
+        });
+        if (!response.ok) throw new Error(SETTINGS_TEXT.logoUploadFailed);
+        logoStorageId = ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
+      }
+      const startupId = await createStartup({
+        name: name.trim(),
+        description: description.trim(),
+        logoStorageId,
       });
-      setInviteCode(result.code);
-      setEmail("");
-      toast.success("Poziv je kreiran. Kopiraj link i pošalji ga članu tima.");
+      toast.success("Startup je napravljen.");
+      onStartupCreated(startupId);
+      onOpenChange(false);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Poziv nije kreiran.",
-      );
+      toast.error(accessErrorMessage(error, "Startup nije napravljen."));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto p-0">
-        <DialogHeader className="border-b px-6 py-5">
-          <DialogTitle className="flex items-center gap-2">
-            <Settings2 className="size-5 text-primary" /> Upravljanje radnim
-            prostorom
-          </DialogTitle>
-          <DialogDescription>
-            {startup
-              ? `Startup ${startup.name}: podešavanja, ljudi i pozivi.`
-              : "Kreiraj novi privatni prostor za svoj tim."}
-          </DialogDescription>
-          {startup && onCreateStartup ? (
-            <Button type="button" variant="outline" size="sm" className="mt-3 w-fit" onClick={onCreateStartup}>
-              <Plus /> Dodaj startup
-            </Button>
-          ) : null}
+      <DialogContent className="max-h-[88vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Novi startup</DialogTitle>
+          <DialogDescription className="sr-only">Naziv, opis i logo novog startupa.</DialogDescription>
         </DialogHeader>
-        <Tabs defaultValue="startup" className="px-6 pb-6">
-          <TabsList className="mt-5 grid w-full grid-cols-4">
-            <TabsTrigger value="startup">Startup</TabsTrigger>
-            <TabsTrigger value="members" disabled={!startup}>
-              Članovi
-            </TabsTrigger>
-            <TabsTrigger value="invites" disabled={!startup}>
-              Pozivi
-            </TabsTrigger>
-            <TabsTrigger value="passwords">Lozinke</TabsTrigger>
-          </TabsList>
-          <TabsContent value="startup" className="mt-5">
-            <form className="space-y-4" onSubmit={saveStartup}>
-              <div className="flex items-center gap-4 rounded-2xl border border-border/70 bg-muted/35 p-3.5">
-                <StartupLogo
-                  startup={{
-                    name: name || "Startup",
-                    logoUrl: logoPreviewUrl ?? startup?.logoUrl ?? null,
-                  }}
-                  className="size-14 rounded-xl"
-                />
-                <div className="min-w-0 flex-1">
-                  <Label htmlFor="startup-logo">Logo startupa</Label>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    PNG, JPG, WebP ili SVG do 2 MB. Najbolje izgleda kvadratna slika.
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => logoInputRef.current?.click()}
-                    >
-                      <ImageUp /> {startup?.logoUrl || logoFile ? "Promeni logo" : "Dodaj logo"}
-                    </Button>
-                    {startup?.logoUrl && !logoFile ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          run(
-                            () => removeLogo({ startupId: startup._id }),
-                            "Logo startupa je uklonjen.",
-                          )
-                        }
-                      >
-                        <Trash2 /> Ukloni
-                      </Button>
-                    ) : null}
-                  </div>
-                  <input
-                    ref={logoInputRef}
-                    id="startup-logo"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                    className="sr-only"
-                    onChange={(event) => chooseLogo(event.target.files?.[0] ?? null)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="startup-name">Naziv</Label>
-                <Input
-                  id="startup-name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Naziv startupa"
-                  maxLength={100}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="startup-description">Kratak opis</Label>
-                <Textarea
-                  id="startup-description"
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Šta gradimo i za koga?"
-                  maxLength={500}
-                />
-              </div>
-              <Button type="submit" disabled={busy || !name.trim()}>
-                {busy ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : startup ? (
-                  <Settings2 />
-                ) : (
-                  <Plus />
-                )}
-                {startup ? "Sačuvaj promene" : "Kreiraj startup"}
-              </Button>
-            </form>
-          </TabsContent>
-          <TabsContent value="members" className="mt-5">
-            <div className="flex gap-2">
-              <Select value={profileId} onValueChange={setProfileId}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Izaberi postojeći profil" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableProfiles.map((candidate) => (
-                    <SelectItem key={candidate._id} value={candidate._id}>
-                      {candidate.displayName} · {candidate.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                disabled={!startup || !profileId || busy}
-                onClick={() =>
-                  startup &&
-                  run(
-                    () =>
-                      addMember({
-                        startupId: startup._id,
-                        profileId: profileId as Id<"profiles">,
-                      }).then(() => setProfileId("")),
-                    "Član je dodat.",
-                  )
-                }
-              >
-                <UserPlus /> Dodaj
-              </Button>
-            </div>
-            <div className="mt-5 space-y-2">
-              {members?.map(({ profile }) => (
-                <div
-                  key={profile._id}
-                  className="flex min-h-14 items-center gap-3 rounded-xl border border-border/70 px-3"
-                >
-                  <ProfileAvatar profile={profile} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">
-                      {profile.displayName}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {profile.email}
-                    </span>
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {profile.role === "admin" ? "Admin" : "Član"}
-                  </span>
-                  {profile.role !== "admin" ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Ukloni ${profile.displayName}`}
-                      disabled={busy}
-                      onClick={() =>
-                        startup &&
-                        run(
-                          () =>
-                            removeMember({
-                              startupId: startup._id,
-                              profileId: profile._id,
-                            }),
-                          "Član je uklonjen.",
-                        )
-                      }
-                    >
-                      <Trash2 />
-                    </Button>
-                  ) : null}
-                </div>
-              )) ?? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  <UsersRound className="mx-auto mb-2 size-5" /> Učitavanje
-                  članova…
-                </p>
-              )}
-            </div>
-          </TabsContent>
-          <TabsContent value="invites" className="mt-5">
-            <form className="flex gap-2" onSubmit={invite}>
-              <Input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="ime@startup.com"
-                aria-label="Email za poziv"
-              />
-              <Button type="submit" disabled={!email.trim() || busy}>
-                <MailPlus /> Pozovi
-              </Button>
-            </form>
-            {inviteCode ? (
-              <div className="mt-4 rounded-xl border border-primary/25 bg-primary/6 p-4">
-                <p className="text-xs font-semibold text-primary">
-                  Novi pozivni link
-                </p>
-                <code className="mt-2 block break-all rounded-lg bg-card px-3 py-2 text-sm">
-                  /?invite={inviteCode}
-                </code>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() =>
-                    navigator.clipboard
-                      .writeText(
-                        `${window.location.origin}/?invite=${encodeURIComponent(inviteCode)}`,
-                      )
-                      .then(() => toast.success("Pozivni link je kopiran."))
-                  }
-                >
-                  <Copy /> Kopiraj pozivni link
+        <form className="space-y-4" onSubmit={submit}>
+          <div className="flex items-center gap-4">
+            <StartupLogo
+              startup={{ name: name || "Startup", logoUrl: logoPreviewUrl }}
+              className="size-14 rounded-xl"
+            />
+            <div className="min-w-0">
+              <Label htmlFor="startup-logo">Logo</Label>
+              <div className="mt-1.5">
+                <Button type="button" variant="outline" size="sm" onClick={() => logoInputRef.current?.click()}>
+                  <ImageUp aria-hidden="true" /> {logoFile ? "Promeni" : "Dodaj logo"}
                 </Button>
               </div>
-            ) : null}
-            <div className="mt-5 space-y-2">
-              {invites?.map((item) => {
-                const expired = item.expiresAt <= now;
-                const inactive =
-                  item.claimedAt !== null || item.revokedAt !== null || expired;
-                return (
-                  <div
-                    key={item._id}
-                    className="flex min-h-14 items-center gap-3 rounded-xl border border-border/70 px-3"
-                  >
-                    <span className="grid size-8 place-items-center rounded-lg bg-muted">
-                      <MailPlus className="size-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">
-                        {item.email}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {item.claimedAt
-                          ? "Prihvaćen"
-                          : item.revokedAt
-                            ? "Opozvan"
-                            : expired
-                              ? "Istekao"
-                              : "Aktivan"}
-                      </span>
-                    </span>
-                    {!inactive ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          run(
-                            () => revokeInvite({ inviteId: item._id }),
-                            "Poziv je opozvan.",
-                          )
-                        }
-                      >
-                        Opozovi
-                      </Button>
-                    ) : null}
-                  </div>
-                );
-              })}
+              <p className="mt-1.5 text-xs leading-5 text-muted-foreground">PNG, JPG, WebP ili SVG do 2 MB.</p>
+              <input
+                ref={logoInputRef}
+                id="startup-logo"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                className="sr-only"
+                onChange={(event) => chooseLogo(event.target.files?.[0] ?? null)}
+              />
             </div>
-          </TabsContent>
-          <TabsContent value="passwords" className="mt-5">
-            <p className="mb-3 text-xs leading-5 text-muted-foreground">
-              Postavi novu lozinku bilo kom članu iz svih startupova. Član se
-              odmah prijavljuje novom lozinkom; sve njegove/njene ranije prijave se
-              poništavaju.
-            </p>
-            <div className="space-y-2">
-              {profiles?.map((profile) => {
-                const isSelf = current?._id === profile._id;
-                return (
-                  <div
-                    key={profile._id}
-                    className="flex min-h-14 items-center gap-3 rounded-xl border border-border/70 px-3"
-                  >
-                    <ProfileAvatar profile={profile} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">
-                        {profile.displayName}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {profile.email}
-                      </span>
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {profile.role === "admin" ? "Admin" : "Član"}
-                    </span>
-                    {isSelf ? (
-                      <span className="text-xs text-muted-foreground">Ti</span>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setPasswordTarget({
-                            profileId: profile._id,
-                            displayName: profile.displayName,
-                          })
-                        }
-                      >
-                        <KeyRound /> Promeni lozinku
-                      </Button>
-                    )}
-                  </div>
-                );
-              }) ?? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  <UsersRound className="mx-auto mb-2 size-5" /> Učitavanje
-                  članova…
-                </p>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="startup-name">Naziv</Label>
+            <Input
+              id="startup-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={100}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="startup-description">Kratak opis</Label>
+            <Textarea
+              id="startup-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              maxLength={500}
+            />
+          </div>
+          <Button type="submit" disabled={busy || !name.trim()}>
+            {busy ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+            Napravi startup
+          </Button>
+        </form>
       </DialogContent>
     </Dialog>
-    <MemberPasswordDialog
-      target={passwordTarget}
-      onOpenChange={(next) => {
-        if (!next) setPasswordTarget(null);
-      }}
-    />
-    </>
   );
 }

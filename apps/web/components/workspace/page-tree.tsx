@@ -17,16 +17,22 @@ import { pageKindMeta, supportsTaskData } from "@/lib/page-kinds";
 import { cn } from "@/lib/utils";
 import type { CreatePageTarget } from "@/components/workspace/types";
 
+import { canDragPage, PAGE_TREE_VISIBLE, showMoreLabel } from "./page-tree-model";
+
 type PageTreeProps = {
   startupId: Id<"startups">;
   areaId: Id<"startupAreas">;
   currentProfileId: Id<"profiles">;
+  /** Vlasnik startupa ili admin (pomera i zaključane stranice). */
+  canManage: boolean;
   selectedPageId?: Id<"pages">;
   expandedPageIds: ReadonlySet<Id<"pages">>;
   transientExpandedPageIds: ReadonlySet<Id<"pages">>;
   activeDropPageId?: Id<"pages">;
   onPageExpandedChange: (pageId: Id<"pages">, expanded: boolean) => void;
   onOpenPage: (pageId: Id<"pages">) => void;
+  /** „Prikaži još": `null` = koren oblasti, inače stranica-roditelj. */
+  onShowMore: (parentPageId: Id<"pages"> | null) => void;
   onCreate: (target: CreatePageTarget) => void;
   // Drag and drop:
   path?: Array<Id<"pages">>;
@@ -41,12 +47,14 @@ export function PageTree({
   startupId,
   areaId,
   currentProfileId,
+  canManage,
   selectedPageId,
   expandedPageIds,
   transientExpandedPageIds,
   activeDropPageId,
   onPageExpandedChange,
   onOpenPage,
+  onShowMore,
   onCreate,
   path = [],
   draggedPageId,
@@ -55,16 +63,19 @@ export function PageTree({
   onDragPageOver,
   onDropPage,
 }: PageTreeProps) {
-  const { results: pages, status, loadMore } = usePaginatedQuery(
+  const { results: pages, status } = usePaginatedQuery(
     api.pages.listChildren,
     { startupId, areaId, parentPageId: null },
     { initialNumItems: 50 },
   );
+  const visiblePages = pages.slice(0, PAGE_TREE_VISIBLE);
+  const hiddenCount = pages.length - visiblePages.length;
+  const moreOnServer = status === "CanLoadMore" || status === "LoadingMore";
 
   if (status === "LoadingFirstPage") {
     return (
-      <div className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
-        <LoaderCircle className="size-3 animate-spin" /> Učitavanje stranica
+      <div role="status" className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
+        <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> Učitavanje stranica
       </div>
     );
   }
@@ -97,19 +108,21 @@ export function PageTree({
         }
       }}
     >
-      {pages.map((page) => (
+      {visiblePages.map((page) => (
         <PageTreeNode
           key={page._id}
           page={page}
           startupId={startupId}
           areaId={areaId}
           currentProfileId={currentProfileId}
+          canManage={canManage}
           selectedPageId={selectedPageId}
           expandedPageIds={expandedPageIds}
           transientExpandedPageIds={transientExpandedPageIds}
           activeDropPageId={activeDropPageId}
           onPageExpandedChange={onPageExpandedChange}
           onOpenPage={onOpenPage}
+          onShowMore={onShowMore}
           onCreate={onCreate}
           path={path}
           draggedPageId={draggedPageId}
@@ -119,18 +132,8 @@ export function PageTree({
           onDropPage={onDropPage}
         />
       ))}
-      {status === "CanLoadMore" || status === "LoadingMore" ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full text-xs"
-          disabled={status === "LoadingMore"}
-          onClick={() => loadMore(50)}
-        >
-          {status === "LoadingMore" ? <LoaderCircle className="size-3 animate-spin" /> : <Plus className="size-3" />}
-          {status === "LoadingMore" ? "Učitavam" : "Još stranica"}
-        </Button>
+      {hiddenCount > 0 || moreOnServer ? (
+        <ShowMoreButton label={showMoreLabel(hiddenCount, moreOnServer)} onClick={() => onShowMore(null)} />
       ) : null}
     </div>
   );
@@ -147,12 +150,14 @@ function PageTreeNode({
   startupId,
   areaId,
   currentProfileId,
+  canManage,
   selectedPageId,
   expandedPageIds,
   transientExpandedPageIds,
   activeDropPageId,
   onPageExpandedChange,
   onOpenPage,
+  onShowMore,
   onCreate,
   path,
   draggedPageId,
@@ -162,7 +167,7 @@ function PageTreeNode({
   onDropPage,
 }: PageTreeNodeProps) {
   const expanded = expandedPageIds.has(page._id) || transientExpandedPageIds.has(page._id);
-  const { results: children, status: childrenStatus, loadMore: loadMoreChildren } = usePaginatedQuery(
+  const { results: children, status: childrenStatus } = usePaginatedQuery(
     api.pages.listChildren,
     expanded
       ? { startupId, areaId, parentPageId: page._id }
@@ -183,7 +188,7 @@ function PageTreeNode({
   const Icon = pageKindMeta(page.kind).icon;
   const selected = selectedPageId === page._id;
   const activeDropTarget = activeDropPageId === page._id;
-  const canMove = page.createdByProfileId === currentProfileId;
+  const canMove = canDragPage(page, { profileId: currentProfileId, canManage });
   const currentPath = [...path, page._id];
 
   return (
@@ -262,7 +267,8 @@ function PageTreeNode({
         </button>
         <button
           type="button"
-          className="flex min-h-8 min-w-0 flex-1 items-start gap-2 py-1.5 pr-1 text-left text-[0.8125rem]"
+          aria-current={selected ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-start gap-2 py-1.5 pr-1 text-left text-sm"
           onClick={() => onOpenPage(page._id)}
         >
           <Icon className="mt-0.5 size-3.5 shrink-0 opacity-75" />
@@ -285,7 +291,7 @@ function PageTreeNode({
           variant="ghost"
           size="icon"
           data-compact="true"
-          className="mr-0.5 mt-0.5 size-7 shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 focus:opacity-100"
+          className="mr-0.5 mt-0.5 size-7 shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100"
           aria-label={`Dodaj podstranicu u ${page.title}`}
           onClick={() => onCreate({ areaId, parentPageId: page._id })}
         >
@@ -297,24 +303,27 @@ function PageTreeNode({
           bočnoj traci; zatvorene se ne montiraju (bez upita), kao i ranije. */}
       <Collapse open={expanded} unmountWhenClosed className="ml-2 border-l border-thread/35 pl-1">
             {childrenStatus === "LoadingFirstPage" ? (
-              <div className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3 animate-spin" />
+              <div role="status" className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
+                <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+                <span className="sr-only">Učitavanje podstranica</span>
               </div>
             ) : children.length ? (
               <>
-              {children.map((child) => (
+              {children.slice(0, PAGE_TREE_VISIBLE).map((child) => (
                 <PageTreeNode
                   key={child._id}
                   page={child}
                   startupId={startupId}
                   areaId={areaId}
                   currentProfileId={currentProfileId}
+                  canManage={canManage}
                   selectedPageId={selectedPageId}
                   expandedPageIds={expandedPageIds}
                   transientExpandedPageIds={transientExpandedPageIds}
                   activeDropPageId={activeDropPageId}
                   onPageExpandedChange={onPageExpandedChange}
                   onOpenPage={onOpenPage}
+                  onShowMore={onShowMore}
                   onCreate={onCreate}
                   path={currentPath}
                   draggedPageId={draggedPageId}
@@ -324,16 +333,16 @@ function PageTreeNode({
                   onDropPage={onDropPage}
                 />
               ))}
-              {childrenStatus === "CanLoadMore" || childrenStatus === "LoadingMore" ? (
-                <button
-                  type="button"
-                  className="flex min-h-8 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-muted-foreground hover:bg-sidebar-accent/55 hover:text-sidebar-foreground"
-                  disabled={childrenStatus === "LoadingMore"}
-                  onClick={() => loadMoreChildren(50)}
-                >
-                  {childrenStatus === "LoadingMore" ? <LoaderCircle className="size-3 animate-spin" /> : <Plus className="size-3.5" />}
-                  {childrenStatus === "LoadingMore" ? "Učitavam" : "Još stranica"}
-                </button>
+              {children.length > PAGE_TREE_VISIBLE ||
+              childrenStatus === "CanLoadMore" ||
+              childrenStatus === "LoadingMore" ? (
+                <ShowMoreButton
+                  label={showMoreLabel(
+                    Math.max(0, children.length - PAGE_TREE_VISIBLE),
+                    childrenStatus === "CanLoadMore" || childrenStatus === "LoadingMore",
+                  )}
+                  onClick={() => onShowMore(page._id)}
+                />
               ) : null}
               </>
             ) : (
@@ -347,5 +356,17 @@ function PageTreeNode({
             )}
       </Collapse>
     </div>
+  );
+}
+
+function ShowMoreButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="flex min-h-8 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-muted-foreground hover:bg-sidebar-accent/55 hover:text-sidebar-foreground"
+      onClick={onClick}
+    >
+      {label}
+    </button>
   );
 }

@@ -184,7 +184,7 @@ export function PageSizeSection({
   return (
     <NodeSizeSection
       canResize={page.canResize}
-      deniedNote="Veličinu može da menja autor kartice."
+      deniedNote="Veličinu kartice ovde ne možeš da menjaš."
       options={options}
       note={isDefault ? 'Kartica je već u podrazumevanoj veličini.' : undefined}
       hint={

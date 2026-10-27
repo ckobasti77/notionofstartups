@@ -23,11 +23,12 @@ import {
 import {
   INBOX_FEED_PAGE_DEFAULT,
   INBOX_FEED_PAGE_MAX,
+  INBOX_IDEA_VOTE_COUNT_CAP,
   INBOX_MARK_ALL_BATCH,
-  INBOX_PENDING_BALLOT_SCAN_CAP,
   INBOX_PENDING_CAP,
   INBOX_UNREAD_SCAN_CAP,
   boundedLimit,
+  inboxPendingIncludeValidator,
   startupMiniValidator,
 } from "./lib/validators";
 import { notificationItemValidator, withActors } from "./notifications";
@@ -74,6 +75,21 @@ const pendingBase = {
 };
 
 const pendingItemValidator = v.union(
+  // PROSTOR P22: ideja u fazi „Razmatra se" čeka moj glas.
+  v.object({
+    kind: v.literal("idea_vote"),
+    ideaId: v.id("ideaNodes"),
+    title: v.string(),
+    authorName: v.union(v.string(), v.null()),
+    upvotes: v.number(),
+    downvotes: v.number(),
+    startup: startupMiniValidator,
+    /** `stageChangedAt ?? createdAt` ideje. */
+    createdAt: v.number(),
+    targetType: v.literal("ideas"),
+    targetId: v.string(),
+  }),
+  // Ugašeni izvori (P4) — ne emituju se, ostaju zbog starih klijenata (P25).
   v.object({
     kind: v.literal("deletion_vote"),
     ballotId: v.id("deletionBallots"),
@@ -99,9 +115,6 @@ const pendingItemValidator = v.union(
 );
 
 type PendingItem = Infer<typeof pendingItemValidator>;
-
-/** Najduži naslov ideje u stavci (ideja može imati samo tekst). */
-const IDEA_TITLE_MAX = 120;
 
 function visibleInScope(
   startupId: Id<"startups"> | null,
@@ -362,161 +375,126 @@ export const markAllReadBatch = internalMutation({
   },
 });
 
-function ideaTitle(node: Doc<"ideaNodes">) {
-  const title = node.title?.trim();
-  const text = node.text.trim();
-  const label = title !== undefined && title.length > 0 ? title : text;
-  return label.length === 0 ? "Ideja bez naslova" : label.slice(0, IDEA_TITLE_MAX);
+/** Prvih N kandidata po startupu (+1 da se zna da li ih ima još). */
+const IDEA_VOTE_SCAN_PER_STARTUP = INBOX_PENDING_CAP + 1;
+
+/**
+ * Ideje u fazi „Razmatra se" jednog startupa za koje profil još nije glasao
+ * (P22). Najnovije promene faze prvo; čita najviše `IDEA_VOTE_SCAN_PER_STARTUP`
+ * ideja, pa `full` kaže da ih ima možda još (i ispod granice, jer se moje
+ * izglasane preskaču posle čitanja).
+ */
+async function ideaVoteCandidates(
+  ctx: QueryCtx,
+  startupId: Id<"startups">,
+  profileId: Id<"profiles">,
+) {
+  const rows = await ctx.db
+    .query("ideaNodes")
+    .withIndex("by_startupId_and_stage_and_archivedAt_and_stageChangedAt", (q) =>
+      q
+        .eq("startupId", startupId)
+        .eq("stage", "razmatra_se")
+        .eq("archivedAt", null),
+    )
+    .order("desc")
+    .take(IDEA_VOTE_SCAN_PER_STARTUP);
+  const ideas: Doc<"ideaNodes">[] = [];
+  for (const idea of rows) {
+    if (idea.convertedPageId !== null) continue;
+    const myVote = await ctx.db
+      .query("ideaVotes")
+      .withIndex("by_ideaId_and_profileId", (q) =>
+        q.eq("ideaId", idea._id).eq("profileId", profileId),
+      )
+      .first();
+    if (myVote === null) ideas.push(idea);
+  }
+  return { ideas, full: rows.length === IDEA_VOTE_SCAN_PER_STARTUP };
+}
+
+async function ideaVoteItem(
+  ctx: QueryCtx,
+  idea: Doc<"ideaNodes">,
+  startup: StartupMini,
+): Promise<PendingItem> {
+  const [author, votes] = await Promise.all([
+    ctx.db.get("profiles", idea.authorProfileId),
+    ctx.db
+      .query("ideaVotes")
+      .withIndex("by_ideaId", (q) => q.eq("ideaId", idea._id))
+      .take(INBOX_IDEA_VOTE_COUNT_CAP),
+  ]);
+  return {
+    kind: "idea_vote",
+    ideaId: idea._id,
+    title: idea.title ?? idea.text.slice(0, 80),
+    authorName: author?.displayName ?? null,
+    upvotes: votes.filter((vote) => vote.voteType === "up").length,
+    downvotes: votes.filter((vote) => vote.voteType === "down").length,
+    startup,
+    createdAt: pendingIdeaAt(idea),
+    targetType: "ideas",
+    targetId: idea._id,
+  };
+}
+
+function pendingIdeaAt(idea: Doc<"ideaNodes">) {
+  return idea.stageChangedAt ?? idea.createdAt;
 }
 
 /**
- * „Čeka tebe": glasanja i zahtevi za ugnežđavanje koji čekaju MOJ odgovor, iz
- * svih mojih aktivnih startupa. Samo `pending`; najnovije prvo.
+ * „Čeka tebe" (PROSTOR P22): ideje u fazi „Razmatra se" za koje nisam glasao,
+ * iz svih mojih aktivnih startupa ili iz jednog (`startupId`). Glasanja o
+ * brisanju i zahtevi za ugnežđavanje su ugašeni (P4) i više se ne emituju;
+ * njihove varijante ostaju u validatoru zbog starih klijenata (P25).
+ *
+ * `idea_vote` se vraća SAMO uz `include: ["idea_vote"]` (K01 D16): stari
+ * buildovi nepoznatu vrstu prikazuju kao ugnežđavanje, pa bez `include` lista
+ * ostaje prazna. Najviše `INBOX_PENDING_CAP` stavki, najnovije prvo; `truncated`
+ * kad ih ima (možda) još.
  */
 export const pending = query({
-  args: {},
+  args: {
+    startupId: v.optional(v.id("startups")),
+    include: v.optional(v.array(inboxPendingIncludeValidator)),
+  },
   returns: v.object({
     items: v.array(pendingItemValidator),
     truncated: v.boolean(),
   }),
-  handler: async (ctx) => {
-    const profile = await requireProfile(ctx);
-    const scope = await listMyActiveStartups(ctx, profile._id);
+  handler: async (ctx, args) => {
+    const member =
+      args.startupId === undefined
+        ? null
+        : await requireStartupMember(ctx, args.startupId);
+    const profile = member?.profile ?? (await requireProfile(ctx));
+    if (args.include?.includes("idea_vote") !== true) {
+      return { items: [], truncated: false };
+    }
+    const scope: Map<Id<"startups">, StartupMini> =
+      member === null
+        ? await listMyActiveStartups(ctx, profile._id)
+        : new Map([[member.startup._id, await startupMiniOf(ctx, member.startup)]]);
 
-    const names = new Map<Id<"profiles">, string | null>();
-    const nameOf = async (profileId: Id<"profiles">) => {
-      if (!names.has(profileId)) {
-        const person = await ctx.db.get("profiles", profileId);
-        names.set(profileId, person === null ? null : person.displayName);
-      }
-      return names.get(profileId) ?? null;
-    };
-
+    const candidates: Array<{ idea: Doc<"ideaNodes">; startup: StartupMini }> = [];
     let truncated = false;
+    for (const [startupId, startup] of scope) {
+      const found = await ideaVoteCandidates(ctx, startupId, profile._id);
+      if (found.full) truncated = true;
+      for (const idea of found.ideas) candidates.push({ idea, startup });
+    }
+    candidates.sort(
+      (first, second) =>
+        pendingIdeaAt(second.idea) - pendingIdeaAt(first.idea) ||
+        second.idea._creationTime - first.idea._creationTime,
+    );
+    if (candidates.length > INBOX_PENDING_CAP) truncated = true;
+
     const items: PendingItem[] = [];
-
-    // 1) Glasanja o brisanju: moj listić je `pending`, a zahtev još otvoren.
-    const ballots = await ctx.db
-      .query("deletionBallots")
-      .withIndex("by_profileId_and_vote_and_createdAt", (q) =>
-        q.eq("profileId", profile._id).eq("vote", "pending"),
-      )
-      .order("desc")
-      .take(INBOX_PENDING_BALLOT_SCAN_CAP);
-    if (ballots.length === INBOX_PENDING_BALLOT_SCAN_CAP) truncated = true;
-    let votes = 0;
-    for (const ballot of ballots) {
-      const startup = scope.get(ballot.startupId);
-      if (startup === undefined) continue;
-      const request = await ctx.db.get("deletionRequests", ballot.requestId);
-      if (
-        request === null ||
-        request.status !== "pending" ||
-        request.startupId !== ballot.startupId
-      ) {
-        continue;
-      }
-      if (votes === INBOX_PENDING_CAP) {
-        truncated = true;
-        break;
-      }
-      votes += 1;
-      items.push({
-        kind: "deletion_vote",
-        ballotId: ballot._id,
-        requestId: request._id,
-        title: request.targetTitle,
-        targetKind: request.targetKind,
-        startup,
-        requesterName: await nameOf(request.requesterProfileId),
-        createdAt: request.createdAt,
-        targetType: "approvals",
-        targetId: request._id,
-      });
+    for (const { idea, startup } of candidates.slice(0, INBOX_PENDING_CAP)) {
+      items.push(await ideaVoteItem(ctx, idea, startup));
     }
-
-    // 2) Zahtevi za ugnežđavanje stranica gde sam autor roditelja.
-    const pageRequests = await ctx.db
-      .query("pageNestingRequests")
-      .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
-        q.eq("parentAuthorProfileId", profile._id).eq("status", "pending"),
-      )
-      .order("desc")
-      .take(INBOX_PENDING_CAP + 1);
-    if (pageRequests.length > INBOX_PENDING_CAP) truncated = true;
-    for (const request of pageRequests.slice(0, INBOX_PENDING_CAP)) {
-      const startup = scope.get(request.startupId);
-      if (startup === undefined) continue;
-      const [child, parent] = await Promise.all([
-        ctx.db.get("pages", request.childPageId),
-        ctx.db.get("pages", request.targetParentPageId),
-      ]);
-      // Isti uslovi važenosti kao `areasV2.listNestingInbox`.
-      if (
-        child === null ||
-        child.archivedAt !== null ||
-        parent === null ||
-        parent.archivedAt !== null ||
-        child.startupId !== request.startupId ||
-        parent.startupId !== request.startupId ||
-        child.areaId !== request.areaId ||
-        parent.areaId !== request.areaId
-      ) {
-        continue;
-      }
-      items.push({
-        kind: "page_nesting",
-        requestId: request._id,
-        childTitle: child.title,
-        parentTitle: parent.title,
-        startup,
-        requesterName: await nameOf(request.requesterProfileId),
-        createdAt: request.createdAt,
-        targetType: "approvals",
-        targetId: request._id,
-      });
-    }
-
-    // 3) Zahtevi za ugnežđavanje ideja gde sam autor roditelja.
-    const ideaRequests = await ctx.db
-      .query("nestingRequests")
-      .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
-        q.eq("parentAuthorProfileId", profile._id).eq("status", "pending"),
-      )
-      .order("desc")
-      .take(INBOX_PENDING_CAP + 1);
-    if (ideaRequests.length > INBOX_PENDING_CAP) truncated = true;
-    for (const request of ideaRequests.slice(0, INBOX_PENDING_CAP)) {
-      const startup = scope.get(request.startupId);
-      if (startup === undefined) continue;
-      const [child, parent] = await Promise.all([
-        ctx.db.get("ideaNodes", request.childIdeaId),
-        ctx.db.get("ideaNodes", request.parentIdeaId),
-      ]);
-      if (
-        child === null ||
-        child.archivedAt !== null ||
-        parent === null ||
-        parent.archivedAt !== null ||
-        child.startupId !== request.startupId ||
-        parent.startupId !== request.startupId
-      ) {
-        continue;
-      }
-      items.push({
-        kind: "idea_nesting",
-        requestId: request._id,
-        childTitle: ideaTitle(child),
-        parentTitle: ideaTitle(parent),
-        startup,
-        requesterName: await nameOf(request.requesterProfileId),
-        createdAt: request.createdAt,
-        targetType: "approvals",
-        targetId: request._id,
-      });
-    }
-
-    items.sort((a, b) => b.createdAt - a.createdAt);
     return { items, truncated };
   },
 });

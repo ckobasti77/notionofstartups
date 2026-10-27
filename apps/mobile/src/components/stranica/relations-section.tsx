@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import {
   ChevronDown,
   ChevronRight,
-  GitPullRequestArrow,
   Link2,
   Trash2,
 } from 'lucide-react-native';
@@ -29,9 +28,8 @@ import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
  * Ovde je ono što je mobilnom falilo: **pregled** postojećih veza, otvaranje druge
  * strane i uklanjanje veze.
  *
- * Dozvole dolaze sa servera (`canDelete` / `canRequestDeletion`): svoju vezu brišeš,
- * za tuđu se pokreće glasanje (`collaboration.requestDeletion`, `page_relation`).
- * Bez nove backend funkcije.
+ * Dozvola dolazi sa servera (`canDelete`): od PROSTOR-a vezu uklanja svaki član odmah
+ * (glasanja o uklanjanju više nema). Bez nove backend funkcije.
  */
 export function RelationsSection({
   startupId,
@@ -60,7 +58,6 @@ export function RelationsSection({
   const data = useQuery(api.areasV2.listRelations, { startupId, pageId });
   const startup = useQuery(api.startups.get, { startupId });
   const deleteRelation = useMutation(api.areasV2.deleteRelation);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const relations = data?.relations ?? [];
   const count = data === undefined ? null : relations.length;
@@ -69,42 +66,26 @@ export function RelationsSection({
       ? null
       : (startup?.areas.find((area) => area._id === otherAreaId)?.label ?? 'druga oblast');
 
-  const remove = (
-    relationId: Id<'pageRelations'>,
-    title: string,
-    direct: boolean,
-  ) => {
+  const remove = (relationId: Id<'pageRelations'>, title: string) => {
     if (busyId !== null) return;
     haptics.warning();
-    Alert.alert(
-      direct ? 'Ukloniti vezu?' : 'Zatražiti uklanjanje veze?',
-      direct
-        ? `Veza sa „${title}" se uklanja odmah.`
-        : `Vezu je napravio neko drugi, pa uklanjanje ide na glasanje tima. Veza sa „${title}".`,
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: direct ? 'Ukloni' : 'Zatraži',
-          style: direct ? 'destructive' : 'default',
-          onPress: () => {
-            setBusyId(relationId);
-            const action = direct
-              ? deleteRelation({ startupId, relationId })
-              : requestDeletion({ target: { kind: 'page_relation', id: relationId } });
-            void action
-              .then(() => {
-                haptics.success();
-                if (!direct) Alert.alert('Poslato', 'Zahtev za uklanjanje veze čeka glasanje tima.');
-              })
-              .catch((error: unknown) => {
-                haptics.error();
-                Alert.alert('Greška', accessErrorMessage(error, 'Veza nije uklonjena.'));
-              })
-              .finally(() => setBusyId(null));
-          },
+    Alert.alert('Ukloniti vezu?', `Veza sa „${title}" se uklanja za ceo tim.`, [
+      { text: 'Otkaži', style: 'cancel' },
+      {
+        text: 'Ukloni',
+        style: 'destructive',
+        onPress: () => {
+          setBusyId(relationId);
+          void deleteRelation({ startupId, relationId })
+            .then(() => haptics.success())
+            .catch((error: unknown) => {
+              haptics.error();
+              Alert.alert('Greška', accessErrorMessage(error, 'Veza nije uklonjena.'));
+            })
+            .finally(() => setBusyId(null));
         },
-      ],
-    );
+      },
+    ]);
   };
 
   return (
@@ -149,8 +130,7 @@ export function RelationsSection({
             />
           ) : count === 0 ? (
             <Text style={[styles.empty, { color: colors.mutedForeground }]}>
-              Još nema povezanih stavki. Poveži stranicu da kontekst i izvršenje ostanu
-              zajedno.
+              Nema povezanih stavki.
             </Text>
           ) : (
             relations.map((relation) => {
@@ -159,7 +139,7 @@ export function RelationsSection({
               const Icon = pageKindMeta(kind).icon;
               const tint = pageKindColor(colors, kind);
               const area = areaLabelOf(relation.linkedPage.areaId);
-              const canRemove = relation.canDelete || relation.canRequestDeletion;
+              const canRemove = relation.canDelete;
               return (
                 <View key={relation._id} style={styles.relationRow}>
                   <Row
@@ -178,7 +158,7 @@ export function RelationsSection({
                     }
                     style={styles.row}
                     icon={
-                      <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+                      <View style={styles.iconChip}>
                         <Icon size={16} color={tint} />
                       </View>
                     }
@@ -186,13 +166,9 @@ export function RelationsSection({
                   {canRemove ? (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={
-                        relation.canDelete
-                          ? `Ukloni vezu sa: ${title}`
-                          : `Zatraži uklanjanje veze sa: ${title}`
-                      }
+                      accessibilityLabel={`Ukloni vezu sa: ${title}`}
                       disabled={busyId !== null}
-                      onPress={() => remove(relation._id, title, relation.canDelete)}
+                      onPress={() => remove(relation._id, title)}
                       style={({ pressed }) => [
                         styles.removeBtn,
                         pressed && { backgroundColor: colors.muted },
@@ -200,10 +176,8 @@ export function RelationsSection({
                       ]}>
                       {busyId === relation._id ? (
                         <ActivityIndicator size="small" color={colors.mutedForeground} />
-                      ) : relation.canDelete ? (
-                        <Trash2 size={18} color={colors.danger} />
                       ) : (
-                        <GitPullRequestArrow size={18} color={colors.warning} />
+                        <Trash2 size={18} color={colors.danger} />
                       )}
                     </Pressable>
                   ) : null}

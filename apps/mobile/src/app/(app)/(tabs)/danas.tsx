@@ -35,8 +35,8 @@ function DanasErrorState({ message, onRetry }: { message: string; onRetry: () =>
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <MeHeader title="Danas" />
       <EmptyState
-        icon={<CalendarX2 size={40} color={colors.destructive} />}
-        title="Moj dan se ne može učitati"
+        icon={<CalendarX2 size={20} color={colors.destructive} />}
+        title="Moj dan nije učitan."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}

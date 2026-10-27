@@ -6,21 +6,27 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import {
-  archiveCanvasEdgeWithLegacyProjection,
-  archivePageWithV2Sidecars,
-} from "./areasV2";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
+import { contributionTargetKey } from "./lib/collaboration";
 import {
-  archiveIdeaAndRelations,
-  contributionTargetKey,
-  insertContribution,
-} from "./lib/collaboration";
-import { createNotification, notificationCopy } from "./lib/notifications";
-import { cleanPageContent } from "./lib/page_creation";
-import { syncTaskCheckpointProjection } from "./lib/task_checkpoints";
-import { archiveCheckpointCanvasEdgesForCheckpoint } from "./lib/task_checkpoint_canvas_edges";
+  addComment,
+  isCommentVisible,
+  removeComment,
+  restoreComment,
+  updateComment,
+} from "./lib/comments";
+import {
+  LEGACY_DELETION_VOTE_MESSAGE,
+  LEGACY_NESTING_MESSAGE,
+  commentPermissions,
+  permissionError,
+  type Actor,
+} from "./lib/permissions";
+import {
+  archiveTargetForLegacyRequest,
+  type LegacyDeletionTarget,
+} from "./lib/trash";
 
 const targetValidator = v.union(
   v.object({ kind: v.literal("idea"), id: v.id("ideaNodes") }),
@@ -101,6 +107,8 @@ const presentedContributionValidator = v.object({
   sourceKind: v.optional(contributionSourceKindValidator),
   sourceId: v.optional(v.string()),
   moderationStatus: contributionModerationStatusValidator,
+  mentionProfileIds: v.optional(v.array(v.id("profiles"))),
+  editedAt: v.optional(v.number()),
   archivedAt: v.union(v.number(), v.null()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -112,28 +120,7 @@ const presentedContributionValidator = v.object({
 });
 
 type ReadCtx = QueryCtx | MutationCtx;
-type DeletionTarget =
-  | { kind: "idea"; id: Id<"ideaNodes"> }
-  | { kind: "idea_edge"; id: Id<"ideaEdges"> }
-  | { kind: "page"; id: Id<"pages"> }
-  | { kind: "task_checkpoint"; id: Id<"taskCheckpoints"> }
-  | { kind: "page_edge"; id: Id<"pageCanvasEdgesV2"> }
-  | { kind: "page_relation"; id: Id<"pageRelations"> }
-  | {
-      kind: "task_checkpoint_edge";
-      id: Id<"taskCheckpointCanvasEdges">;
-    }
-  | { kind: "contribution"; id: Id<"contentContributions"> }
-  | { kind: "recovered"; id: Id<"recoveredContent"> };
-
-function cleanContribution(value: string) {
-  const content = cleanPageContent(value);
-  if (!content.trim()) throw new Error("Tekst ne može biti prazan.");
-  if (content.length > 20_000) {
-    throw new Error("Tekst može imati najviše 20.000 znakova.");
-  }
-  return content;
-}
+type DeletionTarget = LegacyDeletionTarget;
 
 async function getProfileSummary(ctx: ReadCtx, profileId: Id<"profiles">) {
   const profile = await ctx.db.get("profiles", profileId);
@@ -232,21 +219,13 @@ async function requireContributionTarget(
   };
 }
 
-function contributionIsVisible(
-  row: Doc<"contentContributions">,
-  profileId: Id<"profiles">,
-  ownerProfileId: Id<"profiles">,
-) {
-  if (row.moderationStatus !== "rejected") return true;
-  return row.authorProfileId === profileId || ownerProfileId === profileId;
-}
-
 async function presentContribution(
   ctx: ReadCtx,
   row: Doc<"contentContributions">,
-  profileId: Id<"profiles">,
+  actor: Actor,
   ownerProfileId: Id<"profiles">,
 ) {
+  const permissions = commentPermissions(actor, row);
   return {
     ...row,
     moderationStatus: row.moderationStatus ?? "approved",
@@ -254,12 +233,14 @@ async function presentContribution(
       row.authorProfileId === undefined
         ? null
         : await getProfileSummary(ctx, row.authorProfileId),
-    canEdit: row.authorProfileId === profileId,
-    canDeleteDirectly: row.authorProfileId === profileId,
-    canRequestDeletion:
-      row.authorProfileId !== profileId && ownerProfileId !== profileId,
+    // PROSTOR P5: izmena je autorova (R13), uklanja autor ili menadžer (R14);
+    // glasanje o brisanju ne postoji, `canRequestDeletion` ostaje za stare klijente.
+    canEdit: permissions.canEdit,
+    canDeleteDirectly: permissions.canRemove,
+    canRequestDeletion: false,
     canModerate:
-      ownerProfileId === profileId && row.authorProfileId !== profileId,
+      ownerProfileId === actor.profile._id &&
+      row.authorProfileId !== actor.profile._id,
   };
 }
 
@@ -374,162 +355,12 @@ async function deletionTargetInfo(
   };
 }
 
-export async function applyApprovedDeletion(
-  ctx: MutationCtx,
-  request: Doc<"deletionRequests">,
-) {
-  const now = Date.now();
-  if (request.targetKind === "idea") {
-    const id = ctx.db.normalizeId("ideaNodes", request.targetId);
-    if (id !== null) await archiveIdeaAndRelations(ctx, id, now);
-    return;
-  }
-  if (request.targetKind === "idea_edge") {
-    const id = ctx.db.normalizeId("ideaEdges", request.targetId);
-    const edge = id === null ? null : await ctx.db.get("ideaEdges", id);
-    if (edge !== null && edge.archivedAt === null) {
-      await ctx.db.patch("ideaEdges", edge._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-    return;
-  }
-  if (request.targetKind === "contribution") {
-    const id = ctx.db.normalizeId("contentContributions", request.targetId);
-    const contribution =
-      id === null ? null : await ctx.db.get("contentContributions", id);
-    if (contribution !== null && contribution.archivedAt === null) {
-      await ctx.db.patch("contentContributions", contribution._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-    return;
-  }
-  if (request.targetKind === "page") {
-    const id = ctx.db.normalizeId("pages", request.targetId);
-    const page = id === null ? null : await ctx.db.get("pages", id);
-    if (page !== null && page.archivedAt === null) {
-      await archivePageWithV2Sidecars(
-        ctx,
-        page,
-        request.requesterProfileId,
-        now,
-      );
-    }
-    return;
-  }
-  if (request.targetKind === "page_edge") {
-    const id = ctx.db.normalizeId("pageCanvasEdgesV2", request.targetId);
-    const edge =
-      id === null ? null : await ctx.db.get("pageCanvasEdgesV2", id);
-    if (
-      edge !== null &&
-      edge.archivedAt === null &&
-      edge.startupId === request.startupId
-    ) {
-      await archiveCanvasEdgeWithLegacyProjection(ctx, edge, now);
-    }
-    return;
-  }
-  if (request.targetKind === "page_relation") {
-    const id = ctx.db.normalizeId("pageRelations", request.targetId);
-    const relation =
-      id === null ? null : await ctx.db.get("pageRelations", id);
-    if (
-      relation !== null &&
-      relation.archivedAt === null &&
-      relation.startupId === request.startupId
-    ) {
-      await ctx.db.patch("pageRelations", relation._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-    return;
-  }
-  if (request.targetKind === "task_checkpoint_edge") {
-    const id = ctx.db.normalizeId(
-      "taskCheckpointCanvasEdges",
-      request.targetId,
-    );
-    const edge =
-      id === null
-        ? null
-        : await ctx.db.get("taskCheckpointCanvasEdges", id);
-    if (
-      edge !== null &&
-      edge.archivedAt === null &&
-      edge.startupId === request.startupId
-    ) {
-      await ctx.db.patch("taskCheckpointCanvasEdges", edge._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-    return;
-  }
-  if (request.targetKind === "task_checkpoint") {
-    const id = ctx.db.normalizeId("taskCheckpoints", request.targetId);
-    const checkpoint =
-      id === null ? null : await ctx.db.get("taskCheckpoints", id);
-    if (checkpoint !== null && checkpoint.archivedAt === null) {
-      const page = await ctx.db.get("pages", checkpoint.taskPageId);
-      await archiveCheckpointCanvasEdgesForCheckpoint(
-        ctx,
-        checkpoint._id,
-        now,
-      );
-      await ctx.db.patch("taskCheckpoints", checkpoint._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-      if (page !== null && page.kind === "task") {
-        await syncTaskCheckpointProjection(
-          ctx,
-          page._id,
-          request.requesterProfileId,
-          now,
-        );
-      }
-    }
-    return;
-  }
-  const id = ctx.db.normalizeId("recoveredContent", request.targetId);
-  const recovered =
-    id === null ? null : await ctx.db.get("recoveredContent", id);
-  if (recovered !== null && recovered.archivedAt === null) {
-    await ctx.db.patch("recoveredContent", recovered._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
-    const contributions = await ctx.db
-      .query("contentContributions")
-      .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
-        q
-          .eq(
-            "targetKey",
-            contributionTargetKey("recovered", recovered._id),
-          )
-          .eq("archivedAt", null),
-      )
-      .take(200);
-    for (const contribution of contributions) {
-      await ctx.db.patch("contentContributions", contribution._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-  }
-}
-
 export const listContributions = query({
   args: { target: contributionTargetValidator },
   returns: v.array(presentedContributionValidator),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
-    const { profile } = await requireStartupMember(ctx, resolved.startupId);
+    const actor = await requireStartupMember(ctx, resolved.startupId);
     const rows = await ctx.db
       .query("contentContributions")
       .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
@@ -544,19 +375,11 @@ export const listContributions = query({
       .take(200);
     return await Promise.all(
       rows
-        .filter(
-          (row) =>
-            !(args.target.kind === "idea" && row.sourceKind === "idea_original") &&
-            !(args.target.kind === "page" && row.sourceKind === "page_body") &&
-            contributionIsVisible(row, profile._id, resolved.ownerProfileId),
+        .filter((row) =>
+          isCommentVisible(row, actor.profile._id, resolved.ownerProfileId),
         )
         .map((row) =>
-          presentContribution(
-            ctx,
-            row,
-            profile._id,
-            resolved.ownerProfileId,
-          ),
+          presentContribution(ctx, row, actor, resolved.ownerProfileId),
         ),
     );
   },
@@ -570,7 +393,7 @@ export const listContributionsPaginated = query({
   returns: paginationResultValidator(presentedContributionValidator),
   handler: async (ctx, args) => {
     const resolved = await requireContributionTarget(ctx, args.target);
-    const { profile } = await requireStartupMember(ctx, resolved.startupId);
+    const actor = await requireStartupMember(ctx, resolved.startupId);
     const result = await ctx.db
       .query("contentContributions")
       .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
@@ -583,22 +406,14 @@ export const listContributionsPaginated = query({
       )
       .order("asc")
       .paginate(args.paginationOpts);
-    const visibleRows = result.page.filter(
-      (row) =>
-        !(args.target.kind === "idea" && row.sourceKind === "idea_original") &&
-        !(args.target.kind === "page" && row.sourceKind === "page_body") &&
-        contributionIsVisible(row, profile._id, resolved.ownerProfileId),
+    const visibleRows = result.page.filter((row) =>
+      isCommentVisible(row, actor.profile._id, resolved.ownerProfileId),
     );
     return {
       ...result,
       page: await Promise.all(
         visibleRows.map((row) =>
-          presentContribution(
-            ctx,
-            row,
-            profile._id,
-            resolved.ownerProfileId,
-          ),
+          presentContribution(ctx, row, actor, resolved.ownerProfileId),
         ),
       ),
     };
@@ -609,29 +424,17 @@ export const addContribution = mutation({
   args: {
     target: contributionTargetValidator,
     content: v.string(),
+    mentionProfileIds: v.optional(v.array(v.id("profiles"))),
   },
   returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
-    const resolved = await requireContributionTarget(ctx, args.target);
-    const { profile } = await requireStartupMember(ctx, resolved.startupId);
-    const contributionId = await insertContribution(ctx, {
-      startupId: resolved.startupId,
-      targetKind: args.target.kind,
-      targetId: resolved.targetId,
-      authorProfileId: profile._id,
-      content: cleanContribution(args.content),
-      moderationStatus:
-        args.target.kind === "idea" ? "pending" : "approved",
+    // PROSTOR P5: komentar je odmah vidljiv (bez moderacije); isti tok kao
+    // `comments.add`, pa i obaveštenja i aktivnost `comment_created`.
+    return await addComment(ctx, {
+      target: args.target,
+      content: args.content,
+      mentionProfileIds: args.mentionProfileIds,
     });
-    await recordActivity(ctx, {
-      startupId: resolved.startupId,
-      actorProfileId: profile._id,
-      action: "contribution_created",
-      targetType: "contribution",
-      targetId: contributionId,
-      title: "Dodat je novi tekst",
-    });
-    return contributionId;
   },
 });
 
@@ -639,58 +442,16 @@ export const updateContribution = mutation({
   args: {
     contributionId: v.id("contentContributions"),
     content: v.string(),
+    mentionProfileIds: v.optional(v.array(v.id("profiles"))),
   },
   returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
-    const contribution = await ctx.db.get(
-      "contentContributions",
-      args.contributionId,
-    );
-    if (contribution === null || contribution.archivedAt !== null) {
-      throw new Error("Tekst nije pronađen.");
-    }
-    const { profile } = await requireStartupMember(
-      ctx,
-      contribution.startupId,
-    );
-    if (contribution.authorProfileId !== profile._id) {
-      throw new Error("Možete urediti samo svoj tekst.");
-    }
-    await ctx.db.patch("contentContributions", contribution._id, {
-      content: cleanContribution(args.content),
-      moderationStatus:
-        contribution.targetKind === "idea" &&
-        contribution.sourceKind !== "idea_original"
-          ? "pending"
-          : contribution.moderationStatus,
-      updatedAt: Date.now(),
+    // Izmena ne vraća komentar na ideji u „na čekanju" (P5).
+    return await updateComment(ctx, {
+      commentId: args.contributionId,
+      content: args.content,
+      mentionProfileIds: args.mentionProfileIds,
     });
-    if (
-      contribution.sourceKind === "page_entry" &&
-      contribution.sourceId !== undefined
-    ) {
-      const entryId = ctx.db.normalizeId(
-        "pageEntries",
-        contribution.sourceId,
-      );
-      const entry =
-        entryId === null ? null : await ctx.db.get("pageEntries", entryId);
-      if (entry !== null && entry.authorProfileId === profile._id) {
-        await ctx.db.patch("pageEntries", entry._id, {
-          content: cleanContribution(args.content),
-          updatedAt: Date.now(),
-        });
-      }
-    }
-    await recordActivity(ctx, {
-      startupId: contribution.startupId,
-      actorProfileId: profile._id,
-      action: "contribution_updated",
-      targetType: "contribution",
-      targetId: contribution._id,
-      title: "Tekst je izmenjen",
-    });
-    return contribution._id;
   },
 });
 
@@ -756,26 +517,9 @@ export const deleteOwnContribution = mutation({
     undoUntil: v.number(),
   }),
   handler: async (ctx, args) => {
-    const contribution = await ctx.db.get(
-      "contentContributions",
-      args.contributionId,
-    );
-    if (contribution === null || contribution.archivedAt !== null) {
-      throw new Error("Tekst nije pronađen.");
-    }
-    const { profile } = await requireStartupMember(
-      ctx,
-      contribution.startupId,
-    );
-    if (contribution.authorProfileId !== profile._id) {
-      throw new Error("Tuđa izmena se uklanja samo jednoglasnim glasanjem.");
-    }
-    const now = Date.now();
-    await ctx.db.patch("contentContributions", contribution._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
-    return { contributionId: contribution._id, undoUntil: now + 8_000 };
+    // R14: autor svoj, vlasnik startupa i admin tuđi; red se arhivira (8 s „Poništi").
+    const result = await removeComment(ctx, args.contributionId);
+    return { contributionId: result.commentId, undoUntil: result.undoUntil };
   },
 });
 
@@ -783,127 +527,30 @@ export const restoreOwnContribution = mutation({
   args: { contributionId: v.id("contentContributions") },
   returns: v.id("contentContributions"),
   handler: async (ctx, args) => {
-    const contribution = await ctx.db.get(
-      "contentContributions",
-      args.contributionId,
-    );
-    if (contribution === null || contribution.archivedAt === null) {
-      throw new Error("Tekst nije pronađen.");
-    }
-    const { profile } = await requireStartupMember(
-      ctx,
-      contribution.startupId,
-    );
-    if (contribution.authorProfileId !== profile._id) {
-      throw new Error("Možete vratiti samo svoj tekst.");
-    }
-    if (Date.now() - contribution.archivedAt > 8_000) {
-      throw new Error("Vreme za Undo je isteklo.");
-    }
-    await ctx.db.patch("contentContributions", contribution._id, {
-      archivedAt: null,
-      updatedAt: Date.now(),
-    });
-    return contribution._id;
+    return await restoreComment(ctx, args.contributionId);
   },
 });
 
+/**
+ * Stari tok „Zatraži brisanje" (PROSTOR P4, ODLUKA K03-1): umesto glasanja
+ * stavka se uklanja odmah po novom pravilu — stranica i ideja u Korpu, veze i
+ * relacije direktno, korak po pravu izmene zadatka, komentar po pravu
+ * uklanjanja. Ne pravi red u `deletionRequests`, listiće ni obaveštenja, pa
+ * vraća `null` (stari klijenti povratnu vrednost ne koriste).
+ */
 export const requestDeletion = mutation({
   args: { target: targetValidator },
-  returns: v.id("deletionRequests"),
+  returns: v.union(v.id("deletionRequests"), v.null()),
   handler: async (ctx, args) => {
     const target = args.target as DeletionTarget;
     const info = await deletionTargetInfo(ctx, target);
-    const { profile } = await requireStartupMember(ctx, info.startupId);
-    if (info.ownerProfileId === profile._id) {
-      throw new Error("Sopstveni sadržaj brišete direktno.");
-    }
-    const existing = await ctx.db
-      .query("deletionRequests")
-      .withIndex("by_targetKind_and_targetId_and_status", (q) =>
-        q
-          .eq("targetKind", target.kind)
-          .eq("targetId", target.id)
-          .eq("status", "pending"),
-      )
-      .unique();
-    if (existing !== null) {
-      throw new Error("Za ovaj sadržaj već postoji otvoreno glasanje.");
-    }
-    const members = await ctx.db
-      .query("startupMembers")
-      .withIndex("by_startupId_and_archivedAt_and_profileId", (q) =>
-        q.eq("startupId", info.startupId).eq("archivedAt", null),
-      )
-      .take(501);
-    if (members.length > 500) {
-      throw new Error("Biračko telo je preveliko za jedno atomsko glasanje.");
-    }
-    const now = Date.now();
-    const requestId = await ctx.db.insert("deletionRequests", {
-      startupId: info.startupId,
-      targetKind: target.kind,
-      targetId: target.id,
-      targetTitle: info.title,
-      requesterProfileId: profile._id,
-      status: "pending",
-      eligibleCount: members.length,
-      approveCount: 1,
-      rejectCount: 0,
-      createdAt: now,
-      updatedAt: now,
-      resolvedAt: null,
+    const actor = await requireStartupMember(ctx, info.startupId);
+    await archiveTargetForLegacyRequest(ctx, {
+      actor,
+      target,
+      now: Date.now(),
     });
-    for (const membership of members) {
-      await ctx.db.insert("deletionBallots", {
-        requestId,
-        startupId: info.startupId,
-        profileId: membership.profileId,
-        vote:
-          membership.profileId === profile._id ? "approve" : "pending",
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-    await recordActivity(ctx, {
-      startupId: info.startupId,
-      actorProfileId: profile._id,
-      action: "deletion_requested",
-      targetType: "request",
-      targetId: requestId,
-      title: `Pokrenuto je glasanje za brisanje: ${info.title}`,
-    });
-    // Jednočlani startup se odobrava sam, pa nema koga pitati za glas.
-    if (members.length > 1) {
-      const voteCopy = notificationCopy.deletionVoteRequested(
-        info.title,
-        profile.displayName,
-      );
-      for (const membership of members) {
-        await createNotification(ctx, {
-          recipientProfileId: membership.profileId,
-          startupId: info.startupId,
-          type: "vote_requested",
-          title: voteCopy.title,
-          body: voteCopy.body,
-          targetType: "approvals",
-          targetId: requestId,
-          actorProfileId: profile._id,
-        });
-      }
-    }
-    if (members.length === 1) {
-      const request = await ctx.db.get("deletionRequests", requestId);
-      if (request !== null) {
-        await applyApprovedDeletion(ctx, request);
-        await ctx.db.patch("deletionRequests", requestId, {
-          status: "approved",
-          resolvedAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-    return requestId;
+    return null;
   },
 });
 
@@ -915,86 +562,10 @@ export const voteOnDeletion = mutation({
   returns: v.id("deletionRequests"),
   handler: async (ctx, args) => {
     const request = await ctx.db.get("deletionRequests", args.requestId);
-    if (request === null || request.status !== "pending") {
-      throw new Error("Glasanje više nije otvoreno.");
-    }
-    const { profile } = await requireStartupMember(ctx, request.startupId);
-    const ballot = await ctx.db
-      .query("deletionBallots")
-      .withIndex("by_requestId_and_profileId", (q) =>
-        q.eq("requestId", request._id).eq("profileId", profile._id),
-      )
-      .unique();
-    if (ballot === null || ballot.vote !== "pending") {
-      throw new Error("Nemate otvoren glas za ovaj zahtev.");
-    }
-    const now = Date.now();
-    await ctx.db.patch("deletionBallots", ballot._id, {
-      vote: args.vote,
-      updatedAt: now,
-    });
-    const approveCount =
-      request.approveCount + (args.vote === "approve" ? 1 : 0);
-    const rejectCount =
-      request.rejectCount + (args.vote === "reject" ? 1 : 0);
-
-    // Podnosilac saznaje ishod svog zahteva, i to samo kad je odlučen.
-    async function notifyRequester(approved: boolean) {
-      const copy = notificationCopy.requestResolved(
-        request!.targetTitle,
-        approved,
-        profile.displayName,
-      );
-      await createNotification(ctx, {
-        recipientProfileId: request!.requesterProfileId,
-        startupId: request!.startupId,
-        type: "request_resolved",
-        title: copy.title,
-        body: copy.body,
-        targetType: "approvals",
-        targetId: request!._id,
-        actorProfileId: profile._id,
-      });
-    }
-
-    if (args.vote === "reject") {
-      await ctx.db.patch("deletionRequests", request._id, {
-        status: "rejected",
-        approveCount,
-        rejectCount,
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      await notifyRequester(false);
-    } else if (approveCount === request.eligibleCount) {
-      await applyApprovedDeletion(ctx, request);
-      await ctx.db.patch("deletionRequests", request._id, {
-        status: "approved",
-        approveCount,
-        rejectCount,
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      await notifyRequester(true);
-    } else {
-      await ctx.db.patch("deletionRequests", request._id, {
-        approveCount,
-        rejectCount,
-        updatedAt: now,
-      });
-    }
-    await recordActivity(ctx, {
-      startupId: request.startupId,
-      actorProfileId: profile._id,
-      action: "deletion_voted",
-      targetType: "request",
-      targetId: request._id,
-      title:
-        args.vote === "approve"
-          ? "Glas ZA brisanje je zabeležen"
-          : "Glas PROTIV je odbio brisanje",
-    });
-    return request._id;
+    if (request === null) throw new Error("Glasanje više nije otvoreno.");
+    await requireStartupMember(ctx, request.startupId);
+    // PROSTOR P4: glasanje o brisanju je ugašeno — glas se ne upisuje.
+    throw permissionError("STARI_TOK", LEGACY_DELETION_VOTE_MESSAGE);
   },
 });
 
@@ -1133,13 +704,60 @@ async function applyIdeaNesting(
   });
 }
 
+/** Stari zahtevi deteta koji UI još prikazuje kao ugnežđavanje „na čekanju". */
+async function legacyNestingForChild(
+  ctx: ReadCtx,
+  startupId: Id<"startups">,
+  childId: Id<"ideaNodes">,
+  profileId: Id<"profiles">,
+) {
+  const [pending, rejectedAsRequester, rejectedAsParent] = await Promise.all([
+    ctx.db
+      .query("nestingRequests")
+      .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
+        q.eq("startupId", startupId).eq("status", "pending"),
+      )
+      .order("desc")
+      .take(500),
+    ctx.db
+      .query("nestingRequests")
+      .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
+        q.eq("requesterProfileId", profileId).eq("status", "rejected"),
+      )
+      .order("desc")
+      .take(500),
+    ctx.db
+      .query("nestingRequests")
+      .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
+        q.eq("parentAuthorProfileId", profileId).eq("status", "rejected"),
+      )
+      .order("desc")
+      .take(500),
+  ]);
+  return [...pending, ...rejectedAsRequester, ...rejectedAsParent].filter(
+    (request) =>
+      request.startupId === startupId && request.childIdeaId === childId,
+  );
+}
+
+/**
+ * Ugnežđavanje ideje (PROSTOR P4): svaki član ugnežđava odmah, ciklus se i dalje
+ * odbija. Stari zahtev za isto dete se zatvara; novi se ne pravi.
+ */
 export const requestNesting = mutation({
   args: {
     startupId: v.id("startups"),
     childIdeaId: v.id("ideaNodes"),
     parentIdeaId: v.id("ideaNodes"),
   },
-  handler: async (ctx, args) => {
+  // Uvek `approved`; tip ostaje širok zbog starih klijenata (P25).
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    status: "approved" | "pending";
+    requestId: Id<"nestingRequests"> | null;
+  }> => {
     const { profile } = await requireStartupMember(ctx, args.startupId);
     const [child, parent] = await Promise.all([
       ctx.db.get("ideaNodes", args.childIdeaId),
@@ -1155,9 +773,6 @@ export const requestNesting = mutation({
     ) {
       throw new Error("Ideja nije pronađena u ovom startupu.");
     }
-    if (child.authorProfileId !== profile._id) {
-      throw new Error("Možete ugnjezditi samo svoju karticu.");
-    }
     await assertNoIdeaCycle(ctx, child._id, parent._id);
     await assertNoPendingIdeaCycle(
       ctx,
@@ -1165,70 +780,22 @@ export const requestNesting = mutation({
       child._id,
       parent._id,
     );
-    if (parent.authorProfileId === profile._id) {
-      await applyIdeaNesting(ctx, child, parent);
-      return { status: "approved" as const, requestId: null };
-    }
-    const childAbsolute = await absoluteIdeaPosition(ctx, child);
-    const parentAbsolute = await absoluteIdeaPosition(ctx, parent);
-    const previousPending = await ctx.db
-      .query("nestingRequests")
-      .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
-        q
-          .eq("requesterProfileId", profile._id)
-          .eq("status", "pending"),
-      )
-      .take(100);
+    await applyIdeaNesting(ctx, child, parent);
     const now = Date.now();
-    for (const request of previousPending) {
-      if (
-        request.startupId === args.startupId &&
-        request.childIdeaId === child._id
-      ) {
-        await ctx.db.patch("nestingRequests", request._id, {
-          status: "cancelled",
-          resolvedAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-    const requestId = await ctx.db.insert("nestingRequests", {
-      startupId: args.startupId,
-      childIdeaId: child._id,
-      parentIdeaId: parent._id,
-      requesterProfileId: profile._id,
-      parentAuthorProfileId: parent.authorProfileId,
-      proposedX: childAbsolute.x - parentAbsolute.x,
-      proposedY: childAbsolute.y - parentAbsolute.y,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-      resolvedAt: null,
-    });
-    await recordActivity(ctx, {
-      startupId: args.startupId,
-      actorProfileId: profile._id,
-      action: "nesting_requested",
-      targetType: "request",
-      targetId: requestId,
-      title: "Poslat je zahtev za ugnježđavanje ideje",
-    });
-    const nestingCopy = notificationCopy.nestingVoteRequested(
-      child.title ?? child.text.slice(0, 40),
-      parent.title ?? parent.text.slice(0, 40),
-      profile.displayName,
+    const legacy = await legacyNestingForChild(
+      ctx,
+      args.startupId,
+      child._id,
+      profile._id,
     );
-    await createNotification(ctx, {
-      recipientProfileId: parent.authorProfileId,
-      startupId: args.startupId,
-      type: "vote_requested",
-      title: nestingCopy.title,
-      body: nestingCopy.body,
-      targetType: "approvals",
-      targetId: requestId,
-      actorProfileId: profile._id,
-    });
-    return { status: "pending" as const, requestId };
+    for (const request of legacy) {
+      await ctx.db.patch("nestingRequests", request._id, {
+        status: "cancelled",
+        resolvedAt: now,
+        updatedAt: now,
+      });
+    }
+    return { status: "approved" as const, requestId: null };
   },
 });
 
@@ -1239,75 +806,17 @@ export const resolveNesting = mutation({
   },
   handler: async (ctx, args) => {
     const request = await ctx.db.get("nestingRequests", args.requestId);
-    if (request === null || request.status !== "pending") {
-      throw new Error("Zahtev više nije otvoren.");
-    }
-    const { profile } = await requireStartupMember(ctx, request.startupId);
-    if (request.parentAuthorProfileId !== profile._id) {
-      throw new Error("Samo autor Parent kartice odlučuje o ovom zahtevu.");
-    }
-    const [child, parent] = await Promise.all([
-      ctx.db.get("ideaNodes", request.childIdeaId),
-      ctx.db.get("ideaNodes", request.parentIdeaId),
-    ]);
-    const now = Date.now();
-    if (
-      child === null ||
-      parent === null ||
-      child.archivedAt !== null ||
-      parent.archivedAt !== null
-    ) {
-      await ctx.db.patch("nestingRequests", request._id, {
-        status: "cancelled",
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      throw new Error("Jedna od kartica više ne postoji.");
-    }
-    if (args.approve) {
-      await applyIdeaNesting(
-        ctx,
-        child,
-        parent,
-        request.proposedX === undefined || request.proposedY === undefined
-          ? undefined
-          : { x: request.proposedX, y: request.proposedY },
-      );
-    }
-    await ctx.db.patch("nestingRequests", request._id, {
-      status: args.approve ? "approved" : "rejected",
-      resolvedAt: now,
-      updatedAt: now,
-    });
-    await recordActivity(ctx, {
-      startupId: request.startupId,
-      actorProfileId: profile._id,
-      action: "nesting_resolved",
-      targetType: "request",
-      targetId: request._id,
-      title: args.approve
-        ? "Ugnježđavanje je odobreno"
-        : "Ugnježđavanje je odbijeno",
-    });
-    const resolvedCopy = notificationCopy.requestResolved(
-      child.title ?? child.text.slice(0, 40),
-      args.approve,
-      profile.displayName,
-    );
-    await createNotification(ctx, {
-      recipientProfileId: request.requesterProfileId,
-      startupId: request.startupId,
-      type: "request_resolved",
-      title: resolvedCopy.title,
-      body: resolvedCopy.body,
-      targetType: "approvals",
-      targetId: request._id,
-      actorProfileId: profile._id,
-    });
-    return request._id;
+    if (request === null) throw new Error("Zahtev više nije otvoren.");
+    await requireStartupMember(ctx, request.startupId);
+    // PROSTOR P4: odobravanje ugnežđavanja je ugašeno.
+    throw permissionError("STARI_TOK", LEGACY_NESTING_MESSAGE);
   },
 });
 
+/**
+ * Izvlačenje ideje iz roditelja (PROSTOR P4): svaki član. Ako UI dete prikazuje
+ * kroz stari zahtev (na čekanju ili odbijen), izvlačenje taj zahtev zatvara.
+ */
 export const detachIdea = mutation({
   args: {
     startupId: v.id("startups"),
@@ -1323,52 +832,17 @@ export const detachIdea = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    const [pending, rejectedAsRequester, rejectedAsParent] = await Promise.all([
-      ctx.db
-        .query("nestingRequests")
-        .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
-          q.eq("startupId", args.startupId).eq("status", "pending"),
-        )
-        .order("desc")
-        .take(500),
-      ctx.db
-        .query("nestingRequests")
-        .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
-          q.eq("requesterProfileId", profile._id).eq("status", "rejected"),
-        )
-        .order("desc")
-        .take(500),
-      ctx.db
-        .query("nestingRequests")
-        .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
-          q.eq("parentAuthorProfileId", profile._id).eq("status", "rejected"),
-        )
-        .order("desc")
-        .take(500),
-    ]);
-    const virtualRequest = [
-      ...pending,
-      ...rejectedAsRequester,
-      ...rejectedAsParent,
-    ]
-      .filter((request) => request.childIdeaId === child._id)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const legacy = await legacyNestingForChild(
+      ctx,
+      args.startupId,
+      child._id,
+      profile._id,
+    );
+    const virtualRequest = legacy.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (virtualRequest !== undefined) {
-      if (
-        virtualRequest.requesterProfileId !== profile._id &&
-        virtualRequest.parentAuthorProfileId !== profile._id
-      ) {
-        throw new Error(
-          "Predlog može povući autor ili odbiti vlasnik Parent ideje.",
-        );
-      }
       const now = Date.now();
       await ctx.db.patch("nestingRequests", virtualRequest._id, {
-        status:
-          virtualRequest.status === "pending" &&
-          virtualRequest.parentAuthorProfileId === profile._id
-            ? "rejected"
-            : "cancelled",
+        status: "cancelled",
         resolvedAt: now,
         updatedAt: now,
       });
@@ -1376,13 +850,6 @@ export const detachIdea = mutation({
     }
     if (child.parentIdeaId === undefined) {
       throw new Error("Ugnježđena ideja nije pronađena.");
-    }
-    const parent = await ctx.db.get("ideaNodes", child.parentIdeaId);
-    if (
-      child.authorProfileId !== profile._id &&
-      parent?.authorProfileId !== profile._id
-    ) {
-      throw new Error("Karticu mogu izvući autor deteta ili direktnog Parenta.");
     }
     const absolute = await absoluteIdeaPosition(ctx, child);
     await ctx.db.patch("ideaNodes", child._id, {
@@ -1398,71 +865,27 @@ export const detachIdea = mutation({
 export const overview = query({
   args: { startupId: v.id("startups") },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    const [ballots, nestingForMe, myDeletionRequests, myNestingRequests, recovered] =
-      await Promise.all([
-        ctx.db
-          .query("deletionBallots")
-          .withIndex("by_profileId_and_vote_and_createdAt", (q) =>
-            q.eq("profileId", profile._id).eq("vote", "pending"),
-          )
-          .order("desc")
-          .take(100),
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
-            q
-              .eq("parentAuthorProfileId", profile._id)
-              .eq("status", "pending"),
-          )
-          .order("desc")
-          .take(100),
-        ctx.db
-          .query("deletionRequests")
-          .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
-            q
-              .eq("requesterProfileId", profile._id)
-              .eq("status", "pending"),
-          )
-          .order("desc")
-          .take(100),
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
-            q
-              .eq("requesterProfileId", profile._id)
-              .eq("status", "pending"),
-          )
-          .order("desc")
-          .take(100),
-        ctx.db
-          .query("recoveredContent")
-          .withIndex("by_startupId_and_archivedAt_and_createdAt", (q) =>
-            q.eq("startupId", args.startupId).eq("archivedAt", null),
-          )
-          .order("desc")
-          .take(100),
-      ]);
-
-    const requestsForVote = (
-      await Promise.all(
-        ballots.map((ballot) => ctx.db.get("deletionRequests", ballot.requestId)),
+    await requireStartupMember(ctx, args.startupId);
+    // PROSTOR P4: glasanja i zahteva više nema — stari otvoreni se ne nude kao
+    // radnje (oblik ostaje zbog starih klijenata, P25). Oporavljeno i istorija
+    // ostaju dok ih klijenti ne čitaju iz Korpe.
+    const recovered = await ctx.db
+      .query("recoveredContent")
+      .withIndex("by_startupId_and_archivedAt_and_createdAt", (q) =>
+        q.eq("startupId", args.startupId).eq("archivedAt", null),
       )
-    ).filter(
-      (request): request is Doc<"deletionRequests"> =>
-        request !== null &&
-        request.startupId === args.startupId &&
-        request.status === "pending",
-    );
-    const validNestingForMe = nestingForMe.filter(
-      (request) => request.startupId === args.startupId,
-    );
-    const validMyDeletion = myDeletionRequests.filter(
-      (request) => request.startupId === args.startupId,
-    );
-    const validMyNesting = myNestingRequests.filter(
-      (request) => request.startupId === args.startupId,
-    );
+      .order("desc")
+      .take(100);
+    const requestsForVote: Doc<"deletionRequests">[] = [];
+    const nestingForMe: Array<
+      Doc<"nestingRequests"> & {
+        child: Doc<"ideaNodes"> | null;
+        parent: Doc<"ideaNodes"> | null;
+        requester: Awaited<ReturnType<typeof getProfileSummary>>;
+      }
+    > = [];
+    const myDeletion: Doc<"deletionRequests">[] = [];
+    const myNesting: Doc<"nestingRequests">[] = [];
     const historyStatuses = [
       "approved",
       "rejected",
@@ -1516,22 +939,12 @@ export const overview = query({
     );
 
     return {
-      pendingCount: requestsForVote.length + validNestingForMe.length,
+      pendingCount: 0,
       requestsForVote,
-      nestingForMe: await Promise.all(
-        validNestingForMe.map(async (request) => ({
-          ...request,
-          child: await ctx.db.get("ideaNodes", request.childIdeaId),
-          parent: await ctx.db.get("ideaNodes", request.parentIdeaId),
-          requester: await getProfileSummary(
-            ctx,
-            request.requesterProfileId,
-          ),
-        })),
-      ),
+      nestingForMe,
       myRequests: {
-        deletion: validMyDeletion,
-        nesting: validMyNesting,
+        deletion: myDeletion,
+        nesting: myNesting,
       },
       recovered: recoveredWithContributions,
       history,

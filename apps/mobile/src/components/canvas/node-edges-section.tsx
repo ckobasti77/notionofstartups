@@ -1,4 +1,4 @@
-import { Link2, Unlink, Vote } from 'lucide-react-native';
+import { Link2, Unlink } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Row } from '@/components/ui/row';
@@ -19,6 +19,10 @@ export type NodeEdgeRow = {
   otherTitle: string;
   label: string | null;
   canDelete: boolean;
+  /**
+   * Stiže iz embeda (protokol se ne menja), ali je od PROSTOR-a uvek `false`:
+   * glasanje o brisanju veze ne postoji (P4) — vezu raskida svaki član (D20).
+   */
   canRequestDeletion: boolean;
   /** Samo za `checkpoint` — „Poništi" raskida pravi NOVU vezu, pa mu trebaju endpointi. */
   endpoints?: { source: CheckpointEndpoint; target: CheckpointEndpoint };
@@ -51,7 +55,6 @@ export function NodeEdgesSection({
   busy,
   onConnect,
   onBreak,
-  onRequestDeletion,
 }: {
   edges: NodeEdgeRow[];
   /** Sme li se odavde praviti veza (autor stavke + ima koga da poveže). */
@@ -64,7 +67,6 @@ export function NodeEdgesSection({
   busy: string | null;
   onConnect: () => void;
   onBreak: (edge: NodeEdgeRow) => void;
-  onRequestDeletion: (edge: NodeEdgeRow) => void;
 }) {
   const colors = useThemeColors();
   return (
@@ -101,13 +103,6 @@ export function NodeEdgesSection({
                     disabled={busy !== null}
                     onPress={() => onBreak(edge)}>
                     <Unlink size={20} color={colors.destructive} />
-                  </EdgeButton>
-                ) : edge.canRequestDeletion ? (
-                  <EdgeButton
-                    label={`Zatraži brisanje veze sa „${edge.otherTitle}"`}
-                    disabled={busy !== null}
-                    onPress={() => onRequestDeletion(edge)}>
-                    <Vote size={20} color={colors.mutedForeground} />
                   </EdgeButton>
                 ) : undefined
               }

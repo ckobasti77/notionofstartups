@@ -1,8 +1,9 @@
+import { undoOutcome } from '@devotion/shared';
 import { useCallback } from 'react';
 import { useMutation } from 'convex/react';
 
 import { api } from '@/convex/_generated/api';
-import type { UndoAction } from '@/lib/undo';
+import { chainBulkScheduleRevisions, type UndoAction } from '@/lib/undo';
 
 /**
  * Izvršava inverz jedne stavke poništavanja. Preseljeno IZ `components/undo-bar.tsx`
@@ -12,8 +13,12 @@ import type { UndoAction } from '@/lib/undo';
  * menjani (24 `case` grane, isto kao unija `UndoAction`). K12 je dodao pet grana za
  * Moj dan i brzi unos (`taskStatus`, `personalTaskStatus`, `myDayUnplan`,
  * `personalTaskArchive`, `personalTaskCreate`), a K16 granu `personalGroup` (Poruke).
+ *
+ * Većina grana vraća `void` (traka kaže „Vraćeno."). K19 `bulkSchedule` vraća TEKST ishoda
+ * („Vraćeno 9 · 1 je u međuvremenu menjan."): pozivalac ga prikazuje umesto „Vraćeno.",
+ * jer grupno poništavanje može delimično da ne uspe, a to korisnik mora da vidi.
  */
-export function useUndoRunner(): (action: UndoAction) => Promise<void> {
+export function useUndoRunner(): (action: UndoAction) => Promise<string | void> {
   const restoreNodes = useMutation(api.thoughts.restoreNodes);
   const restoreEdges = useMutation(api.thoughts.restoreEdges);
   const restoreIdea = useMutation(api.ideas.restoreOwn);
@@ -28,6 +33,9 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const archiveThoughtEdges = useMutation(api.thoughts.archiveEdges);
   const restoreCheckpoint = useMutation(api.taskCheckpoints.restoreOwn);
   const restoreContribution = useMutation(api.collaboration.restoreOwnContribution);
+  const restoreComment = useMutation(api.comments.restore);
+  const restoreFromTrash = useMutation(api.trash.restore);
+  const setIdeaStage = useMutation(api.ideas.setStage);
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
   const connectPages = useMutation(api.areasV2.connectPages);
@@ -48,9 +56,10 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
   const restorePersonalTask = useMutation(api.personalTasks.restore);
   const planMyDay = useMutation(api.myDay.plan);
   const updatePersonalGroup = useMutation(api.chat.updatePersonalGroup);
+  const restoreSchedule = useMutation(api.tasks.bulkRestoreSchedule);
 
   return useCallback(
-    async (action: UndoAction): Promise<void> => {
+    async (action: UndoAction): Promise<string | void> => {
       switch (action.kind) {
         case 'thoughts':
           // Redosled je ugovor backenda: PRVO `restoreNodes` (sam vraća veze pale
@@ -75,6 +84,19 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
           return;
         case 'contribution':
           await restoreContribution({ contributionId: action.contributionId });
+          return;
+        case 'comment':
+          await restoreComment({ commentId: action.commentId });
+          return;
+        case 'trashRestore':
+          await restoreFromTrash({ target: { kind: 'page', id: action.pageId } });
+          return;
+        case 'ideaStage':
+          await setIdeaStage({
+            startupId: action.startupId,
+            ideaId: action.ideaId,
+            stage: action.previousStage,
+          });
           return;
         case 'pageMove':
           // Inverz poteza je isti poziv sa PRETHODNIM koordinatama (nema „restore"
@@ -323,6 +345,18 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
             memberProfileIds: action.profileIds,
           });
           return;
+        case 'bulkSchedule': {
+          // Inverz „Sredi rokove" (K19): rok i status od pre radnje, sa `expectedRevision` iz
+          // odgovora radnje. Zadatak menjan u međuvremenu server preskače, ne gazi.
+          const result = await restoreSchedule({ startupId: action.startupId, items: action.items });
+          // Ulančano „Poništi" (K06-3): starije još žive stavke očekuju nove revizije.
+          chainBulkScheduleRevisions(result.revisions);
+          return undoOutcome({
+            restored: result.restored,
+            unchanged: result.unchanged,
+            skipped: result.skipped,
+          });
+        }
       }
     },
     [
@@ -340,6 +374,8 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
       archiveThoughtEdges,
       restoreCheckpoint,
       restoreContribution,
+      restoreComment,
+      restoreFromTrash,
       movePages,
       resizePage,
       connectPages,
@@ -360,6 +396,7 @@ export function useUndoRunner(): (action: UndoAction) => Promise<void> {
       restorePersonalTask,
       planMyDay,
       updatePersonalGroup,
+      restoreSchedule,
     ],
   );
 }

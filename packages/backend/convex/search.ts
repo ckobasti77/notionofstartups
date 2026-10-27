@@ -135,11 +135,13 @@ export const ideasAndThoughts = query({
         text: node.text.slice(0, NODE_TEXT_SNIPPET),
         startupId: node.startupId,
       })),
+      // Upit je `.eq("startupId", args.startupId)`, pa lične beleške
+      // (`startupId: null`, PROSTOR P7) ovde nikad ne izlaze.
       thoughts: thoughtMatches.map((node) => ({
         _id: node._id,
         title: node.title,
         text: node.text.slice(0, NODE_TEXT_SNIPPET),
-        startupId: node.startupId,
+        startupId: args.startupId,
       })),
     };
   },

@@ -9,6 +9,7 @@ import {
   inboxMarkedMessage,
   inboxScopeKey,
   inboxTarget,
+  pendingIdeaVotes,
   type InboxScope,
   type InboxSegment,
   type InboxTarget,
@@ -98,7 +99,8 @@ function InboxContent({
   const listRef = useRef<HTMLDivElement>(null);
 
   const counts = useQueryTolerant(api.inbox.unreadCounts, {}) ?? null;
-  const pendingQuery = useQueryState(api.inbox.pending, {});
+  // PROSTOR P22 (K16): „Čeka tebe" = ideje u fazi „Razmatra se" bez mog glasa.
+  const pendingQuery = useQueryState(api.inbox.pending, { include: ["idea_vote"] });
   const markRead = useMutation(api.notifications.markRead);
   const markAllRead = useMutation(api.inbox.markAllRead);
 
@@ -115,7 +117,8 @@ function InboxContent({
         ? { status: "error", retry }
         : {
             status: "ready",
-            items: pendingQuery.data.items as ReadonlyArray<InboxPendingModel>,
+            // Stare vrste (glasanje o brisanju, ugnežđavanje) se ne crtaju.
+            items: pendingIdeaVotes(pendingQuery.data.items as ReadonlyArray<InboxPendingModel>),
             truncated: pendingQuery.data.truncated,
           };
 

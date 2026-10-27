@@ -11,7 +11,6 @@ import {
   type EntryExitAnimationFunction,
 } from 'react-native-reanimated';
 
-import { FIRST_FILL_WINDOW_MS } from '@/components/ui/stagger';
 import { DURATIONS, ENTER, REDUCED_FADE_MS, SPRINGS, staggerDelayMs, STANDARD_EASING } from '@/theme/motion';
 
 /**
@@ -97,11 +96,13 @@ export function exitFade(reduced: boolean) {
 }
 
 /**
- * Koliko dugo posle montiranja stavka još sme da uđe animirano — ista konstanta
- * kao `StaggerGroup`: posle toga je lista „napunjena", a red koji se montira
- * usred skrola ili reaktivnog osvežavanja se prosto pojavi.
+ * Koliko dugo posle montiranja stavka još sme da uđe animirano (deli ga i
+ * `StaggerGroup`): posle toga je lista „napunjena", a red koji se montira usred
+ * skrola ili reaktivnog osvežavanja se prosto pojavi — `FlatList` montira redove
+ * tek kad doskroluješ do njih, a fade na 40. redu usred skrola izgleda kao kvar.
+ * Nije broj pokreta (trajanje/kriva), već prozor „prvog punjenja".
  */
-export { FIRST_FILL_WINDOW_MS };
+export const FIRST_FILL_WINDOW_MS = 450;
 
 /**
  * `entering` za listu: animira samo prvo punjenje (i novo punjenje kad se

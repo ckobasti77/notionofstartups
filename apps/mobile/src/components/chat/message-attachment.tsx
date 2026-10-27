@@ -58,7 +58,7 @@ export function MessageAttachment({
       onPress={() => void Linking.openURL(url)}
       style={[styles.file, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={[styles.fileIcon, { backgroundColor: colors.accent }]}>
-        <FileText size={18} color={colors.primary} />
+        <FileText size={18} color={colors.primaryText} />
       </View>
       <View style={styles.fileMeta}>
         <Text numberOfLines={1} style={[styles.fileName, { color: colors.foreground }]}>
@@ -114,9 +114,9 @@ function VoiceAttachment({
           { backgroundColor: mine ? colors.primaryForeground : colors.accent },
         ]}>
         {status.playing ? (
-          <Pause size={18} color={colors.primary} />
+          <Pause size={18} color={colors.primaryText} />
         ) : (
-          <Play size={18} color={colors.primary} />
+          <Play size={18} color={colors.primaryText} />
         )}
       </Pressable>
       <Text style={[styles.voiceTime, { color: fg }]}>

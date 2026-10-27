@@ -358,3 +358,20 @@ export function noteEditorCss({
   ::selection { background: ${colors.primary}55; }
 `;
 }
+
+/**
+ * Id-jevi priloga iz HTML-a tela beleške (`data-file-id` na `noteFile` blokovima).
+ * Telefon nema `DOMParser`, pa je to pretraga tagova; blizanac web
+ * `extractNoteFileIds` (`use-page-autosave.ts`). Hrani `pageFiles.prune` — prilozi
+ * izbačeni iz tela se sklanjaju tek posle uspešnog čuvanja.
+ */
+export function extractNoteFileIds(html: string): string[] {
+  if (!html.includes('data-note-file')) return [];
+  const ids: string[] = [];
+  for (const tag of html.match(/<[^>]*\bdata-note-file\b[^>]*>/gi) ?? []) {
+    const match = /\bdata-file-id=(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    const id = match?.[1] ?? match?.[2] ?? '';
+    if (id !== '' && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}

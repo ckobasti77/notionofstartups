@@ -34,7 +34,7 @@ const personalRow = (overrides: Partial<TaskRowModel> = {}): TaskRowModel => ({
 });
 
 const taskRow = (
-  access: { isCreator: boolean; isAssignee: boolean },
+  access: { isCreator: boolean; isAssignee: boolean; lockedForViewer?: boolean },
   overrides: Partial<TaskRowModel> = {},
 ): TaskRowModel => ({
   ...rowFromTaskItem(
@@ -67,8 +67,23 @@ describe("dozvole (ogledalo tasks.updateMetadata)", () => {
     }
   });
 
-  test("izvršilac menja samo status; ostalo je onemogućeno sa razlogom", () => {
-    const perms = taskPermissions({ kind: "task", isCreator: false, isAssignee: true });
+  // PROSTOR P1 (namerna promena pravila): ograničenja važe samo za zaključan
+  // zadatak (`lockedForViewer`); otključan menja svaki član.
+  test("nezaključan zadatak: svaki član sme sve", () => {
+    for (const isAssignee of [true, false]) {
+      const perms = taskPermissions({ kind: "task", isCreator: false, isAssignee });
+      expect(Object.values(perms).every((perm) => perm.allowed && perm.reason === null)).toBe(true);
+      expect(perms.assignees.selfOnly).toBe(false);
+    }
+  });
+
+  test("zaključan: izvršilac menja samo status; ostalo je onemogućeno sa razlogom", () => {
+    const perms = taskPermissions({
+      kind: "task",
+      isCreator: false,
+      isAssignee: true,
+      lockedForViewer: true,
+    });
     expect(perms.status).toEqual({ allowed: true, reason: null });
     expect(perms.priority).toEqual({ allowed: false, reason: PERMISSION_REASONS.priority });
     expect(perms.due).toEqual({ allowed: false, reason: PERMISSION_REASONS.due });
@@ -82,9 +97,14 @@ describe("dozvole (ogledalo tasks.updateMetadata)", () => {
     expect(perms.plan.allowed).toBe(true);
   });
 
-  test("planiran tuđi zadatak (nisam ni kreator ni izvršilac): ni status, a plan da", () => {
-    const perms = taskPermissions({ kind: "task", isCreator: false, isAssignee: false });
-    expect(perms.status).toEqual({ allowed: false, reason: PERMISSION_REASONS.status });
+  test("zaključan tuđi zadatak (nisam ni kreator ni izvršilac): ni status, a plan da", () => {
+    const perms = taskPermissions({
+      kind: "task",
+      isCreator: false,
+      isAssignee: false,
+      lockedForViewer: true,
+    });
+    expect(perms.status).toEqual({ allowed: false, reason: PERMISSION_REASONS.lockedStatus });
     expect(perms.plan.allowed).toBe(true);
   });
 });
@@ -102,6 +122,7 @@ describe("model reda", () => {
         createdAt: 1,
         isCreator: false,
         isAssignee: true,
+        lockedForViewer: true,
         startup: { _id: "s1", name: "Cluck Rush" },
         area: { label: "Sales" },
       },
@@ -217,9 +238,17 @@ describe("koja radnja se zove za koju vrstu stavke", () => {
     expect(reopenStatus("backlog")).toBe("backlog");
   });
 
-  test("bez dozvole za status: odbijeno sa razlogom, bez poziva", () => {
-    const row = taskRow({ isCreator: false, isAssignee: false });
-    expect(completionCall(row, true)).toEqual({ fn: "denied", reason: PERMISSION_REASONS.status });
+  test("bez dozvole za status (zaključan): odbijeno sa razlogom, bez poziva", () => {
+    const row = taskRow({ isCreator: false, isAssignee: false, lockedForViewer: true });
+    expect(completionCall(row, true)).toEqual({
+      fn: "denied",
+      reason: PERMISSION_REASONS.lockedStatus,
+    });
+    expect(completionCall(taskRow({ isCreator: false, isAssignee: false }), true)).toEqual({
+      fn: "tasks.updateMetadata",
+      pageId: "t1",
+      status: "done",
+    });
   });
 
   test("rok: lični → personalTasks.update, kreator → tasks.updateMetadata, izvršilac odbijen", () => {
@@ -233,7 +262,9 @@ describe("koja radnja se zove za koju vrstu stavke", () => {
       pageId: "t1",
       dueDate: null,
     });
-    expect(dueCall(taskRow({ isCreator: false, isAssignee: true }), null)).toEqual({
+    expect(
+      dueCall(taskRow({ isCreator: false, isAssignee: true, lockedForViewer: true }), null),
+    ).toEqual({
       fn: "denied",
       reason: PERMISSION_REASONS.due,
     });
@@ -252,7 +283,9 @@ describe("koja radnja se zove za koju vrstu stavke", () => {
       priority: "urgent",
     });
     expect(priorityCall(creator, null)).toEqual({ fn: "denied", reason: PRIORITY_REQUIRED_REASON });
-    expect(priorityCall(taskRow({ isCreator: false, isAssignee: true }), "low")).toEqual({
+    expect(
+      priorityCall(taskRow({ isCreator: false, isAssignee: true, lockedForViewer: true }), "low"),
+    ).toEqual({
       fn: "denied",
       reason: PERMISSION_REASONS.priority,
     });

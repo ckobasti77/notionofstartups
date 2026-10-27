@@ -1,4 +1,4 @@
-import { completionCall, reopenStatus } from '@devotion/shared';
+import { completionCall, PERMISSION_REASONS, reopenStatus } from '@devotion/shared';
 import { describe, expect, test } from 'vitest';
 
 import {
@@ -97,12 +97,19 @@ describe('Moj dan — model (telefon)', () => {
     expect(model.time.filter((entry) => entry.reorderable).map((entry) => entry.key)).toEqual(['time:planned']);
   });
 
-  test('dozvola za kvačicu (shared dozvole): lično uvek, startup samo kreator ili izvršilac', () => {
+  // PROSTOR P1 (namerna promena pravila): kvačicu zabranjuje samo zaključan zadatak.
+  test('dozvola za kvačicu (shared dozvole): lično uvek, startup osim zaključanog tuđeg', () => {
     expect(section('overdue')?.rows.map((row) => row.permissions.status.allowed)).toEqual([true, true]);
-    expect(section('soon')?.rows[0].permissions.status.allowed).toBe(false);
-    expect(section('soon')?.rows[0].permissions.status.reason).toBe(
-      'Status menja kreator zadatka ili osoba kojoj je dodeljen.',
+    expect(section('soon')?.rows[0].permissions.status.allowed).toBe(true);
+    const locked = buildMyDay(
+      { ...OVERVIEW, tasks: [task('t8', { dueDate: noon(28), isAssignee: false, lockedForViewer: true })] },
+      NOW,
+      ZONE,
     );
+    expect(timeSection(locked.time, 'soon')?.rows[0].permissions.status).toEqual({
+      allowed: false,
+      reason: PERMISSION_REASONS.lockedStatus,
+    });
     const creator = buildMyDay(
       { ...OVERVIEW, tasks: [task('t9', { dueDate: noon(24), isAssignee: false, isCreator: true })] },
       NOW,

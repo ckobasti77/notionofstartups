@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   Handle,
+  NodeToolbar,
   Position,
   type Node,
   type NodeProps,
@@ -30,23 +31,26 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { CheckpointCommentsDialog } from "@/components/collab/checkpoint-comments-dialog";
+import { MapStepPill } from "@/components/map/map-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckpointContributionDialog } from "@/components/workspace/task-checkpoint-list";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
+import canvasStyles from "./connected-canvas.module.css";
+import { PerimeterResizeControl } from "./perimeter-resize-control";
 import {
   taskCheckpointUsesExpandedSize,
   type TaskCheckpointSizePreset,
 } from "./task-checkpoint-layout";
-import { CircularTextFlow } from "./circular-text-flow";
-import { PerimeterResizeControl } from "./perimeter-resize-control";
-import styles from "./task-checkpoint-node.module.css";
 
 export type TaskCheckpointFlowNodeData = {
   checkpointId: Id<"taskCheckpoints">;
+  /** Startup zadatka (komentari koraka traže članove za @). */
+  startupId: Id<"startups">;
   ordinal: number;
   text: string;
   completed: boolean;
@@ -59,7 +63,6 @@ export type TaskCheckpointFlowNodeData = {
   canResize: boolean;
   manuallySized: boolean;
   canDeleteDirectly: boolean;
-  canRequestDeletion: boolean;
 };
 
 export type TaskCheckpointFlowNode = Node<
@@ -67,7 +70,7 @@ export type TaskCheckpointFlowNode = Node<
   "taskCheckpoint"
 >;
 
-const TaskCheckpointNodeActionsContext = createContext<{
+type TaskCheckpointNodeActions = {
   startResize: (checkpointId: Id<"taskCheckpoints">) => void;
   resize: (
     checkpointId: Id<"taskCheckpoints">,
@@ -77,25 +80,17 @@ const TaskCheckpointNodeActionsContext = createContext<{
     checkpointId: Id<"taskCheckpoints">,
     preset: TaskCheckpointSizePreset,
   ) => void;
-} | null>(null);
+};
+
+const TaskCheckpointNodeActionsContext =
+  createContext<TaskCheckpointNodeActions | null>(null);
 
 export function TaskCheckpointNodeActionsProvider({
   startResize,
   resize,
   setSizePreset,
   children,
-}: {
-  startResize: (checkpointId: Id<"taskCheckpoints">) => void;
-  resize: (
-    checkpointId: Id<"taskCheckpoints">,
-    layout: ResizeParams,
-  ) => void;
-  setSizePreset: (
-    checkpointId: Id<"taskCheckpoints">,
-    preset: TaskCheckpointSizePreset,
-  ) => void;
-  children: ReactNode;
-}) {
+}: TaskCheckpointNodeActions & { children: ReactNode }) {
   return (
     <TaskCheckpointNodeActionsContext.Provider
       value={{ startResize, resize, setSizePreset }}
@@ -109,6 +104,12 @@ function stopCanvasEvent(event: SyntheticEvent) {
   event.stopPropagation();
 }
 
+/**
+ * Korak zadatka na Mapi (PROSTOR K15, K07 §7): mala pravougaona pilula na
+ * orbitalnoj POZICIJI oko zadatka. Kvačica je uvek vidljiva; uređivanje,
+ * veličina, komentari i brisanje (u Korpu, sa „Poništi") su iznad izabranog
+ * koraka.
+ */
 export const TaskCheckpointFlowNodeCard = memo(
   function TaskCheckpointFlowNodeCard({
     id,
@@ -122,7 +123,6 @@ export const TaskCheckpointFlowNodeCard = memo(
     const updateText = useMutation(api.taskCheckpoints.updateText);
     const archiveOwn = useMutation(api.taskCheckpoints.archiveOwn);
     const restoreOwn = useMutation(api.taskCheckpoints.restoreOwn);
-    const requestDeletion = useMutation(api.collaboration.requestDeletion);
     const [pending, setPending] = useState(false);
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(data.text);
@@ -146,128 +146,108 @@ export const TaskCheckpointFlowNodeCard = memo(
         setEditing(false);
       } catch (error) {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Checkpoint nije sačuvan.",
+          accessErrorMessage(error, "Korak nije sačuvan."),
         );
       } finally {
         setPending(false);
       }
     }
 
+    function archive() {
+      void archiveOwn({ checkpointId: data.checkpointId })
+        .then(() =>
+          toast.success("Korak je obrisan.", {
+            duration: 8_000,
+            action: {
+              label: "Poništi",
+              onClick: () =>
+                void restoreOwn({ checkpointId: data.checkpointId }).catch(
+                  (error) =>
+                    toast.error(
+                      accessErrorMessage(error, "Korak nije vraćen."),
+                    ),
+                ),
+            },
+          }),
+        )
+        .catch((error) =>
+          toast.error(
+            accessErrorMessage(error, "Korak nije obrisan."),
+          ),
+        );
+    }
+
+    const toggleLabel = data.locked
+      ? `Korak je zaključan dok se ne završi korak ${data.blockedByOrdinal}`
+      : data.completed
+        ? `Ponovo otvori korak: ${data.text}`
+        : `Završi korak: ${data.text}`;
+
     return (
       <>
-        <article
-          data-circular-text-shell
+        <div
           className={cn(
-            styles.shell,
-            data.completed && styles.completed,
-            selected && styles.selected,
+            "relative h-full w-full",
             !data.canMove && "nodrag !cursor-default",
           )}
-          aria-label={`Checkpoint broj ${data.ordinal}: ${data.text}. ${
-            data.completed
-              ? "Završen"
-              : data.locked
-                ? `Zaključan dok se ne završi korak broj ${data.blockedByOrdinal}`
-                : "Otvoren"
-          }.`}
-          title={
-            data.locked
-              ? `Zaključano dok se ne završi korak #${data.blockedByOrdinal}`
-              : "Izaberi checkpoint za izmenu, doprinos ili brisanje"
-          }
         >
-          <PerimeterResizeControl<TaskCheckpointFlowNode>
-            nodeId={id}
-            width={width ?? 140}
-            height={height ?? 92}
+          <MapStepPill
+            eyebrow={
+              data.locked
+                ? `Korak ${data.ordinal} · čeka korak ${data.blockedByOrdinal}`
+                : `Korak ${data.ordinal}`
+            }
+            text={data.text}
+            completed={data.completed}
             selected={selected}
-            disabled={!data.canResize}
-            shape="checkpoint"
-            minWidth={140}
-            minHeight={92}
-            maxWidth={520}
-            maxHeight={600}
-            ariaLabel={`Promeni veličinu checkpointa broj ${data.ordinal} povlačenjem oboda`}
-            onResizeStart={() => {
-              if (data.canResize) {
-                nodeActions?.startResize(data.checkpointId);
-              }
-            }}
-            onResizeEnd={(layout) => {
-              if (data.canResize) {
-                nodeActions?.resize(data.checkpointId, layout);
-              }
-            }}
-          />
-          <div className={styles.surface} aria-hidden="true" />
-          <span
-            data-circular-text-obstacle
-            className={styles.ordinal}
-            aria-hidden="true"
-            title={`Checkpoint broj ${data.ordinal}`}
-          >
-            #{data.ordinal}
-          </span>
-          <button
-            data-circular-text-obstacle
-            type="button"
-            className={cn(styles.toggle, "nodrag nopan")}
-            disabled={!data.canToggle || data.locked || pending}
-            aria-label={
-              data.locked
-                ? `Checkpoint je zaključan dok se ne završi korak broj ${data.blockedByOrdinal}`
-                : data.completed
-                  ? `Ponovo otvori checkpoint: ${data.text}`
-                  : `Završi checkpoint: ${data.text}`
+            toggle={
+              <button
+                type="button"
+                className="nodrag nopan mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60"
+                disabled={!data.canToggle || data.locked || pending}
+                aria-label={toggleLabel}
+                title={toggleLabel}
+                onPointerDown={stopCanvasEvent}
+                onClick={(event) => {
+                  stopCanvasEvent(event);
+                  setPending(true);
+                  void setCompleted({
+                    checkpointId: data.checkpointId,
+                    completed: !data.completed,
+                  })
+                    .catch((error) =>
+                      toast.error(
+                        accessErrorMessage(error, "Status koraka nije promenjen."),
+                      ),
+                    )
+                    .finally(() => setPending(false));
+                }}
+              >
+                {pending ? (
+                  <LoaderCircle
+                    className="size-3.5 animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                ) : data.completed ? (
+                  <Check className="size-3.5 text-success" aria-hidden="true" />
+                ) : data.locked ? (
+                  <Lock className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <Circle className="size-3.5" aria-hidden="true" />
+                )}
+              </button>
             }
-            title={
-              data.locked
-                ? `Zaključano dok se ne završi korak #${data.blockedByOrdinal}`
-                : data.completed
-                  ? "Ponovo otvori"
-                  : "Označi kao završeno"
-            }
-            onPointerDown={stopCanvasEvent}
-            onClick={(event) => {
-              stopCanvasEvent(event);
-              setPending(true);
-              void setCompleted({
-                checkpointId: data.checkpointId,
-                completed: !data.completed,
-              })
-                .catch((error) =>
-                  toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Status nije promenjen.",
-                  ),
-                )
-                .finally(() => setPending(false));
-            }}
           >
-            {pending ? (
-              <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-            ) : data.completed ? (
-              <Check className="size-4" />
-            ) : data.locked ? (
-              <Lock className="size-4" />
-            ) : (
-              <Circle className="size-4" />
-            )}
-          </button>
-
-          {editing ? (
-            <div className={styles.body}>
+            {editing ? (
               <div
-                className={cn(styles.editing, "nodrag nopan nowheel")}
+                className="nodrag nopan nowheel mt-0.5"
                 onPointerDown={stopCanvasEvent}
               >
                 <Input
                   autoFocus
                   value={draft}
-                  aria-label={`Tekst checkpointa: ${data.text}`}
+                  className="h-7 text-xs"
+                  aria-label={`Tekst koraka: ${data.text}`}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") {
@@ -282,32 +262,54 @@ export const TaskCheckpointFlowNodeCard = memo(
                   onBlur={() => void saveText()}
                 />
               </div>
-            </div>
-          ) : (
-            <CircularTextFlow
-              text={data.text}
-              className={styles.checkpointTextViewport}
-              contentClassName={styles.checkpointMeasuredText}
-              ariaLabel={`Tekst checkpointa broj ${data.ordinal}`}
-            />
-          )}
+            ) : undefined}
+          </MapStepPill>
 
-          {selected ? (
-            <div
-              className={cn(styles.actions, "nodrag nopan nowheel")}
-              onPointerDown={stopCanvasEvent}
-              onClick={stopCanvasEvent}
-            >
+          <PerimeterResizeControl<TaskCheckpointFlowNode>
+            nodeId={id}
+            width={width ?? 140}
+            height={height ?? 92}
+            selected={selected}
+            disabled={!data.canResize}
+            shape="rounded"
+            cornerRadius={8}
+            minWidth={140}
+            minHeight={92}
+            maxWidth={520}
+            maxHeight={600}
+            ariaLabel={`Promeni veličinu koraka ${data.ordinal} povlačenjem ivice`}
+            onResizeStart={() => {
+              if (data.canResize) {
+                nodeActions?.startResize(data.checkpointId);
+              }
+            }}
+            onResizeEnd={(layout) => {
+              if (data.canResize) {
+                nodeActions?.resize(data.checkpointId, layout);
+              }
+            }}
+          />
+
+          <NodeToolbar
+            isVisible={selected}
+            position={Position.Top}
+            offset={10}
+            className="nodrag nokey nopan nowheel"
+            onPointerDown={stopCanvasEvent}
+            onClick={stopCanvasEvent}
+            onDoubleClick={stopCanvasEvent}
+          >
+            <div className="desk-surface flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1">
               {data.canEdit ? (
                 <Button
                   type="button"
                   size="icon"
-                  variant="outline"
-                  className={styles.action}
+                  variant="ghost"
+                  className="size-8"
                   aria-label={
                     editing
                       ? `Otkaži izmenu: ${data.text}`
-                      : `Uredi checkpoint: ${data.text}`
+                      : `Uredi korak: ${data.text}`
                   }
                   title={editing ? "Otkaži izmenu" : "Uredi"}
                   onClick={() => {
@@ -316,9 +318,9 @@ export const TaskCheckpointFlowNodeCard = memo(
                   }}
                 >
                   {editing ? (
-                    <X className="size-4" />
+                    <X className="size-4" aria-hidden="true" />
                   ) : (
-                    <Pencil className="size-4" />
+                    <Pencil className="size-4" aria-hidden="true" />
                   )}
                 </Button>
               ) : null}
@@ -326,14 +328,10 @@ export const TaskCheckpointFlowNodeCard = memo(
                 <Button
                   type="button"
                   size="icon"
-                  variant="outline"
-                  className={styles.action}
-                  aria-label={`${usesExpandedSize ? "Skupi" : "Raširi"} checkpoint broj ${data.ordinal}`}
-                  title={
-                    usesExpandedSize
-                      ? "Skupi checkpoint"
-                      : "Raširi checkpoint"
-                  }
+                  variant="ghost"
+                  className="size-8"
+                  aria-label={`${usesExpandedSize ? "Skupi" : "Raširi"} korak ${data.ordinal}`}
+                  title={usesExpandedSize ? "Skupi korak" : "Raširi korak"}
                   onClick={() =>
                     nodeActions?.setSizePreset(
                       data.checkpointId,
@@ -342,107 +340,58 @@ export const TaskCheckpointFlowNodeCard = memo(
                   }
                 >
                   {usesExpandedSize ? (
-                    <Minimize2 className="size-4" />
+                    <Minimize2 className="size-4" aria-hidden="true" />
                   ) : (
-                    <Maximize2 className="size-4" />
+                    <Maximize2 className="size-4" aria-hidden="true" />
                   )}
                 </Button>
               ) : null}
               <Button
                 type="button"
                 size="icon"
-                variant="outline"
-                className={styles.action}
-                aria-label={`Dodaj doprinos checkpointu: ${data.text}`}
-                title="Doprinosi"
+                variant="ghost"
+                className="size-8"
+                aria-label={`Komentari koraka: ${data.text}`}
+                title="Komentari"
                 onClick={() => setThreadOpen(true)}
               >
-                <MessageSquareText className="size-4" />
+                <MessageSquareText className="size-4" aria-hidden="true" />
               </Button>
-              {data.canDeleteDirectly || data.canRequestDeletion ? (
+              {data.canDeleteDirectly ? (
                 <Button
                   type="button"
                   size="icon"
-                  variant="outline"
-                  className={cn(styles.action, "text-rose-600")}
-                  aria-label={
-                    data.canDeleteDirectly
-                      ? `Obriši checkpoint: ${data.text}`
-                      : `Zatraži brisanje checkpointa: ${data.text}`
-                  }
-                  title={
-                    data.canDeleteDirectly
-                      ? "Obriši checkpoint"
-                      : "Zatraži brisanje"
-                  }
-                  onClick={() => {
-                    if (data.canRequestDeletion) {
-                      void requestDeletion({
-                        target: {
-                          kind: "task_checkpoint",
-                          id: data.checkpointId,
-                        },
-                      })
-                        .then(() =>
-                          toast.success("Zahtev za brisanje je poslat."),
-                        )
-                        .catch((error) =>
-                          toast.error(
-                            error instanceof Error
-                              ? error.message
-                              : "Zahtev nije poslat.",
-                          ),
-                        );
-                      return;
-                    }
-                    void archiveOwn({
-                      checkpointId: data.checkpointId,
-                    })
-                      .then(() =>
-                        toast.success("Checkpoint je obrisan.", {
-                          duration: 8_000,
-                          action: {
-                            label: "Undo",
-                            onClick: () =>
-                              void restoreOwn({
-                                checkpointId: data.checkpointId,
-                              }),
-                          },
-                        }),
-                      )
-                      .catch((error) =>
-                        toast.error(
-                          error instanceof Error
-                            ? error.message
-                            : "Checkpoint nije obrisan.",
-                        ),
-                      );
-                  }}
+                  variant="ghost"
+                  className="size-8 text-destructive hover:text-destructive"
+                  aria-label={`Obriši korak: ${data.text}`}
+                  title="Obriši korak"
+                  onClick={archive}
                 >
-                  <Trash2 className="size-4" />
+                  <Trash2 className="size-4" aria-hidden="true" />
                 </Button>
               ) : null}
             </div>
-          ) : null}
+          </NodeToolbar>
 
           <Handle
             id="left"
             type="source"
             position={Position.Left}
-            className={styles.handle}
-            aria-label="Leva tačka za povezivanje checkpointa"
+            className={canvasStyles.handle}
+            aria-label="Leva tačka za povezivanje koraka"
           />
           <Handle
             id="right"
             type="source"
             position={Position.Right}
-            className={styles.handle}
-            aria-label="Desna tačka za povezivanje checkpointa"
+            className={canvasStyles.handle}
+            aria-label="Desna tačka za povezivanje koraka"
           />
-        </article>
+        </div>
 
-        <CheckpointContributionDialog
+        <CheckpointCommentsDialog
           checkpointId={data.checkpointId}
+          startupId={data.startupId}
           title={data.text}
           open={threadOpen}
           onOpenChange={setThreadOpen}

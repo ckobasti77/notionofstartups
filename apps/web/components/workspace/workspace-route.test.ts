@@ -10,16 +10,18 @@ import {
   readWorkspaceStartupId,
   routeScope,
   workspaceRouteAfterStartupSwitch,
+  withPageTab,
   workspaceRouteHref,
 } from "./workspace-route";
 import type { WorkspaceRoute } from "./types";
 
 describe("workspace URL route contract", () => {
-  it("reads Home, Ideas and Thoughts as distinct routes while bare URLs open Moj dan", () => {
+  it("reads Ideas and Thoughts as distinct routes, Home as the command center and bare URLs as Moj dan", () => {
     // P1 (LICNO K08): bez `view` se otvara lični Moj dan, ne komandni centar.
     expect(readWorkspaceRouteCandidate("")).toEqual({ kind: "me-today" });
+    // PROSTOR P11 (K08): Početna i Komandni centar su spojeni.
     expect(readWorkspaceRouteCandidate("?view=home")).toEqual({
-      kind: "home",
+      kind: "today",
     });
     expect(readWorkspaceRouteCandidate("?view=ideas")).toEqual({
       kind: "ideas",
@@ -91,9 +93,9 @@ describe("workspace URL route contract", () => {
     ).toEqual({ kind: "page", pageId: "page-1" });
   });
 
-  it("gives Home, Ideas and Thoughts unique history entries that survive Back and Forward", () => {
+  it("gives the command center, Ideas and Thoughts unique history entries that survive Back and Forward", () => {
     const routes: WorkspaceRoute[] = [
-      { kind: "home" },
+      { kind: "today" },
       { kind: "ideas" },
       { kind: "thoughts" },
     ];
@@ -111,7 +113,7 @@ describe("workspace URL route contract", () => {
     }, []);
 
     expect(history).toEqual([
-      "/?invite=abc&view=home&startupId=startup-1#workspace",
+      "/?invite=abc&view=today&startupId=startup-1#workspace",
       "/?invite=abc&view=ideas&startupId=startup-1#workspace",
       "/?invite=abc&view=thoughts&startupId=startup-1#workspace",
     ]);
@@ -125,7 +127,7 @@ describe("workspace URL route contract", () => {
     expect(visitedKinds).toEqual([
       "thoughts",
       "ideas",
-      "home",
+      "today",
       "ideas",
       "thoughts",
     ]);
@@ -133,10 +135,13 @@ describe("workspace URL route contract", () => {
 
   it("preserves per-startup screens across startup switches and falls back to the command center", () => {
     for (const route of [
-      { kind: "home" },
       { kind: "ideas" },
       { kind: "thoughts" },
       { kind: "today" },
+      { kind: "trash" },
+      { kind: "trash", segment: "idea" },
+      { kind: "tasks" },
+      { kind: "tasks", filter: "moji" },
     ] satisfies WorkspaceRoute[]) {
       const switchedRoute = workspaceRouteAfterStartupSwitch(route);
       const switchedHref = workspaceRouteHref(
@@ -154,7 +159,7 @@ describe("workspace URL route contract", () => {
       });
     }
 
-    expect(workspaceRouteAfterStartupSwitch({ kind: "approvals" })).toEqual({
+    expect(workspaceRouteAfterStartupSwitch({ kind: "activity" })).toEqual({
       kind: "today",
     });
     expect(
@@ -201,6 +206,7 @@ describe("workspace URL route contract", () => {
       expect(readWorkspaceRouteCandidate("?view=me-tasks")).toEqual({ kind: "me-tasks" });
       expect(readWorkspaceRouteCandidate("?view=me-inbox")).toEqual({ kind: "me-inbox" });
       expect(readWorkspaceRouteCandidate("?view=me-chat")).toEqual({ kind: "me-chat" });
+      expect(readWorkspaceRouteCandidate("?view=me-notes")).toEqual({ kind: "me-notes" });
       expect(readWorkspaceRouteCandidate("?view=me-chat&channelId=ch-1")).toEqual({
         kind: "me-chat",
         channelId: "ch-1",
@@ -212,15 +218,15 @@ describe("workspace URL route contract", () => {
     });
 
     it("razlikuje opseg: me-* je lični, sve ostalo startup", () => {
-      for (const kind of ["me-today", "me-tasks", "me-inbox", "me-chat"] as const) {
+      for (const kind of ["me-today", "me-tasks", "me-inbox", "me-chat", "me-notes"] as const) {
         expect(isMeRoute({ kind })).toBe(true);
         expect(routeScope({ kind })).toBe("me");
       }
       for (const route of [
         { kind: "today" },
-        { kind: "my-tasks" },
+        { kind: "tasks" },
         { kind: "chat" },
-        { kind: "home" },
+        { kind: "trash" },
       ] satisfies WorkspaceRoute[]) {
         expect(isMeRoute(route)).toBe(false);
         expect(routeScope(route)).toBe("startup");
@@ -248,6 +254,34 @@ describe("workspace URL route contract", () => {
       expect(
         readWorkspaceLocation("?view=me-inbox"),
       ).toEqual({ route: { kind: "me-inbox" }, startupId: null, hasExplicitView: true });
+      // Beleške (K18): povratni put, i startupId iz URL-a Beleške ne nosi.
+      expect(
+        workspaceRouteHref(
+          { kind: "me-notes" },
+          "https://example.test/?view=thoughts&startupId=startup-4",
+          "startup-4" as never,
+        ),
+      ).toBe("/?view=me-notes");
+      expect(readWorkspaceLocation("?view=me-notes")).toEqual({
+        route: { kind: "me-notes" },
+        startupId: null,
+        hasExplicitView: true,
+      });
+    });
+
+    it("Mapa beleški ostaje po startupu: view=thoughts nosi startupId (K18)", () => {
+      expect(
+        workspaceRouteHref(
+          { kind: "thoughts" },
+          "https://example.test/?view=me-notes",
+          "startup-4" as never,
+        ),
+      ).toBe("/?view=thoughts&startupId=startup-4");
+      expect(readWorkspaceLocation("?view=thoughts&startupId=startup-4")).toEqual({
+        route: { kind: "thoughts" },
+        startupId: "startup-4",
+        hasExplicitView: true,
+      });
     });
 
     it("stari linkovi sa startupId rade kao pre", () => {
@@ -304,9 +338,214 @@ describe("workspace URL route contract", () => {
         { kind: "me-tasks" },
         { kind: "me-inbox" },
         { kind: "me-chat", channelId: "ch-1" as never },
+        { kind: "me-notes" },
       ] satisfies WorkspaceRoute[]) {
         expect(workspaceRouteAfterStartupSwitch(route)).toEqual({ kind: "today" });
       }
+    });
+  });
+  describe("meni startupa (PROSTOR P11, K08)", () => {
+    it("stari prikazi vode gde P11 kaže: home → Komandni centar, my-tasks → Zadaci (Moji), approvals → Korpa", () => {
+      expect(readWorkspaceRouteCandidate("?view=home")).toEqual({ kind: "today" });
+      expect(readWorkspaceRouteCandidate("?view=my-tasks")).toEqual({ kind: "tasks", filter: "moji" });
+      expect(readWorkspaceRouteCandidate("?view=approvals")).toEqual({ kind: "trash" });
+      // Service worker (`public/sw.js`) i stari linkovi nose i startup.
+      expect(readWorkspaceLocation("?view=approvals&startupId=startup-3")).toEqual({
+        route: { kind: "trash" },
+        startupId: "startup-3",
+        hasExplicitView: true,
+      });
+      expect(
+        workspaceRouteHref(
+          readWorkspaceRouteCandidate("?view=my-tasks") as WorkspaceRoute,
+          "https://example.test/?view=my-tasks&startupId=startup-1",
+          "startup-1" as never,
+        ),
+      ).toBe("/?view=tasks&filter=moji&startupId=startup-1");
+    });
+
+    it("Zadaci: podrazumevano Svi, filter Moji, osoba ima prednost; nepoznat filter = Svi", () => {
+      expect(readWorkspaceRouteCandidate("?view=tasks")).toEqual({ kind: "tasks" });
+      expect(readWorkspaceRouteCandidate("?view=tasks&filter=moji")).toEqual({ kind: "tasks", filter: "moji" });
+      expect(readWorkspaceRouteCandidate("?view=tasks&filter=nesto")).toEqual({ kind: "tasks" });
+      expect(readWorkspaceRouteCandidate("?view=tasks&osoba=profile-4&filter=moji")).toEqual({
+        kind: "tasks",
+        profileId: "profile-4",
+      });
+      expect(readWorkspaceRouteCandidate("?view=tasks&osoba=%20")).toEqual({ kind: "tasks" });
+    });
+
+    it("Korpa: segment iz `vrsta`, Stranice su podrazumevane i ne pišu se u URL", () => {
+      expect(readWorkspaceRouteCandidate("?view=trash")).toEqual({ kind: "trash" });
+      expect(readWorkspaceRouteCandidate("?view=trash&vrsta=recovered")).toEqual({ kind: "trash", segment: "recovered" });
+      expect(readWorkspaceRouteCandidate("?view=trash&vrsta=nesto")).toEqual({ kind: "trash" });
+      expect(
+        workspaceRouteHref({ kind: "trash", segment: "page" }, "https://example.test/?view=today", "startup-1" as never),
+      ).toBe("/?view=trash&startupId=startup-1");
+    });
+
+    it("nove rute se vraćaju iz URL-a, a prelaz na drugi prikaz briše njihove parametre", () => {
+      for (const route of [
+        { kind: "tasks" },
+        { kind: "tasks", filter: "moji" },
+        { kind: "tasks", profileId: "profile-4" as never },
+        { kind: "trash", segment: "idea" },
+        { kind: "trash", segment: "file" },
+        { kind: "trash", segment: "recovered" },
+      ] satisfies WorkspaceRoute[]) {
+        const href = workspaceRouteHref(route, "https://example.test/?invite=abc#w", "startup-1" as never);
+        expect(readWorkspaceRouteCandidate(new URL(href, "https://example.test").search)).toEqual(route);
+      }
+      expect(
+        workspaceRouteHref(
+          { kind: "ideas" },
+          "https://example.test/?view=tasks&osoba=profile-4&filter=moji&vrsta=idea&startupId=startup-1",
+          "startup-1" as never,
+        ),
+      ).toBe("/?view=ideas&startupId=startup-1");
+    });
+
+    it("promena startupa čuva Zadatke (bez osobe drugog startupa) i Korpu", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "tasks", profileId: "profile-4" as never })).toEqual({ kind: "tasks" });
+      expect(workspaceRouteAfterStartupSwitch({ kind: "tasks", filter: "moji" })).toEqual({ kind: "tasks", filter: "moji" });
+      expect(workspaceRouteAfterStartupSwitch({ kind: "trash", segment: "file" })).toEqual({ kind: "trash", segment: "file" });
+      expect(workspaceRouteAfterStartupSwitch({ kind: "puls" })).toEqual({ kind: "today" });
+    });
+  });
+
+  describe("Podešavanja startupa (PROSTOR K20)", () => {
+    it("čita karticu, nepoznata kartica i bez nje je Opšte", () => {
+      expect(readWorkspaceRouteCandidate("?view=settings")).toEqual({ kind: "settings" });
+      expect(readWorkspaceRouteCandidate("?view=settings&tab=opste")).toEqual({ kind: "settings" });
+      expect(readWorkspaceRouteCandidate("?view=settings&tab=nesto")).toEqual({ kind: "settings" });
+      for (const tab of ["oblasti", "tim", "pozivnice", "lozinke"] as const) {
+        expect(readWorkspaceRouteCandidate(`?view=settings&tab=${tab}`)).toEqual({ kind: "settings", tab });
+      }
+    });
+
+    it("povratni put za svaku karticu, a drugi prikazi brišu tab", () => {
+      for (const route of [
+        { kind: "settings" },
+        { kind: "settings", tab: "oblasti" },
+        { kind: "settings", tab: "lozinke" },
+      ] satisfies WorkspaceRoute[]) {
+        const href = workspaceRouteHref(route, "https://example.test/", "startup-1" as never);
+        expect(readWorkspaceRouteCandidate(new URL(href, "https://example.test").search)).toEqual(route);
+      }
+      expect(
+        workspaceRouteHref({ kind: "settings", tab: "tim" }, "https://example.test/", "startup-1" as never),
+      ).toBe("/?view=settings&tab=tim&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "settings", tab: "opste" }, "https://example.test/?tab=tim", "startup-1" as never),
+      ).toBe("/?view=settings&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "trash" }, "https://example.test/?view=settings&tab=tim", "startup-1" as never),
+      ).toBe("/?view=trash&startupId=startup-1");
+    });
+
+    it("promena startupa ostaje u Podešavanjima", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "settings", tab: "oblasti" })).toEqual({ kind: "settings", tab: "oblasti" });
+    });
+  });
+
+  describe("stranica kao dokument i Mapa stranice (PROSTOR P13, K10)", () => {
+    it("tab=mapa otvara Mapu, nepoznata kartica i bez nje dokument", () => {
+      expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1&tab=mapa")).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });
+      expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1&tab=nesto")).toEqual({ kind: "page", pageId: "page-1" });
+      expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1")).toEqual({ kind: "page", pageId: "page-1" });
+      expect(readAreasRouteCandidate("?view=page&pageId=page-1&tab=mapa")).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });
+    });
+
+    it("href nosi tab samo za Mapu, a svaki drugi prikaz ga briše", () => {
+      const mapHref = workspaceRouteHref({ kind: "page", pageId: "page-1" as never, tab: "mapa" }, "https://example.test/", "startup-1" as never);
+      expect(mapHref).toBe("/?view=page&pageId=page-1&tab=mapa&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "page", pageId: "page-1" as never }, "https://example.test/?view=page&pageId=page-1&tab=mapa", "startup-1" as never),
+      ).toBe("/?view=page&pageId=page-1&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "trash" }, "https://example.test/?view=page&pageId=page-1&tab=mapa", "startup-1" as never),
+      ).toBe("/?view=trash&startupId=startup-1");
+    });
+
+    it("razrešena ruta zadržava traženu Mapu samo za istu stranicu", () => {
+      const candidate = { kind: "page", pageId: "page-1", tab: "mapa" } as const;
+      expect(withPageTab({ kind: "page", pageId: "page-1" as never }, candidate)).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });
+      expect(withPageTab({ kind: "area", areaId: "area-1" as never }, candidate)).toEqual({ kind: "area", areaId: "area-1" });
+      expect(withPageTab({ kind: "page", pageId: "page-2" as never }, candidate)).toEqual({ kind: "page", pageId: "page-2" });
+      expect(withPageTab(null, candidate)).toBeNull();
+      expect(withPageTab({ kind: "page", pageId: "page-1" as never }, { kind: "page", pageId: "page-1" })).toEqual({ kind: "page", pageId: "page-1" });
+    });
+  });
+
+  describe("oblast sa karticama (PROSTOR P12, K13)", () => {
+    it("tab iz URL-a bira karticu; nepoznata ili bez nje ostavlja izbor oblasti", () => {
+      for (const tab of ["pregled", "zadaci", "dokumenti", "mapa"] as const) {
+        expect(readWorkspaceRouteCandidate(`?view=area&areaId=area-1&tab=${tab}`)).toEqual({ kind: "area", areaId: "area-1", tab });
+      }
+      expect(readWorkspaceRouteCandidate("?view=area&areaId=area-1&tab=nesto")).toEqual({ kind: "area", areaId: "area-1" });
+      expect(readWorkspaceRouteCandidate("?view=area&areaId=area-1")).toEqual({ kind: "area", areaId: "area-1" });
+      expect(readWorkspaceRouteCandidate("?view=area&tab=zadaci")).toBeNull();
+      expect(readAreasRouteCandidate("?view=area&areaId=area-1&tab=dokumenti")).toEqual({ kind: "area", areaId: "area-1", tab: "dokumenti" });
+      // Service worker (`public/sw.js`): komentar na opisu oblasti otvara Pregled.
+      expect(readWorkspaceLocation("?startupId=startup-3&view=area&areaId=area-1&tab=pregled")).toEqual({
+        route: { kind: "area", areaId: "area-1", tab: "pregled" },
+        startupId: "startup-3",
+        hasExplicitView: true,
+      });
+    });
+
+    it("href nosi karticu oblasti, a prelaz na drugi prikaz je briše", () => {
+      expect(
+        workspaceRouteHref({ kind: "area", areaId: "area-1" as never, tab: "dokumenti" }, "https://example.test/", "startup-1" as never),
+      ).toBe("/?view=area&areaId=area-1&tab=dokumenti&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "area", areaId: "area-1" as never }, "https://example.test/?view=area&areaId=area-1&tab=mapa", "startup-1" as never),
+      ).toBe("/?view=area&areaId=area-1&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "page", pageId: "page-1" as never }, "https://example.test/?view=area&areaId=area-1&tab=zadaci", "startup-1" as never),
+      ).toBe("/?view=page&pageId=page-1&startupId=startup-1");
+    });
+
+    it("razrešena oblast zadržava traženu karticu samo za istu oblast", () => {
+      const candidate = { kind: "area", areaId: "area-1", tab: "dokumenti" } as const;
+      expect(withPageTab({ kind: "area", areaId: "area-1" as never }, candidate)).toEqual({ kind: "area", areaId: "area-1", tab: "dokumenti" });
+      expect(withPageTab({ kind: "area", areaId: "area-2" as never }, candidate)).toEqual({ kind: "area", areaId: "area-2" });
+      expect(withPageTab({ kind: "area", areaId: "area-1" as never }, { kind: "area", areaId: "area-1" })).toEqual({ kind: "area", areaId: "area-1" });
+    });
+
+    it("promena startupa iz oblasti vodi na Komandni centar", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "area", areaId: "area-1" as never, tab: "zadaci" })).toEqual({ kind: "today" });
+    });
+  });
+
+  describe("detalj ideje (PROSTOR P16, K16)", () => {
+    it("ideaId iz URL-a otvara detalj; bez njega (ili prazan) tabla", () => {
+      expect(readWorkspaceRouteCandidate("?view=ideas&ideaId=idea-1")).toEqual({ kind: "ideas", ideaId: "idea-1" });
+      expect(readWorkspaceRouteCandidate("?view=ideas&ideaId=")).toEqual({ kind: "ideas" });
+      expect(readWorkspaceRouteCandidate("?view=ideas")).toEqual({ kind: "ideas" });
+      // Inbox „Glasaj" i obaveštenje otvaraju ideju u njenom startupu.
+      expect(readWorkspaceLocation("?startupId=startup-2&view=ideas&ideaId=idea-9")).toEqual({
+        route: { kind: "ideas", ideaId: "idea-9" },
+        startupId: "startup-2",
+        hasExplicitView: true,
+      });
+    });
+
+    it("href nosi ideju, a zatvaranje detalja i prelaz na drugi prikaz je brišu", () => {
+      expect(workspaceRouteHref({ kind: "ideas", ideaId: "idea-1" as never }, "https://example.test/", "startup-1" as never)).toBe(
+        "/?view=ideas&ideaId=idea-1&startupId=startup-1",
+      );
+      expect(
+        workspaceRouteHref({ kind: "ideas" }, "https://example.test/?view=ideas&ideaId=idea-1&startupId=startup-1", "startup-1" as never),
+      ).toBe("/?view=ideas&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "today" }, "https://example.test/?view=ideas&ideaId=idea-1", "startup-1" as never),
+      ).toBe("/?view=today&startupId=startup-1");
+    });
+
+    it("promena startupa ostaje u Idejama, ali bez ideje drugog startupa", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "ideas", ideaId: "idea-1" as never })).toEqual({ kind: "ideas" });
+      expect(workspaceRouteAfterStartupSwitch({ kind: "ideas" })).toEqual({ kind: "ideas" });
     });
   });
 });

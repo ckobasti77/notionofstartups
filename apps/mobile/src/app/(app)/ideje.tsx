@@ -1,52 +1,48 @@
-import { useMutation, useQuery } from 'convex/react';
+import { useQuery } from 'convex/react';
 import { useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { LayoutGrid, Lightbulb, Search, TriangleAlert, Wand2 } from 'lucide-react-native';
+import { LayoutGrid, Lightbulb, Plus, Search, TriangleAlert } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ScrollView, SectionList, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
 import { EmptyState } from '@/components/empty-state';
-import {
-  IdeaActionsSheet,
-  ideaDisplayTitle,
-  type IdeaListNode,
-} from '@/components/ideja/idea-actions-sheet';
+import { IdeaActionsSheet, type IdeaListNode } from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
-import { VoteButtons } from '@/components/ideja/vote-buttons';
-import { PressableScale } from '@/components/motion/pressable-scale';
+import { IdeaListRow } from '@/components/ideja/idea-list-row';
+import { IdeaStageSheet } from '@/components/ideja/idea-stage-sheet';
+import { useListEntering } from '@/components/motion/layout';
+import {
+  buildSections,
+  chipLabel,
+  emptyCopy,
+  filterIdeas,
+  ideasCountLabel,
+  IDEA_STAGE_CHIPS,
+  stageCounts,
+  type IdeaStageFilter,
+} from '@/components/ideja/ideje-model';
+import { useIdeaVote } from '@/components/ideja/use-idea-vote';
+import { useLiveNow } from '@/components/collab/use-live-now';
 import { UndoBar } from '@/components/undo-bar';
-import { Avatar } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
+import { OptionChip } from '@/components/ui/option-chip';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SearchField } from '@/components/ui/search-field';
-import { SkeletonIdeaCard, SkeletonList } from '@/components/ui/skeletons';
-import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
+import { SectionHeader } from '@/components/ui/section-header';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
-import { formatDayHeading } from '@/lib/activity';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { absoluteNodePosition } from '@/lib/canvas-position';
-import { startOfLocalDay } from '@/lib/deadline';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import { tidyGridPosition } from '@/lib/thought-layout';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
-/** Backend `MAX_BULK_ITEMS` posredno — „Sredi raspored" šalje najviše 50 poteza. */
-const MAX_BULK = 50;
 /**
  * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (akcije → konverzija).
  * Dva istovremena RN `Modal`-a na Androidu umeju da progutaju `onRequestClose`
@@ -54,50 +50,37 @@ const MAX_BULK = 50;
  */
 const SHEET_HANDOFF_MS = 320;
 
-type IdeaItem = {
-  _id: Id<'ideaNodes'>;
-  title: string | null;
-  text: string;
-  upvotes: number;
-  downvotes: number;
-  userVote: 'up' | 'down' | null;
-  author: { displayName: string } | null;
-  isApproved: boolean;
-  createdAt: number;
-};
-
-/** Srpska množina za brojač u zaglavlju (isti obrazac kao `tasksWord`). */
-function ideasWord(count: number): string {
-  const absolute = Math.abs(count);
-  const lastDigit = absolute % 10;
-  const lastTwo = absolute % 100;
-  if (lastDigit === 1 && lastTwo !== 11) return 'ideja';
-  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) return 'ideje';
-  return 'ideja';
-}
-
 /**
- * Ekran „Ideje" (M4.4) — native lista sa glasanjem, plus dugme za canvas prikaz
- * (WebView, korak 5). Lista je brža i čitljivija na telefonu od grafa; graf je za
- * pregled i navigaciju. Podaci iz `api.ideas.list` (isti izvor kao canvas).
+ * Ekran „Ideje" (PROSTOR P6, P16; plan K07 §5.9) — par web `ideas-view.tsx`:
+ * čipovi faza sa brojem (Sve · Predlog · Razmatra se · Odobreno · Postalo zadatak ·
+ * Odbijeno), lista grupisana po fazi sa glasovima i brojem komentara, „Mapa" vodi
+ * na kanvas ideja. Glasa svaki član (`ideas.vote`); fazu menja samo kome server
+ * dozvoljava (`permissions.canSetStage`), kroz sheet (E12 — bez prevlačenja).
+ * Podaci iz `ideas.list` (R7), ista pretplata koju drže detalj i Mapa.
  */
 export default function IdejeScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { activeStartupId } = useActiveStartup();
+  const { activeStartupId, restoring } = useActiveStartup();
+  const now = useLiveNow(60_000);
 
   const ideas = useQuery(
     api.ideas.list,
     activeStartupId ? { startupId: activeStartupId } : 'skip',
   );
-  const updatePositions = useMutation(api.ideas.updatePositions);
-  const saveViewport = useMutation(api.ideas.saveViewport);
+  const { cast, busyId } = useIdeaVote(activeStartupId);
 
+  const [filter, setFilter] = useState<IdeaStageFilter>('sve');
+  const reduced = useReducedMotion();
+  // Ulaz liste samo na prvo punjenje (K07 §8); promena filtera je odmah.
+  const entering = useListEntering(reduced, ideas === undefined ? 'ucitava' : 'spremno');
+  const [expandedRejected, setExpandedRejected] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [actionNode, setActionNode] = useState<IdeaListNode | null>(null);
   const [convertIdea, setConvertIdea] = useState<IdeaListNode | null>(null);
-  const [tidyBusy, setTidyBusy] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [stageIdea, setStageIdea] = useState<IdeaListNode | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [branchParent, setBranchParent] = useState<{
     id: Id<'ideaNodes'>;
     title: string;
@@ -105,15 +88,14 @@ export default function IdejeScreen() {
     y?: number;
   } | null>(null);
 
-  // Doslovno web filtriranje (`ideas-view.tsx:202-206`) — uživo, nad naslovom i tekstom.
-  const filteredNodes = useMemo(() => {
-    const nodes = ideas?.nodes ?? [];
-    const term = searchTerm.trim().toLowerCase();
-    if (term.length === 0) return nodes;
-    return nodes.filter(
-      (node) => (node.title?.toLowerCase().includes(term) ?? false) || node.text.toLowerCase().includes(term),
-    );
-  }, [ideas, searchTerm]);
+  const nodes = useMemo<IdeaListNode[]>(() => ideas?.nodes ?? [], [ideas]);
+  // Čipovi broje SVE ideje startupa, a pretraga sužava ono što je izlistano ispod.
+  const counts = useMemo(() => stageCounts(nodes), [nodes]);
+  const searched = useMemo(() => filterIdeas(nodes, searchTerm), [nodes, searchTerm]);
+  const sections = useMemo(
+    () => buildSections<IdeaListNode>(searched, filter, expandedRejected),
+    [searched, filter, expandedRejected],
+  );
 
   const openCanvas = () => {
     if (!activeStartupId) return;
@@ -121,170 +103,146 @@ export default function IdejeScreen() {
     router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'ideas', id: activeStartupId } });
   };
 
-  /**
-   * „Sredi raspored" (PARITET A4): mobilna zamena za drag raspoređivanje karata
-   * po kanvasu — isti obrazac kao misli (`misli.tsx`). Samo TOP-LEVEL kartice:
-   * ugnježdene imaju relativne koordinate i putuju sa roditeljem, a kartice sa
-   * vidljivim predlogom gnježdenja imaju PROJEKTOVAN roditeljski id, pa su i one
-   * isključene (inače bi `updatePositions` pomerao predlog umesto kartice).
-   */
-  const requestTidy = () => {
-    if (!activeStartupId || tidyBusy || ideas === undefined) return;
-    const topLevel = ideas.nodes.filter((node) => node.parentIdeaId === undefined);
-    if (topLevel.length === 0) {
-      haptics.warning();
-      Alert.alert('Nema šta da se sredi', 'Sve ideje su ugnježdene u druge kartice.');
-      return;
-    }
-    const targets = topLevel.slice(0, MAX_BULK);
-    // Menja ručni raspored korisnika — upozorenje pre, ne posle.
-    haptics.warning();
-    Alert.alert(
-      'Srediti raspored?',
-      `${targets.length} ${ideasWord(targets.length)} (bez ugnježdenih) se raspoređuje u urednu mrežu na kanvasu. Ručni raspored tih kartica se gubi.`,
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: 'Sredi',
-          onPress: () => void runTidy(targets, topLevel.length > targets.length),
-        },
-      ],
-    );
-  };
-
-  const runTidy = async (targets: IdeaListNode[], truncated: boolean) => {
-    if (!activeStartupId || ideas === undefined) return;
-    setTidyBusy(true);
-    haptics.tap();
-    try {
-      await updatePositions({
-        startupId: activeStartupId,
-        updates: targets.map((node, index) => ({
-          id: node._id,
-          ...tidyGridPosition(index, targets.length),
-        })),
-      });
-      // Mreža je u pozitivnom kvadrantu, pa viewport (0,0) prikazuje celu mrežu.
-      // Zoom ostaje korisnikov — `canvasState` je već u pretplati (`ideas.list`),
-      // za razliku od misli ne treba poseban `getCanvas` upit.
-      await saveViewport({ startupId: activeStartupId, x: 0, y: 0, zoom: ideas.canvasState.zoom });
-      haptics.success();
-      Alert.alert(
-        'Raspored je sređen',
-        truncated
-          ? `Raspoređeno je prvih ${targets.length} ideja; ostale su ostale gde su bile. Već otvoren kanvas prikazuje novi raspored, a sačuvan pogled važi od sledećeg otvaranja.`
-          : 'Ideje su raspoređene u mrežu. Već otvoren kanvas prikazuje novi raspored, a sačuvan pogled važi od sledećeg otvaranja.',
-      );
-    } catch (error) {
-      haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Raspored nije sređen.'));
-    } finally {
-      setTidyBusy(false);
-    }
-  };
-
   const loading = activeStartupId !== null && ideas === undefined;
-  const count = ideas?.nodes.length ?? 0;
+  const total = nodes.length;
   const searchActive = searchTerm.trim().length > 0;
   const refreshControl = useListRefresh();
+  const empty = emptyCopy({ total, filter, searching: searchActive });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Ideje"
-        eyebrow={
-          count > 0
-            ? searchActive
-              ? `${filteredNodes.length} od ${count}`
-              : `${count} ${ideasWord(count)}`
-            : undefined
-        }
+        subtitle={total > 0 ? ideasCountLabel(total) : undefined}
         onBack={() => router.back()}
         below={
-          activeStartupId !== null && count > 0 ? (
-            <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Pretraži ideje…" />
+          activeStartupId !== null && total > 0 ? (
+            <View>
+              <View style={styles.search}>
+                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Pretraži ideje…" />
+              </View>
+              <ScrollView
+                horizontal
+                keyboardShouldPersistTaps="handled"
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipsScroll}
+                contentContainerStyle={styles.chips}>
+                {IDEA_STAGE_CHIPS.map((chip) => (
+                  <OptionChip
+                    key={chip.value}
+                    label={chipLabel(chip.label, counts[chip.value])}
+                    active={filter === chip.value}
+                    onPress={() => setFilter(chip.value)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
           ) : undefined
         }
         actions={
           activeStartupId ? (
             <>
-              {count > 1 ? (
-                <IconButton
-                  accessibilityLabel="Sredi raspored ideja u mrežu na kanvasu"
-                  disabled={tidyBusy}
-                  onPress={requestTidy}>
-                  {tidyBusy ? (
-                    <ActivityIndicator color={colors.primary} />
-                  ) : (
-                    <Wand2 size={22} color={colors.foreground} />
-                  )}
-                </IconButton>
-              ) : null}
-              <IconButton accessibilityLabel="Canvas prikaz ideja" onPress={openCanvas}>
+              <IconButton accessibilityLabel="Mapa ideja" onPress={openCanvas}>
                 <LayoutGrid size={22} color={colors.foreground} />
+              </IconButton>
+              <IconButton
+                accessibilityLabel="Nova ideja"
+                onPress={() => {
+                  haptics.tap();
+                  setCreateOpen(true);
+                }}>
+                <Plus size={22} color={colors.primaryText} />
               </IconButton>
             </>
           ) : undefined
         }
       />
       {activeStartupId === null ? (
-        <EmptyState
-          icon={<Lightbulb size={40} color={colors.mutedForeground} />}
-          title="Izaberi startup"
-          description="Ideje se prikazuju po startupu. Izaberi ga u Prostoru."
-          actionLabel="Otvori Prostor"
-          onAction={() => router.navigate('/prostor')}
-        />
-      ) : ideas && ideas.nodes.length === 0 ? (
-        <EmptyState
-          icon={<Lightbulb size={40} color={colors.mutedForeground} />}
-          title="Još nema ideja"
-          description="Ideje tima pojaviće se ovde. Dodaj prvu iz canvas prikaza."
-          actionLabel="Otvori canvas"
-          onAction={openCanvas}
-        />
+        restoring ? (
+          <SkeletonList
+            count={5}
+            gap={8}
+            style={styles.skeleton}
+            item={(index) => <SkeletonRow index={index} subtitle />}
+          />
+        ) : (
+          <EmptyState
+            icon={<Lightbulb size={20} color={colors.mutedForeground} />}
+            title="Izaberi startup"
+            description="Ideje se prikazuju po startupu. Izaberi ga u Prostoru."
+            actionLabel="Otvori Prostor"
+            onAction={() => router.navigate('/prostor')}
+          />
+        )
       ) : (
         <LoadingSwap
           loading={loading}
           skeleton={
             <SkeletonList
-              count={4}
+              count={5}
               gap={8}
-              style={styles.list}
-              item={(index) => <SkeletonIdeaCard index={index} />}
+              style={styles.skeleton}
+              item={(index) => <SkeletonRow index={index} subtitle />}
             />
           }>
-          {ideas ? (
-            filteredNodes.length === 0 ? (
-              <EmptyState
-                icon={<Search size={40} color={colors.mutedForeground} />}
-                title={`Nema rezultata za „${searchTerm.trim()}"`}
-                description="Pokušaj drugu reč ili obriši pretragu."
-                actionLabel="Obriši pretragu"
-                onAction={() => setSearchTerm('')}
-              />
-            ) : (
-              <ScrollView
-                contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
-                showsVerticalScrollIndicator={false}
-                refreshControl={refreshControl}>
-                <StaggerGroup>
-                  {filteredNodes.map((node, index) => (
-                    <StaggerItem key={node._id} index={index}>
-                      <IdeaRow
-                        idea={node}
-                        startupId={activeStartupId}
-                        colors={colors}
-                        onLongPress={() => {
-                          haptics.select();
-                          setActionNode(node);
-                        }}
-                      />
-                    </StaggerItem>
-                  ))}
-                </StaggerGroup>
-              </ScrollView>
-            )
+          {ideas && total === 0 ? (
+            <EmptyState
+              icon={<Lightbulb size={20} color={colors.mutedForeground} />}
+              title={empty.title}
+              actionLabel="Nova ideja"
+              onAction={() => setCreateOpen(true)}
+            />
+          ) : ideas && sections.length === 0 ? (
+            <EmptyState
+              icon={<Search size={20} color={colors.mutedForeground} />}
+              title={empty.title}
+              actionLabel={searchActive ? 'Obriši pretragu' : 'Prikaži sve'}
+              onAction={() => {
+                setSearchTerm('');
+                setFilter('sve');
+              }}
+            />
+          ) : ideas ? (
+            <SectionList
+              sections={sections}
+              keyExtractor={(item) => item._id}
+              stickySectionHeadersEnabled={false}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}
+              contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 32 }]}
+              renderSectionHeader={({ section }) => {
+                const collapsible = filter === 'sve' && section.stage === 'odbijeno';
+                return (
+                  <SectionHeader
+                    title={section.title}
+                    count={section.count}
+                    collapsible={collapsible}
+                    collapsed={section.collapsed}
+                    onToggle={collapsible ? () => setExpandedRejected((open) => !open) : undefined}
+                    style={styles.sectionHeader}
+                  />
+                );
+              }}
+              renderItem={({ item, index }) => (
+                <Animated.View entering={entering(index)}>
+                  <IdeaListRow
+                    idea={item}
+                    now={now}
+                    voteBusy={busyId === item._id}
+                    onOpen={() => {
+                      haptics.tap();
+                      router.push({ pathname: '/ideja/[id]', params: { id: item._id } });
+                    }}
+                    onLongPress={() => {
+                      haptics.select();
+                      setActionNode(item);
+                    }}
+                    onVote={(vote) => void cast(item._id, item.userVote, vote)}
+                  />
+                </Animated.View>
+              )}
+            />
           ) : null}
         </LoadingSwap>
       )}
@@ -298,7 +256,6 @@ export default function IdejeScreen() {
                 idea={actionNode}
                 nodes={ideas.nodes}
                 edges={ideas.edges}
-                currentProfileId={ideas.currentProfileId}
                 startupId={activeStartupId}
                 onClose={() => setActionNode(null)}
                 // Bez `onEdit`: lista nema edit sheet — izmena ide sa detalja.
@@ -306,12 +263,16 @@ export default function IdejeScreen() {
                   setActionNode(null);
                   setTimeout(() => setConvertIdea(node), SHEET_HANDOFF_MS);
                 }}
+                onStage={(node) => {
+                  setActionNode(null);
+                  setTimeout(() => setStageIdea(node), SHEET_HANDOFF_MS);
+                }}
                 onBranch={() => {
                   if (actionNode === null) return;
                   const at = absoluteNodePosition(ideas.nodes, actionNode._id, (n) => n.parentIdeaId);
                   const parent = {
                     id: actionNode._id,
-                    title: ideaDisplayTitle(actionNode),
+                    title: (actionNode.title ?? '').trim() || actionNode.text.trim().slice(0, 60) || 'Ideja',
                     ...(at.complete ? { x: at.x, y: at.y } : {}),
                   };
                   setActionNode(null);
@@ -324,115 +285,28 @@ export default function IdejeScreen() {
                 startupId={activeStartupId}
                 onClose={() => setConvertIdea(null)}
               />
-              <IdeaCreateSheet
-                open={branchParent !== null}
+              <IdeaStageSheet
+                open={stageIdea !== null}
+                idea={stageIdea}
                 startupId={activeStartupId}
-                parent={branchParent}
-                onClose={() => setBranchParent(null)}
+                onClose={() => setStageIdea(null)}
               />
             </>
           ) : null}
+          <IdeaCreateSheet
+            open={createOpen || branchParent !== null}
+            startupId={activeStartupId}
+            parent={createOpen ? null : branchParent}
+            onClose={() => {
+              setCreateOpen(false);
+              setBranchParent(null);
+            }}
+          />
           {/* Ideja obrisana sa detalja (`router.back()`) se vraća odavde (A6). */}
           <UndoBar />
         </>
       ) : null}
     </View>
-  );
-}
-
-function IdeaRow({
-  idea,
-  startupId,
-  colors,
-  onLongPress,
-}: {
-  idea: IdeaItem;
-  startupId: Id<'startups'>;
-  colors: ColorTokens;
-  /** Dugi pritisak otvara akcioni sheet ideje (PARITET A4). */
-  onLongPress: () => void;
-}) {
-  const router = useRouter();
-  const vote = useMutation(api.ideas.vote);
-  const [busy, setBusy] = useState(false);
-
-  const cast = async (voteType: 'up' | 'down') => {
-    setBusy(true);
-    haptics.tap();
-    try {
-      await vote({ startupId, ideaId: idea._id, voteType });
-      haptics.success();
-      // Bez ovoga je glas prolazio nemo za korisnika čitača ekrana — haptika je
-      // bila jedini signal uspeha.
-      AccessibilityInfo.announceForAccessibility(
-        voteType === 'up' ? 'Glas za je zabeležen.' : 'Glas protiv je zabeležen.',
-      );
-    } catch (error) {
-      haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Glas nije zabeležen.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const title = (idea.title ?? '').trim() || 'Ideja';
-  const body = idea.text.trim();
-  // Tap na karticu otvara ekran ideje (detalj + diskusija tima). Glasanje je
-  // SEKUNDARNO: kompaktan par dugmadi u podnožju, desno od autora — ne traka
-  // preko pola kartice.
-  // Kartica se utisne na dodir (`PressableScale`, K19); podloga pritiska ostaje.
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`Otvori ideju: ${title}`}
-      accessibilityHint="Dugi pritisak otvara akcije ideje."
-      accessibilityActions={[
-        { name: 'vote_up', label: 'Glasaj za' },
-        { name: 'vote_down', label: 'Glasaj protiv' },
-      ]}
-      onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === 'vote_up') void cast('up');
-        else if (event.nativeEvent.actionName === 'vote_down') void cast('down');
-      }}
-      onPress={() => {
-        haptics.tap();
-        router.push({ pathname: '/ideja/[id]', params: { id: idea._id } });
-      }}
-      onLongPress={onLongPress}
-      style={({ pressed }) => [
-        styles.row,
-        { backgroundColor: colors.card, borderColor: colors.border },
-        pressed && { backgroundColor: colors.muted },
-      ]}>
-      <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.foreground }]}>
-        {title}
-      </Text>
-      {body ? (
-        <Text numberOfLines={2} style={[styles.rowText, { color: colors.mutedForeground }]}>
-          {body}
-        </Text>
-      ) : null}
-      <View style={styles.footer}>
-        {idea.author ? <Avatar name={idea.author.displayName} size={22} /> : null}
-        <Text numberOfLines={1} style={[styles.author, { color: colors.mutedForeground }]}>
-          {idea.author ? `${idea.author.displayName} · ` : ''}
-          {formatDayHeading(startOfLocalDay(idea.createdAt), Date.now())}
-        </Text>
-        <View style={styles.grow} />
-        <Badge
-          label={idea.isApproved ? 'Odobreno' : 'U razmatranju'}
-          variant={idea.isApproved ? 'success' : 'outline'}
-        />
-        <VoteButtons
-          upvotes={idea.upvotes}
-          downvotes={idea.downvotes}
-          userVote={idea.userVote}
-          disabled={busy}
-          size="sm"
-          onVote={(next) => void cast(next)}
-        />
-      </View>
-    </PressableScale>
   );
 }
 
@@ -447,9 +321,9 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Ideje" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Ideje se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju ideja.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Ideje nisu učitane."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -459,35 +333,20 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  grow: { flex: 1 },
-  list: {
-    padding: 16,
-    paddingTop: 8,
-    gap: 8,
-  },
-  // Kartica: naslov → tekst → podnožje (autor + glasovi u istom redu).
-  row: {
-    gap: 4,
-    padding: 12,
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  rowTitle: {
-    ...text.body,
-    fontWeight: fontWeight.semibold,
-  },
-  rowText: {
-    ...text.body,
-  },
-  footer: {
+  search: { paddingBottom: 4 },
+  // `flexGrow: 0`: horizontalni ScrollView u koloni se inače razvuče i pojede visinu liste.
+  // Zaglavlje ima 16 sa strane; čipovi se klize do ivice ekrana (−16 / +16).
+  chipsScroll: { flexGrow: 0, marginHorizontal: -16 },
+  chips: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
     gap: 8,
-    marginTop: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  author: {
-    ...text.meta,
-    flexShrink: 1,
+  list: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
+  skeleton: { paddingHorizontal: 16, paddingTop: 8 },
+  sectionHeader: { paddingTop: 12, paddingBottom: 4 },
 });

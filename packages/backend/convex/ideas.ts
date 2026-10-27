@@ -1,15 +1,32 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { findAvailableCanvasPosition } from "./canvasPlacement";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
+import { insertContribution } from "./lib/collaboration";
+import { countVisibleComments } from "./lib/comments";
+import { ideaBaseline, recordRevision } from "./lib/history";
 import {
-  contributionTargetKey,
-  detachIdeaChildren,
-  insertContribution,
-} from "./lib/collaboration";
+  IDEA_CONVERT_MESSAGE,
+  IDEA_CONVERT_STAGE_MESSAGE,
+  IDEA_CONVERTED_MESSAGE,
+  IDEA_STAGE_CHANGE_MESSAGE,
+  IDEA_STAGE_LABELS,
+  ideaDisplayStage,
+  ideaStoredStage,
+} from "./lib/idea_stages";
 import { createNotification, notificationCopy } from "./lib/notifications";
+import {
+  canConvertIdea,
+  canEditIdea,
+  canLayoutOnMap,
+  canSetIdeaStage,
+  canVoteIdea,
+  ideaPermissions,
+  isStartupManager,
+  permissionError,
+} from "./lib/permissions";
 import {
   prepareWorkspacePage,
   validateWorkspacePageTarget,
@@ -17,8 +34,10 @@ import {
 } from "./lib/page_creation";
 import { nodeSearchText, pageSearchText } from "./lib/pages";
 import { reconcileTaskAssignees } from "./lib/task_assignees";
+import { ideaTitleOf, restoreIdea, trashIdea } from "./lib/trash";
 import {
   cleanRequiredText,
+  ideaStageValidator,
   pageKindValidator,
   taskPriorityValidator,
   taskStatusValidator,
@@ -41,7 +60,6 @@ const MAX_IDEA_WIDTH = 720;
 const MIN_IDEA_HEIGHT = 196;
 const MAX_IDEA_HEIGHT = 1_000;
 const MAX_AREA_CANVAS_PAGES = 200;
-const MAX_IDEA_VOTES = 5_000;
 
 function cleanOptionalText(
   value: string | null,
@@ -70,8 +88,9 @@ function finiteWithin(
 export const list = query({
   args: { startupId: v.id("startups") },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
-    
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
+
     // Fetch active idea nodes
     const nodes = await ctx.db
       .query("ideaNodes")
@@ -93,75 +112,6 @@ export const list = query({
       .query("ideaVotes")
       .withIndex("by_startupId", (q) => q.eq("startupId", args.startupId))
       .take(5_000);
-
-    const pendingDeletionRequests = await ctx.db
-      .query("deletionRequests")
-      .withIndex("by_startupId_and_status_and_createdAt", (q) =>
-        q.eq("startupId", args.startupId).eq("status", "pending"),
-      )
-      .take(500);
-    const pendingDeletionByIdeaId = new Map(
-      pendingDeletionRequests
-        .filter((request) => request.targetKind === "idea")
-        .map((request) => [request.targetId, request]),
-    );
-    const [pendingNesting, rejectedNestingByRequester, rejectedNestingByParent] =
-      await Promise.all([
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
-            q.eq("startupId", args.startupId).eq("status", "pending"),
-          )
-          .order("desc")
-          .take(500),
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
-            q.eq("requesterProfileId", profile._id).eq("status", "rejected"),
-          )
-          .order("desc")
-          .take(500),
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
-            q.eq("parentAuthorProfileId", profile._id).eq("status", "rejected"),
-          )
-          .order("desc")
-          .take(500),
-      ]);
-    const visibleNestingByChildId = new Map<
-      Id<"ideaNodes">,
-      (typeof pendingNesting)[number]
-    >();
-    for (const request of [
-      ...pendingNesting,
-      ...rejectedNestingByRequester,
-      ...rejectedNestingByParent,
-    ]) {
-      if (request.startupId !== args.startupId) continue;
-      const current = visibleNestingByChildId.get(request.childIdeaId);
-      if (current === undefined || current.updatedAt < request.updatedAt) {
-        visibleNestingByChildId.set(request.childIdeaId, request);
-      }
-    }
-    const baseNodesById = new Map(nodes.map((node) => [node._id, node]));
-    const absolutePosition = (nodeId: Id<"ideaNodes">) => {
-      let node = baseNodesById.get(nodeId);
-      let x = 0;
-      let y = 0;
-      const seen = new Set<string>();
-      for (let depth = 0; node !== undefined && depth < 512; depth += 1) {
-        if (seen.has(node._id)) break;
-        seen.add(node._id);
-        x += node.x;
-        y += node.y;
-        node =
-          node.parentIdeaId === undefined
-            ? undefined
-            : baseNodesById.get(node.parentIdeaId);
-      }
-      return { x, y };
-    };
 
     // Map profiles for author info
     const profileIds = new Set<Id<"profiles">>();
@@ -185,90 +135,49 @@ export const list = query({
       }
     }
 
-    // Process nodes with vote metrics & author info
+    // PROSTOR P6 (K01 §8.3): faza, glasovi tima, broj komentara i dozvole.
+    // Stari zahtevi za brisanje i ugnežđavanje se više ne čitaju (P4); njihova
+    // polja ostaju u odgovoru (prazna) zbog starih klijenata (P25).
     const processedNodes = await Promise.all(nodes.map(async (node) => {
       const nodeVotes = votes.filter((v) => v.ideaId === node._id);
       const upvotes = nodeVotes.filter((v) => v.voteType === "up").length;
       const downvotes = nodeVotes.filter((v) => v.voteType === "down").length;
       const userVote = nodeVotes.find((v) => v.profileId === profile._id)?.voteType ?? null;
-
-      // Approval rule: upvotes > downvotes
-      const isApproved = upvotes > downvotes;
-
-      const contributions = await ctx.db
-        .query("contentContributions")
-        .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
-          q
-            .eq("targetKey", contributionTargetKey("idea", node._id))
-            .eq("archivedAt", null),
-        )
-        .order("desc")
-        .take(200);
-      const ownsNode = node.authorProfileId === profile._id;
-      const visibleContributions = contributions.filter(
-        (item) =>
-          item.sourceKind !== "idea_original" &&
-          (item.moderationStatus !== "rejected" ||
-            item.authorProfileId === profile._id ||
-            ownsNode),
-      );
-      const nestingRequest = visibleNestingByChildId.get(node._id);
-      const effectiveParentId =
-        nestingRequest?.parentIdeaId ?? node.parentIdeaId;
-      const parent =
-        effectiveParentId === undefined
-          ? null
-          : await ctx.db.get("ideaNodes", effectiveParentId);
-      const childAbsolute = absolutePosition(node._id);
-      const parentAbsolute =
-        effectiveParentId === undefined
-          ? null
-          : absolutePosition(effectiveParentId);
-      const x =
-        nestingRequest === undefined
-          ? node.x
-          : nestingRequest.proposedX ??
-            childAbsolute.x - (parentAbsolute?.x ?? 0);
-      const y =
-        nestingRequest === undefined
-          ? node.y
-          : nestingRequest.proposedY ??
-            childAbsolute.y - (parentAbsolute?.y ?? 0);
+      const stage = ideaDisplayStage(node);
+      const comments = await countVisibleComments(ctx, {
+        startupId: args.startupId,
+        kind: "idea",
+        targetId: node._id,
+      });
+      const permissions = ideaPermissions(actor, node);
 
       return {
         ...node,
-        x,
-        y,
-        parentIdeaId: effectiveParentId,
+        stage,
+        storedStage: ideaStoredStage(node),
+        stageChangedAt: node.stageChangedAt ?? null,
         author: profilesMap.get(node.authorProfileId.toString()) ?? null,
         upvotes,
         downvotes,
         userVote,
-        isApproved,
+        myVote: userVote,
+        // Staro „Pretvori" (P25) prati novo pravilo: faza „Odobreno".
+        isApproved: stage === "odobreno",
         netVotes: upvotes - downvotes,
-        contributionCount: visibleContributions.length,
-        pendingDeletionRequest:
-          pendingDeletionByIdeaId.get(node._id) ?? null,
-        canEdit: ownsNode,
-        canMove: true,
-        canResize: ownsNode,
-        canDeleteDirectly: ownsNode,
-        canRequestDeletion: !ownsNode,
-        canDetach:
-          effectiveParentId !== undefined &&
-          (nestingRequest === undefined
-            ? ownsNode || parent?.authorProfileId === profile._id
-            : nestingRequest.requesterProfileId === profile._id ||
-              nestingRequest.parentAuthorProfileId === profile._id),
-        nestingRequestId: nestingRequest?._id ?? null,
-        nestingModerationStatus:
-          nestingRequest?.status === "pending" ||
-          nestingRequest?.status === "rejected"
-            ? nestingRequest.status
-            : null,
-        canModerateNesting:
-          nestingRequest?.status === "pending" &&
-          nestingRequest.parentAuthorProfileId === profile._id,
+        commentCount: comments.count,
+        commentCountCapped: comments.capped,
+        contributionCount: comments.count,
+        permissions,
+        pendingDeletionRequest: null as Doc<"deletionRequests"> | null,
+        canEdit: permissions.canEdit,
+        canMove: permissions.canEdit,
+        canResize: permissions.canEdit,
+        canDeleteDirectly: permissions.canArchive,
+        canRequestDeletion: false,
+        canDetach: node.parentIdeaId !== undefined && permissions.canEdit,
+        nestingRequestId: null as Id<"nestingRequests"> | null,
+        nestingModerationStatus: null as "pending" | "rejected" | null,
+        canModerateNesting: false,
       };
     }));
 
@@ -282,14 +191,19 @@ export const list = query({
 
     return {
       nodes: processedNodes,
+      // Veze menja i uklanja svaki član (PROSTOR D20).
       edges: edges.map((edge) => ({
         ...edge,
-        canEdit: edge.authorProfileId === profile._id,
-        canDeleteDirectly: edge.authorProfileId === profile._id,
-        canRequestDeletion: edge.authorProfileId !== profile._id,
+        canEdit: true,
+        canDeleteDirectly: true,
+        canRequestDeletion: false,
       })),
       canvasState: canvasState ?? { x: 0, y: 0, zoom: 1 },
       currentProfileId: profile._id,
+      viewer: {
+        profileId: profile._id,
+        isStartupManager: isStartupManager(actor),
+      },
     };
   },
 });
@@ -382,14 +296,23 @@ export const vote = mutation({
     ideaId: v.id("ideaNodes"),
     voteType: v.union(v.literal("up"), v.literal("down")),
   },
+  returns: v.object({
+    action: v.union(
+      v.literal("created"),
+      v.literal("updated"),
+      v.literal("removed"),
+    ),
+  }),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const idea = await ctx.db.get(args.ideaId);
     if (!idea || idea.startupId !== args.startupId || idea.archivedAt !== null) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Samo autor ideje može promeniti njen osnovni status.");
+    // PROSTOR P6/D17: glasa svaki član (signal), dok ideja nije pretvorena.
+    if (!canVoteIdea(actor, idea)) {
+      throw permissionError("NEMA_DOZVOLU", IDEA_CONVERTED_MESSAGE);
     }
 
     const existingVote = await ctx.db
@@ -421,11 +344,11 @@ export const vote = mutation({
     if (existingVote) {
       if (existingVote.voteType === args.voteType) {
         await ctx.db.delete(existingVote._id);
-        return { action: "removed" };
+        return { action: "removed" as const };
       } else {
         await ctx.db.patch(existingVote._id, { voteType: args.voteType });
         await notifyAuthor();
-        return { action: "updated" };
+        return { action: "updated" as const };
       }
     } else {
       await ctx.db.insert("ideaVotes", {
@@ -436,8 +359,63 @@ export const vote = mutation({
         createdAt: Date.now(),
       });
       await notifyAuthor();
-      return { action: "created" };
+      return { action: "created" as const };
     }
+  },
+});
+
+/**
+ * Faza ideje (PROSTOR P6, R17): menjaju je autor ideje, vlasnik startupa i
+ * admin, dok ideja nije postala zadatak. Ista faza → bez upisa. Beleži
+ * aktivnost `idea_stage_changed`; obaveštenja nema.
+ */
+export const setStage = mutation({
+  args: {
+    startupId: v.id("startups"),
+    ideaId: v.id("ideaNodes"),
+    stage: ideaStageValidator,
+  },
+  returns: v.object({
+    stage: ideaStageValidator,
+    previousStage: ideaStageValidator,
+  }),
+  handler: async (ctx, args) => {
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const idea = await ctx.db.get("ideaNodes", args.ideaId);
+    if (
+      idea === null ||
+      idea.startupId !== args.startupId ||
+      idea.archivedAt !== null
+    ) {
+      throw new Error("Ideja nije pronađena.");
+    }
+    if (idea.convertedPageId !== null) {
+      throw permissionError("NEMA_DOZVOLU", IDEA_CONVERTED_MESSAGE);
+    }
+    if (!canSetIdeaStage(actor, idea)) {
+      throw permissionError("NEMA_DOZVOLU", IDEA_STAGE_CHANGE_MESSAGE);
+    }
+    const previousStage = ideaStoredStage(idea);
+    if (previousStage === args.stage) {
+      return { stage: args.stage, previousStage };
+    }
+    const now = Date.now();
+    await ctx.db.patch("ideaNodes", idea._id, {
+      stage: args.stage,
+      stageChangedAt: now,
+      stageChangedByProfileId: actor.profile._id,
+      updatedAt: now,
+    });
+    await recordActivity(ctx, {
+      startupId: idea.startupId,
+      actorProfileId: actor.profile._id,
+      action: "idea_stage_changed",
+      targetType: "idea",
+      targetId: idea._id,
+      title: ideaTitleOf(idea),
+      detail: IDEA_STAGE_LABELS[args.stage],
+    });
+    return { stage: args.stage, previousStage };
   },
 });
 
@@ -453,47 +431,10 @@ export const updatePositions = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     const now = Date.now();
-    const [pendingNesting, rejectedAsRequester, rejectedAsParent] =
-      await Promise.all([
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_startupId_and_status_and_updatedAt", (q) =>
-            q.eq("startupId", args.startupId).eq("status", "pending"),
-          )
-          .order("desc")
-          .take(500),
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_requesterProfileId_and_status_and_createdAt", (q) =>
-            q.eq("requesterProfileId", profile._id).eq("status", "rejected"),
-          )
-          .order("desc")
-          .take(500),
-        ctx.db
-          .query("nestingRequests")
-          .withIndex("by_parentAuthorProfileId_and_status_and_createdAt", (q) =>
-            q.eq("parentAuthorProfileId", profile._id).eq("status", "rejected"),
-          )
-          .order("desc")
-          .take(500),
-      ]);
-    const visibleNestingByChildId = new Map<
-      Id<"ideaNodes">,
-      (typeof pendingNesting)[number]
-    >();
-    for (const request of [
-      ...pendingNesting,
-      ...rejectedAsRequester,
-      ...rejectedAsParent,
-    ]) {
-      if (request.startupId !== args.startupId) continue;
-      const current = visibleNestingByChildId.get(request.childIdeaId);
-      if (current === undefined || current.updatedAt < request.updatedAt) {
-        visibleNestingByChildId.set(request.childIdeaId, request);
-      }
-    }
+    // PROSTOR P4: raspored menja svaki član i uvek se upisuje na čvor — stari
+    // predlozi ugnežđavanja se više ne pomeraju.
     for (const update of args.updates) {
       const x = finiteWithin(update.x, "X pozicija", -100_000, 100_000);
       const y = finiteWithin(update.y, "Y pozicija", -100_000, 100_000);
@@ -503,16 +444,7 @@ export const updatePositions = mutation({
         idea.startupId === args.startupId &&
         idea.archivedAt === null
       ) {
-        const nestingRequest = visibleNestingByChildId.get(update.id);
-        if (nestingRequest !== undefined) {
-          await ctx.db.patch("nestingRequests", nestingRequest._id, {
-            proposedX: x,
-            proposedY: y,
-            updatedAt: now,
-          });
-        } else {
-          await ctx.db.patch(update.id, { x, y, updatedAt: now });
-        }
+        await ctx.db.patch(update.id, { x, y, updatedAt: now });
       }
     }
   },
@@ -528,7 +460,8 @@ export const update = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -537,8 +470,9 @@ export const update = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Možete urediti samo svoju ideju.");
+    // PROSTOR P6/O1: tekst ideje menja svaki član; izmena ide u Istoriju.
+    if (!canEditIdea(actor, idea)) {
+      throw permissionError("NEMA_DOZVOLU", "Ideja nije pronađena.");
     }
 
     const title = cleanRequiredText(
@@ -547,12 +481,23 @@ export const update = mutation({
       MAX_IDEA_TITLE,
     );
     const text = cleanRequiredText(args.text, "Tekst ideje", MAX_IDEA_TEXT);
+    const now = Date.now();
     await ctx.db.patch(args.ideaId, {
       title,
       text,
       searchText: nodeSearchText(title, text),
       color: args.color,
-      updatedAt: Date.now(),
+      updatedAt: now,
+    });
+    await recordRevision(ctx, {
+      startupId: idea.startupId,
+      target: { kind: "idea", id: idea._id },
+      before: { title: idea.title, content: idea.text },
+      after: { title, content: text },
+      baseline: ideaBaseline(idea),
+      actorProfileId: profile._id,
+      now,
+      targetRevision: null,
     });
     const original = await ctx.db
       .query("contentContributions")
@@ -581,7 +526,7 @@ export const updateLayout = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -590,8 +535,9 @@ export const updateLayout = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Možete promeniti veličinu samo svoje kartice.");
+    // Raspored na Mapi menja svaki član (PROSTOR P1, D20).
+    if (!canLayoutOnMap(actor)) {
+      throw new Error("Nemate pristup ovom startupu.");
     }
 
     await ctx.db.patch(args.ideaId, {
@@ -622,7 +568,7 @@ export const resetLayoutSize = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -631,8 +577,9 @@ export const resetLayoutSize = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Možete promeniti veličinu samo svoje kartice.");
+    // Raspored na Mapi menja svaki član (PROSTOR P1, D20).
+    if (!canLayoutOnMap(actor)) {
+      throw new Error("Nemate pristup ovom startupu.");
     }
 
     await ctx.db.patch(args.ideaId, {
@@ -708,13 +655,7 @@ export const connect = mutation({
     ) {
       throw new Error("Ideje nisu pronađene u ovom startupu.");
     }
-    if (
-      nodeA.authorProfileId !== profile._id &&
-      nodeB.authorProfileId !== profile._id
-    ) {
-      throw new Error("Vezu možete napraviti samo ako posedujete bar jednu karticu.");
-    }
-
+    // Veze između ideja pravi svaki član (PROSTOR D20).
     const pairKey = [args.nodeAId, args.nodeBId].sort().join(":");
     const existing = await ctx.db
       .query("ideaEdges")
@@ -757,13 +698,10 @@ export const disconnect = mutation({
     edgeId: v.id("ideaEdges"),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     const edge = await ctx.db.get(args.edgeId);
-    if (
-      edge &&
-      edge.startupId === args.startupId &&
-      edge.authorProfileId === profile._id
-    ) {
+    // Vezu uklanja svaki član (PROSTOR D20).
+    if (edge && edge.startupId === args.startupId) {
       await ctx.db.patch(args.edgeId, {
         archivedAt: Date.now(),
         updatedAt: Date.now(),
@@ -780,7 +718,7 @@ export const updateEdgeLabel = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     const edge = await ctx.db.get(args.edgeId);
     if (
       edge === null ||
@@ -789,9 +727,7 @@ export const updateEdgeLabel = mutation({
     ) {
       throw new Error("Veza nije pronađena.");
     }
-    if (edge.authorProfileId !== profile._id) {
-      throw new Error("Naziv veze može menjati samo njen autor.");
-    }
+    // Naziv veze menja svaki član (PROSTOR D20).
     await ctx.db.patch(args.edgeId, {
       label: cleanOptionalText(args.label, "Naziv veze", MAX_EDGE_LABEL),
       updatedAt: Date.now(),
@@ -813,25 +749,23 @@ export const convertToPage = mutation({
   },
   returns: v.id("pages"),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const idea = await ctx.db.get(args.ideaId);
     if (!idea || idea.startupId !== args.startupId || idea.archivedAt !== null) {
       throw new Error("Ideja nije pronađena.");
     }
-
-    const votes = await ctx.db
-      .query("ideaVotes")
-      .withIndex("by_ideaId", (q) => q.eq("ideaId", args.ideaId))
-      .take(MAX_IDEA_VOTES + 1);
-    if (votes.length > MAX_IDEA_VOTES) {
-      throw new Error("Ideja ima previše glasova za bezbednu konverziju.");
+    // PROSTOR P6 (R17): pretvara autor, vlasnik startupa ili admin, i samo u
+    // fazi „Odobreno". Stari uslov „više za nego protiv" je ukinut — glasovi
+    // su samo signal.
+    if (idea.convertedPageId !== null) {
+      throw permissionError("NEMA_DOZVOLU", IDEA_CONVERTED_MESSAGE);
     }
-
-    const upvotes = votes.filter((v) => v.voteType === "up").length;
-    const downvotes = votes.filter((v) => v.voteType === "down").length;
-
-    if (upvotes <= downvotes) {
-      throw new Error("Ideja mora imati više odobrenja nego neodobrenja da bi bila prebačena u task ili note.");
+    if (!canSetIdeaStage(actor, idea)) {
+      throw permissionError("NEMA_DOZVOLU", IDEA_CONVERT_MESSAGE);
+    }
+    if (!canConvertIdea(actor, idea)) {
+      throw permissionError("NEMA_DOZVOLU", IDEA_CONVERT_STAGE_MESSAGE);
     }
 
     const now = Date.now();
@@ -1018,13 +952,19 @@ export const convertToPage = mutation({
   },
 });
 
+/**
+ * Brisanje ideje (PROSTOR P3, R16): svaki član šalje ideju u Korpu. Komentari,
+ * glasovi i tekst ostaju (D3); veze se arhiviraju i vraćaju sa idejom. Povratni
+ * oblik je isti kao ranije (`recoveredId` je uvek `null` — „Oporavljeno" se
+ * više ne pravi), a `undoUntil` hrani stari „Poništi".
+ */
 export const archive = mutation({
   args: {
     startupId: v.id("startups"),
     ideaId: v.id("ideaNodes"),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
@@ -1033,92 +973,13 @@ export const archive = mutation({
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    if (idea.authorProfileId !== profile._id) {
-      throw new Error("Tuđa ideja se briše samo jednoglasnim glasanjem.");
-    }
-    const contributions = await ctx.db
-      .query("contentContributions")
-      .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
-        q
-          .eq("targetKey", contributionTargetKey("idea", idea._id))
-          .eq("archivedAt", null),
-      )
-      .take(201);
-    if (contributions.length > 200) {
-      throw new Error("Ideja ima previše izmena za jedno atomsko brisanje.");
-    }
     const now = Date.now();
-    const foreign = contributions.filter(
-      (item) =>
-        item.authorProfileId !== undefined &&
-        item.authorProfileId !== profile._id,
-    );
-    let recoveredId: Id<"recoveredContent"> | null = null;
-    if (foreign.length > 0) {
-      recoveredId = await ctx.db.insert("recoveredContent", {
-        startupId: args.startupId,
-        title: `Oporavljeno iz „${idea.title ?? idea.text.slice(0, 60)}“`,
-        sourceKind: "idea",
-        sourceTargetId: idea._id,
-        createdByProfileId: profile._id,
-        archivedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      for (const contribution of foreign) {
-        await ctx.db.patch("contentContributions", contribution._id, {
-          targetKind: "recovered",
-          targetKey: contributionTargetKey("recovered", recoveredId),
-          targetId: recoveredId,
-          updatedAt: now,
-        });
-      }
-      await recordActivity(ctx, {
-        startupId: args.startupId,
-        actorProfileId: profile._id,
-        action: "content_recovered",
-        targetType: "recovered",
-        targetId: recoveredId,
-        title: "Tuđe izmene su sačuvane u Oporavljeno",
-      });
-    }
-    const foreignIds = new Set(foreign.map((item) => item._id));
-    for (const contribution of contributions) {
-      if (!foreignIds.has(contribution._id)) {
-        await ctx.db.patch("contentContributions", contribution._id, {
-          archivedAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-    await detachIdeaChildren(ctx, idea._id, now);
-    await ctx.db.patch("ideaNodes", idea._id, {
-      archivedAt: now,
-      updatedAt: now,
-    });
-    const edges = await ctx.db
-      .query("ideaEdges")
-      .withIndex("by_startupId_and_archivedAt", (q) =>
-        q.eq("startupId", args.startupId).eq("archivedAt", null),
-      )
-      .take(500);
-    for (const edge of edges) {
-      if (edge.nodeAId === idea._id || edge.nodeBId === idea._id) {
-        await ctx.db.patch("ideaEdges", edge._id, {
-          archivedAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-    await recordActivity(ctx, {
-      startupId: args.startupId,
-      actorProfileId: profile._id,
-      action: "content_soft_deleted",
-      targetType: "idea",
-      targetId: idea._id,
-      title: "Ideja je premeštena u korpu",
-    });
-    return { ideaId: idea._id, recoveredId, undoUntil: now + 8_000 };
+    await trashIdea(ctx, { actor, idea, now });
+    return {
+      ideaId: idea._id,
+      recoveredId: null as Id<"recoveredContent"> | null,
+      undoUntil: now + 8_000,
+    };
   },
 });
 
@@ -1128,47 +989,17 @@ export const restoreOwn = mutation({
     ideaId: v.id("ideaNodes"),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     const idea = await ctx.db.get(args.ideaId);
     if (
       idea === null ||
       idea.startupId !== args.startupId ||
-      idea.archivedAt === null ||
-      idea.authorProfileId !== profile._id
+      idea.archivedAt === null
     ) {
       throw new Error("Ideja nije pronađena.");
     }
-    const recovered = await ctx.db
-      .query("recoveredContent")
-      .withIndex("by_startupId_and_archivedAt_and_createdAt", (q) =>
-        q.eq("startupId", args.startupId).eq("archivedAt", null),
-      )
-      .order("desc")
-      .take(50);
-    if (recovered.some((item) => item.sourceTargetId === idea._id)) {
-      throw new Error(
-        "Ideja sa izdvojenim tuđim izmenama ne može se vratiti Undo akcijom.",
-      );
-    }
-    const now = Date.now();
-    await ctx.db.patch("ideaNodes", idea._id, {
-      archivedAt: null,
-      updatedAt: now,
-    });
-    const contributions = await ctx.db
-      .query("contentContributions")
-      .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
-        q.eq("targetKey", contributionTargetKey("idea", idea._id)),
-      )
-      .take(200);
-    for (const contribution of contributions) {
-      if (contribution.authorProfileId === profile._id) {
-        await ctx.db.patch("contentContributions", contribution._id, {
-          archivedAt: null,
-          updatedAt: now,
-        });
-      }
-    }
+    // „Poništi" posle brisanja = vraćanje iz Korpe (svaki član, R16).
+    await restoreIdea(ctx, { actor, idea, now: Date.now() });
     return idea._id;
   },
 });

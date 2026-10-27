@@ -25,6 +25,8 @@ export async function insertContribution(
     sourceKind?: "idea_original" | "page_entry" | "page_body";
     sourceId?: string;
     moderationStatus?: "pending" | "approved" | "rejected";
+    /** Komentar: pomenuti aktivni članovi (već filtrirani, ≤ 20). */
+    mentionProfileIds?: Array<Id<"profiles">>;
     createdAt?: number;
   },
 ) {
@@ -40,6 +42,11 @@ export async function insertContribution(
     sourceKind: value.sourceKind,
     sourceId: value.sourceId,
     moderationStatus: value.moderationStatus,
+    mentionProfileIds:
+      value.mentionProfileIds === undefined ||
+      value.mentionProfileIds.length === 0
+        ? undefined
+        : value.mentionProfileIds,
     archivedAt: null,
     createdAt: value.createdAt ?? now,
     updatedAt: now,
@@ -64,50 +71,6 @@ export async function detachIdeaChildren(
       parentIdeaId: parent.parentIdeaId,
       x: child.x + parent.x,
       y: child.y + parent.y,
-      updatedAt: now,
-    });
-  }
-}
-
-export async function archiveIdeaAndRelations(
-  ctx: MutationCtx,
-  ideaId: Id<"ideaNodes">,
-  now: number,
-) {
-  const idea = await ctx.db.get("ideaNodes", ideaId);
-  if (idea === null || idea.archivedAt !== null) return;
-  await detachIdeaChildren(ctx, ideaId, now);
-  await ctx.db.patch("ideaNodes", ideaId, { archivedAt: now, updatedAt: now });
-
-  const edges = await ctx.db
-    .query("ideaEdges")
-    .withIndex("by_startupId_and_archivedAt", (q) =>
-      q.eq("startupId", idea.startupId).eq("archivedAt", null),
-    )
-    .take(500);
-  for (const edge of edges) {
-    if (edge.nodeAId === ideaId || edge.nodeBId === ideaId) {
-      await ctx.db.patch("ideaEdges", edge._id, {
-        archivedAt: now,
-        updatedAt: now,
-      });
-    }
-  }
-
-  const contributions = await ctx.db
-    .query("contentContributions")
-    .withIndex("by_targetKey_and_archivedAt_and_createdAt", (q) =>
-      q
-        .eq("targetKey", contributionTargetKey("idea", ideaId))
-        .eq("archivedAt", null),
-    )
-    .take(201);
-  if (contributions.length > 200) {
-    throw new Error("Ova ideja ima previše izmena za jedno atomsko brisanje.");
-  }
-  for (const contribution of contributions) {
-    await ctx.db.patch("contentContributions", contribution._id, {
-      archivedAt: now,
       updatedAt: now,
     });
   }

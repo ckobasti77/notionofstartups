@@ -9,13 +9,12 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { Pill } from '@/components/ui/pill';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, text } from '@/theme/tokens';
 
 export type SectionHeaderProps = {
   title: string;
-  /** Brojač desno (npr. broj stavki) — prikazuje se kao pilula. */
+  /** Brojač uz naslov (npr. broj stavki) — prigušena meta, ne pilula. */
   count?: number;
   /** `danger` tinta naslov i brojač (npr. „prekoračeno"). */
   tone?: 'default' | 'danger';
@@ -28,8 +27,8 @@ export type SectionHeaderProps = {
 };
 
 /**
- * Naslov sekcije — uppercase `meta` labela, opcioni brojač-pilula i opciono
- * sklapanje. Konsoliduje ručne „section header"-e i countPill-ove po ekranima.
+ * Naslov sekcije (DIZAJN-SMIRENJE §2): telo 16/22 težine 600, normalna slova,
+ * broj odmah uz naslov kao prigušena meta (`tabular-nums`), opciono sklapanje.
  * `accent`/boja se NE koristi ovde (chrome je sivo-skala); `danger` ton je jedini
  * izuzetak jer nosi status.
  */
@@ -44,7 +43,8 @@ export function SectionHeader({
   style,
 }: SectionHeaderProps) {
   const colors = useThemeColors();
-  const labelColor = tone === 'danger' ? colors.danger : colors.mutedForeground;
+  const labelColor = tone === 'danger' ? colors.danger : colors.foreground;
+  const countColor = tone === 'danger' ? colors.danger : colors.mutedForeground;
 
   const left = (
     <View style={styles.left}>
@@ -55,11 +55,16 @@ export function SectionHeader({
           <ChevronDown size={20} color={colors.mutedForeground} />
         )
       ) : null}
-      <Text numberOfLines={1} style={[styles.label, { color: labelColor }]}>
+      <Text
+        // Uloga je na tekstu, ne na redu: `View` bez `accessible` je iOS ne primenjuje,
+        // a `accessible` red bi progutao `action`.
+        accessibilityRole={collapsible && onToggle ? undefined : 'header'}
+        numberOfLines={1}
+        style={[styles.label, { color: labelColor }]}>
         {title}
       </Text>
       {count != null ? (
-        <Pill label={String(count)} tone={tone === 'danger' ? 'danger' : 'neutral'} />
+        <Text style={[styles.count, { color: countColor }]}>{count}</Text>
       ) : null}
     </View>
   );
@@ -79,7 +84,7 @@ export function SectionHeader({
   }
 
   return (
-    <View accessibilityRole="header" style={[styles.container, style]}>
+    <View style={[styles.container, style]}>
       {left}
       {action ?? null}
     </View>
@@ -104,10 +109,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   label: {
-    ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
     flexShrink: 1,
+  },
+  count: {
+    ...text.meta,
+    fontWeight: fontWeight.regular,
+    fontVariant: ['tabular-nums'],
   },
 });

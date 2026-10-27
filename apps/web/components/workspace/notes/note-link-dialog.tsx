@@ -96,7 +96,7 @@ export function NoteLinkDialog({
           }}
         >
           <label
-            className="block text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-muted-foreground"
+            className="block text-sm font-medium"
             htmlFor={inputId}
           >
             Adresa

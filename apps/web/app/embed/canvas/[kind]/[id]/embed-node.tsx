@@ -16,8 +16,9 @@ import {
   type CSSProperties,
 } from "react";
 
+import { MapCard, MapStepPill } from "@/components/map/map-card";
+import { mapCardTitle, mapKindFromLabel } from "@/components/map/map-model";
 import { PAGE_NODE_SIZE } from "@/lib/canvas-node-size";
-import { cn } from "@/lib/utils";
 
 /**
  * Čvor embed kanvasa (W4.2, `docs/mobile/00-PLAN.md` §5.2) — jedan oblik za sve četiri
@@ -75,10 +76,9 @@ export type EmbedNodeData = {
   /** Ideja koja ima više glasova za nego protiv (`isApproved`) — prsten u `--primary`. */
   accent?: boolean;
   /**
-   * Stranica koja čeka nesting-odobrenje. Crta se prigušeno (isprekidan okvir,
-   * smanjena vidljivost) sa oznakom „Čeka odobrenje" i NE otvara se na dodir —
-   * odobrava se kroz ekran „Odobrenja". Bez ovoga se ghost tiho ne prikaže, a
-   * tiho nestajanje je najgori ishod (§5.2).
+   * Stari „duh" ugnežđavanja. Server ih posle PROSTOR K03 više ne vraća
+   * (`getCanvas.ghosts` je prazan), ali polje ostaje u protokolu (E5): crta se
+   * samo prigušeno, bez ikakve poruke o zahtevu.
    */
   ghost?: boolean;
   /**
@@ -182,20 +182,42 @@ function EmbedNodeCard({ id, data, selected }: NodeProps<EmbedFlowNode>) {
     [id, resize],
   );
 
-  // Ghost (čeka odobrenje) nema placement u bazi, pa nema ni šta da se menja.
+  // Stari „duh" nema placement u bazi, pa nema ni šta da se menja.
   const showHandles = Boolean(resize?.enabled && data.canResize && selected && !data.ghost);
 
+  // Isti izgled kao Mapa na webu (PROSTOR K15, K07 E5): `MapCard` / `MapStepPill`.
+  // `canvas-embed.tsx` (i protokol) se ne menja, pa kartica crta samo ono što
+  // `data` već nosi: `meta` je vrsta stranice („Beleška"), glasovi ideje ili
+  // oznaka misli, a `label` naslov.
+  const kind = mapKindFromLabel(data.meta);
+  const surface =
+    data.variant === "checkpoint" ? (
+      <MapStepPill
+        eyebrow={data.meta ?? "Korak"}
+        text={data.label}
+        selected={selected}
+        className="embed-checkpoint"
+      />
+    ) : (
+      <MapCard
+        kind={kind}
+        kindLabel={data.meta ?? ""}
+        title={mapCardTitle(data.label)}
+        snippet={null}
+        byline={null}
+        childCount={null}
+        locked={false}
+        task={null}
+        idea={null}
+        color={data.color ?? null}
+        selected={selected}
+        dimmed={data.ghost === true}
+        className={data.accent && !selected ? "ring-2 ring-primary" : undefined}
+      />
+    );
+
   return (
-    <div
-      className={cn(
-        "flex h-full w-full flex-col justify-center gap-1 rounded-xl border px-3 py-2 text-left",
-        "border-border bg-card text-card-foreground shadow-sm",
-        data.accent && "ring-2 ring-primary",
-        selected && "border-primary ring-2 ring-primary/60",
-        data.ghost && "border-dashed opacity-60 shadow-none",
-        data.variant === "checkpoint" && "embed-checkpoint",
-      )}
-    >
+    <div className="relative h-full w-full">
       {/* Nevidljive tačke za ivice: bez njih xyflow nema geometriju krajeva veze. */}
       <Handle
         type="target"
@@ -203,18 +225,7 @@ function EmbedNodeCard({ id, data, selected }: NodeProps<EmbedFlowNode>) {
         isConnectable={false}
         className="!pointer-events-none !opacity-0"
       />
-      {data.ghost ? (
-        <span className="w-fit rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Čeka odobrenje
-        </span>
-      ) : null}
-      <div className="flex min-w-0 items-center gap-1.5">
-        {data.color ? (
-          <span className="embed-node-dot" data-node-color={data.color} aria-hidden />
-        ) : null}
-        <p className="line-clamp-3 min-w-0 text-sm font-medium leading-snug">{data.label}</p>
-      </div>
-      {data.meta ? <p className="text-xs text-muted-foreground">{data.meta}</p> : null}
+      {surface}
       <Handle
         type="source"
         position={Position.Right}

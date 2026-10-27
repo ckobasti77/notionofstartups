@@ -1,10 +1,10 @@
 import {
   assigneesChipValue,
   describeDue,
+  htmlToPlainText,
   PRIORITY_LABELS,
   reopenStatus,
   STATUS_LABELS,
-  taskPermissions,
   type StartupTaskStatus,
   type TaskPriorityKey,
 } from '@devotion/shared';
@@ -16,11 +16,9 @@ import {
   ClipboardX,
   Ellipsis,
   Flag,
-  LayoutGrid,
-  TriangleAlert,
   Users,
 } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Alert,
@@ -28,36 +26,60 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BreadcrumbsEyebrow, PathSheet } from '@/components/breadcrumbs-eyebrow';
 import { EmptyState } from '@/components/empty-state';
-import { LockedNotice } from '@/components/me/choice-chips';
+import { conflictFromError } from '@/components/collab/collab-model';
+import { CommentsHeaderButton } from '@/components/collab/comments-button';
+import {
+  CommentsEntryRow,
+  CommentsSheet,
+  useCommentsSummary,
+} from '@/components/collab/comments-sheet';
+import { showConflictAlert } from '@/components/collab/conflict-alert';
+import { LockNotice } from '@/components/collab/lock';
+import { PageUnavailable } from '@/components/collab/page-unavailable';
+import { PageMetaStrip } from '@/components/collab/page-meta-strip';
+import { RevisionHistorySheet } from '@/components/collab/revision-history-sheet';
+import { useLiveNow } from '@/components/collab/use-live-now';
+import { usePagePresence } from '@/components/collab/use-page-presence';
 import { MetaChip } from '@/components/me/meta-chip';
+import { PlanButton } from '@/components/me/task-panel-sheet';
+import { useRowMutations } from '@/components/me/use-row-mutations';
 import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
-import { PageContributionsSection } from '@/components/stranica/page-contributions-section';
 import { RelationsSection } from '@/components/stranica/relations-section';
+import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
+import { BlockBoundary } from '@/components/collab/block-boundary';
 import { TaskMetaSheet, type TaskMetaView } from '@/components/zadatak/task-meta-sheet';
 import { DiscussionLink } from '@/components/chat/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
 import { TaskCheckpointList } from '@/components/zadatak/task-checkpoint-list';
+import { taskPermissionsOf } from '@/components/zadatak/task-permissions';
 import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonCard, SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { useQueryTolerant } from '@/hooks/use-query-tolerant';
+import { useToday } from '@/hooks/use-today';
 import { announceWithUndoBar } from '@/lib/announce';
+import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { radius } from '@/theme/tokens';
-import { accessErrorMessage } from '@/lib/errors';
+import { radius, text } from '@/theme/tokens';
+
+/** Zatvaranje jednog sheet-a pa otvaranje drugog: iOS ne prikazuje modal dok se prethodni skida. */
+const SHEET_CHAIN_MS = 350;
 
 /**
  * Detalj zadatka — full-screen, van tabova (docs/mobile/02-EKRANI.md §9.2).
@@ -65,9 +87,16 @@ import { accessErrorMessage } from '@/lib/errors';
  * (K18, par web `MetaChip` iz K17) koji otvaraju `TaskMetaSheet` — rok sa srpskim
  * čipovima i kalendarom u istom sheet-u; zabranjen metapodatak je isprekidan čip
  * sa katancem i razlogom (E15), isti kao u panelu zadatka. Dozvole su iz shared
- * `taskPermissions`, mutacije iste kao panel (`tasks.updateMetadata`,
- * `taskAssignees.join/leave`). Checkpointi su optimistički, bez „sačuvaj"
- * dugmadi. Zadatak je `pages` dokument sa `kind: "task"`.
+ * `taskPermissionsOf` (nad `pages.get › permissions`, bez računanja „autora"),
+ * mutacije iste kao panel (`tasks.updateMetadata`, `taskAssignees.join/leave`).
+ * Checkpointi su optimistički, bez „sačuvaj" dugmadi. Zadatak je `pages` dokument
+ * sa `kind: "task"`.
+ *
+ * PROSTOR K12 (P1/P5/P14/P23): otključan zadatak menja svaki član, zaključan autor,
+ * vlasnik i admin (izvršilac status i korake, D5); Komentari su sheet (zaglavlje +
+ * red, E3), Istorija izmena (instrukcije) iz „…" i iz zaglavlja Instrukcija, uz
+ * „Zaključano" i „<Ime> uređuje". Instrukcije idu kroz `areasV2.updatePage` sa
+ * revizijom (konflikt → „Učitaj najnoviju" / „Prepiši"). Zadatak nema mapu.
  */
 export default function ZadatakScreen() {
   const colors = useThemeColors();
@@ -77,6 +106,7 @@ export default function ZadatakScreen() {
   const { activeStartupId } = useActiveStartup();
   const insets = useSafeAreaInsets();
   const [now] = useState(() => Date.now());
+  const liveNow = useLiveNow();
   const [metaView, setMetaView] = useState<TaskMetaView | null>(null);
   // Kreator bira izvršioce u posebnom sheet-u (deljen sa kreiranjem zadatka) — duža
   // lista članova ne mora da deli prostor sa statusom/prioritetom/rokom.
@@ -88,6 +118,15 @@ export default function ZadatakScreen() {
   // Putanja kao navigacija (C11) — obaveštenje o zadatku je najčešći duboki link.
   const [pathOpen, setPathOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const chainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (chainTimerRef.current) clearTimeout(chainTimerRef.current);
+    },
+    [],
+  );
 
   const page = useQuery(api.pages.get, { pageId });
   const profile = useQuery(api.profiles.getCurrent, {});
@@ -97,14 +136,30 @@ export default function ZadatakScreen() {
     page?.startupId ? { startupId: page.startupId, limit: 50 } : 'skip',
   );
 
+  // „Dodaj u Moj dan" / „Ukloni iz Moj dan": isti plan i ista traka „Poništi" kao panel i web.
+  const today = useToday();
+  const overview = useQueryTolerant(api.myDay.overview, {
+    dayKey: today.dayKey,
+    doneSince: today.doneSince,
+  });
+  const rows = useRowMutations({ dayKey: today.dayKey, now: today.now });
+  const planEntryId =
+    overview?.entries.find((entry) => entry.refKey === `task:${pageId}`)?._id ?? null;
+
+  const commentsSummary = useCommentsSummary({ kind: 'page', id: pageId });
+  const { editors, markEditing } = usePagePresence(pageId, {
+    canEdit: page?.permissions.canEdit ?? false,
+  });
+
   const updateMetadata = useMutation(api.tasks.updateMetadata);
+  const updatePage = useMutation(api.areasV2.updatePage);
   const join = useMutation(api.taskAssignees.join);
   const leave = useMutation(api.taskAssignees.leave);
   const setAssignees = useMutation(api.taskAssignees.setAssignees);
 
   const notifyError = (error: unknown) => {
     haptics.error();
-    Alert.alert('Nešto nije prošlo', error instanceof Error ? error.message : 'Pokušaj ponovo.');
+    Alert.alert('Greška', accessErrorMessage(error, 'Pokušaj ponovo.'));
   };
   const run = (promise: Promise<unknown>) => {
     void promise.then(() => haptics.success()).catch(notifyError);
@@ -114,6 +169,11 @@ export default function ZadatakScreen() {
     () => new Map(assigneeList.map((person) => [person.profileId as string, person.displayName])),
     [assigneeList],
   );
+  // Stari tekst tela zadatka ostaje vidljiv samo za čitanje (par web K11-6, K23).
+  // `useMemo` iznad ranih return-a: telo ume da ima do 80.000 znakova, a ekran se
+  // prerenderuje na otkucaj prisustva i živi sat.
+  const pageContent = page?.content;
+  const legacyContext = useMemo(() => htmlToPlainText(pageContent ?? ''), [pageContent]);
 
   if (page === undefined || profile === undefined) {
     return (
@@ -129,19 +189,19 @@ export default function ZadatakScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title={page.title} titleNumberOfLines={2} onBack={() => router.back()} />
         <EmptyState
-          icon={<ClipboardX size={40} color={colors.mutedForeground} />}
+          icon={<ClipboardX size={20} color={colors.mutedForeground} />}
           title="Ovo nije zadatak"
-          description="Ova stranica nije zadatak, pa nema detalja zadatka."
+          description="Ova stranica nije zadatak."
         />
       </View>
     );
   }
 
   const myId = profile?._id ?? null;
+  // Otključan zadatak menja svaki član; zaključan autor/vlasnik/admin (`canEdit`).
   const canEditAll = page.permissions.canEdit;
   const isAssignee = myId !== null && assigneeList.some((a) => a.profileId === myId);
-  const isCreator = myId !== null && page.createdByProfileId === myId;
-  const permissions = taskPermissions({ kind: 'task', isCreator: isCreator || canEditAll, isAssignee });
+  const permissions = taskPermissionsOf(page.permissions, isAssignee);
   const status = (page.taskStatus ?? 'backlog') as StartupTaskStatus;
   const priority = (page.taskPriority ?? 'medium') as TaskPriorityKey;
   const due = describeDue(page.dueDate ?? null, now);
@@ -150,13 +210,15 @@ export default function ZadatakScreen() {
     Alert.alert('Nije dozvoljeno', reason);
   };
 
-  // Kanvas zadatka je `kind: 'page'` nad ovim zadatkom — jedini kanvas na kom su koraci
-  // vidljivi bez poruke `checkpoints`. Bez ovog ulaza je sa telefona nedostupan (K4):
-  // `/stranica/[id]` zadatak preusmerava ovamo, pa dugme sa te strane ne pomaže. Ista
-  // ikonica i ista formulacija kao na stranici (`stranica/[id].tsx`).
-  const openCanvas = () => {
-    haptics.tap();
-    router.push({ pathname: '/canvas/[kind]/[id]', params: { kind: 'page', id: pageId } });
+  const openHistory = () => {
+    // Čeka se samo kad je sheet akcija otvoren (iOS); iz zaglavlja Instrukcija nema šta da se skida.
+    if (actionsView === null) {
+      setHistoryOpen(true);
+      return;
+    }
+    setActionsView(null);
+    if (chainTimerRef.current) clearTimeout(chainTimerRef.current);
+    chainTimerRef.current = setTimeout(() => setHistoryOpen(true), SHEET_CHAIN_MS);
   };
   const applyStatus = (next: StartupTaskStatus) => {
     setMetaView(null);
@@ -200,8 +262,35 @@ export default function ZadatakScreen() {
   };
   const applySetAssignees = (profileIds: Id<'profiles'>[]) =>
     run(setAssignees({ taskPageId: pageId, profileIds }));
-  const saveInstructions = (text: string | null) =>
-    run(updateMetadata({ pageId, instructions: text }));
+  /**
+   * Instrukcije su deo dokumenta zadatka: idu sa revizijom (kao na webu), pa tuđa
+   * izmena u međuvremenu daje konflikt — „Učitaj najnoviju" odbacuje tvoj tekst,
+   * „Prepiši" ponavlja upis preko tuđe izmene (njihova verzija ostaje u Istoriji).
+   */
+  const saveInstructions = (value: string | null) => {
+    const send = (expectedRevision: number) =>
+      updatePage({ startupId: page.startupId, pageId, expectedRevision, instructions: value });
+    void send(page.revision)
+      .then(() => haptics.success())
+      .catch((error: unknown) => {
+        const conflict = conflictFromError(error);
+        if (conflict === null) {
+          notifyError(error);
+          return;
+        }
+        showConflictAlert({
+          subject: 'task',
+          updaterName: page.updater?.displayName ?? null,
+          updatedAt: conflict.updatedAt ?? page.updatedAt,
+          onLoadLatest: () => {},
+          draftText: value,
+          onOverwrite: () =>
+            void send(conflict.currentRevision ?? page.revision)
+              .then(() => haptics.success())
+              .catch(notifyError),
+        });
+      });
+  };
 
   return (
     <View style={styles.container}>
@@ -214,24 +303,28 @@ export default function ZadatakScreen() {
             titleNumberOfLines={2}
             // Putanja umesto statusa (E12): status već stoji kao prvi red meta
             // kartice ispod, a „gde sam" se bez sidebara nema odakle videti.
-            eyebrow={
+            subtitle={
               <BreadcrumbsEyebrow
                 pageId={pageId}
                 startupId={page.startupId}
                 areaId={page.areaId}
               />
             }
-            onEyebrowPress={() => {
+            onSubtitlePress={() => {
               haptics.tap();
               setPathOpen(true);
             }}
-            eyebrowAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
+            subtitleAccessibilityLabel="Putanja do korena. Otvara nadređenu stavku"
             onBack={() => router.back()}
             actions={
               <>
-                <IconButton accessibilityLabel="Canvas zadatka" onPress={openCanvas}>
-                  <LayoutGrid size={20} color={colors.foreground} />
-                </IconButton>
+                <CommentsHeaderButton
+                  summary={commentsSummary}
+                  onPress={() => {
+                    haptics.tap();
+                    setCommentsOpen(true);
+                  }}
+                />
                 <IconButton
                   accessibilityLabel="Akcije zadatka"
                   onPress={() => setActionsView('menu')}>
@@ -241,6 +334,11 @@ export default function ZadatakScreen() {
             }
           />
         </View>
+
+        <PageMetaStrip page={page} now={liveNow} editors={editors} />
+        {page.permissions.isLocked && !page.permissions.canEdit ? (
+          <LockNotice subject="task" />
+        ) : null}
 
         <KeyboardAvoidingView
           style={styles.flex}
@@ -303,39 +401,76 @@ export default function ZadatakScreen() {
               />
             </View>
 
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <InstructionsSection
-              instructions={page.instructions}
-              canEdit={canEditAll}
-              onSave={saveInstructions}
-            />
-            {permissions.instructions.allowed ? null : (
-              <LockedNotice label="Instrukcije" reason={permissions.instructions.reason ?? ''} />
-            )}
-          </View>
+            <View style={styles.planRow}>
+              <PlanButton
+                planned={planEntryId !== null}
+                onPress={() => rows.togglePlanOf({ kind: 'task', taskPageId: pageId }, planEntryId)}
+              />
+            </View>
 
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <TaskCheckpointList taskPageId={pageId} canCreate={canEditAll} />
-            {permissions.checkpoints.allowed ? null : (
-              <LockedNotice label="Koraci" reason={permissions.checkpoints.reason ?? ''} />
-            )}
-          </View>
+            <View style={[styles.section, { borderTopColor: colors.border }]}>
+              <InstructionsSection
+                instructions={page.instructions}
+                canEdit={permissions.instructions.allowed}
+                onSave={saveInstructions}
+                onOpenHistory={openHistory}
+                onDraftChange={markEditing}
+              />
+            </View>
 
-          <View style={[styles.card, styles.flush, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <RelationsSection
-              pageId={pageId}
-              startupId={page.startupId}
-              areaId={page.areaId}
-              onConnect={() => setActionsView('relate')}
-              showDivider={false}
-            />
-          </View>
+            <View style={[styles.section, { borderTopColor: colors.border }]}>
+              <BlockBoundary title="Koraci nisu učitani.">
+                <TaskCheckpointList
+                  taskPageId={pageId}
+                  startupId={page.startupId}
+                  canCreate={permissions.checkpoints.allowed}
+                />
+              </BlockBoundary>
+            </View>
+
+            <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>
+              <BlockBoundary title="Povezano nije učitano.">
+                <RelationsSection
+                  pageId={pageId}
+                  startupId={page.startupId}
+                  areaId={page.areaId}
+                  onConnect={() => setActionsView('relate')}
+                  showDivider={false}
+                />
+              </BlockBoundary>
+            </View>
+
+            {/* Podstranice zadatka kao lista (par web K11; zadatak nema mapu, P14). */}
+            <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>
+              <BlockBoundary title="Podstranice nisu učitane.">
+                <SubpagesSection
+                  pageId={pageId}
+                  startupId={page.startupId}
+                  areaId={page.areaId}
+                  canCreate={canEditAll}
+                  inline
+                  showDivider={false}
+                />
+              </BlockBoundary>
+            </View>
+
+            {legacyContext ? (
+              <View style={[styles.section, { borderTopColor: colors.border }]}>
+                <SectionHeader title="Dodatni kontekst" />
+                <Text selectable style={[styles.legacyContext, { color: colors.foreground }]}>
+                  {legacyContext}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>
+              <CommentsEntryRow summary={commentsSummary} onPress={() => setCommentsOpen(true)} />
+            </View>
 
             <DiscussionLink
               anchor={{ type: 'page', id: pageId, pageKind: 'task' }}
               startupId={page.startupId}
             />
-            <PageContributionsSection pageId={pageId} />
           </ScrollView>
         </KeyboardAvoidingView>
 
@@ -371,6 +506,26 @@ export default function ZadatakScreen() {
           page={page}
           onClose={() => setActionsView(null)}
           onArchived={() => router.back()}
+          onOpenHistory={openHistory}
+        />
+        <CommentsSheet
+          target={{ kind: 'page', id: pageId }}
+          startupId={page.startupId}
+          title={`Komentari · ${page.title}`}
+          visible={commentsOpen}
+          onClose={() => setCommentsOpen(false)}
+        />
+        <RevisionHistorySheet
+          target={{ kind: 'page', id: pageId }}
+          visible={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          title="Istorija izmena · Instrukcije"
+          format="text"
+          subject="task"
+          currentRevision={page.revision}
+          lockedReason={page.permissions.canRestoreRevision ? null : 'Zadatak je zaključan.'}
+          updaterName={page.updater?.displayName ?? null}
+          updatedAt={page.updatedAt}
         />
         <PathSheet
           open={pathOpen}
@@ -380,8 +535,8 @@ export default function ZadatakScreen() {
           onClose={() => setPathOpen(false)}
         />
 
-        {/* Obrisan checkpoint / doprinos i premešten zadatak se vraćaju odavde
-            (PARITET A6, C9/C10/C13). */}
+        {/* Obrisan korak / komentar, premešten i obrisan zadatak (Korpa) se vraćaju
+            odavde (PARITET A6, C9/C10/C13). */}
         <UndoBar />
       </View>
     </View>
@@ -418,28 +573,12 @@ function TaskSkeleton() {
 }
 
 /**
- * Greška: `pages.get` prolazi kroz `requireStartupMember`/`requireVisiblePage` i
- * baca kad korisnik nema pristup — expo-router to hvata ovde umesto pada ekrana.
+ * Greška: `pages.get` prolazi kroz `requireStartupMember`/`requireVisiblePage` i baca kad
+ * zadatak ne postoji, je obrisan ili korisnik nema pristup — expo-router to hvata
+ * ovde. Obrisano i greška vode u Korpu (K07 §5.6).
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  return <TaskErrorState message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')} onRetry={retry} />;
-}
-
-function TaskErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  const colors = useThemeColors();
-  const router = useRouter();
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Zadatak" onBack={() => router.back()} />
-      <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Zadatak se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju zadatka.'}
-        actionLabel="Pokušaj ponovo"
-        onAction={onRetry}
-      />
-    </View>
-  );
+  return <PageUnavailable subject="task" error={error} onRetry={retry} />;
 }
 
 const styles = StyleSheet.create({
@@ -461,11 +600,26 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 4,
   },
-  // Kartica čiji sadržaj sam nosi svoj padding (npr. „Povezane stavke").
+  // Sekcija ekrana nije kartica (smirivanje): razmak i tanka linija, bez okvira.
+  section: {
+    marginTop: 8,
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  // Sekcija čiji sadržaj sam nosi svoj padding (npr. „Povezane stavke", red „Komentari").
   flush: {
     paddingHorizontal: 0,
-    paddingVertical: 4,
-    overflow: 'hidden',
+    paddingTop: 0,
+  },
+  legacyContext: {
+    ...text.body,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  planRow: {
+    paddingTop: 4,
   },
   // Čipovi metapodataka (status, prioritet, rok, izvršioci) — prelamaju se u redove.
   chips: {

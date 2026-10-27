@@ -38,10 +38,26 @@ export function SubpagesSection({
   pageId,
   startupId,
   areaId,
+  canCreate = true,
+  inline = false,
+  showDivider = true,
 }: {
   pageId: Id<'pages'>;
   startupId: Id<'startups'>;
   areaId: Id<'startupAreas'>;
+  /**
+   * Spisak dece zaključane stranice menjaju autor, vlasnik i admin (R6) — bez
+   * prava se „Nova podstranica" ne nudi (server bi je odbio), kao na webu (K23).
+   */
+  canCreate?: boolean;
+  /**
+   * Redovi bez sopstvenog `ScrollView`-a — kad je sekcija u ekranu koji već
+   * skroluje (zadatak, K23). Na iOS-u bi unutrašnja lista inače hvatala vertikalni
+   * prevlak cele stranice i kad nema šta da skroluje.
+   */
+  inline?: boolean;
+  /** Donja linija sekcije; ekran koji sam crta razdelnike je gasi (kao `RelationsSection`). */
+  showDivider?: boolean;
 }) {
   const colors = useThemeColors();
   const router = useRouter();
@@ -61,8 +77,34 @@ export function SubpagesSection({
   const hasMore = status === 'CanLoadMore' || status === 'LoadingMore';
   const countLabel = loading ? '' : hasMore ? `${results.length}+` : String(results.length);
 
+  const rows = results.map((item) => {
+    const Icon = pageKindMeta(item.kind).icon;
+    const tint = pageKindColor(colors, item.kind);
+    return (
+      <Row
+        key={item._id}
+        title={item.title}
+        titleNumberOfLines={2}
+        accessibilityLabel={`Otvori ${item.title}`}
+        onPress={() =>
+          router.push(
+            item.kind === 'task'
+              ? { pathname: '/zadatak/[id]', params: { id: item._id } }
+              : { pathname: '/stranica/[id]', params: { id: item._id } },
+          )
+        }
+        style={styles.row}
+        icon={
+          <View style={styles.iconChip}>
+            <Icon size={16} color={tint} />
+          </View>
+        }
+      />
+    );
+  });
+
   return (
-    <View style={[styles.wrap, { borderBottomColor: colors.border }]}>
+    <View style={showDivider ? [styles.wrap, { borderBottomColor: colors.border }] : undefined}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -98,37 +140,19 @@ export function SubpagesSection({
                 item={(index) => <SkeletonRow index={index} leading="icon" />}
               />
             }>
-          {loading ? null : (
+          {loading ? null : results.length === 0 && !canCreate ? (
+            <Text style={[styles.empty, { color: colors.mutedForeground }]}>Nema podstranica.</Text>
+          ) : inline ? (
+            <View style={styles.list}>
+            {rows}
+            </View>
+          ) : (
           <ScrollView
             style={{ maxHeight: Math.round(windowHeight * 0.42) }}
             nestedScrollEnabled
             contentContainerStyle={styles.list}
             keyboardShouldPersistTaps="handled">
-            {results.map((item) => {
-              const Icon = pageKindMeta(item.kind).icon;
-              const tint = pageKindColor(colors, item.kind);
-              return (
-                <Row
-                  key={item._id}
-                  title={item.title}
-                  titleNumberOfLines={2}
-                  accessibilityLabel={`Otvori ${item.title}`}
-                  onPress={() =>
-                    router.push(
-                      item.kind === 'task'
-                        ? { pathname: '/zadatak/[id]', params: { id: item._id } }
-                        : { pathname: '/stranica/[id]', params: { id: item._id } },
-                    )
-                  }
-                  style={styles.row}
-                  icon={
-                    <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
-                      <Icon size={16} color={tint} />
-                    </View>
-                  }
-                />
-              );
-            })}
+            {rows}
           </ScrollView>
           )}
           </LoadingSwap>
@@ -151,31 +175,35 @@ export function SubpagesSection({
             </Pressable>
           ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Nova podstranica"
-            onPress={() => {
-              haptics.tap();
-              setCreateOpen(true);
-            }}
-            style={({ pressed }) => [
-              styles.addBtn,
-              { borderColor: colors.border },
-              pressed && { backgroundColor: colors.muted },
-            ]}>
-            <Plus size={16} color={colors.mutedForeground} />
-            <Text style={[styles.addText, { color: colors.mutedForeground }]}>Nova podstranica</Text>
-          </Pressable>
+          {canCreate ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Nova podstranica"
+              onPress={() => {
+                haptics.tap();
+                setCreateOpen(true);
+              }}
+              style={({ pressed }) => [
+                styles.addBtn,
+                { borderColor: colors.border },
+                pressed && { backgroundColor: colors.muted },
+              ]}>
+              <Plus size={16} color={colors.mutedForeground} />
+              <Text style={[styles.addText, { color: colors.mutedForeground }]}>Nova podstranica</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
-      <PageCreateSheet
-        open={createOpen}
-        startupId={startupId}
-        areaId={areaId}
-        parentPageId={pageId}
-        onClose={() => setCreateOpen(false)}
-      />
+      {canCreate ? (
+        <PageCreateSheet
+          open={createOpen}
+          startupId={startupId}
+          areaId={areaId}
+          parentPageId={pageId}
+          onClose={() => setCreateOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -203,6 +231,11 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: 2,
+  },
+  empty: {
+    ...text.body,
+    paddingHorizontal: 2,
+    paddingVertical: 8,
   },
   row: {
     paddingHorizontal: 2,

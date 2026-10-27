@@ -1,14 +1,8 @@
 "use client";
 
 import { useState, type ReactNode, type Ref } from "react";
-import { CircleDot, ExternalLink, LogIn, LogOut, Maximize2, Users } from "lucide-react";
-import {
-  STATUS_LABELS,
-  type StartupMini,
-  type TaskPermissions,
-  type TaskPriorityKey,
-  type TaskStatusKey,
-} from "@devotion/shared";
+import { CircleDot, LogIn, LogOut, Users } from "lucide-react";
+import { STATUS_LABELS, type StartupMini, type TaskPermissions, type TaskPriorityKey, type TaskStatusKey } from "@devotion/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 import { MetaChip } from "../meta-chip";
 import { StartupChip } from "../startup-chip";
-import { DueMetaChip, PanelSection, PanelTitle, PlanToggle, PriorityChip } from "./panel-parts";
+import { PanelSection, PanelTitle } from "./panel-parts";
 
 export type StartupTaskStatus = Exclude<TaskStatusKey, "open">;
 
@@ -50,39 +44,20 @@ export type StartupTaskPanelChange = {
   instructions?: string | null;
 };
 
-export type StartupTaskPanelViewProps = {
-  now: number;
-  task: {
-    title: string;
-    status: StartupTaskStatus;
-    priority: TaskPriorityKey | null;
-    dueDate: number | null;
-    instructions: string | null;
-    startup: StartupMini;
-    areaLabel: string | null;
-  };
-  assignees: PanelPerson[];
-  /** Članovi startupa (izbor izvršilaca); `undefined` dok se učitavaju, `"error"` kad upit padne. */
-  members: PanelPerson[] | undefined | "error";
-  permissions: TaskPermissions;
-  isSelfAssigned: boolean;
-  planned: boolean;
-  onChange: (change: StartupTaskPanelChange) => void;
-  onJoin: () => void;
-  onLeave: () => void;
-  onTogglePlan: () => void;
-  onOpenInStartup: () => void;
-  /** `full`: „Puni prikaz" (panel otvoren iz liste u startupu, K17); podrazumevano „Otvori u startupu". */
-  openLabel?: "startup" | "full";
-  /** Klik na zaključan čip (na dodiru nema tooltipa): kontejner pokaže razlog. */
-  onDenied: (reason: string) => void;
-  /** Koraci: postojeća lista checkpointa (`TaskCheckpointList`) ili kratak pregled. */
-  checkpoints: ReactNode;
+/** Podaci zadatka koje prikazuju zaglavlje panela i raspored (`TaskDetailLayout`). */
+export type StartupTaskView = {
+  title: string;
+  status: StartupTaskStatus;
+  priority: TaskPriorityKey | null;
+  dueDate: number | null;
+  instructions: string | null;
+  startup: StartupMini;
+  areaLabel: string | null;
 };
 
 export type StartupTaskPanelHeaderProps = {
-  task: StartupTaskPanelViewProps["task"];
-  /** Naslov menja kreator (`pages.update`). */
+  task: StartupTaskView;
+  /** Naslov menja svaki član kad zadatak nije zaključan (`pages.update`). */
   canEditTitle: boolean;
   onRename: (title: string) => void;
   titleRef?: Ref<HTMLElement>;
@@ -104,107 +79,7 @@ export function StartupTaskPanelHeader({ task, canEditTitle, onRename, titleRef 
   );
 }
 
-/**
- * Panel startup zadatka (plan K07 §1.4): čipovi Status / Prioritet / Rok /
- * Izvršioci kroz postojeće mutacije, „Dodaj u Moj dan", „Otvori u
- * startupu", koraci i instrukcije. Dozvole iz `tasks.updateMetadata` su
- * zaključani čipovi sa razlogom (E15), ne pasus teksta.
- */
-export function StartupTaskPanelView({
-  now,
-  task,
-  assignees,
-  members,
-  permissions,
-  isSelfAssigned,
-  planned,
-  onChange,
-  onJoin,
-  onLeave,
-  onTogglePlan,
-  onOpenInStartup,
-  openLabel = "startup",
-  onDenied,
-  checkpoints,
-}: StartupTaskPanelViewProps) {
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        <StatusChip
-          value={task.status}
-          perm={permissions.status}
-          onDenied={onDenied}
-          onChange={(status) => onChange({ status })}
-        />
-        <PriorityChip
-          value={task.priority}
-          perm={permissions.priority}
-          allowNone={false}
-          onDenied={onDenied}
-          onChange={(priority) => {
-            if (priority !== null) onChange({ priority });
-          }}
-        />
-        <DueMetaChip
-          value={task.dueDate}
-          now={now}
-          perm={permissions.due}
-          onDenied={onDenied}
-          onChange={(dueDate) => onChange({ dueDate })}
-        />
-        <AssigneesChip
-          assignees={assignees}
-          members={members}
-          selfOnly={permissions.assignees.selfOnly}
-          reason={permissions.assignees.reason}
-          isSelfAssigned={isSelfAssigned}
-          onChange={(assigneeProfileIds) => onChange({ assigneeProfileIds })}
-          onJoin={onJoin}
-          onLeave={onLeave}
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <PlanToggle planned={planned} onToggle={onTogglePlan} />
-        <Button type="button" variant="outline" className="rounded-full pointer-coarse:h-11" onClick={onOpenInStartup}>
-          {openLabel === "full" ? <Maximize2 aria-hidden="true" /> : <ExternalLink aria-hidden="true" />}
-          {openLabel === "full" ? "Puni prikaz" : "Otvori u startupu"}
-        </Button>
-        {permissions.assignees.selfOnly ? (
-          isSelfAssigned ? (
-            <Button type="button" variant="ghost" className="rounded-full pointer-coarse:h-11" onClick={onLeave}>
-              <LogOut aria-hidden="true" />
-              Napusti zadatak
-            </Button>
-          ) : (
-            <Button type="button" variant="ghost" className="rounded-full pointer-coarse:h-11" onClick={onJoin}>
-              <LogIn aria-hidden="true" />
-              Priključi se
-            </Button>
-          )
-        ) : null}
-      </div>
-
-      <PanelSection
-        title="Koraci"
-        lockedReason={permissions.checkpoints.allowed ? null : permissions.checkpoints.reason}
-        onDenied={onDenied}
-      >
-        {checkpoints}
-      </PanelSection>
-
-      <InstructionsSection
-        value={task.instructions}
-        editable={permissions.instructions.allowed}
-        lockedReason={permissions.instructions.allowed ? null : permissions.instructions.reason}
-        onDenied={onDenied}
-        onSave={(instructions) => onChange({ instructions })}
-      />
-    </div>
-  );
-}
-
-/** Čip statusa sa menijem (panel, detalj stranice, brzo pravljenje). */
+/** Čip statusa sa menijem (panel, puna strana zadatka, brzo pravljenje). */
 export function StatusChip({
   value,
   perm,
@@ -237,7 +112,7 @@ export function StatusChip({
   );
 }
 
-/** Čip izvršilaca: kreator bira članove, ostali vide spisak i „Priključi se" / „Napusti zadatak". */
+/** Čip izvršilaca: svaki član bira članove; na zaključanom zadatku samo „Priključi se" / „Napusti zadatak". */
 export function AssigneesChip({
   assignees,
   members,
@@ -292,7 +167,7 @@ export function AssigneesChip({
               </p>
             ) : members === "error" ? (
               <p role="alert" className="px-2 py-1.5 text-sm text-destructive">
-                Članovi se ne mogu učitati. Zatvori i ponovo otvori panel.
+                Članovi nisu učitani. Zatvori i ponovo otvori ovaj prikaz.
               </p>
             ) : (
               members.map((person) => {
@@ -321,8 +196,105 @@ export function AssigneesChip({
   );
 }
 
-/** Instrukcije: kreator menja u mestu (čuva na blur), ostali čitaju. */
-function InstructionsSection({
+/** Stanje čuvanja instrukcija (strana ga prati kroz `task-instructions-draft`, panel ga ne prikazuje). */
+export type InstructionsSaveState = "saved" | "dirty" | "saving" | "error";
+
+const INSTRUCTIONS_STATE_TEXT: Record<Exclude<InstructionsSaveState, "saved">, string> = {
+  saving: "Čuvam instrukcije…",
+  dirty: "Instrukcije imaju nesačuvane izmene.",
+  error: "Instrukcije nisu sačuvane.",
+};
+
+/**
+ * Instrukcije zadatka — kontrolisano polje koje dele panel i puna strana. Menja
+ * ga svaki član dok zadatak nije zaključan (P1); inače je tekst sa bravom i
+ * razlogom. Čuvanje na blur (`onCommit`); `saveState` je samo za pun prikaz.
+ */
+export function InstructionsSection({
+  value,
+  onValueChange,
+  onFocus,
+  onCommit,
+  editable,
+  lockedReason,
+  onDenied,
+  saveState,
+  onRetry,
+  aside,
+  headingAs,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  onFocus?: () => void;
+  onCommit: () => void;
+  editable: boolean;
+  lockedReason: string | null;
+  onDenied: (reason: string) => void;
+  saveState?: InstructionsSaveState;
+  onRetry?: () => void;
+  /** Radnja uz naslov sekcije (npr. „Istorija izmena"). */
+  aside?: ReactNode;
+  headingAs?: "h2" | "h3";
+}) {
+  const near = value.length >= PANEL_INSTRUCTIONS_MAX - 500;
+  const state = saveState && saveState !== "saved" ? saveState : null;
+
+  return (
+    <PanelSection
+      title="Instrukcije"
+      as={headingAs}
+      lockedReason={lockedReason}
+      onDenied={onDenied}
+      aside={
+        <span className="flex items-center gap-2">
+          {editable && near ? (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {value.length}/{PANEL_INSTRUCTIONS_MAX}
+            </span>
+          ) : null}
+          {aside}
+        </span>
+      }
+    >
+      {editable ? (
+        <Textarea
+          value={value}
+          maxLength={PANEL_INSTRUCTIONS_MAX}
+          aria-label="Instrukcije zadatka"
+          placeholder="Dodaj instrukcije…"
+          onFocus={onFocus}
+          onChange={(event) => onValueChange(event.target.value)}
+          onBlur={onCommit}
+          className="min-h-24 rounded-xl bg-card text-sm leading-6"
+        />
+      ) : value ? (
+        <p className="whitespace-pre-wrap break-words rounded-xl bg-muted/40 px-3 py-2 text-sm leading-6">{value}</p>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nema instrukcija.</p>
+      )}
+      {saveState !== undefined ? (
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>{state ? INSTRUCTIONS_STATE_TEXT[state] : ""}</span>
+          {/* Najavljuje se samo greška (kao „Sačuvano" u zaglavlju dokumenta), ne svaka pauza u kucanju. */}
+          <span role="status" className="sr-only">
+            {state === "error" ? INSTRUCTIONS_STATE_TEXT.error : ""}
+          </span>
+          {state === "error" && onRetry ? (
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onRetry}>
+              Pokušaj ponovo
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </PanelSection>
+  );
+}
+
+/**
+ * Instrukcije u panelu: lokalni nacrt koji prati server dok polje nije u
+ * fokusu; blur čuva (`tasks.updateMetadata` bez revizije).
+ */
+export function PanelInstructions({
   value,
   editable,
   lockedReason,
@@ -342,41 +314,19 @@ function InstructionsSection({
     setSeen(value);
     if (!focused) setDraft(value ?? "");
   }
-  const near = draft.length >= PANEL_INSTRUCTIONS_MAX - 500;
-
   return (
-    <PanelSection
-      title="Instrukcije"
+    <InstructionsSection
+      value={draft}
+      onValueChange={setDraft}
+      onFocus={() => setFocused(true)}
+      onCommit={() => {
+        setFocused(false);
+        const next = draft.trim() ? draft : null;
+        if ((next ?? null) !== (value ?? null)) onSave(next);
+      }}
+      editable={editable}
       lockedReason={lockedReason}
       onDenied={onDenied}
-      aside={
-        editable && near ? (
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {draft.length}/{PANEL_INSTRUCTIONS_MAX}
-          </span>
-        ) : null
-      }
-    >
-      {editable ? (
-        <Textarea
-          value={draft}
-          maxLength={PANEL_INSTRUCTIONS_MAX}
-          aria-label="Instrukcije"
-          placeholder="Dodaj instrukcije…"
-          onFocus={() => setFocused(true)}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => {
-            setFocused(false);
-            const next = draft.trim() ? draft : null;
-            if ((next ?? null) !== (value ?? null)) onSave(next);
-          }}
-          className="min-h-24 rounded-xl bg-card text-sm leading-6"
-        />
-      ) : value ? (
-        <p className="whitespace-pre-wrap rounded-xl bg-muted/40 px-3 py-2 text-sm leading-6">{value}</p>
-      ) : (
-        <p className="text-sm text-muted-foreground">Nema instrukcija.</p>
-      )}
-    </PanelSection>
+    />
   );
 }

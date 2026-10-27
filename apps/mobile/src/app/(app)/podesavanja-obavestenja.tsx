@@ -46,6 +46,7 @@ import {
   MIN_TOUCH_TARGET,
   radius,
   space,
+  text,
   type ColorTokens,
 } from '@/theme/tokens';
 import { accessErrorMessage } from '@/lib/errors';
@@ -203,7 +204,7 @@ function SettingsForm({
           {NOTIFICATION_SETTINGS_GROUPS.map((group) => (
             <View key={group.key} style={styles.section}>
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-                {group.label.toUpperCase()}
+                {group.label}
               </Text>
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 {group.rows.map((row, index) => (
@@ -226,7 +227,7 @@ function SettingsForm({
           {/* Tihi sati */}
           <View style={styles.section}>
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-              TIHI SATI
+              Tihi sati
             </Text>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Row
@@ -413,7 +414,7 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
     haptics.warning();
     Alert.alert(
       'Isključiti obaveštenja na ovom uređaju?',
-      'Ovaj telefon više neće zvoniti ni prikazivati obaveštenja — ni za dodeljen zadatak, ni za rok, ni za poruku u chatu. Obaveštenja i dalje stižu u tab „Obaveštenja" kad otvoriš aplikaciju, i na tvoje druge uređaje. Uključuje se ponovo dugmetom „Uključi na ovom uređaju" na ovom ekranu.',
+      'Ovaj telefon više neće zvoniti ni prikazivati obaveštenja — ni za dodeljen zadatak, ni za rok, ni za poruku u razgovoru. Obaveštenja i dalje stižu u Inbox kad otvoriš aplikaciju, i na tvoje druge uređaje. Uključuje se ponovo dugmetom „Uključi na ovom uređaju" na ovom ekranu.',
       [
         { text: 'Odustani', style: 'cancel' },
         { text: 'Isključi', style: 'destructive', onPress: () => void onDisable() },
@@ -423,12 +424,12 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
 
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>OVAJ UREĐAJ</Text>
+      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Ovaj uređaj</Text>
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={styles.pushStatus}>
           <View style={styles.pushStatusHead}>
             {ok ? (
-              <CircleCheck size={18} color={colors.primary} />
+              <CircleCheck size={18} color={colors.primaryText} />
             ) : failed ? (
               <CircleAlert size={18} color={colors.destructive} />
             ) : off ? (
@@ -528,7 +529,7 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
             { borderTopColor: colors.border },
             pressed && { backgroundColor: colors.muted },
           ]}>
-          <Text style={[styles.channelCheckLabel, { color: colors.primary }]}>
+          <Text style={[styles.channelCheckLabel, { color: colors.primaryText }]}>
             Provera kanala obaveštenja
           </Text>
         </Pressable>
@@ -605,7 +606,7 @@ function ToggleRow({
               !previewReady && styles.previewBtnDisabled,
               pressed && previewReady && { backgroundColor: colors.muted },
             ]}>
-            <Play size={16} color={colors.primary} fill={colors.primary} />
+            <Play size={16} color={colors.primaryText} fill={colors.primaryText} />
           </Pressable>
         ) : undefined
       }
@@ -792,9 +793,9 @@ function PodesavanjaErrorState({ message, onRetry }: { message: string; onRetry:
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Podešavanja se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju podešavanja.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Podešavanja nisu učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -814,9 +815,8 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   sectionLabel: {
-    fontSize: 12,
+    ...text.body,
     fontWeight: fontWeight.semibold,
-    letterSpacing: 0.5,
     paddingHorizontal: space[1],
   },
   card: {
@@ -955,10 +955,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
   },
   sheetTitle: {
-    fontSize: 12,
+    ...text.body,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
     textAlign: 'center',
     paddingBottom: space[2],
   },

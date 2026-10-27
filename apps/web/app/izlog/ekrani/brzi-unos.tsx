@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { dueShortcutValue, type QuickAddDraft } from "@devotion/shared";
+import { dueShortcutValue, type QuickAddDraft, type QuickAddKind } from "@devotion/shared";
 
 import { QuickAddDialog } from "@/components/me/quick-add/quick-add-dialog";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,12 @@ import { IZLOG_NOW, QUICK_ADD_STARTUPS } from "../fixtures/moj-dan";
 const CLUCK_RUSH = izlogStartupId(0);
 const MARKETING = QUICK_ADD_STARTUPS[0].areas.find((area) => area.label === "Marketing")!._id;
 
-const VARIJANTE: Record<string, { draft?: Partial<QuickAddDraft>; error?: string }> = {
+const VARIJANTE: Record<string, { draft?: Partial<QuickAddDraft>; error?: string; kind?: QuickAddKind }> = {
   licno: {},
+  beleska: {
+    draft: { title: "Ideja za onboarding: tri zadatka prve nedelje", destination: { kind: "startup", startupId: CLUCK_RUSH, areaId: MARKETING } },
+    kind: "note",
+  },
   startup: {
     draft: {
       title: "Snimi priču za Instagram o novom meniju",
@@ -47,7 +51,9 @@ export default function BrziUnosEkran({ varijanta }: IzlogEkranProps) {
         startups={QUICK_ADD_STARTUPS}
         initialDraft={fixture.draft}
         initialError={fixture.error ?? null}
+        initialKind={fixture.kind}
         onSubmit={() => new Promise((resolve) => window.setTimeout(resolve, 300))}
+        onSubmitNote={() => new Promise((resolve) => window.setTimeout(resolve, 300))}
       />
     </div>
   );

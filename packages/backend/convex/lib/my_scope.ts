@@ -2,6 +2,7 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { taskCompletedAt } from "./pages";
+import { isLockedForViewer, isManagerProfile, isPageLocked } from "./permissions";
 import {
   MY_SCOPE_STARTUP_CAP,
   type areaMiniValidator,
@@ -91,6 +92,22 @@ export async function isActiveAssignee(
   return page.assigneeProfileId === profileId;
 }
 
+/**
+ * Vlasnik startupa ili admin (PROSTOR P1). Čita se samo za zaključane zadatke,
+ * kojih je malo, pa dodatna dva čitanja ne opterećuju liste.
+ */
+async function isManagerOf(
+  ctx: ReadCtx,
+  startupId: Id<"startups">,
+  profileId: Id<"profiles">,
+) {
+  const [startup, profile] = await Promise.all([
+    ctx.db.get("startups", startupId),
+    ctx.db.get("profiles", profileId),
+  ]);
+  return profile !== null && startup !== null && isManagerProfile(profile, startup);
+}
+
 async function areaMiniOf(
   ctx: ReadCtx,
   areaId: Id<"startupAreas">,
@@ -127,6 +144,7 @@ export async function toTaskItem(
   if (startup === undefined) return null;
   const isAssignee =
     options.isAssignee ?? (await isActiveAssignee(ctx, page, options.profileId));
+  const isLocked = isPageLocked(page);
   return {
     _id: page._id,
     title: page.title,
@@ -143,6 +161,13 @@ export async function toTaskItem(
     createdByProfileId: page.createdByProfileId,
     isCreator: page.createdByProfileId === options.profileId,
     isAssignee,
+    isLocked,
+    lockedForViewer:
+      isLocked &&
+      isLockedForViewer(page, {
+        profileId: options.profileId,
+        isManager: await isManagerOf(ctx, page.startupId, options.profileId),
+      }),
     createdAt: page.createdAt,
     updatedAt: page.updatedAt,
     startup,

@@ -18,7 +18,7 @@ import {
 } from '@/lib/table-limits';
 import { chunkRows, parseSpreadsheet, SPREADSHEET_TYPES } from '@/lib/table-import';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const PREVIEW_ROWS = 6;
 
@@ -202,7 +202,7 @@ export function TableImportSheet({
             contentContainerStyle={styles.bodyContent}
             showsVerticalScrollIndicator={false}>
             <Text style={[styles.title, { color: colors.foreground }]}>
-              Uvoz iz Excel-a ili CSV-a
+              Uvoz iz Excela ili CSV-a
             </Text>
             <Text style={[styles.description, { color: colors.mutedForeground }]}>
               Podržani su .xlsx, .xls i .csv. Uvozi se prvi list. Najviše {MAX_TABLE_COLUMNS}{' '}
@@ -222,7 +222,7 @@ export function TableImportSheet({
             ) : (
               <>
                 <View style={styles.fileRow}>
-                  <FileSpreadsheet size={16} color={colors.primary} />
+                  <FileSpreadsheet size={16} color={colors.primaryText} />
                   <Text numberOfLines={1} style={[styles.fileName, { color: colors.foreground }]}>
                     {fileName}
                   </Text>
@@ -393,8 +393,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   title: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   description: {
     fontSize: 16,

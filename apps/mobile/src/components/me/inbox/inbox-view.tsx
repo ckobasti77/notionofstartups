@@ -25,14 +25,13 @@ import {
   CheckSquare2,
   Flame,
   Gavel,
-  GitMerge,
   Hourglass,
   Inbox,
   Lightbulb,
   MessageCircle,
   MessageSquare,
+  MessageSquareText,
   Settings,
-  ShieldCheck,
   Sparkles,
   TriangleAlert,
   type LucideIcon,
@@ -86,6 +85,9 @@ const TYPE_ICON: Record<string, LucideIcon> = {
   chat_message: MessageCircle,
   chat_mention: AtSign,
   chat_dm: MessageSquare,
+  // Komentari (PROSTOR P5): pominjanje nosi @ kao u chatu, nov komentar oblačić sa tekstom.
+  comment_mention: AtSign,
+  comment_added: MessageSquareText,
 };
 
 /** Prekoračen rok je jedini tip koji sme da nosi crvenu (isto pravilo kao web). */
@@ -106,8 +108,11 @@ export type InboxItemModel = {
   actor: { displayName: string; avatarUrl: string | null } | null;
 };
 
-/** Stavka „Čeka tebe" (`inbox.pending`) onoliko koliko prikaz čita. */
-export type InboxPendingModel = PendingItemLike & {
+/**
+ * Stavka „Čeka tebe" (`inbox.pending`) onoliko koliko prikaz čita. PROSTOR P22:
+ * samo ideja na glasanju; glasanja o brisanju i zahtevi za ugnežđavanje se ne crtaju.
+ */
+export type InboxPendingModel = Extract<PendingItemLike, { kind: 'idea_vote' }> & {
   startup: StartupMini;
   createdAt: number;
   targetType: string;
@@ -489,7 +494,7 @@ function FeedBody({
     const more = feed.canLoadMore || feed.loadingMore;
     return (
       <EmptyState
-        icon={<Inbox size={40} color={colors.mutedForeground} />}
+        icon={<Inbox size={20} color={colors.mutedForeground} />}
         title={more ? 'Nema ništa na ovoj strani' : copy.title}
         description={more ? 'Ostalo može biti dalje u istoriji.' : copy.description}
         actionLabel={more ? (feed.loadingMore ? 'Učitavam…' : 'Učitaj još') : undefined}
@@ -674,7 +679,7 @@ function PendingBody({
     const copy = inboxEmptyCopy(segment, scope);
     return (
       <EmptyState
-        icon={<Hourglass size={40} color={colors.mutedForeground} />}
+        icon={<Hourglass size={20} color={colors.mutedForeground} />}
         title={copy.title}
         description={copy.description}
       />
@@ -690,14 +695,14 @@ function PendingBody({
       ))}
       {state.truncated ? (
         <Text style={[styles.truncated, { color: colors.mutedForeground }]}>
-          Prikazan je samo deo. Ostalo je u Odobrenjima.
+          Prikazane su najnovije. Ostale ideje za glasanje su u Idejama svakog startupa.
         </Text>
       ) : null}
     </ScrollView>
   );
 }
 
-/** Red „Čeka tebe": glasanje ili predlog premeštanja, dugme vodi u odobrenja tog startupa. */
+/** Red „Čeka tebe": ideja koja čeka tvoj glas; „Glasaj" otvara ideju u njenom startupu (PROSTOR P22). */
 export function PendingRow({
   item,
   now,
@@ -708,16 +713,14 @@ export function PendingRow({
   onOpen: (item: InboxPendingModel) => void;
 }) {
   const colors = useThemeColors();
-  const vote = item.kind === 'deletion_vote';
-  const Icon = vote ? ShieldCheck : GitMerge;
   const title = pendingTitle(item);
-  const action = vote ? 'Glasaj' : 'Pogledaj';
+  const action = 'Glasaj';
   const time = formatInboxTime(item.createdAt, now);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${action}: ${title}. ${item.startup.name}. ${time}`}
-      accessibilityHint="Otvara odobrenja tog startupa"
+      accessibilityLabel={`${title}. ${item.startup.name}. ${time}`}
+      accessibilityHint="Otvara ideju, glas daješ na njenom ekranu"
       onPress={() => {
         haptics.tap();
         onOpen(item);
@@ -727,7 +730,7 @@ export function PendingRow({
         { backgroundColor: pressed ? colors.muted : colors.card, borderColor: colors.border },
       ]}>
       <View style={[styles.rowIcon, { backgroundColor: `${colors.primaryText}22` }]}>
-        <Icon size={16} color={colors.primaryText} />
+        <Lightbulb size={16} color={colors.primaryText} />
       </View>
       <View style={styles.rowText}>
         <Text numberOfLines={3} style={[styles.rowTitle, { color: colors.foreground, fontWeight: fontWeight.semibold }]}>
@@ -741,15 +744,12 @@ export function PendingRow({
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        style={[styles.pendingAction, { backgroundColor: vote ? colors.primary : colors.secondary }]}>
-        <Text
-          style={[
-            styles.pendingActionText,
-            { color: vote ? colors.primaryForeground : colors.secondaryForeground },
-          ]}>
+        // Više redova ≠ više primarnih radnji (SMIRENJE §1): „Glasaj" je sekundarno dugme.
+        style={[styles.pendingAction, { backgroundColor: colors.secondary }]}>
+        <Text style={[styles.pendingActionText, { color: colors.secondaryForeground }]}>
           {action}
         </Text>
-        <ArrowRight size={16} color={vote ? colors.primaryForeground : colors.secondaryForeground} />
+        <ArrowRight size={16} color={colors.secondaryForeground} />
       </View>
     </Pressable>
   );
@@ -785,7 +785,7 @@ function InboxError({ title, retry }: { title: string; retry: () => void }) {
   const colors = useThemeColors();
   return (
     <EmptyState
-      icon={<TriangleAlert size={40} color={colors.destructive} />}
+      icon={<TriangleAlert size={20} color={colors.destructive} />}
       title={title}
       description="Proveri vezu i pokušaj ponovo."
       actionLabel="Pokušaj ponovo"

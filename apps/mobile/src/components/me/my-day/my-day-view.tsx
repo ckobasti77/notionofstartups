@@ -115,7 +115,7 @@ function MyDayList({
         <View style={styles.inlineEmpty}>
           {model.counts.doneToday > 0 ? (
             <EmptyState
-              icon={<CalendarCheck2 size={40} color={colors.mutedForeground} />}
+              icon={<CalendarCheck2 size={20} color={colors.mutedForeground} />}
               title="Sve za danas je završeno"
               description={`Završeno danas: ${model.counts.doneToday}. Pogledaj šta je sledeće.`}
               actionLabel="Moji zadaci"
@@ -123,7 +123,7 @@ function MyDayList({
             />
           ) : (
             <EmptyState
-              icon={<Sun size={40} color={colors.mutedForeground} />}
+              icon={<Sun size={20} color={colors.mutedForeground} />}
               title="Danas je mirno"
               description="Nema rokova ni planova za danas."
               actionLabel="Isplaniraj dan"

@@ -18,9 +18,23 @@ function rowByKey(key: string): SettingsRow {
 }
 
 describe("katalog podešavanja", () => {
-  test("pokriva svih 13 tipova, bez preklapanja između redova", () => {
-    expect(ALL_SETTINGS_TYPES).toHaveLength(13);
-    expect(new Set(ALL_SETTINGS_TYPES).size).toBe(13); // svaki tip tačno jednom
+  test("pokriva svih 15 tipova, bez preklapanja između redova", () => {
+    expect(ALL_SETTINGS_TYPES).toHaveLength(15);
+    expect(new Set(ALL_SETTINGS_TYPES).size).toBe(15); // svaki tip tačno jednom
+  });
+
+  test("komentari imaju svoja dva reda u grupi Tim, bez novog zvuka", () => {
+    const mentions = rowByKey("team_comment_mentions");
+    const comments = rowByKey("team_comments");
+    expect(mentions.types).toEqual(["comment_mention"]);
+    expect(comments.types).toEqual(["comment_added"]);
+    // Dele zvuk sa chat redovima (`mention`, `channel`) — bez dugmeta za probu.
+    expect(mentions.previewSound).toBeNull();
+    expect(comments.previewSound).toBeNull();
+    // Utišavanje jednog reda ne dira drugi.
+    const muted = toggleRow(mentions, [], false);
+    expect(muted).toEqual(["comment_mention"]);
+    expect(isRowEnabled(comments, muted)).toBe(true);
   });
 
   test("dugme za probu stoji uz tačno šest redova — po jedan po zvuku", () => {
@@ -70,6 +84,10 @@ describe("tihi sati — koji tipovi probijaju", () => {
     expect(typeBreaksQuietHours("task_due_today")).toBe(true);
     expect(typeBreaksQuietHours("task_overdue")).toBe(true);
     expect(typeBreaksQuietHours("vote_requested")).toBe(true);
+
+    // Pominjanje u komentaru probija kao @ u chatu; običan komentar ne.
+    expect(typeBreaksQuietHours("comment_mention")).toBe(true);
+    expect(typeBreaksQuietHours("comment_added")).toBe(false);
 
     // „Uskoro ističe" i „odluka je pala" ne bude noću (override na `active`).
     expect(typeBreaksQuietHours("task_due_soon")).toBe(false);

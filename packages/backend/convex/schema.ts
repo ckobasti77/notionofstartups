@@ -8,6 +8,7 @@ import {
   chatMessageKindValidator,
   chatNotificationLevelValidator,
   checkpointItemValidator,
+  ideaStageValidator,
   notificationTargetTypeValidator,
   notificationTypeValidator,
   pageFileCategoryValidator,
@@ -15,6 +16,7 @@ import {
   taskCheckpointCanvasEndpointValidator,
   taskPriorityValidator,
   taskStatusValidator,
+  trashStateValidator,
 } from "./lib/validators";
 
 const role = v.union(v.literal("admin"), v.literal("member"));
@@ -131,7 +133,9 @@ export default defineSchema({
   ]),
 
   thoughtNodes: defineTable({
-    startupId: v.id("startups"),
+    // PROSTOR P7: `null` = lična beleška van startupa (vidi je samo vlasnik,
+    // nema Mapu). Mapa (`thoughtCanvases`) postoji samo po startupu.
+    startupId: v.union(v.id("startups"), v.null()),
     ownerProfileId: v.id("profiles"),
     title: v.union(v.string(), v.null()),
     text: v.string(),
@@ -161,6 +165,12 @@ export default defineSchema({
       "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
       ["ownerProfileId", "startupId", "archivedAt", "updatedAt"],
     )
+    // Beleške u „Ja" (PROSTOR P7): moje beleške kroz sve startupe i lične.
+    .index("by_ownerProfileId_and_archivedAt_and_updatedAt", [
+      "ownerProfileId",
+      "archivedAt",
+      "updatedAt",
+    ])
     .index("by_parentThoughtId_and_archivedAt", [
       "parentThoughtId",
       "archivedAt",
@@ -175,7 +185,8 @@ export default defineSchema({
     }),
 
   thoughtEdges: defineTable({
-    startupId: v.id("startups"),
+    // PROSTOR P7: isti `startupId` kao njene dve beleške (`null` = lične).
+    startupId: v.union(v.id("startups"), v.null()),
     ownerProfileId: v.id("profiles"),
     nodeAId: v.id("thoughtNodes"),
     nodeBId: v.id("thoughtNodes"),
@@ -263,10 +274,27 @@ export default defineSchema({
     sourceMessageId: v.optional(v.id("chatMessages")),
     createdByProfileId: v.id("profiles"),
     updatedByProfileId: v.id("profiles"),
+    // Zaključavanje (PROSTOR P1): naslov, sadržaj, osobine, premeštanje i
+    // brisanje zaključane stranice menjaju samo autor, vlasnik startupa i admin.
+    // Odsutno ili `null` = otključana.
+    lockedAt: v.optional(v.union(v.number(), v.null())),
+    lockedByProfileId: v.optional(v.union(v.id("profiles"), v.null())),
+    // Korpa (PROSTOR P3): ko je obrisao, i da li je stranica koren poteza
+    // (`root`, vidi se u Korpi) ili podstranica obrisana istim potezom
+    // (`descendant` + `archivedWithPageId`). Vraćanje briše sva četiri polja.
+    archivedByProfileId: v.optional(v.id("profiles")),
+    trashState: v.optional(trashStateValidator),
+    archivedWithPageId: v.optional(v.id("pages")),
+    trashDescendantCount: v.optional(v.number()),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_startupId_and_trashState_and_archivedAt", [
+      "startupId",
+      "trashState",
+      "archivedAt",
+    ])
     .index("by_areaId_and_kind_and_parentPageId_and_archivedAt_and_position", [
       "areaId",
       "kind",
@@ -455,6 +483,11 @@ export default defineSchema({
     category: pageFileCategoryValidator,
     position: v.number(),
     uploadedByProfileId: v.id("profiles"),
+    // Korpa (PROSTOR P3/P19): uklonjen prilog je `root` u Korpi; blob ostaje.
+    // Prilog koji je `prune` sklonio iz beleške ima `archivedAt` bez
+    // `trashState` (nije u Korpi, vraća ga „Vrati ovu verziju").
+    archivedByProfileId: v.optional(v.id("profiles")),
+    trashState: v.optional(trashStateValidator),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -463,6 +496,11 @@ export default defineSchema({
       "pageId",
       "archivedAt",
       "position",
+    ])
+    .index("by_startupId_and_trashState_and_archivedAt", [
+      "startupId",
+      "trashState",
+      "archivedAt",
     ])
     .index("by_storageId", ["storageId"]),
 
@@ -680,6 +718,14 @@ export default defineSchema({
     convertedAt: v.union(v.number(), v.null()),
     // Poruka iz koje je ideja nastala (chat „Pretvori u…", 04-CHAT.md 5c).
     sourceMessageId: v.optional(v.id("chatMessages")),
+    // Korpa (PROSTOR P3): obrisana ideja je uvek `root`.
+    archivedByProfileId: v.optional(v.id("profiles")),
+    trashState: v.optional(trashStateValidator),
+    // Faza (PROSTOR P6): odsutno = `predlog`; menjaju je autor, vlasnik
+    // startupa i admin (`ideas.setStage`).
+    stage: v.optional(ideaStageValidator),
+    stageChangedAt: v.optional(v.number()),
+    stageChangedByProfileId: v.optional(v.id("profiles")),
     archivedAt: v.union(v.number(), v.null()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -688,6 +734,18 @@ export default defineSchema({
       "startupId",
       "archivedAt",
       "updatedAt",
+    ])
+    .index("by_startupId_and_trashState_and_archivedAt", [
+      "startupId",
+      "trashState",
+      "archivedAt",
+    ])
+    // „Čeka tebe" (PROSTOR P22): ideje u fazi „Razmatra se", najnovije prvo.
+    .index("by_startupId_and_stage_and_archivedAt_and_stageChangedAt", [
+      "startupId",
+      "stage",
+      "archivedAt",
+      "stageChangedAt",
     ])
     .index("by_parentIdeaId_and_archivedAt", [
       "parentIdeaId",
@@ -779,6 +837,11 @@ export default defineSchema({
       ),
     ),
     archivedAt: v.union(v.number(), v.null()),
+    // PROSTOR (K04): komentar. Pomenuti aktivni članovi (≤ 20, bez autora i
+    // duplikata — server filtrira) i trenutak poslednje izmene TEKSTA (odsutno =
+    // nikad menjan; `updatedAt` se pomera i pri moderaciji i vraćanju).
+    mentionProfileIds: v.optional(v.array(v.id("profiles"))),
+    editedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -864,6 +927,9 @@ export default defineSchema({
       v.literal("approve"),
       v.literal("reject"),
       v.literal("excused"),
+      // PROSTOR P4: glasanje je ugašeno; `migrations.closeLegacyRequests`
+      // otvorene listiće zatvara ovom vrednošću.
+      v.literal("cancelled"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1269,6 +1335,21 @@ export default defineSchema({
       v.literal("content_recovered"),
       v.literal("content_soft_deleted"),
       v.literal("member_password_changed"),
+      // PROSTOR (K02): nove radnje čuvaju `title` = naslov objekta, a rečenicu
+      // gradi shared `formatActivity`.
+      v.literal("page_locked"),
+      v.literal("page_unlocked"),
+      v.literal("revision_restored"),
+      // PROSTOR (K03): Korpa.
+      v.literal("page_restored"),
+      v.literal("idea_archived"),
+      v.literal("idea_restored"),
+      // PROSTOR (K04): komentar (`title` = naslov stavke, `detail` = isečak).
+      v.literal("comment_created"),
+      // PROSTOR (K05): faza ideje (`title` = naslov ideje, `detail` = naziv faze).
+      v.literal("idea_stage_changed"),
+      // PROSTOR (K06): „Sredi rokove” (`detail` = „N zadataka → oznaka”).
+      v.literal("tasks_rescheduled"),
     ),
     targetType: v.union(
       v.literal("startup"),
@@ -1279,6 +1360,7 @@ export default defineSchema({
       v.literal("contribution"),
       v.literal("request"),
       v.literal("recovered"),
+      v.literal("area"),
     ),
     targetId: v.string(),
     title: v.string(),
@@ -1290,6 +1372,50 @@ export default defineSchema({
       "actorProfileId",
       "createdAt",
     ]),
+
+  // --- Istorija izmena i prisustvo (PROSTOR P2, P23) ------------------------
+  //
+  // Snimak naslova i sadržaja POSLE izmene, za stranice, opis oblasti i ideje.
+  // Pre prve izmene upisuje se bazna revizija (zatečeno stanje). Izmene istog
+  // autora u roku od 10 minuta se spajaju u jednu reviziju; „Vrati ovu verziju"
+  // pravi NOVU reviziju. Ništa se ne briše.
+  contentRevisions: defineTable({
+    startupId: v.id("startups"),
+    targetKind: v.union(v.literal("page"), v.literal("area"), v.literal("idea")),
+    targetId: v.string(),
+    /** `contributionTargetKey(targetKind, targetId)`. */
+    targetKey: v.string(),
+    kind: v.union(
+      v.literal("baseline"),
+      v.literal("edit"),
+      v.literal("restore"),
+    ),
+    /** `null` = zatečeno stanje bez poznatog autora. */
+    authorProfileId: v.union(v.id("profiles"), v.null()),
+    /** Oblast: njen naziv u trenutku izmene. */
+    title: v.union(v.string(), v.null()),
+    content: v.string(),
+    /** Samo zadaci. */
+    instructions: v.optional(v.union(v.string(), v.null())),
+    /** `pages.revision` / `areaBodies.revision` posle izmene; ideja `null`. */
+    targetRevision: v.union(v.number(), v.null()),
+    restoredFromId: v.optional(v.id("contentRevisions")),
+    createdAt: v.number(),
+    /** Pomera se pri spajanju (10 min). */
+    updatedAt: v.number(),
+  }).index("by_targetKey_and_updatedAt", ["targetKey", "updatedAt"]),
+
+  // „<Ime> uređuje" — isti obrazac kao `chatPresence`: klijent šalje otkucaje,
+  // upit vraća `expiresAt`, a klijent sam odbacuje istekle (upit ne čita sat).
+  pagePresence: defineTable({
+    startupId: v.id("startups"),
+    pageId: v.id("pages"),
+    profileId: v.id("profiles"),
+    editing: v.boolean(),
+    /** `Date.now() + PAGE_PRESENCE_TTL_MS`; `0` = napustio stranicu. */
+    expiresAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_pageId_and_profileId", ["pageId", "profileId"]),
 
   // --- Chat (docs/mobile/04-CHAT.md) --------------------------------------
 

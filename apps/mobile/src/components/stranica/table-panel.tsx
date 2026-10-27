@@ -115,7 +115,7 @@ export function TablePanel({ pageId }: { pageId: Id<'pages'> }) {
     return (
       <View style={styles.flex}>
         <EmptyState
-          icon={<Table2 size={40} color={colors.mutedForeground} />}
+          icon={<Table2 size={20} color={colors.mutedForeground} />}
           title="Tabela nema kolona"
           description={
             canEditStructure

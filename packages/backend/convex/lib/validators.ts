@@ -24,6 +24,42 @@ export const pageFileCategoryValidator = v.union(
   v.literal("document"),
 );
 
+/** Korpa: najviše stavki po strani `trash.list`. */
+export const TRASH_PAGE_MAX = 50;
+/** Korpa: brojevi segmenata se seku ovde („99+"). */
+export const TRASH_COUNT_CAP = 99;
+/** Korpa › Oporavljeno: najviše sačuvanih priloga po stavci u listi. */
+export const TRASH_RECOVERED_CONTRIBUTIONS = 20;
+
+/**
+ * Korpa (PROSTOR P3): `root` je stavka koju je neko obrisao (vidi se u Korpi),
+ * `descendant` je podstranica obrisana istim potezom (vraća se sa korenom).
+ * Odsutno polje = nije u Korpi (aktivno ili arhivirano pre Korpe — D2).
+ */
+export const trashStateValidator = v.union(
+  v.literal("root"),
+  v.literal("descendant"),
+);
+
+/**
+ * Sačuvana faza ideje (PROSTOR P6). Odsutno polje = `predlog`; „Postalo
+ * zadatak" se ne čuva — izvodi se iz `convertedPageId` (`lib/idea_stages.ts`).
+ */
+export const ideaStageValidator = v.union(
+  v.literal("predlog"),
+  v.literal("razmatra_se"),
+  v.literal("odobreno"),
+  v.literal("odbijeno"),
+);
+
+/** „Čeka tebe" (`inbox.pending`, `idea_vote`): ideja čeka moj glas. */
+export const inboxPendingIncludeValidator = v.literal("idea_vote");
+/**
+ * Glasova po ideji koje „Čeka tebe" broji (tim ima 10–15 ljudi, jedan glas po
+ * profilu); preko granice broj staje.
+ */
+export const INBOX_IDEA_VOTE_COUNT_CAP = 200;
+
 export const taskStatusValidator = v.union(
   v.literal("backlog"),
   v.literal("next"),
@@ -54,16 +90,37 @@ export const notificationTypeValidator = v.union(
   v.literal("chat_message"),
   v.literal("chat_mention"),
   v.literal("chat_dm"),
+  // Komentari (PROSTOR P5, K04): mapirani na postojeće kanale `mention` i `channel`.
+  v.literal("comment_mention"),
+  v.literal("comment_added"),
 );
 
-/** Kuda vodi klik na obaveštenje. `chat` vodi na kanal (targetId je channelId). */
+/**
+ * Kuda vodi klik na obaveštenje. `chat` vodi na kanal (targetId je channelId),
+ * `area` na oblast (targetId je areaId; do ekrana oblasti klijenti padaju na
+ * Komandni centar), `ideas` na ideju kad nosi ideaId.
+ */
 export const notificationTargetTypeValidator = v.union(
   v.literal("page"),
   v.literal("ideas"),
   v.literal("approvals"),
   v.literal("puls"),
   v.literal("chat"),
+  v.literal("area"),
 );
+
+/** Komentari: najviše pominjanja po komentaru (shared `MAX_COMMENT_MENTIONS`). */
+export const MAX_COMMENT_MENTIONS = 20;
+/** Komentari: najduži tekst jednog komentara. */
+export const COMMENT_MAX_LENGTH = 20_000;
+/** Komentari: broj u listama se seče ovde („20+"). */
+export const COMMENT_COUNT_CAP = 20;
+/** Komentari: najviše ciljeva u jednom `comments.countFor` pozivu. */
+export const COMMENT_COUNT_TARGETS_MAX = 100;
+/** Komentari: koliko traje „Poništi" posle uklanjanja. */
+export const COMMENT_UNDO_MS = 8_000;
+/** Komentari: najviše redova po strani `comments.list` (klijenti traže 20–50). */
+export const COMMENT_PAGE_MAX = 100;
 
 // --- Chat (docs/mobile/04-CHAT.md) ---------------------------------------
 
@@ -212,6 +269,11 @@ export const MY_SCOPE_STARTUP_CAP = 20;
 /** Gornja granica `tasks.listEverywhere`; podrazumevano 100. */
 export const TASKS_EVERYWHERE_MAX = 200;
 export const TASKS_EVERYWHERE_STATUS_CAP = 60;
+/** „Sredi rokove”: najviše zadataka u jednoj mutaciji (PROSTOR P10). */
+export const BULK_RESCHEDULE_MAX = 50;
+/** „Nedavne izmene u oblasti” (`pages.recentForArea`): podrazumevano i najviše. */
+export const RECENT_AREA_PAGES_DEFAULT = 10;
+export const RECENT_AREA_PAGES_MAX = 20;
 /** Koliko završenih `listEverywhere({ scope: "all" })` dodaje uz otvorene. */
 export const TASKS_EVERYWHERE_DONE_IN_ALL = 50;
 
@@ -295,6 +357,10 @@ export const taskItemValidator = v.object({
   createdByProfileId: v.id("profiles"),
   isCreator: v.boolean(),
   isAssignee: v.boolean(),
+  /** PROSTOR P1: zadatak je zaključan. Opciono zbog starih fixture-a. */
+  isLocked: v.optional(v.boolean()),
+  /** Zaključan, a gledalac nije autor, vlasnik startupa ni admin. */
+  lockedForViewer: v.optional(v.boolean()),
   createdAt: v.number(),
   updatedAt: v.number(),
   startup: startupMiniValidator,
@@ -389,6 +455,8 @@ export const pageSummaryValidator = v.object({
   completedAt: v.optional(v.union(v.number(), v.null())),
   createdByProfileId: v.id("profiles"),
   updatedByProfileId: v.id("profiles"),
+  /** PROSTOR P1; `summarizePage` uvek šalje broj ili `null`. */
+  lockedAt: v.optional(v.union(v.number(), v.null())),
   archivedAt: v.union(v.number(), v.null()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -413,6 +481,11 @@ export const pageDocumentValidator = pageSummaryValidator.extend({
   tableRowCount: v.optional(v.number()),
   tableColumnCount: v.optional(v.number()),
   sourceMessageId: v.optional(v.id("chatMessages")),
+  lockedByProfileId: v.optional(v.union(v.id("profiles"), v.null())),
+  archivedByProfileId: v.optional(v.id("profiles")),
+  trashState: v.optional(trashStateValidator),
+  archivedWithPageId: v.optional(v.id("pages")),
+  trashDescendantCount: v.optional(v.number()),
 });
 
 export const startupDocumentValidator = v.object({
@@ -438,10 +511,10 @@ export const startupAreaDocumentValidator = v.object({
 });
 
 export const AREA_DEFINITIONS = [
-  { key: "dev", label: "Dev notes", position: 0 },
-  { key: "marketing", label: "Marketing notes", position: 1 },
-  { key: "sales", label: "Sales notes", position: 2 },
-  { key: "other", label: "Other notes", position: 3 },
+  { key: "dev", label: "Razvoj", position: 0 },
+  { key: "marketing", label: "Marketing", position: 1 },
+  { key: "sales", label: "Prodaja", position: 2 },
+  { key: "other", label: "Ostalo", position: 3 },
 ] as const;
 
 export function boundedLimit(value: number | undefined, fallback: number, max: number) {

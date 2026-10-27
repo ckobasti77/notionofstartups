@@ -12,7 +12,6 @@ import {
   BackgroundVariant,
   ConnectionMode,
   Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
@@ -32,23 +31,31 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
   Blocks,
-  CheckSquare2,
-  FileText,
   LayoutGrid,
-  Link2,
-  LoaderCircle,
   Plus,
   Redo2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  MAP_FRAME_CLASS,
+  MapEmptyState,
+  MapHistoryButtons,
+  MapStatusBar,
+} from "@/components/map/map-chrome";
+import {
+  mapPageCard,
+  planMapDrop,
+  type MapDropNode,
+} from "@/components/map/map-model";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { nestedMessage } from "@/components/workspace/area/area-model";
 import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
 import {
   AreaFlowNodeCard,
   AreaNodeActionsProvider,
-  type AreaCanvasNodeData,
   type AreaFlowNode,
 } from "@/components/workspace/canvases/area-flow-node";
 import {
@@ -62,21 +69,27 @@ import {
 import {
   TaskCheckpointFlowNodeCard,
   TaskCheckpointNodeActionsProvider,
-  type TaskCheckpointFlowNodeData,
   type TaskCheckpointFlowNode,
 } from "@/components/workspace/canvases/task-checkpoint-flow-node";
 import styles from "@/components/workspace/canvases/connected-canvas.module.css";
 import { selectNestingDropTarget } from "@/components/workspace/canvases/nesting-drop";
 import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
-import { useCanvasNavigation } from "@/components/workspace/canvases/use-canvas-navigation";
-import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
-import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 import {
-  AREA_ICONS,
-  getAreaTint,
-} from "@/components/workspace/workspace-ui";
+  useCanvasNavigation,
+  useMapActivation,
+} from "@/components/workspace/canvases/use-canvas-navigation";
+import { PagePeek } from "@/components/workspace/page-peek";
+import { useQueryTolerant } from "@/components/workspace/workspace-error-boundary";
+import { ThoughtEdge } from "@/components/workspace/thoughts/thought-edge";
+import {
+  isEditableTarget,
+  useWorkspaceHistory,
+} from "@/components/workspace/workspace-history";
+import { AREA_ICONS } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { PAGE_NODE_SIZE } from "@/lib/canvas-node-size";
+import { accessErrorMessage } from "@/lib/errors";
 import {
   PAGE_KIND_KEYS,
   PAGE_KIND_META,
@@ -104,6 +117,11 @@ export type AreaCanvasViewProps = {
   onOpenCanvas: (pageId: Id<"pages">) => void;
   onOpenDetails: (pageId: Id<"pages">) => void;
   onCreatePage: (kind: PageKind) => void;
+  /**
+   * „Pregled" zadatka otvara panel zadatka (LICNO, K07 §7) kad ga roditelj
+   * nudi; bez njega i zadatak ide u fioku Pregled.
+   */
+  onOpenTask?: (pageId: Id<"pages">, title: string) => void;
   layout?: "standard" | "task-focus";
 };
 
@@ -165,8 +183,8 @@ const NODE_TYPES = {
   taskCheckpoint: TaskCheckpointFlowNodeCard,
 };
 const EDGE_TYPES = { default: ThoughtEdge };
-const GHOST_WIDTH = 288;
-const GHOST_HEIGHT = 196;
+/** `pages.childCounts` prima najviše 50 roditelja (granica servera). */
+const CHILD_COUNT_PARENTS_MAX = 50;
 
 function isTaskCheckpointNode(
   node: CanvasFlowNode,
@@ -221,7 +239,7 @@ function adaptEdgeHandles(
 
 const SERBIAN_ARIA_LABELS = {
   "node.a11yDescription.default":
-    "Pritisni Enter ili Space da izabereš karticu, zatim Tab za njene akcije. Strelicama je pomeraš kada je pomeranje dozvoljeno.",
+    "Pritisni Enter ili Space da izabereš karticu, pa još jednom Enter za njene radnje. Strelicama je pomeraš kada je pomeranje dozvoljeno.",
   "node.a11yDescription.keyboardDisabled":
     "Ova kartica se ne može pomerati tastaturom.",
   "node.a11yDescription.ariaLiveMessage": ({
@@ -236,12 +254,11 @@ const SERBIAN_ARIA_LABELS = {
     `Kartica je pomerena ${direction}. Nova pozicija je ${Math.round(x)}, ${Math.round(y)}.`,
   "edge.a11yDescription.default":
     "Pritisni Enter ili Space da izabereš vezu.",
-  "controls.ariaLabel": "Kontrole kanvasa poslovne oblasti",
+  "controls.ariaLabel": "Kontrole mape",
   "controls.zoomIn.ariaLabel": "Uvećaj prikaz",
   "controls.zoomOut.ariaLabel": "Umanji prikaz",
-  "controls.fitView.ariaLabel": "Prikaži sve kartice",
+  "controls.fitView.ariaLabel": "Uklopi sve kartice",
   "controls.interactive.ariaLabel": "Uključi ili isključi interakciju",
-  "minimap.ariaLabel": "Minimapa poslovne oblasti",
   "handle.ariaLabel": "Tačka za povezivanje kartica",
 } as const;
 
@@ -266,6 +283,7 @@ function AreaCanvasBody({
   onOpenCanvas,
   onOpenDetails,
   onCreatePage,
+  onOpenTask,
   layout = "standard",
 }: AreaCanvasViewProps) {
   const canvasData = useQuery(api.areasV2.getCanvas, {
@@ -276,23 +294,18 @@ function AreaCanvasBody({
 
   if (canvasData === undefined) {
     return (
-      <div
-        className={cn(
-          "grid place-items-center overflow-hidden rounded-3xl border border-border/70 bg-muted/20",
-          layout === "task-focus"
-            ? "min-h-[28rem]"
-            : "h-[min(72vh,52rem)] min-h-[32rem]",
-        )}
-        style={
-          layout === "task-focus"
-            ? { height: "clamp(28rem, calc(100dvh - 12rem), 56rem)" }
-            : undefined
-        }
-      >
-        <div className="text-center text-sm font-medium text-muted-foreground">
-          <LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary motion-reduce:animate-none" />
-          Otvaram kanvas oblasti…
-        </div>
+      <div role="status" aria-label="Učitavam mapu">
+        <Skeleton
+          className={cn(
+            "rounded-lg",
+            layout === "task-focus" ? "min-h-[28rem]" : "h-[min(72vh,52rem)] min-h-[32rem]",
+          )}
+          style={
+            layout === "task-focus"
+              ? { height: "clamp(28rem, calc(100dvh - 12rem), 56rem)" }
+              : undefined
+          }
+        />
       </div>
     );
   }
@@ -312,6 +325,7 @@ function AreaCanvasBody({
       onOpenCanvas={onOpenCanvas}
       onOpenDetails={onOpenDetails}
       onCreatePage={onCreatePage}
+      onOpenTask={onOpenTask}
       layout={layout}
     />
   );
@@ -336,6 +350,7 @@ function AreaCanvasReady({
   onOpenCanvas,
   onOpenDetails,
   onCreatePage,
+  onOpenTask,
   layout = "standard",
 }: AreaCanvasReadyProps) {
   const flowRef =
@@ -350,9 +365,11 @@ function AreaCanvasReady({
   const nestingTargetIdRef = useRef<string | null>(null);
   const viewportInitialized = useRef(false);
   const checkpointFitKeyRef = useRef("");
-  const [pendingTimestamp] = useState(() => Date.now());
+  // Sat za „pre N" na karticama: jednom po otvaranju Mape.
+  const [now] = useState(() => Date.now());
   const [expandedTaskId, setExpandedTaskId] =
     useState<Id<"pages"> | null>(null);
+  const [peekPageId, setPeekPageId] = useState<Id<"pages"> | null>(null);
   const movePages = useMutation(api.areasV2.movePages);
   const resizePage = useMutation(api.areasV2.resizePage);
   const resetPageSize = useMutation(api.areasV2.resetPageSize);
@@ -360,6 +377,7 @@ function AreaCanvasReady({
   const connectPages = useMutation(api.areasV2.connectPages);
   const disconnectPages = useMutation(api.areasV2.disconnectPages);
   const requestNesting = useMutation(api.areasV2.requestNesting);
+  const movePage = useMutation(api.areasV2.movePage);
   const createRelation = useMutation(api.areasV2.createRelation);
   const deleteRelation = useMutation(api.areasV2.deleteRelation);
   const connectCheckpointEdge = useMutation(
@@ -368,7 +386,6 @@ function AreaCanvasReady({
   const disconnectCheckpointEdge = useMutation(
     api.taskCheckpointCanvasEdges.disconnect,
   );
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const saveCheckpointPlacement = useMutation(
     api.taskCheckpoints.saveCanvasPlacement,
   );
@@ -382,7 +399,38 @@ function AreaCanvasReady({
       ? rootPageId
       : null;
   const visibleCheckpointTaskId = ownTaskPageId ?? expandedTaskId;
-  const taskCheckpoints = useQuery(
+  // Broj podstranica na karticama (prvih 50 kartica; ostale bez broja).
+  const childCountParentIds = useMemo(
+    () =>
+      canvasData.pages
+        .slice(0, CHILD_COUNT_PARENTS_MAX)
+        .map((page) => page._id),
+    [canvasData.pages],
+  );
+  const childCountsKey = childCountParentIds.join(",");
+  const childCountArgs = useMemo(
+    () => ({
+      startupId,
+      areaId,
+      parentPageIds: childCountsKey === ""
+        ? []
+        : (childCountsKey.split(",") as Id<"pages">[]),
+    }),
+    [areaId, childCountsKey, startupId],
+  );
+  const childCounts = useQueryTolerant(
+    api.pages.childCounts,
+    childCountArgs.parentPageIds.length === 0 ? "skip" : childCountArgs,
+  );
+  const childCountById = useMemo(
+    () =>
+      new Map(
+        (childCounts ?? []).map((entry) => [entry.pageId, entry] as const),
+      ),
+    [childCounts],
+  );
+  // Koraci i broj podstranica su dopuna kartica: njihova greška ne obara Mapu.
+  const taskCheckpoints = useQueryTolerant(
     api.taskCheckpoints.listForTask,
     visibleCheckpointTaskId === null
       ? "skip"
@@ -395,93 +443,43 @@ function AreaCanvasReady({
   const incomingNodes = useMemo<CanvasFlowNode[]>(() => {
     const acceptsKind = (kind: PageKind) =>
       filter === "all" || filter === kind;
-    const directPageIds = new Set(canvasData.pages.map((page) => page._id));
-
     const pageNodes = canvasData.pages
       .filter((page) => acceptsKind(page.kind))
-      .map<AreaFlowNode>((page) => ({
-        id: page._id,
-        type: "areaPage",
-        position: { x: page.x, y: page.y },
-        width: page.width,
-        height: page.height,
-        style: { width: page.width, height: page.height },
-        data: {
-          title: page.title,
-          text: page.text,
-          kind: page.kind,
-          taskStatus: page.taskStatus,
-          taskPriority: page.taskPriority,
-          dueDate: page.dueDate,
-          assignees: page.assignees,
-          creatorName: page.creator?.displayName ?? "Član tima",
-          creatorAvatarUrl: page.creator?.avatarUrl ?? null,
-          updatedAt: page.updatedAt,
-          checkpointTotal: page.checkpointTotal,
-          checkpointCompleted: page.checkpointCompleted,
-          fileCount: page.fileCount,
-          fileCategory: page.fileCategory,
-          filePreviewUrl: page.filePreviewUrl,
-          tableRowCount: page.tableRowCount,
-          tableColumnCount: page.tableColumnCount,
-          checkpointsExpanded:
-            ownTaskPageId === null &&
-            expandedTaskId === page._id &&
-            page.checkpointTotal > 0,
-          canMove: page.canMove,
-          canResize: page.canResize,
-          canDetach: page.canDetach,
-          pendingNesting: false,
-          nestingTarget: false,
-        },
-        draggable: page.canMove,
-        connectable: true,
-        deletable: false,
-        ariaLabel: `${pageKindMeta(page.kind).label}: ${page.title}`,
-      }));
-
-    const ghostNodes = canvasData.ghosts
-      .filter(
-        (ghost) =>
-          !directPageIds.has(ghost.pageId) && acceptsKind(ghost.kind),
-      )
-      .map<AreaFlowNode>((ghost) => ({
-        id: ghost.pageId,
-        type: "areaPage",
-        position: { x: ghost.x, y: ghost.y },
-        width: GHOST_WIDTH,
-        height: GHOST_HEIGHT,
-        style: { width: GHOST_WIDTH, height: GHOST_HEIGHT },
-        data: {
-          title: ghost.title,
-          text: "Predloženo ugnežđavanje u ovaj kanvas.",
-          kind: ghost.kind,
-          taskStatus: null,
-          taskPriority: null,
-          dueDate: null,
-          assignees: [],
-          creatorName: ghost.requester?.displayName ?? "Član tima",
-          creatorAvatarUrl: ghost.requester?.avatarUrl ?? null,
-          updatedAt: pendingTimestamp,
-          checkpointTotal: 0,
-          checkpointCompleted: 0,
-          fileCount: 0,
-          fileCategory: null,
-          filePreviewUrl: null,
-          tableRowCount: 0,
-          tableColumnCount: 0,
-          checkpointsExpanded: false,
-          canMove: false,
-          canResize: false,
-          canDetach: false,
-          pendingNesting: true,
-          nestingTarget: false,
-        },
-        draggable: false,
-        connectable: false,
-        deletable: false,
-        ariaLabel: `${pageKindMeta(ghost.kind).label}: ${ghost.title}. Čeka odobrenje za ugnežđavanje.`,
-      }));
+      .map<AreaFlowNode>((page) => {
+        const card = mapPageCard(
+          {
+            ...page,
+            creatorName: page.creator?.displayName ?? null,
+          },
+          now,
+          childCountById.get(page._id) ?? null,
+        );
+        return {
+          id: page._id,
+          type: "areaPage",
+          position: { x: page.x, y: page.y },
+          width: page.width,
+          height: page.height,
+          style: { width: page.width, height: page.height },
+          data: {
+            card,
+            kind: page.kind,
+            checkpointTotal: page.checkpointTotal,
+            checkpointsExpanded:
+              ownTaskPageId === null &&
+              expandedTaskId === page._id &&
+              page.checkpointTotal > 0,
+            canMove: page.canMove,
+            canResize: page.canResize,
+            canDetach: page.canDetach,
+            nestingTarget: false,
+          },
+          draggable: page.canMove,
+          connectable: true,
+          deletable: false,
+          ariaLabel: `${card.kindLabel}: ${card.title}${card.locked ? ", zaključano" : ""}`,
+        };
+      });
 
     const visibleTaskNode = pageNodes.find(
       (node) => node.id === visibleCheckpointTaskId,
@@ -511,10 +509,10 @@ function AreaCanvasReady({
                 : {
                     x:
                       taskNode.position.x +
-                      (taskNode.width ?? GHOST_WIDTH) / 2,
+                      (taskNode.width ?? PAGE_NODE_SIZE.defaultWidth) / 2,
                     y:
                       taskNode.position.y +
-                      (taskNode.height ?? GHOST_HEIGHT) / 2,
+                      (taskNode.height ?? PAGE_NODE_SIZE.defaultHeight) / 2,
                   };
             const defaultPosition = taskCheckpointOrbitPosition({
               index,
@@ -524,8 +522,8 @@ function AreaCanvasReady({
                 taskNode === undefined
                   ? { width: 176, height: 136 }
                   : {
-                      width: taskNode.width ?? GHOST_WIDTH,
-                      height: taskNode.height ?? GHOST_HEIGHT,
+                      width: taskNode.width ?? PAGE_NODE_SIZE.defaultWidth,
+                      height: taskNode.height ?? PAGE_NODE_SIZE.defaultHeight,
                     },
             });
             return {
@@ -542,6 +540,7 @@ function AreaCanvasReady({
               style: { width, height },
               data: {
                 checkpointId: checkpoint._id,
+                startupId,
                 ordinal,
                 text: checkpoint.text,
                 completed: checkpoint.completed,
@@ -554,12 +553,11 @@ function AreaCanvasReady({
                 canResize: checkpoint.canMove,
                 manuallySized,
                 canDeleteDirectly: checkpoint.canDeleteDirectly,
-                canRequestDeletion: checkpoint.canRequestDeletion,
               },
               draggable: checkpoint.canMove,
               connectable: true,
               deletable: false,
-              ariaLabel: `Checkpoint broj ${ordinal}: ${checkpoint.text}. ${
+              ariaLabel: `Korak ${ordinal}: ${checkpoint.text}. ${
                 checkpoint.completed
                   ? "Završen"
                   : checkpoint.locked
@@ -569,14 +567,15 @@ function AreaCanvasReady({
             };
           });
 
-    return [...pageNodes, ...ghostNodes, ...checkpointNodes];
+    return [...pageNodes, ...checkpointNodes];
   }, [
-    canvasData.ghosts,
     canvasData.pages,
+    childCountById,
     expandedTaskId,
     filter,
+    now,
     ownTaskPageId,
-    pendingTimestamp,
+    startupId,
     taskCheckpoints,
     visibleCheckpointTaskId,
   ]);
@@ -596,7 +595,7 @@ function AreaCanvasReady({
         type: "default",
         label: edge.label ?? undefined,
         interactionWidth: 22,
-        deletable: edge.canDelete || edge.canRequestDeletion,
+        deletable: edge.canDelete,
         data: {
           backendId: edge._id,
           kind: edge.kind,
@@ -632,7 +631,7 @@ function AreaCanvasReady({
           target: targetNodeId,
           type: "default",
           interactionWidth: 22,
-          deletable: edge.canDelete || edge.canRequestDeletion,
+          deletable: edge.canDelete,
           data: {
             backendId: edge._id,
             kind: "checkpoint",
@@ -645,8 +644,8 @@ function AreaCanvasReady({
             ? { strokeDasharray: "7 6" }
             : undefined,
           ariaLabel: connectsPage
-            ? "Veza između checkpointa i kartice"
-            : "Veza između dva checkpointa",
+            ? "Veza između koraka i kartice"
+            : "Veza između dva koraka",
         };
       });
     return [...pageEdges, ...checkpointEdges];
@@ -667,6 +666,12 @@ function AreaCanvasReady({
   });
   const colorMode = useCanvasColorMode();
   const canvasNavigation = useCanvasNavigation();
+  const {
+    ref: mapRef,
+    active: mapActive,
+    handlers: mapActivationHandlers,
+    deactivate: deactivateMap,
+  } = useMapActivation();
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -706,7 +711,7 @@ function AreaCanvasReady({
       void instance.fitView({
         nodes: visibleNodes,
         padding: 0.22,
-        maxZoom: 1.15,
+        maxZoom: 1,
         duration: reduceMotion ? 0 : 260,
       });
     }, 0);
@@ -739,9 +744,7 @@ function AreaCanvasReady({
       if (isTaskCheckpointNode(dragged)) return null;
       const movableNodes = draggedNodes.filter(
         (node): node is AreaFlowNode =>
-          !isTaskCheckpointNode(node) &&
-          node.data.canMove &&
-          !node.data.pendingNesting,
+          !isTaskCheckpointNode(node) && node.data.canMove,
       );
       if (movableNodes.length !== 1 || movableNodes[0].id !== dragged.id) {
         return null;
@@ -752,9 +755,7 @@ function AreaCanvasReady({
       return selectNestingDropTarget(
         dragged,
         intersections.filter(
-          (node): node is AreaFlowNode =>
-            !isTaskCheckpointNode(node) &&
-            !node.data.pendingNesting,
+          (node): node is AreaFlowNode => !isTaskCheckpointNode(node),
         ),
         excludedIds,
       );
@@ -817,27 +818,20 @@ function AreaCanvasReady({
       flowRef.current = instance;
       if (viewportInitialized.current) return;
       viewportInitialized.current = true;
-      if (
-        !canvasData.viewport.persisted &&
-        canvasData.pages.length + canvasData.ghosts.length > 0
-      ) {
+      if (!canvasData.viewport.persisted && canvasData.pages.length > 0) {
         const reduceMotion = window.matchMedia(
           "(prefers-reduced-motion: reduce)",
         ).matches;
         window.setTimeout(() => {
           void instance.fitView({
             padding: 0.24,
-            maxZoom: 1.05,
+            maxZoom: 1,
             duration: reduceMotion ? 0 : 260,
           });
         }, 0);
       }
     },
-    [
-      canvasData.ghosts.length,
-      canvasData.pages.length,
-      canvasData.viewport.persisted,
-    ],
+    [canvasData.pages.length, canvasData.viewport.persisted],
   );
 
   const handleNodesChange = useCallback(
@@ -884,9 +878,7 @@ function AreaCanvasReady({
           y: move.y,
         }).catch((error) =>
           toast.error(
-            error instanceof Error
-              ? error.message
-              : "Pozicija checkpointa nije sačuvana.",
+            accessErrorMessage(error, "Pozicija koraka nije sačuvana."),
           ),
         );
       }
@@ -901,8 +893,7 @@ function AreaCanvasReady({
           !updated ||
           isTaskCheckpointNode(previous) ||
           isTaskCheckpointNode(updated) ||
-          !previous.data.canMove ||
-          previous.data.pendingNesting
+          !previous.data.canMove
         ) {
           return [];
         }
@@ -982,9 +973,7 @@ function AreaCanvasReady({
             }),
           );
           toast.error(
-            error instanceof Error
-              ? error.message
-              : "Pomeranje tastaturom nije sačuvano.",
+            accessErrorMessage(error, "Pomeranje tastaturom nije sačuvano."),
           );
         });
     },
@@ -1037,16 +1026,7 @@ function AreaCanvasReady({
       const targetNode = nodes.find(
         (node) => node.id === connection.target,
       );
-      if (
-        !sourceNode ||
-        !targetNode ||
-        (!isTaskCheckpointNode(sourceNode) &&
-          sourceNode.data.pendingNesting) ||
-        (!isTaskCheckpointNode(targetNode) &&
-          targetNode.data.pendingNesting)
-      ) {
-        return;
-      }
+      if (!sourceNode || !targetNode) return;
 
       if (
         isTaskCheckpointNode(sourceNode) ||
@@ -1120,7 +1100,7 @@ function AreaCanvasReady({
             ),
           );
           pushHistory({
-            label: "povezivanje checkpointa",
+            label: "povezivanje koraka",
             undo: () =>
               disconnectCheckpointEdge({
                 startupId,
@@ -1140,17 +1120,15 @@ function AreaCanvasReady({
           });
           toast.success(
             connectsPage
-              ? "Checkpoint i kartica su povezani."
-              : "Checkpointi su povezani.",
+              ? "Korak i kartica su povezani."
+              : "Koraci su povezani.",
           );
         } catch (error) {
           setEdges((current) =>
             current.filter((edge) => edge.id !== temporaryId),
           );
           toast.error(
-            error instanceof Error
-              ? error.message
-              : "Checkpoint veza nije sačuvana.",
+            accessErrorMessage(error, "Veza koraka nije sačuvana."),
           );
         }
         return;
@@ -1286,9 +1264,7 @@ function AreaCanvasReady({
           current.filter((edge) => edge.id !== temporaryId),
         );
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Veza nije sačuvana.",
+          accessErrorMessage(error, "Veza nije sačuvana."),
         );
       }
     },
@@ -1310,16 +1286,6 @@ function AreaCanvasReady({
 
   const handleEdgesDelete = useCallback(
     (deletedEdges: AreaFlowEdge[]) => {
-      const requestedEdges = deletedEdges.filter((edge) => {
-        const backendId = edge.data?.backendId;
-        return Boolean(
-          backendId &&
-            edge.deletable &&
-            !edge.data?.canDelete &&
-            edge.data?.canRequestDeletion &&
-            !edge.id.startsWith("pending:"),
-        );
-      });
       const records = deletedEdges.flatMap<DeletedEdgeRecord>((edge) => {
         const backendId = edge.data?.backendId;
         if (
@@ -1355,82 +1321,9 @@ function AreaCanvasReady({
           },
         ];
       });
-      if (records.length === 0 && requestedEdges.length === 0) return;
-
-      if (requestedEdges.length > 0) {
-        // React Flow invokes onEdgesDelete before its remove change. Restore
-        // request-only edges in a microtask so they remain visible while the
-        // owner decides about the request.
-        queueMicrotask(() => {
-          setEdges((current) => {
-            const currentIds = new Set(current.map((edge) => edge.id));
-            return [
-              ...current,
-              ...requestedEdges.filter(
-                (edge) => !currentIds.has(edge.id),
-              ),
-            ];
-          });
-        });
-      }
+      if (records.length === 0) return;
 
       void (async () => {
-        if (requestedEdges.length > 0) {
-          const requestResults = await Promise.allSettled(
-            requestedEdges.map((edge) => {
-              const backendId = edge.data?.backendId;
-              if (!backendId) {
-                return Promise.reject(new Error("Veza nije pronađena."));
-              }
-              if (edge.data?.kind === "checkpoint") {
-                return requestDeletion({
-                  target: {
-                    kind: "task_checkpoint_edge" as const,
-                    id: backendId as Id<"taskCheckpointCanvasEdges">,
-                  },
-                });
-              }
-              return requestDeletion({
-                target:
-                  edge.data?.kind === "canvas"
-                    ? {
-                        kind: "page_edge" as const,
-                        id: backendId as Id<"pageCanvasEdgesV2">,
-                      }
-                    : {
-                        kind: "page_relation" as const,
-                        id: backendId as Id<"pageRelations">,
-                      },
-              });
-            }),
-          );
-          const requestedCount = requestResults.filter(
-            (result) => result.status === "fulfilled",
-          ).length;
-          const failedCount = requestResults.length - requestedCount;
-          if (requestedCount > 0) {
-            toast.success(
-              requestedCount === 1
-                ? "Zahtev za uklanjanje veze je poslat na odobravanje."
-                : "Zahtevi za uklanjanje veza su poslati na odobravanje.",
-            );
-          }
-          if (failedCount > 0) {
-            const firstFailure = requestResults.find(
-              (result) => result.status === "rejected",
-            );
-            toast.error(
-              failedCount === 1 &&
-                firstFailure?.status === "rejected" &&
-                firstFailure.reason instanceof Error
-                ? firstFailure.reason.message
-                : failedCount === 1
-                  ? "Zahtev za uklanjanje veze nije poslat."
-                  : "Neki zahtevi za uklanjanje veza nisu poslati.",
-            );
-          }
-        }
-
         const removed: DeletedEdgeRecord[] = [];
         const failed: AreaFlowEdge[] = [];
 
@@ -1550,7 +1443,6 @@ function AreaCanvasReady({
       disconnectCheckpointEdge,
       disconnectPages,
       pushHistory,
-      requestDeletion,
       rootPageId,
       startupId,
     ],
@@ -1568,9 +1460,7 @@ function AreaCanvasReady({
         zoom: Number(next.zoom.toFixed(2)),
       }).catch((error) => {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Prikaz kanvasa nije sačuvan.",
+          accessErrorMessage(error, "Prikaz mape nije sačuvan."),
         );
       });
     },
@@ -1662,9 +1552,7 @@ function AreaCanvasReady({
             ),
           );
           toast.error(
-            error instanceof Error
-              ? error.message
-              : "Veličina checkpointa nije sačuvana.",
+            accessErrorMessage(error, "Veličina koraka nije sačuvana."),
           );
         });
     },
@@ -1693,7 +1581,7 @@ function AreaCanvasReady({
           width: layoutUpdate.width,
           height: layoutUpdate.height,
         },
-        "promena veličine checkpointa",
+        "promena veličine koraka",
       );
     },
     [persistCheckpointResize],
@@ -1733,21 +1621,148 @@ function AreaCanvasReady({
           ...dimensions,
         },
         preset === "expanded"
-          ? "proširivanje checkpointa"
-          : "smanjivanje checkpointa",
+          ? "proširivanje koraka"
+          : "smanjivanje koraka",
       );
     },
     [persistCheckpointResize],
   );
 
+  /**
+   * Ugnežđavanje je odmah (PROSTOR P4): toast „„X” je ugnežđeno u „Y”." sa
+   * „Poništi", a istorija Mape pamti korak. Poništi vraća karticu na ovu Mapu
+   * na isto mesto (stranica: `requestNesting` sa x/y; vrh oblasti: `movePage`
+   * pa `movePages`). Zaključan cilj odbija server (R6) — poruka ide u toast.
+   */
+  const nestPage = useCallback(
+    async (
+      childPageId: Id<"pages">,
+      targetParentPageId: Id<"pages">,
+      onFailure?: () => void,
+    ) => {
+      const child = canvasData.pages.find((page) => page._id === childPageId);
+      const target = canvasData.pages.find(
+        (page) => page._id === targetParentPageId,
+      );
+      const before = child
+        ? { pageId: child._id, x: Math.round(child.x), y: Math.round(child.y) }
+        : null;
+      // Server pri selidbi arhivira veze kartice na ovoj Mapi (i veze koraka);
+      // „Poništi" ih vraća. Relacije se ne diraju.
+      const ownEdges = canvasData.edges.filter(
+        (edge) => edge.source === childPageId || edge.target === childPageId,
+      );
+      const ownCheckpointEdges = (canvasData.checkpointEdges ?? []).filter(
+        (edge) =>
+          (edge.source.kind === "page" && edge.source.id === childPageId) ||
+          (edge.target.kind === "page" && edge.target.id === childPageId),
+      );
+      // Jedno stanje za toast i istoriju Mape: dvostruko poništavanje je no-op.
+      let nested = false;
+      const nestAgain = async () => {
+        await requestNesting({ startupId, childPageId, targetParentPageId });
+        nested = true;
+      };
+      const returnHere = async () => {
+        if (!nested) return;
+        nested = false;
+        if (rootPageId !== null) {
+          await requestNesting({
+            startupId,
+            childPageId,
+            targetParentPageId: rootPageId,
+            ...(before ? { x: before.x, y: before.y } : {}),
+          });
+        } else {
+          await movePage({
+            startupId,
+            pageId: childPageId,
+            targetAreaId: areaId,
+            targetParentPageId: null,
+          });
+          if (before) {
+            await movePages({ startupId, areaId, rootPageId: null, updates: [before] });
+          }
+        }
+        await Promise.allSettled([
+          ...ownEdges.map((edge) =>
+            connectPages({
+              startupId,
+              areaId,
+              rootPageId,
+              sourcePageId: edge.source,
+              targetPageId: edge.target,
+              ...(edge.label ? { label: edge.label } : {}),
+            }),
+          ),
+          ...ownCheckpointEdges.map((edge) =>
+            connectCheckpointEdge({
+              startupId,
+              areaId,
+              rootPageId,
+              source: edge.source,
+              target: edge.target,
+            }),
+          ),
+        ]);
+      };
+      try {
+        await nestAgain();
+        pushHistory({
+          label: "ugnežđavanje kartice",
+          undo: returnHere,
+          redo: nestAgain,
+        });
+        toast.success(
+          nestedMessage(child?.title ?? "", target?.title ?? ""),
+          {
+            duration: 8_000,
+            action: {
+              label: "Poništi",
+              onClick: () =>
+                void returnHere().catch((error: unknown) =>
+                  toast.error(
+                    accessErrorMessage(error, "Ugnežđavanje nije poništeno."),
+                  ),
+                ),
+            },
+          },
+        );
+      } catch (error) {
+        onFailure?.();
+        toast.error(accessErrorMessage(error, "Kartica nije ugnežđena."));
+      }
+    },
+    [
+      areaId,
+      canvasData.checkpointEdges,
+      canvasData.edges,
+      canvasData.pages,
+      connectCheckpointEdge,
+      connectPages,
+      movePage,
+      movePages,
+      pushHistory,
+      requestNesting,
+      rootPageId,
+      startupId,
+    ],
+  );
+
+  const toDropNode = (node: CanvasFlowNode): MapDropNode => ({
+    id: node.id,
+    isCheckpoint: isTaskCheckpointNode(node),
+    canMove: node.data.canMove,
+  });
+
   const isTaskFilter = filter === "task";
   const isNoteFilter = filter === "note";
-  const pendingCount = nodes.filter(
-    (node) =>
-      !isTaskCheckpointNode(node) && node.data.pendingNesting,
-  ).length;
   const CanvasIdentityIcon =
     AREA_ICONS[areaKey as AreaKey] || Blocks;
+  const peekPage =
+    peekPageId === null
+      ? null
+      : (canvasData.pages.find((page) => page._id === peekPageId) ?? null);
 
   return (
     <TaskCheckpointNodeActionsProvider
@@ -1766,6 +1781,17 @@ function AreaCanvasReady({
       }))}
       openCanvas={onOpenCanvas}
       openDetails={onOpenDetails}
+      peek={(pageId) => {
+        const page = canvasData.pages.find(
+          (candidate) => candidate._id === pageId,
+        );
+        if (page?.kind === "task" && onOpenTask) {
+          onOpenTask(pageId, page.title);
+          return;
+        }
+        setPeekPageId(pageId);
+      }}
+      nest={(pageId, target) => nestPage(pageId, target.pageId)}
       toggleCheckpoints={(pageId) => {
         const page = canvasData.pages.find(
           (candidate) => candidate._id === pageId,
@@ -1839,9 +1865,7 @@ function AreaCanvasReady({
               ),
             );
             toast.error(
-              error instanceof Error
-                ? error.message
-                : "Veličina kartice nije sačuvana.",
+              accessErrorMessage(error, "Veličina kartice nije sačuvana."),
             );
           });
       }}
@@ -1880,26 +1904,22 @@ function AreaCanvasReady({
           })
           .catch((error) => {
             toast.error(
-              error instanceof Error
-                ? error.message
-                : "Početna veličina nije vraćena.",
+              accessErrorMessage(error, "Početna veličina nije vraćena."),
             );
           });
       }}
     >
         <div
+        ref={mapRef}
         className={cn(
           styles.canvas,
-          isTaskFilter
-            ? styles.tasksCanvas
-            : isNoteFilter
-              ? styles.notesCanvas
-              : undefined,
+          MAP_FRAME_CLASS,
           layout === "task-focus" ? "min-h-[28rem]" : "min-h-[32rem]",
-          "rounded-3xl border border-border/70 shadow-inner",
         )}
         data-canvas-space-pan={canvasNavigation.spacePressed}
         data-canvas-zoom-modifier={canvasNavigation.zoomModifierPressed}
+        data-map-active={mapActive}
+        {...mapActivationHandlers}
         // AreaView does not provide a fixed-height parent. Keep a definite
         // containing-block height so React Flow's 100% height cannot collapse.
         style={{
@@ -1909,7 +1929,39 @@ function AreaCanvasReady({
               : "min(72vh, 52rem)",
         }}
         onKeyDownCapture={(event) => {
+          // React capture prolazi i kroz portale (fioka, meniji, dijalozi) i
+          // kroz polja za tekst: tu prečice Mape ne važe.
+          if (
+            event.defaultPrevented ||
+            !(event.target instanceof Node) ||
+            !event.currentTarget.contains(event.target) ||
+            isEditableTarget(event.target)
+          ) {
+            return;
+          }
           const modifier = event.ctrlKey || event.metaKey;
+          // Enter na izabranoj kartici vodi do njenih radnji (traka je portal
+          // iza svih kartica u redosledu tabova).
+          if (
+            event.key === "Enter" &&
+            !modifier &&
+            event.target instanceof HTMLElement &&
+            event.target.classList.contains("react-flow__node")
+          ) {
+            const nodeId = event.target.getAttribute("data-id");
+            const node = nodes.find((candidate) => candidate.id === nodeId);
+            if (node?.selected) {
+              const toolbar = event.currentTarget.querySelector<HTMLElement>(
+                `.react-flow__node-toolbar[data-id="${CSS.escape(node.id)}"] button:not(:disabled)`,
+              );
+              if (toolbar) {
+                event.preventDefault();
+                event.stopPropagation();
+                toolbar.focus();
+              }
+            }
+            return;
+          }
           if (modifier && event.key.toLowerCase() === "a") {
             event.preventDefault();
             setNodes((current) =>
@@ -1919,10 +1971,14 @@ function AreaCanvasReady({
             const hasSelection =
               nodes.some((node) => node.selected) ||
               edges.some((edge) => edge.selected);
-            // Bez selekcije Esc putuje dalje do globalne navigacije „nazad”.
-            // Potrošen Esc se označava sa preventDefault — to je ugovor koji
-            // globalni slušalac u PageWorkspaceView poštuje.
-            if (!hasSelection) return;
+            // Bez selekcije Esc putuje dalje do globalne navigacije „nazad”
+            // (i gasi točkić Mape). Potrošen Esc se označava sa preventDefault
+            // — to je ugovor koji globalni slušalac Mape stranice
+            // (`PageMapView`) poštuje.
+            if (!hasSelection) {
+              deactivateMap();
+              return;
+            }
             event.preventDefault();
             setNodes((current) =>
               current.map((node) => ({ ...node, selected: false })),
@@ -1947,12 +2003,7 @@ function AreaCanvasReady({
             updateNestingTarget(null);
             preDragPositionsRef.current = new Map(
               draggedNodes
-                .filter(
-                  (dragged) =>
-                    dragged.data.canMove &&
-                    (isTaskCheckpointNode(dragged) ||
-                      !dragged.data.pendingNesting),
-                )
+                .filter((dragged) => dragged.data.canMove)
                 .map((dragged) => [
                   dragged.id,
                   {
@@ -1978,10 +2029,19 @@ function AreaCanvasReady({
               draggedNodes,
             );
             updateNestingTarget(null);
-            if (isTaskCheckpointNode(draggedNode)) {
+            const plan = planMapDrop(
+              toDropNode(draggedNode),
+              draggedNodes.map(toDropNode),
+              nestingTarget?.id ?? null,
+            );
+            if (plan.kind === "none") {
+              preDragPositionsRef.current.clear();
+              return;
+            }
+            if (plan.kind === "checkpoints") {
               const movedCheckpoints = draggedNodes.filter(
                 (node): node is TaskCheckpointFlowNode =>
-                  isTaskCheckpointNode(node) && node.data.canMove,
+                  isTaskCheckpointNode(node) && plan.ids.includes(node.id),
               );
               preDragPositionsRef.current.clear();
               void Promise.all(
@@ -1995,18 +2055,14 @@ function AreaCanvasReady({
                 ),
               ).catch((error) => {
                 toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Pozicija checkpointa nije sačuvana.",
+                  accessErrorMessage(error, "Pozicija koraka nije sačuvana."),
                 );
               });
               return;
             }
             const movableNodes = draggedNodes.filter(
               (dragged): dragged is AreaFlowNode =>
-                !isTaskCheckpointNode(dragged) &&
-                dragged.data.canMove &&
-                !dragged.data.pendingNesting,
+                !isTaskCheckpointNode(dragged) && dragged.data.canMove,
             );
             const before = movableNodes.flatMap((dragged) => {
               const position = preDragPositionsRef.current.get(dragged.id);
@@ -2050,35 +2106,14 @@ function AreaCanvasReady({
                 }),
               );
             };
-            if (nestingTarget !== null && movableNodes.length === 1) {
-              const childPageId = movableNodes[0].id as Id<"pages">;
-              const targetParentPageId =
-                nestingTarget.id as Id<"pages">;
+            if (plan.kind === "nest") {
+              // Kartica se vraća na mesto dok server ne potvrdi: posle toga
+              // nestaje sa ove Mape (živi upit), a u cilju se vidi broj.
               restorePreviousPositions();
-              void requestNesting({
-                startupId,
-                childPageId,
-                targetParentPageId,
-              })
-                .then((result) => {
-                  if (result.nestingStatus === "pending") {
-                    toast.success(
-                      `Zahtev za ugnježđavanje u „${nestingTarget.data.title}” je poslat autoru.`,
-                    );
-                  } else {
-                    toast.success(
-                      `Stavka je ugnježđena u „${nestingTarget.data.title}”.`,
-                    );
-                  }
-                })
-                .catch((error) => {
-                  restorePreviousPositions();
-                  toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Stavka nije ugnježđena.",
-                  );
-                });
+              void nestPage(
+                plan.childId as Id<"pages">,
+                plan.targetId as Id<"pages">,
+              );
               return;
             }
             const changed = after.some((move) => {
@@ -2120,9 +2155,7 @@ function AreaCanvasReady({
               .catch((error) => {
                 restorePreviousPositions();
                 toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Pozicija nije sačuvana.",
+                  accessErrorMessage(error, "Pozicija nije sačuvana."),
                 );
               });
           }}
@@ -2135,7 +2168,8 @@ function AreaCanvasReady({
           connectionMode={ConnectionMode.Loose}
           zoomOnDoubleClick={false}
           zoomOnScroll={false}
-          panOnScroll={false}
+          panOnScroll={mapActive}
+          preventScrolling={mapActive}
           panOnDrag={[1, 2]}
           panActivationKeyCode="Space"
           zoomActivationKeyCode={["Control", "Meta"]}
@@ -2152,13 +2186,9 @@ function AreaCanvasReady({
           nodesConnectable
           nodesFocusable
           edgesFocusable
-          fitViewOptions={{ padding: 0.24, maxZoom: 1.05 }}
-          aria-label={`Kanvas ${canvasLabel}: ${
-            filter === "all"
-              ? "beleške i zadaci"
-              : filter === "task"
-                ? "zadaci"
-                : "beleške"
+          fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
+          aria-label={`Mapa ${canvasLabel}: ${
+            filter === "all" ? "sve kartice" : PAGE_KIND_META[filter].labelPlural
           }`}
           ariaLabelConfig={SERBIAN_ARIA_LABELS}
           colorMode={colorMode}
@@ -2173,88 +2203,40 @@ function AreaCanvasReady({
             position="bottom-left"
             showInteractive={false}
           />
-          <MiniMap
-            position="bottom-right"
-            pannable
-            zoomable
-            nodeColor={(node) =>
-              node.type === "taskCheckpoint"
-                ? (node.data as TaskCheckpointFlowNodeData).completed
-                  ? "#10b981"
-                  : "#f97316"
-                : (node.data as AreaCanvasNodeData).pendingNesting
-                  ? "#f59e0b"
-                  : pageKindMeta((node.data as AreaCanvasNodeData).kind)
-                      .miniMapColor
-            }
-            maskColor="color-mix(in oklab, var(--background) 58%, transparent)"
-          />
 
-          <Panel position="top-left" className="m-3 sm:m-5">
-            <div className="flex items-center gap-1 rounded-2xl border border-border/80 bg-card/92 p-1 shadow-md backdrop-blur-xl">
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-10 rounded-xl"
-                aria-label="Poništi poslednju promenu"
-                disabled={
-                  historyState.undoCount === 0 || historyState.busy
-                }
-                onClick={() => void runHistory("undo")}
-              >
-                <Undo2 className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-10 rounded-xl"
-                aria-label="Ponovi promenu"
-                disabled={
-                  historyState.redoCount === 0 || historyState.busy
-                }
-                onClick={() => void runHistory("redo")}
-              >
-                <Redo2 className="size-4" />
-              </Button>
-              <span className="sr-only" aria-live="polite">
-                Dostupno je {historyState.undoCount} poništavanja i{" "}
-                {historyState.redoCount} ponavljanja.
-              </span>
-            </div>
+          <Panel position="top-left" className="m-3">
+            <MapHistoryButtons
+              undoCount={historyState.undoCount}
+              redoCount={historyState.redoCount}
+              busy={historyState.busy}
+              onUndo={() => void runHistory("undo")}
+              onRedo={() => void runHistory("redo")}
+              undoIcon={<Undo2 className="size-4" aria-hidden="true" />}
+              redoIcon={<Redo2 className="size-4" aria-hidden="true" />}
+            />
           </Panel>
 
-          <Panel
-            position="top-right"
-            className="m-3 sm:m-5"
-          >
+          <Panel position="top-right" className="m-3">
             <CanvasActionRail
-              ariaLabel={`Akcije kanvasa ${canvasLabel}`}
+              ariaLabel={`Radnje na mapi ${canvasLabel}`}
               identity={{
-                label: `${canvasLabel} kanvas`,
+                label: "Mapa",
                 icon: CanvasIdentityIcon,
                 count: nodes.length,
-                pendingCount,
-                className: getAreaTint(areaKey),
               }}
               sections={[
                 {
-                  id: "Kreiranje",
+                  id: "Novo",
                   items: PAGE_KIND_KEYS.map((kind) => ({
                     id: `new-${kind}`,
                     label: `Novo: ${PAGE_KIND_META[kind].label}`,
                     icon: PAGE_KIND_META[kind].icon,
                     onSelect: () => onCreatePage(kind),
-                    className:
-                      kind === "task"
-                        ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-                        : PAGE_KIND_META[kind].textClass,
                   })),
                 },
                 {
-                  id: "Filter kanvasa",
-                  ariaLabel: "Prikaz stavki na kanvasu",
+                  id: "Prikaz",
+                  ariaLabel: "Vrste kartica na mapi",
                   variant: "switch",
                   items: [
                     {
@@ -2263,7 +2245,6 @@ function AreaCanvasReady({
                       icon: LayoutGrid,
                       active: filter === "all",
                       onSelect: () => onFilterChange("all"),
-                      tone: "neutral" as const,
                     },
                     ...PAGE_KIND_KEYS.map((kind) => ({
                       id: `filter-${kind}`,
@@ -2271,14 +2252,6 @@ function AreaCanvasReady({
                       icon: PAGE_KIND_META[kind].icon,
                       active: filter === kind,
                       onSelect: () => onFilterChange(kind),
-                      tone:
-                        kind === "note" || kind === "task"
-                          ? kind
-                          : ("neutral" as const),
-                      className:
-                        filter === kind
-                          ? PAGE_KIND_META[kind].textClass
-                          : undefined,
                     })),
                   ],
                 },
@@ -2286,85 +2259,95 @@ function AreaCanvasReady({
             />
           </Panel>
 
-          <Panel
-            position="bottom-center"
-            className="!mb-4 hidden md:block"
-          >
-            <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
-              <Link2 className="size-3.5" />
-              Prevuci karticu preko druge i pusti za ugnježđavanje ·
-              spoji tačke za vezu
-              <span className="ml-1 font-mono text-foreground">
-                {Math.round(viewport.zoom * 100)}%
-              </span>
-            </div>
+          <Panel position="bottom-center" className="!mb-3">
+            <MapStatusBar zoom={viewport.zoom} active={mapActive} />
           </Panel>
+
+          {canvasData.truncated ? (
+            <Panel position="top-center" className="!mt-3">
+              <p
+                role="status"
+                className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                Prikazan je deo kartica — na mapi ih je previše.
+              </p>
+            </Panel>
+          ) : null}
         </ReactFlow>
 
         {nodes.length === 0 ? (
-          <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-6">
-            <div className="pointer-events-auto max-w-sm rounded-3xl border border-border/80 bg-card/94 p-7 text-center shadow-xl backdrop-blur-xl">
-              <span
-                className={cn(
-                  "mx-auto grid size-12 place-items-center rounded-2xl",
-                  filter === "all"
-                    ? "bg-violet-500/12 text-violet-600 dark:text-violet-300"
-                    : isTaskFilter
-                      ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300"
-                      : "bg-sky-500/12 text-sky-600 dark:text-sky-300",
-                )}
-              >
-                {filter === "all" ? (
-                  <LayoutGrid className="size-5" />
-                ) : isTaskFilter ? (
-                  <CheckSquare2 className="size-5" />
-                ) : (
-                  <FileText className="size-5" />
-                )}
-              </span>
-              <h3 className="mt-4 text-base font-bold">
-                {canvasData.truncated
-                  ? "Nema podudaranja među učitanim karticama"
-                  : filter === "all"
-                    ? "Kanvas je spreman za prvu karticu"
-                    : isTaskFilter
-                      ? "Nema zadataka na kanvasu"
-                      : "Nema beležaka na kanvasu"}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {canvasData.truncated
-                  ? "Filter važi samo za ograničeni učitani skup. Promeni filter da proveriš druge učitane kartice."
-                  : `Kreiraj prvu karticu u kanvasu ${canvasLabel}. Kasnije je prevuci, poveži i otvori njen podkanvas.`}
-              </p>
-              <div className="mt-5 flex flex-wrap justify-center gap-2">
-                {filter !== "note" ? (
-                  <Button
-                    className="rounded-xl"
-                    onClick={() => onCreatePage("task")}
-                  >
-                    <Plus className="size-4" /> Prvi zadatak
-                  </Button>
-                ) : null}
-                {filter !== "task" ? (
-                  <Button
-                    variant={filter === "all" ? "outline" : "default"}
-                    className="rounded-xl"
-                    onClick={() => onCreatePage("note")}
-                  >
-                    <Plus className="size-4" /> Prva beleška
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          <MapEmptyState
+            icon={filter === "all" ? LayoutGrid : pageKindMeta(filter).icon}
+            title={
+              canvasData.truncated
+                ? "Nema takvih kartica među učitanima."
+                : filter === "all"
+                  ? "Na mapi još nema kartica."
+                  : isTaskFilter
+                    ? "Na mapi nema zadataka."
+                    : isNoteFilter
+                      ? "Na mapi nema beležaka."
+                      : "Na mapi nema kartica ove vrste."
+            }
+            actions={
+              filter !== "all" && !isTaskFilter && !isNoteFilter ? (
+                <Button variant="outline" onClick={() => onFilterChange("all")}>
+                  Prikaži sve
+                </Button>
+              ) : (
+                <>
+                  {filter !== "note" ? (
+                    <Button onClick={() => onCreatePage("task")}>
+                      <Plus className="size-4" aria-hidden="true" /> Novi zadatak
+                    </Button>
+                  ) : null}
+                  {filter !== "task" ? (
+                    <Button
+                      variant={filter === "all" ? "outline" : "default"}
+                      onClick={() => onCreatePage("note")}
+                    >
+                      <Plus className="size-4" aria-hidden="true" /> Nova beleška
+                    </Button>
+                  ) : null}
+                  {filter !== "all" ? (
+                    <Button variant="ghost" onClick={() => onFilterChange("all")}>
+                      Prikaži sve
+                    </Button>
+                  ) : null}
+                </>
+              )
+            }
+          />
         ) : null}
 
-        {canvasData.truncated ? (
-          <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-amber-500/30 bg-amber-50/95 px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-md dark:bg-amber-950/95 dark:text-amber-100">
-            Prikaz je skraćen zbog velikog broja kartica ili veza.
-          </div>
-        ) : null}
         </div>
+        <PagePeek
+          open={peekPage !== null}
+          onOpenChange={(open) => {
+            if (!open) setPeekPageId(null);
+          }}
+          startupId={startupId}
+          page={
+            peekPage === null
+              ? null
+              : {
+                  _id: peekPage._id,
+                  card: mapPageCard(
+                    {
+                      ...peekPage,
+                      creatorName: peekPage.creator?.displayName ?? null,
+                    },
+                    now,
+                    childCountById.get(peekPage._id) ?? null,
+                  ),
+                  text: peekPage.text,
+                }
+          }
+          onOpen={(pageId) => {
+            setPeekPageId(null);
+            onOpenDetails(pageId);
+          }}
+        />
       </AreaNodeActionsProvider>
     </TaskCheckpointNodeActionsProvider>
   );

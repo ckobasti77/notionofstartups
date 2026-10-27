@@ -45,7 +45,7 @@ export function canvasKindLabel(kind: CanvasKind): string {
     case 'ideas':
       return 'Ideje';
     case 'thoughts':
-      return 'Misli';
+      return 'Beleške';
     case 'area':
       return 'Oblast';
     case 'page':

@@ -117,7 +117,7 @@ export function MessageRow({
     >
       <div className="w-9 shrink-0">
         {grouped ? (
-          <span className="mt-1 flex justify-end text-[0.625rem] tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <span className="mt-1 flex justify-end text-xs tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             {formatMessageTime(message.createdAt)}
           </span>
         ) : message.author ? (
@@ -132,17 +132,17 @@ export function MessageRow({
       <div className="min-w-0 flex-1">
         {grouped ? null : (
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-sm font-bold">
+            <span className="text-sm font-semibold">
               {message.author?.displayName ?? "Član"}
             </span>
             <time
-              className="text-[0.6875rem] text-muted-foreground"
+              className="text-xs text-muted-foreground"
               dateTime={new Date(message.createdAt).toISOString()}
             >
               {formatMessageTime(message.createdAt)}
             </time>
             {message.editedAt ? (
-              <span className="text-[0.625rem] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 (izmenjeno)
               </span>
             ) : null}
@@ -341,9 +341,7 @@ function Attachment({ message }: { message: ChatMessage }) {
       rel="noreferrer"
       className="mt-1.5 flex w-fit max-w-full items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2 transition-colors hover:bg-accent"
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-        <FileText className="size-4" />
-      </span>
+      <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">
           {message.attachmentName ?? "Prilog"}

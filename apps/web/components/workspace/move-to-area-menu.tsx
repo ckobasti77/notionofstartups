@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 export type MoveToAreaOption = {
@@ -62,25 +63,20 @@ export function MoveToAreaMenu({
     if (busyAreaId !== null) return;
     setBusyAreaId(target._id);
     try {
-      const result = await movePage({
+      // Premeštanje je uvek odmah (PROSTOR P4) — nema zahteva ni odobrenja.
+      await movePage({
         startupId,
         pageId,
         targetAreaId: target._id,
         targetParentPageId: null,
       });
-      if (result.nestingStatus === "pending") {
-        toast.info(
-          "Zahtev je poslat autoru roditeljske stranice. Premeštanje čeka odobrenje.",
-        );
-      } else {
-        toast.success(
-          `„${pageTitle || "Stavka bez naslova"}“ je premeštena u „${target.label}“.`,
-        );
-      }
+      toast.success(
+        `„${pageTitle || "Stavka bez naslova"}“ je premeštena u „${target.label}“.`,
+      );
       onMoved?.(target._id);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Stavka nije premeštena.",
+        accessErrorMessage(error, "Stavka nije premeštena."),
       );
     } finally {
       setBusyAreaId(null);

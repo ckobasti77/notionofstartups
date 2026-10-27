@@ -4,9 +4,9 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { recordActivity } from "./lib/activity";
-import { notifyTaskStakeholders } from "./lib/notifications";
+import { belgradeDayKey, notifyTaskStakeholders } from "./lib/notifications";
 import {
   requireProfile,
   requireProfileInStartup,
@@ -20,14 +20,24 @@ import {
   type TaskItem,
   toTaskItem,
 } from "./lib/my_scope";
-import { workspaceCanvasPreview } from "./lib/page_creation";
+import { pageSnapshot, recordPageRevision } from "./lib/page_content";
+import { requirePageArea, workspaceCanvasPreview } from "./lib/page_creation";
 import {
+  type Actor,
+  canChangeTaskStatus,
+  canEditPage,
+  LOCKED_PAGE_MESSAGE,
+  permissionError,
+} from "./lib/permissions";
+import {
+  isPageVisible,
   nextCompletedAt,
   pageTaskSortAt,
   requireVisiblePage,
   summarizePage,
 } from "./lib/pages";
 import {
+  isTaskAssignee,
   listActiveTaskAssigneeIds,
   normalizeAssigneeProfileIds,
   reconcileTaskAssignees,
@@ -36,6 +46,7 @@ import {
 import { reconcileLegacyTaskCheckpoints } from "./lib/task_checkpoints";
 import {
   boundedLimit,
+  BULK_RESCHEDULE_MAX,
   checkpointItemValidator,
   COMMAND_CENTER_STATUS_CAP,
   MAX_TASK_PAGE_SIZE,
@@ -422,7 +433,8 @@ export const updateMetadata = mutation({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije task.");
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     const currentAssigneeIds = await listActiveTaskAssigneeIds(ctx, page._id);
     const requestedAssigneeIds =
       normalizeAssigneeProfileIds(args.assigneeProfileIds) ??
@@ -495,38 +507,27 @@ export const updateMetadata = mutation({
       canvasPreview === page.canvasPreview;
     if (unchanged) return page._id;
 
-    // Dozvole se sude po stvarnoj razlici, ne po prisustvu argumenta: kreator
-    // vodi zadatak, svaki izvršilac pomera njegov status, a svaki član tima
-    // može sam sebe da doda ili skine sa zadatka.
-    const isCreator = page.createdByProfileId === profile._id;
+    // Dozvole se sude po stvarnoj razlici, ne po prisustvu argumenta. PROSTOR
+    // P1: svaki član menja sve osobine zadatka; na zaključanom zadatku autor,
+    // vlasnik startupa i admin, a izvršilac još i status (ODLUKA K01 D5); svako
+    // sme sebe da doda ili skine.
     const isAssignee = currentAssigneeIds.includes(profile._id);
     const touchesOnlySelf = [...addedAssignees, ...removedAssignees].every(
       (profileId) => profileId === profile._id,
     );
     const claimsForSelf = addedAssignees.includes(profile._id);
 
-    if (!isCreator) {
-      if (changesAssignee && !touchesOnlySelf) {
-        throw new Error(
-          "Tuđe učešće na zadatku menja njegov kreator. Sebe možeš da dodaš ili skineš.",
-        );
-      }
-      if (changesStatus && !isAssignee && !claimsForSelf) {
-        throw new Error(
-          "Status menja kreator zadatka ili osoba kojoj je dodeljen.",
-        );
-      }
-      if (changesPriority) {
-        throw new Error("Prioritet menja samo kreator zadatka.");
-      }
-      if (changesDueDate) {
-        throw new Error("Rok menja samo kreator zadatka.");
-      }
-      if (changesInstructions) {
-        throw new Error("Instrukcije menja samo kreator zadatka.");
-      }
-      if (changesCheckpoints) {
-        throw new Error("Checkpointe menja samo kreator zadatka.");
+    if (!canEditPage(actor, page)) {
+      if (
+        changesPriority ||
+        changesDueDate ||
+        changesInstructions ||
+        changesCheckpoints ||
+        (changesAssignee && !touchesOnlySelf) ||
+        (changesStatus &&
+          !canChangeTaskStatus(actor, page, isAssignee || claimsForSelf))
+      ) {
+        throw permissionError("ZAKLJUCANO", LOCKED_PAGE_MESSAGE);
       }
     }
 
@@ -573,6 +574,18 @@ export const updateMetadata = mutation({
         now,
       });
     }
+    if (changesInstructions) {
+      // Instrukcije su sadržaj zadatka → Istorija izmena (P2, P14).
+      const content = body?.content ?? "";
+      await recordPageRevision(ctx, {
+        page,
+        before: pageSnapshot(page, page.title, content, page.instructions),
+        after: pageSnapshot(page, page.title, content, instructions),
+        actorProfileId: profile._id,
+        now,
+        revision: page.revision + 1,
+      });
+    }
     await recordActivity(ctx, {
       startupId: page.startupId,
       actorProfileId: profile._id,
@@ -592,5 +605,382 @@ export const updateMetadata = mutation({
       actorProfileId: profile._id,
     });
     return page._id;
+  },
+});
+
+/**
+ * Zadaci jedne oblasti, najnovije izmenjeni prvi (Komandni centar → oblast,
+ * PROSTOR P12). Status se filtrira posle čitanja strane, pa strana može biti
+ * kraća od `numItems`; klijent učitava dalje dok `isDone` nije `true`.
+ */
+export const listForArea = query({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    status: v.optional(taskStatusValidator),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(pageSummaryValidator),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    await requirePageArea(ctx, args.startupId, args.areaId);
+    boundedLimit(
+      args.paginationOpts.numItems,
+      MAX_TASK_PAGE_SIZE,
+      MAX_TASK_PAGE_SIZE,
+    );
+    const tasks = await ctx.db
+      .query("pages")
+      .withIndex("by_startup_area_kind_active_updated", (q) =>
+        q
+          .eq("startupId", args.startupId)
+          .eq("areaId", args.areaId)
+          .eq("kind", "task")
+          .eq("archivedAt", null),
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const status = args.status;
+    return {
+      ...tasks,
+      page: tasks.page
+        .filter((task) => status === undefined || task.taskStatus === status)
+        .map(summarizePage),
+    };
+  },
+});
+
+// --- „Sredi rokove” (PROSTOR P10, plan K01 §10.2) ---------------------------
+
+type BulkSkipReason =
+  | "nije_pronadjen"
+  | "nije_zadatak"
+  | "zakljucan"
+  | "drugi_startup";
+
+const bulkSkipReasonValidator = v.union(
+  v.literal("nije_pronadjen"),
+  v.literal("nije_zadatak"),
+  v.literal("zakljucan"),
+  v.literal("drugi_startup"),
+);
+
+/** Prethodne vrednosti zadatka — to je sve što „Poništi” treba da vrati. */
+const scheduleSnapshotValidator = v.object({
+  dueDate: v.union(v.number(), v.null()),
+  taskStatus: taskStatusValidator,
+});
+
+type TaskStatusValue = NonNullable<Doc<"pages">["taskStatus"]>;
+
+function assertBulkTaskIds(taskPageIds: Array<Id<"pages">>) {
+  if (taskPageIds.length === 0) throw new Error("Izaberi bar jedan zadatak.");
+  if (taskPageIds.length > BULK_RESCHEDULE_MAX) {
+    throw new Error(
+      `Odjednom se menja najviše ${BULK_RESCHEDULE_MAX} zadataka.`,
+    );
+  }
+  if (new Set(taskPageIds).size !== taskPageIds.length) {
+    throw new Error("Isti zadatak je naveden više puta.");
+  }
+}
+
+/** Zadatak za grupnu izmenu: vidljiv, task, iz ovog startupa — ili razlog preskakanja. */
+async function loadBulkTask(
+  ctx: MutationCtx,
+  startupId: Id<"startups">,
+  taskPageId: Id<"pages">,
+): Promise<
+  { page: Doc<"pages">; taskStatus: TaskStatusValue } | { reason: BulkSkipReason }
+> {
+  const page = await ctx.db.get("pages", taskPageId);
+  if (page === null) return { reason: "nije_pronadjen" };
+  if (page.startupId !== startupId) return { reason: "drugi_startup" };
+  if (page.archivedAt !== null) return { reason: "nije_pronadjen" };
+  if (page.kind !== "task" || page.taskStatus === null) {
+    return { reason: "nije_zadatak" };
+  }
+  if (!(await isPageVisible(ctx, page._id))) {
+    return { reason: "nije_pronadjen" };
+  }
+  return { page, taskStatus: page.taskStatus };
+}
+
+/**
+ * R19: rok traži pravo izmene stranice (R2), „Završi” pravo nad statusom (R3) —
+ * izvršilac zaključanog zadatka ga sme završiti, ali mu ne sme pomeriti rok.
+ */
+async function canBulkChange(
+  ctx: MutationCtx,
+  actor: Actor,
+  page: Doc<"pages">,
+  change: "due" | "status",
+) {
+  if (canEditPage(actor, page)) return true;
+  if (change === "due") return false;
+  return canChangeTaskStatus(
+    actor,
+    page,
+    await isTaskAssignee(ctx, page, actor.profile._id),
+  );
+}
+
+/** „1 zadatak”, „2 zadatka”, „5 zadataka”, „11 zadataka”, „21 zadatak”. */
+function taskCountLabel(count: number) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  const word =
+    last === 1 && lastTwo !== 11
+      ? "zadatak"
+      : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)
+        ? "zadatka"
+        : "zadataka";
+  return `${count} ${word}`;
+}
+
+/** Oznaka novog roka za aktivnost; rok je lokalno podne, pa Beograd daje isti dan. */
+function rescheduleLabel(dueDate: number | null, complete: boolean) {
+  if (complete) return "završeno";
+  if (dueDate === null) return "bez roka";
+  const [, month, day] = belgradeDayKey(dueDate).split("-");
+  return `${Number(day)}. ${Number(month)}.`;
+}
+
+/** Jedna aktivnost za celu grupnu izmenu (D14); jedan zadatak vodi na sebe. */
+async function recordRescheduleActivity(
+  ctx: MutationCtx,
+  actor: Actor,
+  touched: Array<Pick<Doc<"pages">, "_id" | "title">>,
+  detail: string,
+) {
+  const single = touched.length === 1 ? touched[0] : null;
+  await recordActivity(ctx, {
+    startupId: actor.startup._id,
+    actorProfileId: actor.profile._id,
+    action: "tasks_rescheduled",
+    targetType: single === null ? "startup" : "page",
+    targetId: single === null ? actor.startup._id : single._id,
+    title: single === null ? actor.startup.name : single.title,
+    detail,
+  });
+}
+
+/**
+ * „Sredi rokove”: isti novi rok (ili bez roka) ili „Završi” za najviše 50
+ * zadataka jednog startupa. Dozvole su po zadatku (R19) — što član ne sme,
+ * vraća se kao `skipped`, a ostalo prolazi. Obaveštenja nema (D14), samo jedna
+ * aktivnost. Vraća prethodne vrednosti i novu reviziju za `bulkRestoreSchedule`.
+ *
+ * `dueDate` je lokalno podne (klijent ga računa); upit ne zna zonu.
+ */
+export const bulkReschedule = mutation({
+  args: {
+    startupId: v.id("startups"),
+    taskPageIds: v.array(v.id("pages")),
+    dueDate: v.optional(v.union(v.number(), v.null())),
+    complete: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    updated: v.array(
+      v.object({
+        taskPageId: v.id("pages"),
+        previous: scheduleSnapshotValidator,
+        /** Revizija posle izmene — štiti „Poništi” od tuđe kasnije izmene. */
+        revision: v.number(),
+      }),
+    ),
+    skipped: v.array(
+      v.object({ taskPageId: v.id("pages"), reason: bulkSkipReasonValidator }),
+    ),
+    /** Zadaci koji već imaju traženi rok ili status — ništa se ne menja. */
+    unchanged: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const actor = await requireStartupMember(ctx, args.startupId);
+    assertBulkTaskIds(args.taskPageIds);
+    const complete = args.complete === true;
+    const changesDue = args.dueDate !== undefined;
+    if (complete === changesDue) {
+      throw new Error(
+        changesDue
+          ? "Rok i završetak se ne menjaju zajedno."
+          : "Navedi novi rok ili završetak.",
+      );
+    }
+    const dueDate = changesDue ? (validateTaskDueDate(args.dueDate) ?? null) : null;
+
+    const now = Date.now();
+    const updated: Array<{
+      taskPageId: Id<"pages">;
+      previous: { dueDate: number | null; taskStatus: TaskStatusValue };
+      revision: number;
+    }> = [];
+    const skipped: Array<{ taskPageId: Id<"pages">; reason: BulkSkipReason }> = [];
+    const touched: Array<Pick<Doc<"pages">, "_id" | "title">> = [];
+    let unchanged = 0;
+
+    for (const taskPageId of args.taskPageIds) {
+      const loaded = await loadBulkTask(ctx, args.startupId, taskPageId);
+      if ("reason" in loaded) {
+        skipped.push({ taskPageId, reason: loaded.reason });
+        continue;
+      }
+      const { page, taskStatus } = loaded;
+      if (complete ? taskStatus === "done" : page.dueDate === dueDate) {
+        unchanged += 1;
+        continue;
+      }
+      if (!(await canBulkChange(ctx, actor, page, complete ? "status" : "due"))) {
+        skipped.push({ taskPageId, reason: "zakljucan" });
+        continue;
+      }
+
+      const taskSortAt = complete
+        ? page.taskSortAt
+        : pageTaskSortAt(dueDate, now);
+      await ctx.db.patch("pages", page._id, {
+        ...(complete
+          ? {
+              taskStatus: "done" as const,
+              completedAt: nextCompletedAt(page, "done", now),
+            }
+          : { dueDate, taskSortAt }),
+        revision: page.revision + 1,
+        updatedByProfileId: actor.profile._id,
+        updatedAt: now,
+      });
+      await syncTaskAssigneeMirrors(ctx, {
+        taskPageId: page._id,
+        taskStatus: complete ? "done" : taskStatus,
+        taskSortAt,
+        now,
+      });
+      updated.push({
+        taskPageId: page._id,
+        previous: { dueDate: page.dueDate, taskStatus },
+        revision: page.revision + 1,
+      });
+      touched.push({ _id: page._id, title: page.title });
+    }
+
+    if (touched.length > 0) {
+      await recordRescheduleActivity(
+        ctx,
+        actor,
+        touched,
+        `${taskCountLabel(touched.length)} → ${rescheduleLabel(dueDate, complete)}`,
+      );
+    }
+    return { updated, skipped, unchanged };
+  },
+});
+
+/**
+ * „Poništi” za `bulkReschedule`: vraća rok i status po zadatku. Zadatak koji je
+ * u međuvremenu izmenjen (`expectedRevision` se ne poklapa) se preskače da
+ * poništavanje ne pregazi tuđu izmenu — zato je revizija obavezna, a odgovor
+ * vraća nove revizije (`revisions`) da klijent može da ulanča sledeće „Poništi”.
+ * Bez obaveštenja, jedna aktivnost.
+ */
+export const bulkRestoreSchedule = mutation({
+  args: {
+    startupId: v.id("startups"),
+    items: v.array(
+      v.object({
+        taskPageId: v.id("pages"),
+        dueDate: v.union(v.number(), v.null()),
+        taskStatus: taskStatusValidator,
+        /** Revizija koju je klijent video posle izmene (`updated[].revision`). */
+        expectedRevision: v.number(),
+      }),
+    ),
+  },
+  returns: v.object({
+    restored: v.number(),
+    /** Nova revizija svakog vraćenog zadatka — ulaz za sledeće „Poništi”. */
+    revisions: v.array(
+      v.object({ taskPageId: v.id("pages"), revision: v.number() }),
+    ),
+    skipped: v.array(
+      v.object({
+        taskPageId: v.id("pages"),
+        reason: v.union(bulkSkipReasonValidator, v.literal("izmenjen")),
+      }),
+    ),
+    /** Zadaci koji već imaju tražene vrednosti — ništa se ne menja. */
+    unchanged: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const actor = await requireStartupMember(ctx, args.startupId);
+    assertBulkTaskIds(args.items.map((item) => item.taskPageId));
+
+    const now = Date.now();
+    const skipped: Array<{
+      taskPageId: Id<"pages">;
+      reason: BulkSkipReason | "izmenjen";
+    }> = [];
+    const touched: Array<Pick<Doc<"pages">, "_id" | "title">> = [];
+    const revisions: Array<{ taskPageId: Id<"pages">; revision: number }> = [];
+    let unchanged = 0;
+
+    for (const item of args.items) {
+      const dueDate = validateTaskDueDate(item.dueDate) ?? null;
+      const loaded = await loadBulkTask(ctx, args.startupId, item.taskPageId);
+      if ("reason" in loaded) {
+        skipped.push({ taskPageId: item.taskPageId, reason: loaded.reason });
+        continue;
+      }
+      const { page, taskStatus } = loaded;
+      if (page.revision !== item.expectedRevision) {
+        skipped.push({ taskPageId: item.taskPageId, reason: "izmenjen" });
+        continue;
+      }
+      const dueChanged = page.dueDate !== dueDate;
+      const statusChanged = taskStatus !== item.taskStatus;
+      if (!dueChanged && !statusChanged) {
+        unchanged += 1;
+        continue;
+      }
+      if (
+        !(await canBulkChange(ctx, actor, page, dueChanged ? "due" : "status"))
+      ) {
+        skipped.push({ taskPageId: item.taskPageId, reason: "zakljucan" });
+        continue;
+      }
+
+      const taskSortAt = dueChanged
+        ? pageTaskSortAt(dueDate, now)
+        : page.taskSortAt;
+      await ctx.db.patch("pages", page._id, {
+        ...(dueChanged ? { dueDate, taskSortAt } : {}),
+        ...(statusChanged
+          ? {
+              taskStatus: item.taskStatus,
+              completedAt: nextCompletedAt(page, item.taskStatus, now),
+            }
+          : {}),
+        revision: page.revision + 1,
+        updatedByProfileId: actor.profile._id,
+        updatedAt: now,
+      });
+      await syncTaskAssigneeMirrors(ctx, {
+        taskPageId: page._id,
+        taskStatus: item.taskStatus,
+        taskSortAt,
+        now,
+      });
+      touched.push({ _id: page._id, title: page.title });
+      revisions.push({ taskPageId: page._id, revision: page.revision + 1 });
+    }
+
+    if (touched.length > 0) {
+      await recordRescheduleActivity(
+        ctx,
+        actor,
+        touched,
+        `vraćeno ${taskCountLabel(touched.length)}`,
+      );
+    }
+    return { restored: touched.length, revisions, skipped, unchanged };
   },
 });

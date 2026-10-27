@@ -9,6 +9,7 @@ import {
   completionCall,
   dueCall,
   moveInPlan,
+  pendingIdeaVotes,
   planCall,
   priorityCall,
   type RowCall,
@@ -63,7 +64,8 @@ export type MyDayContainerProps = {
   onQuickAdd: () => void;
   onOpenInbox: () => void;
   onOpenChat: () => void;
-  onOpenApprovals: (startupId: Id<"startups">) => void;
+  /** „Čeka tebe" › „Glasaj": ideja u svom startupu (PROSTOR P22). */
+  onOpenIdea: (startupId: Id<"startups">, ideaId: Id<"ideaNodes">) => void;
 };
 
 type Overview = FunctionReturnType<typeof api.myDay.overview>;
@@ -139,7 +141,7 @@ function MyDayContent({
   onQuickAdd,
   onOpenInbox,
   onOpenChat,
-  onOpenApprovals,
+  onOpenIdea,
   retry,
 }: MyDayContainerProps & { retry: () => void }) {
   const { dayKey, doneSince, now } = today;
@@ -376,7 +378,7 @@ function MyDayContent({
   const inboxCounts = useQueryState(api.inbox.unreadCounts, {});
   const inboxFeed = useQueryState(api.inbox.feed, { unreadOnly: true, paginationOpts: { numItems: 3, cursor: null } });
   const chatUnread = useQueryState(api.chat.unreadSummary, {});
-  const pendingState = useQueryState(api.inbox.pending, {});
+  const pendingState = useQueryState(api.inbox.pending, { include: ["idea_vote"] });
   const startups = overview?.startups ?? [];
   const inboxBlock: SideBlock<{
     unread: number;
@@ -431,7 +433,7 @@ function MyDayContent({
           pending: sideBlock(pendingState, pendingSummary),
           onOpenInbox,
           onOpenChat,
-          onOpenPending: (startupId) => onOpenApprovals(startupId as Id<"startups">),
+          onOpenPending: ({ startupId, ideaId }) => onOpenIdea(startupId as Id<"startups">, ideaId as Id<"ideaNodes">),
         }}
         actions={actions}
         canOpen={() => true}
@@ -442,9 +444,10 @@ function MyDayContent({
         onQuickAdd={onQuickAdd}
         onPlanDay={() => setPlanOpen(true)}
         onOpenTasks={onOpenTasks}
-        onOpenApprovals={() => {
-          const first = pendingState.status === "ready" ? pendingState.data.items[0] : undefined;
-          if (first) onOpenApprovals(first.startup._id);
+        onOpenFirstPending={() => {
+          const first = pendingState.status === "ready" ? pendingIdeaVotes(pendingState.data.items)[0] : undefined;
+          if (first) onOpenIdea(first.startup._id, first.ideaId);
+          else onOpenInbox();
         }}
         listRef={listRef}
         announcement={completion.announcement}

@@ -53,6 +53,7 @@ import {
   buildPlanDay,
   EMPTY_TASK_FILTERS,
   hubGroups,
+  pendingKey,
   type HubChannel,
   type InboxScope,
   type InboxSegment,
@@ -95,7 +96,15 @@ import {
   TextBlockField,
   TitleField,
 } from '@/components/me/task-panel-parts';
+import { KomandniCentarK19Katalog } from '@/components/katalog/komandni-centar-k19';
+import { PodesavanjaK20Katalog } from '@/components/katalog/podesavanja-k20';
 import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
+import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
+import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
+import { ProstorK14Katalog } from '@/components/katalog/prostor-k14';
+import { ProstorK17Katalog } from '@/components/katalog/prostor-k17';
+import { ProstorK18Katalog } from '@/components/katalog/prostor-k18';
+import { UndoBar } from '@/components/undo-bar';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
   AnimatedCheck,
@@ -897,14 +906,14 @@ export default function DizajnKatalogScreen() {
         {k14Log ? <Caption text={k14Log} colors={colors} /> : null}
 
         <SectionHeader title="Čeka tebe" />
-        <Caption text="Glasanje o brisanju (Glasaj) i predlog premeštanja (Pogledaj)" colors={colors} />
+        <Caption text="Ideje na glasanju — „Glasaj” otvara ideju (K17)" colors={colors} />
         <View style={styles.pendingDemo}>
           {katalogInboxPending(demoNow).map((item) => (
             <PendingRow
-              key={item.kind === 'deletion_vote' ? item.ballotId : item.requestId}
+              key={pendingKey(item)}
               item={item}
               now={demoNow}
-              onOpen={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}
+              onOpen={(target) => setK14Log(`Otvori ideju: ${target.title}`)}
             />
           ))}
         </View>
@@ -950,7 +959,7 @@ export default function DizajnKatalogScreen() {
                 current.map((entry) => (entry._id === target._id ? { ...entry, readAt: demoNow } : entry)),
               )
             }
-            onOpenPending={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}
+            onOpenPending={(target) => setK14Log(`Otvori ideju: ${target.title}`)}
             onMarkAllRead={() =>
               setK14Items((current) => current.map((entry) => (entry.readAt === null ? { ...entry, readAt: demoNow } : entry)))
             }
@@ -1036,6 +1045,27 @@ export default function DizajnKatalogScreen() {
 
         {/* Pokret kroz celu aplikaciju (K19): pritisak, sheet, liste, stablo, mehurić. */}
         <PokretK19Katalog />
+
+        {/* PROSTOR K09: redovi Prostora, zaglavlje, Korpa, traka bez „Poništi“. */}
+        <ProstorK09Katalog />
+
+        {/* PROSTOR K12: komentari, unos sa @, zaključano i „uređuje“. */}
+        <ProstorK12Katalog />
+
+        {/* PROSTOR K14: oblast — kartice, opis, Istorija, Komentari, Nedavne izmene. */}
+        <ProstorK14Katalog />
+
+        {/* PROSTOR K17: Ideje — čipovi faza, lista, Faza i „Pretvori“, red u Prostoru. */}
+        <ProstorK17Katalog />
+
+        {/* PROSTOR K18: Beleške — lista, čipovi, brza beleška, brzi unos i „Pošalji u startup“. */}
+        <ProstorK18Katalog />
+
+        {/* PROSTOR K19: Komandni centar 2.0 — blokovi, greška bloka i „Sredi rokove“. */}
+        <KomandniCentarK19Katalog />
+
+        {/* PROSTOR K20: Podešavanja startupa — Opšte, Oblasti, Tim (admin i član). */}
+        <PodesavanjaK20Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1157,6 +1187,9 @@ export default function DizajnKatalogScreen() {
           }
           setK12Log(`Dodato: ${draft.title.trim()}`);
         }}
+        onSubmitNote={async (draft) => {
+          setK12Log(`Beleška: ${draft.text.trim().slice(0, 40)}`);
+        }}
       />
       <DatePickerSheet
         visible={k13DateOpen}
@@ -1241,6 +1274,8 @@ export default function DizajnKatalogScreen() {
         onCarryOver={(keys) => setK12Log(`Vraćeno u danas: ${keys.length}`)}
         onDismiss={(keys) => setK12Log(`Sklonjeno: ${keys.length}`)}
       />
+      {/* Traka „Vraćeno: …“ iz Korpe (K09) — ista traka kao na ekranima. */}
+      <UndoBar />
     </View>
   );
 }

@@ -1,3 +1,4 @@
+import { withNewRevisions } from '@devotion/shared';
 import { useSyncExternalStore } from 'react';
 
 import type { Id } from '@/convex/_generated/dataModel';
@@ -18,6 +19,18 @@ import type { CheckpointEndpoint } from '@/lib/canvas-endpoints';
  * backenda. Web isto radi kroz in-memory undo stack (`workspace-history.tsx`).
  * Id-jevi žive samo ovde — kad traka istekne, put nazad je desktop undo.
  */
+/**
+ * Jedan zadatak iz „Sredi rokove" (K19): rok i status OD PRE radnje i reviziju koju je
+ * radnja vratila. Oblik je ulaz `tasks.bulkRestoreSchedule` (isti kao shared `UndoItem`,
+ * samo sa tipiziranim id-jem i statusom).
+ */
+export type BulkScheduleItem = {
+  taskPageId: Id<'pages'>;
+  dueDate: number | null;
+  taskStatus: 'backlog' | 'next' | 'in_progress' | 'blocked' | 'done';
+  expectedRevision: number;
+};
+
 export type UndoAction =
   | { kind: 'thoughts'; nodeIds: Id<'thoughtNodes'>[]; edgeIds: Id<'thoughtEdges'>[] }
   | { kind: 'idea'; startupId: Id<'startups'>; ideaId: Id<'ideaNodes'> }
@@ -247,8 +260,11 @@ export type UndoAction =
    */
   | { kind: 'ideaCreate'; startupId: Id<'startups'>; ideaId: Id<'ideaNodes'> }
   /**
-   * Napravljena misao (P4: „nova povezana misao"). Inverz je `archiveNodes` — koji
-   * arhivira i ivicu ka izvoru (`thoughts.ts:943-955`), pa `edgeId` nije potreban.
+   * Napravljena misao (P4: „nova povezana misao") ili beleška (PROSTOR K18: polje
+   * „Brza beleška…", FAB i režim Beleška u brzom unosu — lična ili u startupu).
+   * Inverz je `archiveNodes` — koji arhivira i ivicu ka izvoru
+   * (`thoughts.ts:943-955`), pa `edgeId` nije potreban. Arhiviranje beleške iz
+   * liste/detalja koristi `thoughts` (vraća `restoreNodes`).
    */
   | { kind: 'thoughtCreate'; nodeId: Id<'thoughtNodes'> }
   /**
@@ -257,6 +273,27 @@ export type UndoAction =
    * kanvasa, a eventualna deca se podižu nivo gore (`archivePageWithV2Sidecars`).
    */
   | { kind: 'pageCreate'; startupId: Id<'startups'>; pageId: Id<'pages'> }
+  /**
+   * Uklonjen komentar (PROSTOR K12). Inverz je `comments.restore`; server ga prima do
+   * `undoUntil` (8 s), pa stavka nosi isti rok. Komentar ide u arhivu, nikad se ne briše.
+   */
+  | { kind: 'comment'; commentId: Id<'contentContributions'> }
+  /**
+   * Stranica poslata u Korpu (PROSTOR K12, P3). Inverz je `trash.restore` — vraća celu
+   * granu koja je otišla istim potezom. Nema roka: Korpa ne čisti sama.
+   */
+  | { kind: 'trashRestore'; pageId: Id<'pages'> }
+  /**
+   * Promenjena faza ideje (PROSTOR K17, par web „Poništi" posle promene faze).
+   * Inverzan upis: `previousStage` je SAČUVANA faza OD PRE radnje (`setStage` je
+   * vraća kao `previousStage`), pa je poništavanje isti `ideas.setStage` poziv.
+   */
+  | {
+      kind: 'ideaStage';
+      startupId: Id<'startups'>;
+      ideaId: Id<'ideaNodes'>;
+      previousStage: 'predlog' | 'razmatra_se' | 'odobreno' | 'odbijeno';
+    }
   /**
    * Završen (ili vraćen) zadatak u startupu iz Moj dan (K12). Inverzan upis, ne
    * vraćanje arhiviranog: `status` je status OD PRE radnje (npr. „U toku"), pa je
@@ -301,7 +338,18 @@ export type UndoAction =
       channelId: Id<'chatChannels'>;
       name: string;
       profileIds: Id<'profiles'>[];
-    };
+    }
+  /**
+   * „Sredi rokove" (PROSTOR K19): grupna izmena roka ili „Završi" nad najviše 50 zadataka.
+   * Inverzan upis, ne vraćanje arhiviranog: `items` nosi rok i status OD PRE radnje, pa je
+   * poništavanje `tasks.bulkRestoreSchedule`. Server preskače zadatak koji je u međuvremenu
+   * menjan (`expectedRevision` se ne poklapa), pa poništavanje nikad ne gazi tuđu izmenu.
+   *
+   * Ulančano poništavanje: kad jedno poništavanje promeni reviziju zadatka, starije još živo
+   * „Poništi" mora da očekuje novu (`chainBulkScheduleRevisions`), inače bi ga server
+   * preskočio. Rok vraćanja nema — kao i ostale vrste bez `undoUntil`.
+   */
+  | { kind: 'bulkSchedule'; startupId: Id<'startups'>; items: BulkScheduleItem[] };
 
 export type UndoEntry = {
   /** Poruka trake, npr. „Ideja je obrisana." */
@@ -325,6 +373,18 @@ export type UndoEntry = {
 };
 
 /**
+ * Poruka na istoj traci, ali BEZ „Poništi" (K09): „Vraćeno: „X”." + „Otvori"
+ * posle „Vrati" iz Korpe (plan K07 E10 — vraćanje je bezbedno, pa se ne
+ * poništava). Nije radnja: ne ulazi u stek ni u „Istoriju radnji", nema inverz.
+ */
+export type UndoNotice = {
+  label: string;
+  /** Raste na svaki prikaz — restartuje tajmer trake i za istu poruku. */
+  key: number;
+  secondary?: UndoEntry['secondary'];
+};
+
+/**
  * Poništavanje ide VIŠE koraka unazad (PARITET-REVIZIJA C12): stek, ne jedna
  * stavka. Traka „Poništi" i dalje prikazuje samo JEDNU stavku odjednom
  * (`visibleKey`) — to je namerno, ekran „Istorija radnji" je mesto za dublje
@@ -341,6 +401,7 @@ const MAX_UNDO_ENTRIES = 20;
 
 let entries: UndoEntry[] = []; // najstarija prva; vrh (najnovija) je poslednji element
 let visibleKey: number | null = null; // stavka koju traka SME da prikaže
+let notice: UndoNotice | null = null; // poruka bez „Poništi"; isključuje `visibleKey`
 let counter = 0;
 const listeners = new Set<() => void>();
 
@@ -404,6 +465,8 @@ export function pushUndo(input: {
   const now = Date.now();
   pruneExpired(now);
   counter += 1;
+  // Nova radnja sa „Poništi" smenjuje poruku na traci (jedna traka, jedna stvar).
+  notice = null;
   entries = [
     ...entries,
     {
@@ -455,6 +518,31 @@ export function dropUndo(key: number): void {
 }
 
 /**
+ * Ulančano „Poništi" za `bulkSchedule` (K19, K06-3): posle uspešnog `bulkRestoreSchedule`
+ * server vraća nove revizije vraćenih zadataka. Svaka još živa stavka `bulkSchedule` koja
+ * sadrži te zadatke dobija novu `expectedRevision` — inače bi starije „Poništi" ispalo
+ * „u međuvremenu menjan". Stavke bez pogođenih zadataka ostaju ISTI objekat (nema
+ * objavljivanja kad se ništa ne menja).
+ */
+export function chainBulkScheduleRevisions(
+  revisions: ReadonlyArray<{ taskPageId: string; revision: number }>,
+): void {
+  if (revisions.length === 0) return;
+  let changed = false;
+  entries = entries.map((entry) => {
+    const action = entry.action;
+    if (action.kind !== 'bulkSchedule') return entry;
+    const items = withNewRevisions(action.items, revisions) as BulkScheduleItem[];
+    if (items.every((item, index) => item.expectedRevision === action.items[index]?.expectedRevision)) {
+      return entry;
+    }
+    changed = true;
+    return { ...entry, action: { ...action, items } };
+  });
+  if (changed) publish();
+}
+
+/**
  * Da li je stavka još u steku (K12). `popUndo` nad nepostojećim ključem bi
  * sklonio traku koja trenutno nudi NEKU DRUGU radnju — pozivalac prvo pita.
  */
@@ -462,18 +550,35 @@ export function hasUndo(key: number): boolean {
   return entries.some((e) => e.key === key);
 }
 
+/**
+ * Poruka na traci bez „Poništi" (K09, Korpa): smenjuje stavku koju traka nudi,
+ * ali stek NE dira — ta stavka ostaje u „Istoriji radnji".
+ */
+export function showUndoNotice(input: { label: string; secondary?: UndoEntry['secondary'] }): void {
+  counter += 1;
+  notice = {
+    label: input.label,
+    key: counter,
+    ...(input.secondary ? { secondary: input.secondary } : {}),
+  };
+  visibleKey = null;
+  publish();
+}
+
 /** Sklanja traku bez brisanja steka (npr. ✕, ili istek tajmera trake). */
 export function hideUndoBar(): void {
-  if (visibleKey === null) return;
+  if (visibleKey === null && notice === null) return;
   visibleKey = null;
+  notice = null;
   publish();
 }
 
 /** Prazni CEO stek i traku (npr. promena aktivnog startupa). */
 export function clearUndo(): void {
-  if (entries.length === 0 && visibleKey === null) return;
+  if (entries.length === 0 && visibleKey === null && notice === null) return;
   entries = [];
   visibleKey = null;
+  notice = null;
   if (expiryTimer !== null) {
     clearTimeout(expiryTimer);
     expiryTimer = null;
@@ -490,6 +595,8 @@ function subscribe(listener: () => void): () => void {
 
 const getStackSnapshot = () => stackSnapshot;
 const getBarSnapshot = () => barSnapshot;
+// `notice` se uvek zamenjuje novim objektom, pa je sam sebi stabilan snimak.
+const getNoticeSnapshot = () => notice;
 
 /** Ceo stek za ekran „Istorija radnji" (`app/(app)/istorija.tsx`) — najnovija prva. */
 export function useUndoStack(): UndoEntry[] {
@@ -501,11 +608,20 @@ export function useUndoBarEntry(): UndoEntry | null {
   return useSyncExternalStore(subscribe, getBarSnapshot, getBarSnapshot);
 }
 
+/** Poruka bez „Poništi" koju traka prikazuje (ili `null`) — reaktivno za `UndoBar`. */
+export function useUndoNotice(): UndoNotice | null {
+  return useSyncExternalStore(subscribe, getNoticeSnapshot, getNoticeSnapshot);
+}
+
 /**
  * Plain (ne-hook) čitanje steka — SAMO za `undo.test.ts`, koji testira modul
  * bez React-a. Nijedan komponent ga ne uvozi; `useUndoStack`/`useUndoBarEntry`
  * su put za UI.
  */
-export function getUndoSnapshotForTest(): { stack: UndoEntry[]; bar: UndoEntry | null } {
-  return { stack: stackSnapshot, bar: barSnapshot };
+export function getUndoSnapshotForTest(): {
+  stack: UndoEntry[];
+  bar: UndoEntry | null;
+  notice: UndoNotice | null;
+} {
+  return { stack: stackSnapshot, bar: barSnapshot, notice };
 }

@@ -15,7 +15,6 @@ import {
   Plus,
   ThumbsUp,
   TriangleAlert,
-  Users,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
@@ -31,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { PulseBar, type PulseSegment } from '@/components/ui/pulse-bar';
 import { Row } from '@/components/ui/row';
+import { UndoBar } from '@/components/undo-bar';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveStartup } from '@/context/active-startup';
@@ -48,7 +48,7 @@ import {
   trendDirection,
   type Trend,
 } from '@/lib/puls';
-import { areaColor, statusColor, TASK_STATUS_META, type TaskStatus } from '@/lib/task-meta';
+import { statusColor, TASK_STATUS_META, type TaskStatus } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, space, text, type ColorTokens } from '@/theme/tokens';
 import { accessErrorMessage } from '@/lib/errors';
@@ -72,7 +72,7 @@ export default function PulsScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { activeStartupId } = useActiveStartup();
+  const { activeStartupId, restoring } = useActiveStartup();
 
   // Deep link iz obaveštenja `puls_ready` nosi početak nedelje na koju se izveštaj
   // odnosi. Bez ovoga bi tap na obaveštenje uvek otvarao TEKUĆU nedelju, pa bi
@@ -93,14 +93,11 @@ export default function PulsScreen() {
     setWeekStart(next);
   }
 
-  /** Red oblasti vodi u Prostor otvoren na toj oblasti — pandan web `puls-view`,
-   *  gde je red dugme koje menja `WorkspaceRoute` na tu oblast. */
+  /** Red oblasti otvara ekran oblasti (K14) — pandan web `puls-view`, gde je red
+   *  dugme koje menja `WorkspaceRoute` na tu oblast. */
   function openArea(area: AreaSummary) {
     haptics.tap();
-    router.navigate({
-      pathname: '/prostor',
-      params: { areaId: area.areaId, areaLabel: area.label },
-    });
+    router.push({ pathname: '/oblast/[id]', params: { id: area.areaId } });
   }
 
   const weekEnd = addWeeks(weekStart, 1);
@@ -116,7 +113,9 @@ export default function PulsScreen() {
   const currentWeek = isCurrentWeek(weekStart, now);
   const isFirstWeek = data !== undefined && weekStart <= data.startupCreatedAt;
   const canGoBack = data === undefined || weekEnd > data.startupCreatedAt;
-  const loading = activeStartupId === null || data === undefined;
+  // Bez aktivnog startupa (i bez obnavljanja izbora) nema šta da se čeka.
+  const noStartup = activeStartupId === null && !restoring;
+  const loading = !noStartup && (activeStartupId === null || data === undefined);
   const refreshControl = useListRefresh();
 
   // „Sastav nedelje" — doslovno isti segmenti kao web (`puls-view.tsx:99-117`):
@@ -140,7 +139,7 @@ export default function PulsScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title="Puls"
-        eyebrow={formatWeekLabel(weekStart, weekEnd)}
+        subtitle={formatWeekLabel(weekStart, weekEnd)}
         onBack={() => router.back()}
       />
 
@@ -174,7 +173,15 @@ export default function PulsScreen() {
         {/* `fill={false}`: zamena stoji USRED skrola (ispod navigacije nedelje), pa
             mora da bude visoka koliko sam sadržaj, ne koliko ekran. */}
         <LoadingSwap loading={loading} fill={false} skeleton={<PulsSkeleton />}>
-          {data === undefined ? null : (
+          {data === undefined ? (
+            noStartup ? (
+              <EmptyState
+                icon={<Flame size={20} color={colors.mutedForeground} />}
+                title="Izaberi startup"
+                description="Puls se prikazuje po startupu."
+              />
+            ) : null
+          ) : (
             <View style={styles.sections}>
               <SummaryGrid data={data} colors={colors} hideTrend={isFirstWeek} />
               <StuckSection tasks={data.stuckTasks} now={now} colors={colors} />
@@ -194,12 +201,13 @@ export default function PulsScreen() {
           )}
         </LoadingSwap>
       </ScrollView>
+      <UndoBar />
     </View>
   );
 }
 
 /**
- * Navigacija kroz nedelje. Sam datum nedelje NIJE ovde — nosi ga `eyebrow`
+ * Navigacija kroz nedelje. Sam datum nedelje NIJE ovde — nosi ga `subtitle`
  * zaglavlja, pa red ostaje jedna linija: strelice sa strane, stanje u sredini.
  */
 function WeekNav({
@@ -297,7 +305,9 @@ function SummaryGrid({
   hideTrend: boolean;
 }) {
   return (
-    <View style={styles.grid}>
+    // Jedini istaknut blok ekrana (DIZAJN-SMIRENJE §5.4): jedna površina, ćelije
+    // razdvaja hairline (pozadina = ivica, kao web `gap-px bg-border`).
+    <View style={[styles.grid, { backgroundColor: colors.border, borderColor: colors.border }]}>
       <View style={styles.gridRow}>
         <StatCard
           colors={colors}
@@ -353,7 +363,7 @@ function toneColor(colors: ColorTokens, tone: Tone): string {
     case 'warn':
       return colors.warning;
     default:
-      return colors.primary;
+      return colors.mutedForeground;
   }
 }
 
@@ -380,12 +390,10 @@ function StatCard({
 }) {
   const tint = toneColor(colors, tone);
   return (
-    <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View style={[styles.statCard, { backgroundColor: colors.card }]}>
       <View style={styles.statTop}>
         <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{label}</Text>
-        <View style={[styles.statIcon, { backgroundColor: `${tint}22` }]}>
-          <Icon size={15} color={tint} />
-        </View>
+        <Icon size={16} color={tint} />
       </View>
       <Text style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
       <View style={styles.statFoot}>
@@ -420,7 +428,7 @@ function TrendLine({
     return (
       <View style={styles.trendRow}>
         <Minus size={13} color={colors.mutedForeground} />
-        <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>isto kao prošle</Text>
+        <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>isto kao prošle nedelje</Text>
       </View>
     );
   }
@@ -433,7 +441,7 @@ function TrendLine({
     <View style={styles.trendRow}>
       <Arrow size={13} color={color} />
       <Text style={[styles.trendValue, { color }]}>{delta}</Text>
-      <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>vs prošle</Text>
+      <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>od prošle nedelje</Text>
     </View>
   );
 }
@@ -456,11 +464,11 @@ function StuckSection({
           Zapelo
         </Text>
         <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
-          U toku duže od 4 radna dana ili blokirano duže od 2 dana.
+          U toku &gt; 4 radna dana · blokirano &gt; 2 dana
         </Text>
       </View>
       {tasks.length === 0 ? (
-        <EmptyCard colors={colors} text="Ništa nije zapelo. Sve teče." />
+        <EmptyCard colors={colors} text="Ništa nije zapelo." />
       ) : (
         <View style={styles.cards}>
           {tasks.map((task) => (
@@ -492,11 +500,7 @@ function StuckCard({
       // čitaču ekrana često ne izgovore, pa se ne oslanjamo samo na njih.
       accessibilityLabel={`Otvori zadatak: ${task.title}. ${TASK_STATUS_META[status].label}, stoji ${formatDaysStanding(now - task.lastTouchedAt)}.`}
       onPress={() => router.push({ pathname: '/zadatak/[id]', params: { id: task.pageId } })}
-      style={({ pressed }) => [
-        styles.stuckCard,
-        { backgroundColor: colors.card, borderColor: colors.border },
-        pressed && { backgroundColor: colors.muted },
-      ]}>
+      style={({ pressed }) => [styles.stuckCard, pressed && { backgroundColor: colors.muted }]}>
       <View style={styles.stuckTop}>
         <Text style={[styles.stuckTitle, { color: colors.foreground }]} numberOfLines={1}>
           {task.title}
@@ -539,11 +543,10 @@ function AreasSection({
       <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.foreground }]}>
         Po oblastima
       </Text>
-      <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        {areas.map((area, index) => {
+      <View>
+        {areas.map((area) => {
           const total = area.openCount + area.doneCount;
           const percent = total === 0 ? 0 : Math.round((area.doneCount / total) * 100);
-          const tint = areaColor(colors, area.key);
           return (
             <Pressable
               key={area.areaId}
@@ -551,14 +554,8 @@ function AreasSection({
               accessibilityLabel={`${area.label}, ${percent} procenata gotovo`}
               accessibilityHint="Otvara oblast u Prostoru"
               onPress={() => onOpenArea(area)}
-              style={({ pressed }) => [
-                styles.areaRow,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-                pressed && { backgroundColor: colors.muted },
-              ]}>
-              <View style={[styles.areaIcon, { backgroundColor: `${tint}22` }]}>
-                <Folder size={16} color={tint} />
-              </View>
+              style={({ pressed }) => [styles.areaRow, pressed && { backgroundColor: colors.muted }]}>
+              <Folder size={20} color={colors.mutedForeground} />
               <View style={styles.areaBody}>
                 <View style={styles.areaTitleRow}>
                   <Text style={[styles.areaLabel, { color: colors.foreground }]} numberOfLines={1}>
@@ -568,13 +565,13 @@ function AreasSection({
                 </View>
                 <View style={[styles.progressTrack, { backgroundColor: colors.muted }]}>
                   <View
-                    style={[styles.progressFill, { width: `${percent}%`, backgroundColor: colors.primary }]}
+                    style={[styles.progressFill, { width: `${percent}%`, backgroundColor: colors.success }]}
                   />
                 </View>
                 <Text style={[styles.areaCounts, { color: colors.mutedForeground }]}>
                   {area.openCount} otvoreno · {area.doneCount} gotovo
                   {area.completedThisWeek > 0 ? (
-                    <Text style={{ color: colors.success, fontWeight: fontWeight.semibold }}>
+                    <Text style={{ color: colors.success, fontWeight: fontWeight.medium }}>
                       {'  '}+{area.completedThisWeek} ove nedelje
                     </Text>
                   ) : null}
@@ -609,17 +606,13 @@ function MembersSection({
         Po članovima
       </Text>
       {members.length === 0 && !showUnassigned ? (
-        <EmptyState
-          icon={<Users size={36} color={colors.mutedForeground} />}
-          title="Nema zabeleženog rada"
-          description="U ovoj nedelji nijedan član nije imao aktivnost na zadacima."
-        />
+        <EmptyCard colors={colors} text="Ove nedelje niko nije radio na zadacima." />
       ) : (
         <View style={styles.cards}>
           {members.map((member) => (
             <View
               key={member.profileId}
-              style={[styles.memberCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              style={styles.memberCard}>
               <View style={styles.memberHead}>
                 <Avatar name={member.displayName} uri={member.avatarUrl} size={34} />
                 <View style={styles.memberName}>
@@ -646,7 +639,7 @@ function MembersSection({
           ))}
 
           {showUnassigned ? (
-            <View style={[styles.memberCard, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+            <View style={styles.memberCard}>
               <View style={styles.memberHead}>
                 <Avatar empty size={34} accessibilityLabel="Bez zaduženog" />
                 <Text style={[styles.memberNameText, { color: colors.foreground }]}>Bez zaduženog</Text>
@@ -709,28 +702,12 @@ function IdeasSection({
       {total === 0 ? (
         <EmptyCard colors={colors} text="Ove nedelje nije bilo rada na idejama." />
       ) : (
-        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <IdeaRow
-            colors={colors}
-            icon={Lightbulb}
-            tint={colors.primary}
-            label="Nove ideje"
-            trend={ideas.created}
-            hideTrend={hideTrend}
-            first
-          />
-          <IdeaRow
-            colors={colors}
-            icon={ThumbsUp}
-            tint={colors.info}
-            label="Glasova"
-            trend={ideas.votes}
-            hideTrend={hideTrend}
-          />
+        <View>
+          <IdeaRow colors={colors} icon={Lightbulb} label="Nove ideje" trend={ideas.created} hideTrend={hideTrend} />
+          <IdeaRow colors={colors} icon={ThumbsUp} label="Glasova" trend={ideas.votes} hideTrend={hideTrend} />
           <IdeaRow
             colors={colors}
             icon={Plus}
-            tint={colors.success}
             label="Pretvoreno u zadatke"
             trend={ideas.converted}
             hideTrend={hideTrend}
@@ -744,34 +721,23 @@ function IdeasSection({
 function IdeaRow({
   colors,
   icon: Icon,
-  tint,
   label,
   trend,
   hideTrend,
-  first,
 }: {
   colors: ColorTokens;
   icon: LucideIcon;
-  tint: string;
   label: string;
   trend: Trend;
   hideTrend: boolean;
-  first?: boolean;
 }) {
   return (
     <Row
       title={label}
       accessibilityLabel={`${label}: ${trend.current}`}
       showChevron={false}
-      style={[
-        styles.ideaRow,
-        !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-      ]}
-      icon={
-        <View style={[styles.areaIcon, { backgroundColor: `${tint}22` }]}>
-          <Icon size={16} color={tint} />
-        </View>
-      }
+      style={styles.ideaRow}
+      icon={<Icon size={20} color={colors.mutedForeground} />}
       value={
         <View style={styles.ideaRight}>
           <Text style={[styles.ideaValue, { color: colors.foreground }]}>{trend.current}</Text>
@@ -786,7 +752,7 @@ function IdeaRow({
 
 function EmptyCard({ colors, text }: { colors: ColorTokens; text: string }) {
   return (
-    <View style={[styles.emptyCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
+    <View style={styles.emptyCard}>
       <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>{text}</Text>
     </View>
   );
@@ -822,9 +788,9 @@ function PulsErrorState({ message, onRetry }: { message: string; onRetry: () => 
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Puls" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Puls se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju Pulsa.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Puls nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -842,12 +808,12 @@ const styles = StyleSheet.create({
   content: {
     padding: space[4],
     paddingTop: space[2],
-    gap: space[5],
+    gap: space[6],
   },
   // Sekcije Pulsa nose isti razmak koji je ranije davao `content.gap`, pošto ih
   // sada `LoadingSwap` obuhvata kao jedno dete.
   sections: {
-    gap: space[5],
+    gap: space[6],
   },
   // Week navigacija
   weekNavRow: {
@@ -869,6 +835,7 @@ const styles = StyleSheet.create({
   weekBadges: {
     flex: 1,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     gap: space[2],
@@ -886,16 +853,17 @@ const styles = StyleSheet.create({
   },
   // Sažetak
   grid: {
-    gap: space[3],
+    gap: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   gridRow: {
     flexDirection: 'row',
-    gap: space[3],
+    gap: StyleSheet.hairlineWidth,
   },
   statCard: {
     flex: 1,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
     padding: space[3],
     gap: 4,
   },
@@ -908,17 +876,10 @@ const styles = StyleSheet.create({
   statLabel: {
     flex: 1,
     ...text.meta,
-    fontWeight: fontWeight.semibold,
-  },
-  statIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   statValue: {
     ...text.display,
+    fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
   statFoot: {
@@ -935,7 +896,7 @@ const styles = StyleSheet.create({
   },
   trendValue: {
     ...text.meta,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
   trendMuted: {
@@ -944,28 +905,29 @@ const styles = StyleSheet.create({
   },
   // Sekcije
   section: {
-    gap: space[3],
+    gap: space[2],
   },
   sectionHead: {
     gap: 2,
   },
   sectionTitle: {
-    ...text.title,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
   },
   sectionSub: {
     ...text.meta,
     fontWeight: fontWeight.regular,
   },
   cards: {
-    gap: space[2],
+    gap: 0,
   },
-  // Zapelo
+  // Zapelo — red, ne kartica (DIZAJN-SMIRENJE §5.2)
   stuckCard: {
-    minHeight: MIN_TOUCH_TARGET,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: space[3],
-    gap: space[2],
+    minHeight: 56,
+    borderRadius: radius.md,
+    paddingHorizontal: space[1],
+    paddingVertical: space[2],
+    gap: 4,
   },
   stuckTop: {
     flexDirection: 'row',
@@ -975,7 +937,7 @@ const styles = StyleSheet.create({
   stuckTitle: {
     flex: 1,
     ...text.body,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.medium,
   },
   stuckStanding: {
     ...text.meta,
@@ -1007,23 +969,14 @@ const styles = StyleSheet.create({
     maxWidth: 120,
   },
   // Oblasti
-  groupCard: {
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
   areaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    padding: space[3],
-  },
-  areaIcon: {
-    width: 32,
-    height: 32,
+    minHeight: 56,
+    paddingHorizontal: space[1],
+    paddingVertical: space[2],
     borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   areaBody: {
     flex: 1,
@@ -1038,7 +991,7 @@ const styles = StyleSheet.create({
   areaLabel: {
     flex: 1,
     ...text.body,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.medium,
   },
   areaPercent: {
     ...text.meta,
@@ -1061,10 +1014,9 @@ const styles = StyleSheet.create({
   },
   // Članovi
   memberCard: {
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: space[3],
-    gap: space[3],
+    paddingHorizontal: space[1],
+    paddingVertical: space[2],
+    gap: space[2],
   },
   memberHead: {
     flexDirection: 'row',
@@ -1076,7 +1028,7 @@ const styles = StyleSheet.create({
   },
   memberNameText: {
     ...text.body,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.medium,
   },
   memberSub: {
     ...text.meta,
@@ -1096,8 +1048,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   statChipValue: {
-    ...text.title,
-    fontWeight: fontWeight.bold,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
   statChipLabel: {
@@ -1107,31 +1059,24 @@ const styles = StyleSheet.create({
   },
   // Ideje — red kao `Row` override (raspored i naslov dolaze iz Row.base).
   ideaRow: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[3],
+    paddingHorizontal: space[1],
   },
   ideaRight: {
     alignItems: 'flex-end',
     gap: 2,
   },
   ideaValue: {
-    ...text.title,
-    fontWeight: fontWeight.bold,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
     fontVariant: ['tabular-nums'],
   },
   // Prazno / skeleton
   emptyCard: {
-    minHeight: 84,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderStyle: 'dashed',
-    padding: space[4],
+    paddingHorizontal: space[1],
+    paddingVertical: space[2],
   },
   emptyText: {
     ...text.body,
-    textAlign: 'center',
   },
   skeleton: {
     gap: space[3],

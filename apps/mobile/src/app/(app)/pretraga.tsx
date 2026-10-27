@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
+import { UndoBar } from '@/components/undo-bar';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -44,12 +45,13 @@ const DEBOUNCE_MS = 300;
 /**
  * Pretraga preko celog ekrana (spec §M3.4). Otvara se iz ikonice u `AppHeader`.
  * Pet grupa: „Stranice" i „Zadaci" iz `search.pages` (po `kind`), „Ideje" i
- * „Misli" iz `search.ideasAndThoughts`, „Poruke" iz `chat.searchMessages`.
+ * „Beleške" iz `search.ideasAndThoughts`, „Poruke" iz `chat.searchMessages`.
  * Debounce na unosu, autofokus, dva prazna stanja (pre kucanja / bez rezultata).
  *
- * Misao vodi pravo na svoj detalj (`/misao/[id]` — rezultat nosi pravi `_id`, a
- * pretraga vraća samo tvoje nearhivirane misli, iste uslove kao detalj). Ideja
- * ostaje na nivou sekcije (lista `/ideje` — ekran ideje traži `ideas.list` skup).
+ * Beleška vodi pravo na svoj detalj (`/misao/[id]` — rezultat nosi pravi `_id`, a
+ * pretraga vraća samo tvoje nearhivirane beleške, iste uslove kao detalj). Ideja
+ * takođe vodi na svoj detalj (`/ideja/[id]`, K23 paritet sa webom): pretraga je
+ * u aktivnom startupu, a detalj čita isti `ideas.list` skup tog startupa.
  */
 export default function PretragaScreen() {
   const colors = useThemeColors();
@@ -112,10 +114,9 @@ export default function PretragaScreen() {
     haptics.tap();
     router.push({ pathname: '/razgovor/[id]', params: { id } });
   };
-  // Ideja nema deep-link (ekran ideje čita iz `ideas.list` skupa) — vodi na listu.
-  const openIdeas = () => {
+  const openIdea = (id: Id<'ideaNodes'>) => {
     haptics.tap();
-    router.push({ pathname: '/ideje' });
+    router.push({ pathname: '/ideja/[id]', params: { id } });
   };
   const openThought = (id: Id<'thoughtNodes'>) => {
     haptics.tap();
@@ -166,23 +167,23 @@ export default function PretragaScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
         {trimmed.length < MIN_CHARS ? (
         <EmptyState
-          icon={<Search size={40} color={colors.mutedForeground} />}
-          title="Pronađi ono što ti treba"
-          description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, misli i poruke ovog startupa."
+          icon={<Search size={20} color={colors.mutedForeground} />}
+          title="Unesi bar dva slova."
+          description="Pretražuju se stranice, zadaci, ideje, beleške i poruke ovog startupa."
         />
       ) : activeStartupId === null ? (
         // Bez izabranog startupa pretraga nema opseg — jasna poruka umesto
         // večitog spinera (rn-review). Startup se bira iz headera.
         <EmptyState
-          icon={<Search size={40} color={colors.mutedForeground} />}
+          icon={<Search size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Pretraga radi u okviru jednog startupa. Izaberi ga iz zaglavlja pa pokušaj ponovo."
         />
       ) : !loading && total === 0 ? (
         <EmptyState
-          icon={<Search size={40} color={colors.mutedForeground} />}
-          title="Nema rezultata"
-          description={`Ništa ne odgovara upitu „${trimmed}". Probaj kraći izraz.`}
+          icon={<Search size={20} color={colors.mutedForeground} />}
+          title="Nema rezultata."
+          description={`Ništa za „${trimmed}”.`}
         />
       ) : (
         // Bez pull-to-refresh: rezultati zavise od upita u polju, ne od vremena —
@@ -219,25 +220,25 @@ export default function PretragaScreen() {
                       <StaggerItem key={n._id} index={index}>
                         <NodeRow
                           node={n}
-                          tint={colors.warning}
+                          tint={colors.mutedForeground}
                           icon={Lightbulb}
-                          openHint="otvori listu ideja"
+                          openHint="otvori ideju"
                           colors={colors}
-                          onPress={openIdeas}
+                          onPress={() => openIdea(n._id)}
                         />
                       </StaggerItem>
                     ))}
                   </Section>
                 ) : null}
                 {thoughts.length > 0 ? (
-                  <Section title="Misli" count={thoughts.length}>
+                  <Section title="Beleške" count={thoughts.length}>
                     {thoughts.map((n, index) => (
                       <StaggerItem key={n._id} index={index}>
                         <NodeRow
                           node={n}
-                          tint={colors.primary}
+                          tint={colors.mutedForeground}
                           icon={Brain}
-                          openHint="otvori misao"
+                          openHint="otvori belešku"
                           colors={colors}
                           onPress={() => openThought(n._id)}
                         />
@@ -264,6 +265,7 @@ export default function PretragaScreen() {
         </LoadingSwap>
       )}
       </KeyboardAvoidingView>
+      <UndoBar />
     </View>
   );
 }
@@ -330,7 +332,7 @@ function PageRow({
     <Row
       style={styles.row}
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+        <View style={styles.iconChip}>
           <Icon size={18} color={tint} />
         </View>
       }
@@ -356,8 +358,8 @@ function MessageRow({
     <Row
       style={styles.row}
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${colors.info}22` }]}>
-          <MessageSquareText size={18} color={colors.info} />
+        <View style={styles.iconChip}>
+          <MessageSquareText size={18} color={colors.mutedForeground} />
         </View>
       }
       title={message.body || 'Prilog'}
@@ -381,7 +383,7 @@ function NodeRow({
   node: { title: string | null; text: string };
   tint: string;
   icon: LucideIcon;
-  // Label imenuje ODREDIŠTE (misao → njen detalj, ideja → lista ideja), da
+  // Label imenuje ODREDIŠTE (beleška → njen detalj, ideja → njen detalj), da
   // ekran-čitač tačno zna kuda tap vodi (kao MessageRow: „Otvori razgovor …").
   openHint: string;
   colors: ColorTokens;
@@ -396,7 +398,7 @@ function NodeRow({
     <Row
       style={styles.row}
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+        <View style={styles.iconChip}>
           <Icon size={18} color={tint} />
         </View>
       }
@@ -421,9 +423,9 @@ function PretragaError({ message, onRetry }: { message: string; onRetry: () => v
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Pretraga" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Pretraga ne radi"
-        description={message || 'Došlo je do greške pri pretrazi.'}
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

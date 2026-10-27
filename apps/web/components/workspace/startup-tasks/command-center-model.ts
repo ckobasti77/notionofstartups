@@ -8,6 +8,7 @@
 import {
   applyStartupHolds,
   rowFromStartupTask,
+  splitStale,
   type StartupMini,
   type StartupTaskHold,
   type StartupTaskLike,
@@ -15,7 +16,7 @@ import {
   type TaskRowModel,
 } from "@devotion/shared";
 
-import { bucketTasksByZone, classifyDeadline, TRIAGE_ZONE_ORDER, type TriageZone } from "@/lib/deadline";
+import { bucketTasksByZone, classifyDeadline, type TriageZone } from "@/lib/deadline";
 
 /** Lista zadržavanja (sekcije `zones:<zona>`). */
 export const COMMAND_CENTER_LIST = "zones";
@@ -25,7 +26,25 @@ export type CommandCenterTask = StartupTaskLike & { taskSortAt: number };
 
 export type CommandCenterAssignee = { profileId: string; displayName: string; avatarUrl: string | null };
 
-export type CommandCenterZone = StartupTaskSection<TriageZone>;
+/**
+ * Zone trijaže tima. `zastarelo` (PROSTOR P10) je izdvojeno iz `gori`: rok je
+ * prošao pre više od 14 dana (shared `splitStale`).
+ */
+export type CommandCenterZoneId = TriageZone | "zastarelo";
+
+/** Redosled prikaza: "Zastarelo" je odmah ispod "Gori". */
+export const COMMAND_CENTER_ZONE_ORDER: ReadonlyArray<CommandCenterZoneId> = [
+  "gori",
+  "zastarelo",
+  "danas",
+  "nedelja",
+  "kasnije",
+];
+
+export type CommandCenterZone = StartupTaskSection<CommandCenterZoneId>;
+
+/** Filter člana: `null` = svi, `UNASSIGNED_KEY` = bez izvršioca, inače id profila. */
+export type WorkloadFilter = string | null;
 
 export type WorkloadCount = { key: string; open: number; overdue: number; urgent: number };
 
@@ -94,6 +113,8 @@ export function buildZones(
     plannedKeys: ReadonlyMap<string, string>;
     holds: ReadonlyMap<string, StartupTaskHold>;
     pending: ReadonlyMap<string, boolean>;
+    /** Vlasnik startupa ili admin — menja i zaključane zadatke (P1). */
+    isManager?: boolean;
   },
 ): CommandCenterZone[] {
   const buckets = bucketTasksByZone([...tasks], context.now);
@@ -106,10 +127,19 @@ export function buildZones(
         ? (context.assigneesByTaskId.get(task._id) ?? []).map((assignee) => assignee.profileId)
         : null,
       plannedKeys: context.plannedKeys,
+      isManager: context.isManager,
     });
+  const { fresh, stale } = splitStale(buckets.gori, context.now);
+  const byZone: Record<CommandCenterZoneId, CommandCenterTask[]> = {
+    gori: fresh,
+    zastarelo: stale,
+    danas: buckets.danas,
+    nedelja: buckets.nedelja,
+    kasnije: buckets.kasnije,
+  };
   return applyStartupHolds(
     COMMAND_CENTER_LIST,
-    TRIAGE_ZONE_ORDER.map((zone) => ({ id: zone, rows: buckets[zone].map(toRow) })),
+    COMMAND_CENTER_ZONE_ORDER.map((zone) => ({ id: zone, rows: byZone[zone].map(toRow) })),
     context.holds,
     context.pending,
   );

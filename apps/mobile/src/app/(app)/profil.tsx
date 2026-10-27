@@ -74,7 +74,7 @@ export default function ProfilScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Moj profil" onBack={() => router.back()} />
         <EmptyState
-          icon={<UserRound size={40} color={colors.mutedForeground} />}
+          icon={<UserRound size={20} color={colors.mutedForeground} />}
           title="Profil nije pronađen"
           description="Prijavi se ponovo pa pokušaj iz početka."
         />
@@ -287,8 +287,7 @@ export default function ProfilScreen() {
             />
           </View>
           <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-            Email i uloga se ne menjaju odavde — email ide kroz prijavu, ulogu dodeljuje
-            administrator.
+            Email se menja kroz prijavu, a ulogu dodeljuje administrator.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -330,9 +329,9 @@ function ProfilError({ message, onRetry }: { message: string; onRetry: () => voi
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Moj profil" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Profil se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju profila.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Profil nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -390,9 +389,6 @@ const styles = StyleSheet.create({
   },
   label: {
     ...text.meta,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   hint: {
     ...text.meta,

@@ -105,7 +105,7 @@ import {
 import { pushUndo } from '@/lib/undo';
 import { postUploadBlob, readUploadBlob } from '@/lib/upload';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const MAX_TITLE = 200;
 /** Ručni unos je za male tabele; masovni sadržaj ide kroz uvoz fajla. */
@@ -166,12 +166,15 @@ export function PageCreateSheet({
   startupId,
   areaId,
   parentPageId,
+  initialKind,
   onClose,
 }: {
   open: boolean;
   startupId: Id<'startups'>;
   areaId: Id<'startupAreas'>;
   parentPageId: Id<'pages'> | null;
+  /** Vrsta izabrana pri otvaranju (npr. „Novi zadatak" na kartici Zadaci); vraćen nacrt ima prednost. */
+  initialKind?: PageKind;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
@@ -310,6 +313,8 @@ export function PageCreateSheet({
       if (draft !== null) {
         hydrate(draft);
         assigneeDefaultedRef.current = true;
+      } else if (initialKind !== undefined) {
+        setKind(initialKind);
       }
     } else if (!open) {
       openedRef.current = false;
@@ -700,7 +705,7 @@ export function PageCreateSheet({
     TASK_PRIORITY_META[priority].label,
     assigneeIds.length > 0 ? `${assigneeIds.length} izvršilaca` : null,
     dueAt === null ? null : dueSummary(dueAt, now),
-    checkpoints.length > 0 ? `${checkpoints.length} podzadataka` : null,
+    checkpoints.length > 0 ? `${checkpoints.length} koraka` : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1325,8 +1330,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   areaLine: {
     fontSize: fontSize.base,
@@ -1399,10 +1403,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionLabel: {
-    fontSize: 12,
+    ...text.body,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   chips: {
     flexDirection: 'row',

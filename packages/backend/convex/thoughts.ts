@@ -6,17 +6,25 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireStartupMember } from "./lib/auth";
+import { findAvailableCanvasPosition } from "./canvasPlacement";
+import { requireProfile, requireStartupMember } from "./lib/auth";
 import { insertContribution } from "./lib/collaboration";
 import {
   insertWorkspacePage,
   prepareWorkspacePage,
   validateWorkspacePageTarget,
 } from "./lib/page_creation";
+import {
+  listMyActiveStartups,
+  startupMiniOf,
+  type StartupMini,
+} from "./lib/my_scope";
 import { nodeSearchText } from "./lib/pages";
 import {
+  boundedLimit,
   cleanRequiredText,
   pageKindValidator,
+  startupMiniValidator,
   taskPriorityValidator,
   taskStatusValidator,
 } from "./lib/validators";
@@ -193,19 +201,49 @@ async function ensureCanvas(
   });
 }
 
+/**
+ * Ko sme da dira beleške jednog opsega (PROSTOR P7, R21). Lična beleška
+ * (`startupId: null`) — samo aktivan profil vlasnika; beleška startupa — samo
+ * dok je vlasnik aktivan član tog startupa. Vlasništvo proveravaju pozivaoci.
+ */
+async function requireNoteScope(
+  ctx: ReadCtx,
+  startupId: Id<"startups"> | null,
+) {
+  return startupId === null
+    ? await requireProfile(ctx)
+    : (await requireStartupMember(ctx, startupId)).profile;
+}
+
+/**
+ * Upiti Mape idu po startupu, pa im `startupId` nikad nije `null`; suženje
+ * drži stari oblik odgovora (`v.id("startups")`) za postojeće klijente.
+ */
+function inStartupScope<T extends { startupId: Id<"startups"> | null }>(
+  doc: T,
+) {
+  const startupId = doc.startupId;
+  if (startupId === null) {
+    throw new Error("Lična beleška nije deo Mape startupa.");
+  }
+  return { ...doc, startupId };
+}
+
 async function requireOwnedNodes(
   ctx: ReadCtx,
   nodeIds: Id<"thoughtNodes">[],
   options?: {
-    startupId?: Id<"startups">;
+    /** `null` = lične beleške; odsutno = opseg prve izabrane. */
+    startupId?: Id<"startups"> | null;
     allowArchived?: boolean;
   },
 ) {
   validateUniqueIds(nodeIds, "Izbor misli");
   const first = await ctx.db.get("thoughtNodes", nodeIds[0]);
-  const startupId = options?.startupId ?? first?.startupId;
+  const startupId =
+    options?.startupId !== undefined ? options.startupId : first?.startupId;
   if (startupId === undefined) throw new Error("Misao nije pronađena.");
-  const { profile } = await requireStartupMember(ctx, startupId);
+  const profile = await requireNoteScope(ctx, startupId);
   const nodes: Doc<"thoughtNodes">[] = [];
   for (const nodeId of nodeIds) {
     const node = nodeId === nodeIds[0] ? first : await ctx.db.get("thoughtNodes", nodeId);
@@ -230,7 +268,7 @@ async function requireOwnedEdges(
   validateUniqueIds(edgeIds, "Izbor veza");
   const first = await ctx.db.get("thoughtEdges", edgeIds[0]);
   if (first === null) throw new Error("Veza nije pronađena.");
-  const { profile } = await requireStartupMember(ctx, first.startupId);
+  const profile = await requireNoteScope(ctx, first.startupId);
   const edges: Doc<"thoughtEdges">[] = [];
   for (const edgeId of edgeIds) {
     const edge = edgeId === edgeIds[0] ? first : await ctx.db.get("thoughtEdges", edgeId);
@@ -323,7 +361,7 @@ export const listNodes = query({
   handler: async (ctx, args) => {
     validatePageSize(args.paginationOpts.numItems, MAX_NODE_PAGE_SIZE);
     const { profile } = await requireStartupMember(ctx, args.startupId);
-    return await ctx.db
+    const result = await ctx.db
       .query("thoughtNodes")
       .withIndex(
         "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
@@ -335,6 +373,7 @@ export const listNodes = query({
       )
       .order("desc")
       .paginate(args.paginationOpts);
+    return { ...result, page: result.page.map(inStartupScope) };
   },
 });
 
@@ -347,7 +386,7 @@ export const listEdges = query({
   handler: async (ctx, args) => {
     validatePageSize(args.paginationOpts.numItems, MAX_EDGE_PAGE_SIZE);
     const { profile } = await requireStartupMember(ctx, args.startupId);
-    return await ctx.db
+    const result = await ctx.db
       .query("thoughtEdges")
       .withIndex(
         "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
@@ -359,6 +398,7 @@ export const listEdges = query({
       )
       .order("desc")
       .paginate(args.paginationOpts);
+    return { ...result, page: result.page.map(inStartupScope) };
   },
 });
 
@@ -650,7 +690,8 @@ export const duplicateNodes = mutation({
       validateFinite(node.x + offsetX, "Horizontalna pozicija misli");
       validateFinite(node.y + offsetY, "Vertikalna pozicija misli");
     }
-    await ensureCanvas(ctx, startupId, profile._id);
+    // Lične beleške nemaju Mapu (P7).
+    if (startupId !== null) await ensureCanvas(ctx, startupId, profile._id);
     const now = Date.now();
     const ids: Id<"thoughtNodes">[] = [];
     for (const node of nodes) {
@@ -682,7 +723,7 @@ export const duplicateNodes = mutation({
 async function collectEdgesTouchingNodes(
   ctx: ReadCtx,
   ownerProfileId: Id<"profiles">,
-  startupId: Id<"startups">,
+  startupId: Id<"startups"> | null,
   nodeIds: Id<"thoughtNodes">[],
   options: { includeActive: boolean; includeNodeArchived: boolean },
 ) {
@@ -888,11 +929,13 @@ export const getConnectedGroup = query({
 
     const includedIds = new Set(nodes.keys());
     return {
-      nodes: [...nodes.values()],
-      edges: [...edges.values()].filter(
-        (edge) =>
-          includedIds.has(edge.nodeAId) && includedIds.has(edge.nodeBId),
-      ),
+      nodes: [...nodes.values()].map(inStartupScope),
+      edges: [...edges.values()]
+        .filter(
+          (edge) =>
+            includedIds.has(edge.nodeAId) && includedIds.has(edge.nodeBId),
+        )
+        .map(inStartupScope),
       truncated,
     };
   },
@@ -1222,9 +1265,8 @@ function thoughtTextHtml(text: string) {
     .join("");
 }
 
-function defaultThoughtTitle(node: Doc<"thoughtNodes">) {
-  if (node.title !== null) return node.title;
-  const firstLine = node.text
+function titleFromText(text: string) {
+  const firstLine = text
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
@@ -1233,6 +1275,45 @@ function defaultThoughtTitle(node: Doc<"thoughtNodes">) {
     "Naslov",
     MAX_THOUGHT_TITLE,
   );
+}
+
+function defaultThoughtTitle(node: Doc<"thoughtNodes">) {
+  if (node.title !== null) return node.title;
+  return titleFromText(node.text);
+}
+
+const IDEA_PLACEMENT_SCAN = 200;
+const IDEA_BOX = { width: 264, height: 196 };
+
+/**
+ * Lična beleška nema mesto na Mapi (0, 0), pa ideja iz nje dobija slobodno
+ * mesto na kanvasu ideja ciljnog startupa — ne preklapa postojeće gornje
+ * ideje ni ideje iz iste serije.
+ */
+async function ideaPlacementPlanner(
+  ctx: MutationCtx,
+  startupId: Id<"startups">,
+) {
+  const existing = await ctx.db
+    .query("ideaNodes")
+    .withIndex("by_startupId_and_archivedAt_and_updatedAt", (q) =>
+      q.eq("startupId", startupId).eq("archivedAt", null),
+    )
+    .order("desc")
+    .take(IDEA_PLACEMENT_SCAN);
+  const occupied = existing
+    .filter((idea) => idea.parentIdeaId === undefined)
+    .map((idea) => ({
+      x: idea.x,
+      y: idea.y,
+      width: idea.width ?? IDEA_BOX.width,
+      height: idea.height ?? IDEA_BOX.height,
+    }));
+  return () => {
+    const position = findAvailableCanvasPosition(occupied, IDEA_BOX);
+    occupied.push({ ...position, ...IDEA_BOX });
+    return { x: position.x, y: position.y };
+  };
 }
 
 function combinedNoteHtml(nodes: Doc<"thoughtNodes">[]) {
@@ -1278,6 +1359,12 @@ function combinedTaskHtml(nodes: Doc<"thoughtNodes">[]) {
   return `<ul data-type="taskList">${items}</ul>`;
 }
 
+/**
+ * „Pošalji u startup" (PROSTOR P7, K01 D10): moje beleške postaju ideje (faza
+ * Predlog) u startupu `startupId`. Beleške su lične ili iz mog aktivnog
+ * startupa, sve iz istog opsega; ciljni startup je bilo koji u kome sam aktivan
+ * član. Stari klijenti šalju startup samih misli — ponašanje je isto kao ranije.
+ */
 export const convertToIdeas = mutation({
   args: {
     startupId: v.id("startups"),
@@ -1288,15 +1375,29 @@ export const convertToIdeas = mutation({
     createdEdgeCount: v.number(),
   }),
   handler: async (ctx, args) => {
-    const { nodes, profile } = await requireOwnedNodes(ctx, args.nodeIds, {
-      startupId: args.startupId,
-    });
-    const sortedNodes = [...nodes].sort(
-      (first, second) =>
-        first.y - second.y ||
-        first.x - second.x ||
-        first._id.localeCompare(second._id),
-    );
+    const {
+      nodes,
+      profile,
+      startupId: sourceStartupId,
+    } = await requireOwnedNodes(ctx, args.nodeIds);
+    if (sourceStartupId !== args.startupId) {
+      await requireStartupMember(ctx, args.startupId);
+    }
+    // Lične beleške nemaju raspored na Mapi — redosled je redosled izbora
+    // (`requireOwnedNodes` čuva redosled `nodeIds`).
+    const sortedNodes =
+      sourceStartupId === null
+        ? [...nodes]
+        : [...nodes].sort(
+            (first, second) =>
+              first.y - second.y ||
+              first.x - second.x ||
+              first._id.localeCompare(second._id),
+          );
+    const nextPersonalPosition =
+      sourceStartupId === null
+        ? await ideaPlacementPlanner(ctx, args.startupId)
+        : null;
     const selectedNodeIds = new Set<string>(args.nodeIds);
     const sourceEdges = new Map<Id<"thoughtEdges">, Doc<"thoughtEdges">>();
 
@@ -1309,7 +1410,7 @@ export const convertToIdeas = mutation({
             (q) =>
               q
                 .eq("ownerProfileId", profile._id)
-                .eq("startupId", args.startupId)
+                .eq("startupId", sourceStartupId)
                 .eq("nodeAId", node._id)
                 .eq("archivedAt", null),
           )
@@ -1321,7 +1422,7 @@ export const convertToIdeas = mutation({
             (q) =>
               q
                 .eq("ownerProfileId", profile._id)
-                .eq("startupId", args.startupId)
+                .eq("startupId", sourceStartupId)
                 .eq("nodeBId", node._id)
                 .eq("archivedAt", null),
           )
@@ -1346,14 +1447,17 @@ export const convertToIdeas = mutation({
     const ideaIds: Id<"ideaNodes">[] = [];
 
     for (const node of sortedNodes) {
+      const position =
+        nextPersonalPosition === null
+          ? { x: node.x, y: node.y }
+          : nextPersonalPosition();
       const ideaId = await ctx.db.insert("ideaNodes", {
         startupId: args.startupId,
         authorProfileId: profile._id,
         title: node.title ?? defaultThoughtTitle(node),
         text: node.text,
         searchText: nodeSearchText(node.title ?? defaultThoughtTitle(node), node.text),
-        x: node.x,
-        y: node.y,
+        ...position,
         color: node.color,
         isParent: node.isParent ?? false,
         convertedPageId: null,
@@ -1596,5 +1700,308 @@ export const convertToPages = mutation({
       });
     }
     return { pageIds };
+  },
+});
+
+// --- Beleške u „Ja" (PROSTOR P7, K01 §9.2) ----------------------------------
+//
+// Beleška je misao: iz nekog mog aktivnog startupa ili lična (`startupId:
+// null`). Vidi je i menja SAMO vlasnik (R21) — svaki upit `.eq`-uje
+// `ownerProfileId`, i admin vidi samo svoje. Beleška iz startupa koji sam
+// napustio (ili koji je arhiviran) se ne vraća. Izmena, arhiva i vraćanje idu
+// kroz postojeće `updateNode`/`archiveNodes`/`restoreNodes` (rade i za lične),
+// a „Pošalji u startup" kroz `convertToIdeas`.
+
+const MAX_NOTE_SEARCH_SCAN = 100;
+const NOTE_TEXT_SNIPPET = 280;
+/** Nova podbeleška na Mapi: ispod roditelja (koordinate su relativne). */
+const NOTE_CHILD_OFFSET = { x: 0, y: MIN_THOUGHT_HEIGHT + 24 };
+
+const noteItemValidator = v.object({
+  _id: v.id("thoughtNodes"),
+  startupId: v.union(v.id("startups"), v.null()),
+  startup: v.union(startupMiniValidator, v.null()),
+  title: v.union(v.string(), v.null()),
+  text: v.string(),
+  color: thoughtColorValidator,
+  parentThoughtId: v.union(v.id("thoughtNodes"), v.null()),
+  isParent: v.boolean(),
+  conversionCount: v.number(),
+  lastConvertedIdeaId: v.union(v.id("ideaNodes"), v.null()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+/** Filter opsega: odsutno = sve moje beleške, `null` = lične, Id = jedan startup. */
+const noteScopeArgValidator = v.optional(v.union(v.id("startups"), v.null()));
+
+/**
+ * Opseg beleški za čitanje. `scope` su startupi čije beleške smem da vidim —
+ * aktivno članstvo, startup nije arhiviran (`listMyActiveStartups`).
+ */
+async function noteReadScope(
+  ctx: QueryCtx,
+  startupId: Id<"startups"> | null | undefined,
+) {
+  if (startupId === undefined) {
+    const profile = await requireProfile(ctx);
+    return { profile, scope: await listMyActiveStartups(ctx, profile._id) };
+  }
+  if (startupId === null) {
+    return {
+      profile: await requireProfile(ctx),
+      scope: new Map<Id<"startups">, StartupMini>(),
+    };
+  }
+  const member = await requireStartupMember(ctx, startupId);
+  return {
+    profile: member.profile,
+    scope: new Map([[startupId, await startupMiniOf(ctx, member.startup)]]),
+  };
+}
+
+function noteVisibleIn(
+  startupId: Id<"startups"> | null,
+  scope: Map<Id<"startups">, StartupMini>,
+) {
+  return startupId === null || scope.has(startupId);
+}
+
+function noteItem(
+  node: Doc<"thoughtNodes">,
+  scope: Map<Id<"startups">, StartupMini>,
+) {
+  return {
+    _id: node._id,
+    startupId: node.startupId,
+    startup:
+      node.startupId === null ? null : (scope.get(node.startupId) ?? null),
+    title: node.title,
+    text: node.text,
+    color: node.color,
+    parentThoughtId: node.parentThoughtId ?? null,
+    isParent: node.isParent ?? false,
+    conversionCount: node.conversionCount,
+    lastConvertedIdeaId: node.lastConvertedIdeaId ?? null,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+  };
+}
+
+/**
+ * Moje beleške, najskorije menjane prvo. Bez `startupId` — lične i iz svih
+ * mojih aktivnih startupa (beleške iz startupa van opsega se izbacuju POSLE
+ * čitanja, pa strana može biti kraća od `numItems`; klijent učitava dalje dok
+ * `isDone` nije true). `null` — samo lične. Id — samo taj startup (član).
+ */
+export const listMine = query({
+  args: {
+    startupId: noteScopeArgValidator,
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(noteItemValidator),
+  handler: async (ctx, args) => {
+    validatePageSize(args.paginationOpts.numItems, MAX_NODE_PAGE_SIZE);
+    const { profile, scope } = await noteReadScope(ctx, args.startupId);
+    const scoped = args.startupId;
+    const result =
+      scoped === undefined
+        ? await ctx.db
+            .query("thoughtNodes")
+            .withIndex("by_ownerProfileId_and_archivedAt_and_updatedAt", (q) =>
+              q.eq("ownerProfileId", profile._id).eq("archivedAt", null),
+            )
+            .order("desc")
+            .paginate(args.paginationOpts)
+        : await ctx.db
+            .query("thoughtNodes")
+            .withIndex(
+              "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
+              (q) =>
+                q
+                  .eq("ownerProfileId", profile._id)
+                  .eq("startupId", scoped)
+                  .eq("archivedAt", null),
+            )
+            .order("desc")
+            .paginate(args.paginationOpts);
+    return {
+      ...result,
+      page: result.page
+        .filter((node) => noteVisibleIn(node.startupId, scope))
+        .map((node) => noteItem(node, scope)),
+    };
+  },
+});
+
+/**
+ * Jedna moja beleška po id-ju (detalj na telefonu; lične beleške nemaju Mapu,
+ * pa ih `getConnectedGroup` ne vidi). Tuđa, arhivirana, nepostojeća i beleška
+ * iz startupa van opsega daju isti odgovor — `null` (ne odaje da postoji).
+ */
+export const getNote = query({
+  args: { nodeId: v.id("thoughtNodes") },
+  returns: v.union(noteItemValidator, v.null()),
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    const node = await ctx.db.get("thoughtNodes", args.nodeId);
+    if (
+      node === null ||
+      node.ownerProfileId !== profile._id ||
+      node.archivedAt !== null
+    ) {
+      return null;
+    }
+    const scope = await listMyActiveStartups(ctx, profile._id);
+    if (!noteVisibleIn(node.startupId, scope)) return null;
+    return noteItem(node, scope);
+  },
+});
+
+/**
+ * Nova beleška. Lična (`startupId: null`): bez Mape, pozicija (0, 0). U
+ * startupu: član, Mapa se pravi po potrebi i beleška dobija slobodno mesto
+ * (podbeleška ide ispod roditelja). Prazan naslov = prvi red teksta.
+ */
+export const createNote = mutation({
+  args: {
+    startupId: v.union(v.id("startups"), v.null()),
+    title: v.optional(v.string()),
+    text: v.string(),
+    parentThoughtId: v.optional(v.id("thoughtNodes")),
+  },
+  returns: v.id("thoughtNodes"),
+  handler: async (ctx, args) => {
+    const profile = await requireNoteScope(ctx, args.startupId);
+    const text = cleanThoughtText(args.text);
+    const title =
+      args.title === undefined || args.title.trim().length === 0
+        ? titleFromText(text)
+        : cleanRequiredText(args.title, "Naslov misli", MAX_THOUGHT_TITLE);
+
+    if (args.parentThoughtId !== undefined) {
+      const parent = await ctx.db.get("thoughtNodes", args.parentThoughtId);
+      if (
+        parent === null ||
+        parent.ownerProfileId !== profile._id ||
+        parent.startupId !== args.startupId ||
+        parent.archivedAt !== null
+      ) {
+        throw new Error("Misao nije pronađena.");
+      }
+    }
+
+    let position = { x: 0, y: 0 };
+    if (args.startupId !== null) {
+      const startupId = args.startupId;
+      await ensureCanvas(ctx, startupId, profile._id);
+      if (args.parentThoughtId !== undefined) {
+        position = NOTE_CHILD_OFFSET;
+      } else {
+        const existing = await ctx.db
+          .query("thoughtNodes")
+          .withIndex(
+            "by_ownerProfileId_and_startupId_and_archivedAt_and_updatedAt",
+            (q) =>
+              q
+                .eq("ownerProfileId", profile._id)
+                .eq("startupId", startupId)
+                .eq("archivedAt", null),
+          )
+          .order("desc")
+          .take(MAX_CONNECTED_NODES);
+        position = findAvailableCanvasPosition(
+          existing
+            .filter((node) => node.parentThoughtId === undefined)
+            .map((node) => ({
+              x: node.x,
+              y: node.y,
+              width: node.width ?? MIN_THOUGHT_WIDTH,
+              height: node.height ?? MIN_THOUGHT_HEIGHT,
+            })),
+          { width: MIN_THOUGHT_WIDTH, height: MIN_THOUGHT_HEIGHT },
+        );
+      }
+    }
+
+    const now = Date.now();
+    return await ctx.db.insert("thoughtNodes", {
+      startupId: args.startupId,
+      ownerProfileId: profile._id,
+      title,
+      text,
+      searchText: nodeSearchText(title, text),
+      x: position.x,
+      y: position.y,
+      ...(args.parentThoughtId === undefined
+        ? {}
+        : { parentThoughtId: args.parentThoughtId }),
+      color: "neutral",
+      isParent: false,
+      conversionCount: 0,
+      lastConvertedPageId: null,
+      lastConvertedAt: null,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/**
+ * Pretraga mojih beleški (`search_thoughts`, uvek `.eq("ownerProfileId")`).
+ * Opseg kao `listMine`. Pretraga startupa (`search.ideasAndThoughts`) i dalje
+ * `.eq`-uje `startupId`, pa lične beleške tamo nikad ne izlaze.
+ */
+export const searchMine = query({
+  args: {
+    query: v.string(),
+    startupId: noteScopeArgValidator,
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughtNodes"),
+      title: v.union(v.string(), v.null()),
+      text: v.string(),
+      startupId: v.union(v.id("startups"), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const { profile, scope } = await noteReadScope(ctx, args.startupId);
+    const searchTerm = args.query.trim().slice(0, 200);
+    if (searchTerm.length < 2) return [];
+    const limit = boundedLimit(args.limit, 20, 50);
+    const scoped = args.startupId;
+    const matches =
+      scoped === undefined
+        ? await ctx.db
+            .query("thoughtNodes")
+            .withSearchIndex("search_thoughts", (q) =>
+              q
+                .search("searchText", searchTerm)
+                .eq("ownerProfileId", profile._id) // ← privatnost beleški
+                .eq("archivedAt", null),
+            )
+            .take(MAX_NOTE_SEARCH_SCAN)
+        : await ctx.db
+            .query("thoughtNodes")
+            .withSearchIndex("search_thoughts", (q) =>
+              q
+                .search("searchText", searchTerm)
+                .eq("ownerProfileId", profile._id) // ← privatnost beleški
+                .eq("startupId", scoped)
+                .eq("archivedAt", null),
+            )
+            .take(limit);
+    return matches
+      .filter((node) => noteVisibleIn(node.startupId, scope))
+      .slice(0, limit)
+      .map((node) => ({
+        _id: node._id,
+        title: node.title,
+        text: node.text.slice(0, NOTE_TEXT_SNIPPET),
+        startupId: node.startupId,
+      }));
   },
 });

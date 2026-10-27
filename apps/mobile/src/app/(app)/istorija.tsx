@@ -5,7 +5,6 @@ import { AccessibilityInfo, Alert, FlatList, StyleSheet, Text, View } from 'reac
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
-import { Card } from '@/components/ui/card';
 import { IconButton } from '@/components/ui/icon-button';
 import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
@@ -42,12 +41,15 @@ export default function IstorijaScreen() {
     setBusyKey(entry.key);
     haptics.tap();
     try {
-      await runUndo(entry.action);
+      const outcome = await runUndo(entry.action);
       // Bez `advertiseNext` — traka na dnu ne sme da iskoči kad se korisnik
       // vrati sa ovog ekrana na nešto što ovde nije ni video.
       popUndo(entry.key);
       haptics.success();
-      AccessibilityInfo.announceForAccessibility('Vraćeno.');
+      AccessibilityInfo.announceForAccessibility(typeof outcome === 'string' ? outcome : 'Vraćeno.');
+      // Grupno poništavanje (K19) javlja šta je vraćeno, a šta preskočeno; traka nije
+      // na ovom ekranu, pa ishod ide u obaveštenje.
+      if (typeof outcome === 'string') Alert.alert('Poništavanje', outcome);
     } catch (error) {
       haptics.error();
       Alert.alert('Greška', accessErrorMessage(error, 'Vraćanje nije uspelo.'));
@@ -60,7 +62,7 @@ export default function IstorijaScreen() {
     haptics.warning();
     Alert.alert(
       'Očisti spisak?',
-      'Radnje se NE poništavaju, samo se sklanjaju sa spiska.',
+      'Radnje se ne poništavaju, samo se sklanjaju sa spiska.',
       [
         { text: 'Odustani', style: 'cancel' },
         {
@@ -90,9 +92,8 @@ export default function IstorijaScreen() {
 
       {stack.length === 0 ? (
         <EmptyState
-          icon={<History size={40} color={colors.mutedForeground} />}
+          icon={<History size={20} color={colors.mutedForeground} />}
           title="Nema radnji za poništavanje."
-          description="Ovde stoje poslednje izmene napravljene na telefonu, dok mogu da se ponište."
         />
       ) : (
         <FlatList
@@ -142,21 +143,20 @@ function HistoryRow({
   const interactive = isTop && !busy && !disabledByOtherBusy;
 
   return (
-    <Card style={styles.row}>
-      <Row
-        title={entry.label}
-        subtitle={subtitle}
-        disabled={!interactive}
-        showChevron={false}
-        value={isTop ? (busy ? 'Vraćanje…' : 'Poništi') : undefined}
-        onPress={interactive ? onUndo : undefined}
-        accessibilityLabel={
-          isTop
-            ? `Poništi — ${entry.label}, ${subtitle}`
-            : `${entry.label}, ${subtitle}. Poništava se redom, od najnovije.`
-        }
-      />
-    </Card>
+    <Row
+      style={styles.row}
+      title={entry.label}
+      subtitle={subtitle}
+      disabled={!interactive}
+      showChevron={false}
+      value={isTop ? (busy ? 'Vraćanje…' : 'Poništi') : undefined}
+      onPress={interactive ? onUndo : undefined}
+      accessibilityLabel={
+        isTop
+          ? `Poništi — ${entry.label}, ${subtitle}`
+          : `${entry.label}, ${subtitle}. Poništava se redom, od najnovije.`
+      }
+    />
   );
 }
 
@@ -171,9 +171,9 @@ function IstorijaErrorState({ message, onRetry }: { message: string; onRetry: ()
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Istorija radnji" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Istorija se ne može učitati"
-        description={message || 'Došlo je do greške.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Istorija nije učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -190,9 +190,7 @@ const styles = StyleSheet.create({
     gap: space[3],
   },
   row: {
-    padding: 0,
-    gap: 0,
-    overflow: 'hidden',
+    paddingHorizontal: 4,
   },
   hint: {
     fontSize: 13,

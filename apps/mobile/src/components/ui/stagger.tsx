@@ -1,22 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
+import { createContext, useContext, useMemo, useState } from 'react';
+import { type StyleProp, type ViewStyle } from 'react-native';
+import Animated from 'react-native-reanimated';
 
+import { enterFadeUp, FIRST_FILL_WINDOW_MS } from '@/components/motion/layout';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { duration, staggerDelay, STAGGER_TRAVEL } from '@/theme/motion';
 
-/**
- * Koliko dugo posle mount-a grupe stavka još sme da uđe animirano. Posle toga je
- * lista „napunjena" i svaka nova stavka se prosto pojavi: `FlatList` montira redove
- * tek kad doskroluješ do njih, a fade na 40. redu usred skrola izgleda kao kvar.
- */
-export const FIRST_FILL_WINDOW_MS = 450;
+export { FIRST_FILL_WINDOW_MS };
 
 const StaggerContext = createContext<{ startedAt: number } | null>(null);
 
@@ -47,8 +36,11 @@ export type StaggerItemProps = {
 };
 
 /**
- * Ulaz jedne stavke: fade + 8px naviše, sa zakašnjenjem po redu. Ukupno ≤ 300ms za
- * celu listu (`staggerDelay` staje na 5. stavci).
+ * Ulaz jedne stavke kroz zajednički preset `enterFadeUp` (PROSTOR K21, plan K07
+ * §8 — isto što i `useListEntering`): neprozirnost + 8 px nagore + scale, stagger
+ * 24 ms za prvih 6 stavki. Animira samo prvo punjenje grupe; red koji se montira
+ * kasnije (skrol, reaktivno osvežavanje) se prosto pojavi. Smanjen pokret: samo
+ * pretapanje 120 ms.
  *
  * Stavka je dodirljiva od prvog frejma — `opacity`/`transform` ne blokiraju dodir,
  * pa animacija ne odlaže trenutak kad korisnik može da nastavi.
@@ -58,27 +50,16 @@ export function StaggerItem({ index, children, style }: StaggerItemProps) {
   const group = useContext(StaggerContext);
   // Odluka se donosi jednom, na mount-u: kasnija promena ne sme da vrati stavku na
   // opacity 0 pod nogama korisniku.
-  const [animate] = useState(
-    () => !reduced && (group === null || Date.now() - group.startedAt < FIRST_FILL_WINDOW_MS),
+  // Bez `StaggerGroup` nema „prvog punjenja", pa se ne animira (red montiran
+  // skrolom se samo pojavi).
+  const [entering] = useState(() =>
+    group !== null && Date.now() - group.startedAt < FIRST_FILL_WINDOW_MS
+      ? enterFadeUp(index, reduced)
+      : undefined,
   );
-
-  const progress = useSharedValue(animate ? 0 : 1);
-
-  useEffect(() => {
-    if (!animate) return;
-    progress.value = withDelay(
-      staggerDelay(index),
-      withTiming(1, { duration: duration.item, easing: Easing.out(Easing.quad) }),
-    );
-  }, [animate, index, progress]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ translateY: (1 - progress.value) * STAGGER_TRAVEL }],
-  }));
-
-  if (!animate) {
-    return <View style={style}>{children}</View>;
-  }
-  return <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>;
+  return (
+    <Animated.View entering={entering} style={style}>
+      {children}
+    </Animated.View>
+  );
 }

@@ -46,7 +46,7 @@ export const STATUS_LABELS: Record<TaskStatusKey, string> = {
   next: "Sledeće",
   open: "Otvoreno",
   blocked: "Čeka",
-  backlog: "Backlog",
+  backlog: "Neplanirano",
   done: "Gotovo",
 };
 

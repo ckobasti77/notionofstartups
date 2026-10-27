@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, LoaderCircle, LogOut, Plus, UserRound } from "lucide-react";
+import { Bell, ChevronDown, LoaderCircle, LogOut, Plus, UserRound } from "lucide-react";
 
 import { StartupChip } from "@/components/me/startup-chip";
 import {
@@ -40,6 +40,8 @@ export type WorkspaceRailProps = {
   /** Sledeća strana startupa se učitava (dugme ostaje, zauzeto). */
   loadingMore?: boolean;
   onProfile: () => void;
+  /** „Obaveštenja i zvuci" (PROSTOR P11: zvono više nije u meniju startupa). */
+  onNotificationSettings?: () => void;
   onSignOut: () => void;
   className?: string;
 };
@@ -70,6 +72,7 @@ export function WorkspaceRail({
   onLoadMore,
   loadingMore = false,
   onProfile,
+  onNotificationSettings,
   onSignOut,
   className,
 }: WorkspaceRailProps) {
@@ -209,7 +212,7 @@ export function WorkspaceRail({
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <span className="block font-medium">{startup.name}</span>
-                  {dot ? <span className="block text-[0.6875rem] text-background/70">Ima nepročitano</span> : null}
+                  {dot ? <span className="block text-xs text-background/70">Ima nepročitano</span> : null}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -292,6 +295,11 @@ export function WorkspaceRail({
             <DropdownMenuItem onSelect={onProfile}>
               <UserRound /> Moj profil
             </DropdownMenuItem>
+            {onNotificationSettings ? (
+              <DropdownMenuItem onSelect={onNotificationSettings}>
+                <Bell /> Obaveštenja i zvuci
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onSelect={onSignOut} variant="destructive">
               <LogOut /> Odjavi se
             </DropdownMenuItem>

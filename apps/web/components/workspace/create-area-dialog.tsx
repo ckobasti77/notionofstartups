@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import type { StartupWithAreas } from "@/components/workspace/types";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 
 export function CreateAreaDialog({
   open,
@@ -44,16 +45,14 @@ export function CreateAreaDialog({
         startupId: startup._id,
         label: label.trim(),
       });
-      toast.success("Nova oblast je kreirana.");
+      toast.success("Oblast je dodata.");
       setLabel("");
       onOpenChange(false);
       if (onCreated) {
         onCreated(areaId);
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Greška pri kreiranju oblasti."
-      );
+      toast.error(accessErrorMessage(error, "Oblast nije dodata."));
     } finally {
       setSubmitting(false);
     }
@@ -64,14 +63,9 @@ export function CreateAreaDialog({
       <DialogContent className="max-w-md gap-0 p-0">
         <form onSubmit={submit}>
           <DialogHeader className="border-b border-border/70 px-5 py-5 sm:px-6">
-            <DialogTitle className="flex items-center gap-2">
-              <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
-                <FolderPlus className="size-4" />
-              </span>
-              Nova oblast
-            </DialogTitle>
-            <DialogDescription>
-              Kreiraj novu oblast u timskom prostoru startupa {startup.name}.
+            <DialogTitle>Nova oblast</DialogTitle>
+            <DialogDescription className="sr-only">
+              Nova oblast u startupu {startup.name}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-5 py-5 sm:px-6">
@@ -81,7 +75,7 @@ export function CreateAreaDialog({
                 id="new-area-label"
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                placeholder="npr. HR, Finansije, Logistika..."
+                placeholder="Na primer: Finansije"
                 maxLength={100}
                 autoFocus
               />
@@ -104,7 +98,7 @@ export function CreateAreaDialog({
               ) : (
                 <FolderPlus />
               )}
-              Kreiraj
+              Dodaj
             </Button>
           </DialogFooter>
         </form>

@@ -1,10 +1,12 @@
-import { SWIPE, taskPermissions, type TaskRowModel } from '@devotion/shared';
+import { PERMISSION_REASONS, SWIPE, taskPermissions, type TaskRowModel } from '@devotion/shared';
 import { describe, expect, test } from 'vitest';
 
 import { rowSwipeSpec, SCHEDULE_LABEL, swipeCommand } from './row-actions';
 
-function row(partial: Partial<TaskRowModel> & { isCreator?: boolean; isAssignee?: boolean } = {}): TaskRowModel {
-  const { isCreator = true, isAssignee = true, ...rest } = partial;
+function row(
+  partial: Partial<TaskRowModel> & { isCreator?: boolean; isAssignee?: boolean; lockedForViewer?: boolean } = {},
+): TaskRowModel {
+  const { isCreator = true, isAssignee = true, lockedForViewer = false, ...rest } = partial;
   const kind = rest.kind ?? 'task';
   return {
     key: `${kind}:r1`,
@@ -20,7 +22,7 @@ function row(partial: Partial<TaskRowModel> & { isCreator?: boolean; isAssignee?
     planEntryId: null,
     done: false,
     checkpoints: null,
-    permissions: taskPermissions({ kind, isCreator, isAssignee }),
+    permissions: taskPermissions({ kind, isCreator, isAssignee, lockedForViewer }),
     ...rest,
   };
 }
@@ -40,11 +42,13 @@ describe('swipe reda → radnja (K12, plan K07 §6.2)', () => {
     });
   });
 
-  test('tuđ zadatak u planu: završavanje zabranjeno sa razlogom, „Rok i plan" i dalje radi (plan je lični)', () => {
-    const spec = rowSwipeSpec(row({ isCreator: false, isAssignee: false }));
+  // PROSTOR P1 (namerna promena pravila): zabrana važi samo za zaključan zadatak.
+  test('zaključan tuđ zadatak u planu: završavanje zabranjeno sa razlogom, „Rok i plan" i dalje radi (plan je lični)', () => {
+    expect(rowSwipeSpec(row({ isCreator: false, isAssignee: false })).right.allowed).toBe(true);
+    const spec = rowSwipeSpec(row({ isCreator: false, isAssignee: false, lockedForViewer: true }));
     expect(spec.right).toMatchObject({
       allowed: false,
-      reason: 'Status menja kreator zadatka ili osoba kojoj je dodeljen.',
+      reason: PERMISSION_REASONS.lockedStatus,
     });
     expect(spec.left.allowed).toBe(true);
   });
@@ -73,7 +77,10 @@ describe('swipe reda → radnja (K12, plan K07 §6.2)', () => {
   });
 
   test('bez dozvole swipe i dalje bira radnju, ali je zaključanu (red se vraća uz upozorenje)', () => {
-    const denied = swipeCommand({ translationX: SWIPE.commitPx, velocityX: 0 }, row({ isCreator: false, isAssignee: false }));
+    const denied = swipeCommand(
+      { translationX: SWIPE.commitPx, velocityX: 0 },
+      row({ isCreator: false, isAssignee: false, lockedForViewer: true }),
+    );
     expect(denied).toMatchObject({ command: 'complete', allowed: false });
   });
 });

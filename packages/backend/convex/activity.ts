@@ -7,44 +7,15 @@ import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { requireStartupMember } from "./lib/auth";
 import { boundedLimit } from "./lib/validators";
+import schema from "./schema";
 
-/** Tipovi radnji i ciljeva — ogledalo `activities` tabele u `schema.ts`. */
-const activityActionValidator = v.union(
-  v.literal("startup_created"),
-  v.literal("startup_updated"),
-  v.literal("startup_archived"),
-  v.literal("member_added"),
-  v.literal("member_removed"),
-  v.literal("invite_created"),
-  v.literal("invite_claimed"),
-  v.literal("invite_revoked"),
-  v.literal("page_created"),
-  v.literal("page_updated"),
-  v.literal("page_moved"),
-  v.literal("page_archived"),
-  v.literal("task_updated"),
-  v.literal("contribution_created"),
-  v.literal("contribution_updated"),
-  v.literal("deletion_requested"),
-  v.literal("deletion_voted"),
-  v.literal("deletion_resolved"),
-  v.literal("nesting_requested"),
-  v.literal("nesting_resolved"),
-  v.literal("content_recovered"),
-  v.literal("content_soft_deleted"),
-  v.literal("member_password_changed"),
-);
-
-const activityTargetTypeValidator = v.union(
-  v.literal("startup"),
-  v.literal("profile"),
-  v.literal("invite"),
-  v.literal("page"),
-  v.literal("idea"),
-  v.literal("contribution"),
-  v.literal("request"),
-  v.literal("recovered"),
-);
+/**
+ * Tipovi radnji i ciljeva se izvode iz `activities` tabele u `schema.ts`, da
+ * nova radnja (PROSTOR P24) ne obori `returns` validator zaboravljenom kopijom.
+ */
+const activityActionValidator = schema.tables.activities.validator.fields.action;
+const activityTargetTypeValidator =
+  schema.tables.activities.validator.fields.targetType;
 
 const activityItemValidator = v.object({
   _id: v.id("activities"),

@@ -300,7 +300,7 @@ export function NewConversationSheet({
                     }
                     title={member.profile.displayName}
                     subtitle={member.profile.role === 'admin' ? 'Administrator' : undefined}
-                    value={checked ? <Check size={18} color={colors.primary} /> : undefined}
+                    value={checked ? <Check size={18} color={colors.primaryText} /> : undefined}
                     showChevron={false}
                     disabled={busy}
                     onPress={() => toggleMember(member.profile._id)}
@@ -358,8 +358,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   error: {
     ...text.body,

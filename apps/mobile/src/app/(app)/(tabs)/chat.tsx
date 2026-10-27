@@ -27,7 +27,7 @@ export default function ChatScreen() {
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <ChatErrorState
-      message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju razgovora.')}
+      message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
       onRetry={retry}
     />
   );
@@ -39,9 +39,9 @@ function ChatErrorState({ message, onRetry }: { message: string; onRetry: () => 
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <MeHeader title={TAB_TITLES.chat} />
       <EmptyState
-        icon={<MessageSquareX size={40} color={colors.destructive} />}
-        title="Razgovori se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju razgovora.'}
+        icon={<MessageSquareX size={20} color={colors.destructive} />}
+        title="Razgovori nisu učitani."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

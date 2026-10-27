@@ -55,7 +55,7 @@ export function RenameAreaSheet({
     const clean = label.trim();
     if (!clean) {
       haptics.warning();
-      setError('Naziv ne sme biti prazan.');
+      setError('Naziv ne može biti prazan.');
       return;
     }
     if (clean === currentLabel) {
@@ -125,8 +125,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   error: {
     ...text.body,

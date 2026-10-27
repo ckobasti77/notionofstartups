@@ -13,7 +13,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, text } from '@/theme/tokens';
+import { radius, text } from '@/theme/tokens';
 
 /** Jedan sused kartice — deljeni oblik sa sheet-om koraka (K4). */
 export type PageNodeEdge = NodeEdgeRow;
@@ -70,7 +70,6 @@ export function PageNodeSheet({
   const colors = useThemeColors();
   const disconnectPages = useMutation(api.areasV2.disconnectPages);
   const disconnectCheckpointEdge = useMutation(api.taskCheckpointCanvasEdges.disconnect);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   // Jedna brava za CEO sheet (veličina + veze): dve mutacije nad istom karticom se
   // ne smeju okinuti jedna preko druge. Vrednost je ključ reda koji je u toku.
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,7 +77,7 @@ export function PageNodeSheet({
   const breakEdge = (edge: PageNodeEdge) => {
     if (busy !== null || !page) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -142,30 +141,6 @@ export function PageNodeSheet({
     ]);
   };
 
-  const requestEdgeDeletion = (edge: PageNodeEdge) => {
-    if (busy !== null) return;
-    setBusy(edge._id);
-    haptics.tap();
-    void requestDeletion({
-      target:
-        edge.kind === 'checkpoint'
-          ? { kind: 'task_checkpoint_edge', id: edge._id as Id<'taskCheckpointCanvasEdges'> }
-          : { kind: 'page_edge', id: edge._id as Id<'pageCanvasEdgesV2'> },
-    })
-      .then(() => {
-        haptics.success();
-        onClose();
-        // Prikaz glasanja već postoji na ekranu „Odobrenja" („Veza stranica" /
-        // „Veza checkpointa").
-        Alert.alert('Poslato', 'Glasanje o brisanju veze je pokrenuto.');
-      })
-      .catch((error: unknown) => {
-        haptics.error();
-        Alert.alert('Greška', accessErrorMessage(error, 'Zahtev nije poslat.'));
-      })
-      .finally(() => setBusy(null));
-  };
-
   const checkpointTotal = page?.checkpointTotal ?? 0;
   const showCheckpointRow = page?.kind === 'task' && onToggleCheckpoints !== undefined;
 
@@ -189,7 +164,7 @@ export function PageNodeSheet({
               subtitle={
                 checkpointTotal === 0
                   ? 'Zadatak nema korake.'
-                  : 'Koraci se na kanvasu razmeštaju i povezuju'
+                  : 'Koraci se na mapi razmeštaju i povezuju'
               }
               onPress={() => {
                 // Sheet se sklanja: koraci doskaču u orbitu oko kartice, a modal bi ih
@@ -210,16 +185,15 @@ export function PageNodeSheet({
             canConnect={page.canConnect && page.nodeCount >= 2}
             connectSubtitle={
               !page.canConnect
-                ? 'Vezu možete praviti samo od ili ka svojoj kartici.'
+                ? 'Veza ovde nije dostupna.'
                 : page.nodeCount < 2
-                  ? 'Na kanvasu nema druge stavke.'
-                  : 'Zatim tapni karticu ili korak sa kojim se povezuje'
+                  ? 'Na mapi nema druge stavke.'
+                  : 'Zatim dodirni karticu ili korak sa kojim se povezuje'
             }
             emptyNote="Nema veza sa ove kartice."
             busy={busy}
             onConnect={() => onStartConnect(page)}
             onBreak={breakEdge}
-            onRequestDeletion={requestEdgeDeletion}
           />
 
           <PageSizeSection
@@ -246,8 +220,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
   },
   meta: {

@@ -165,7 +165,7 @@ export const IZLOG_SIDE_INBOX: SideInbox = {
   items: [
     { id: "n1", title: "Milica Jovanović ti je dodelila „Snimi reel za novi meni“", startup: STARTUPS[0], createdAt: at(24, "08:12") },
     { id: "n2", title: "Nikola Petrović: „Pogledaj ponudu pre ručka“", startup: null, createdAt: at(24, "07:55") },
-    { id: "n3", title: "Glasanje o brisanju: „Stari logo“", startup: STARTUPS[4], createdAt: at(23, "18:30") },
+    { id: "n3", title: "Brisanje: „Stari logo“", startup: STARTUPS[4], createdAt: at(23, "18:30") },
   ],
 };
 
@@ -177,8 +177,8 @@ export const IZLOG_SIDE_CHAT: SideChat = {
 
 export const IZLOG_SIDE_PENDING: SidePending = {
   items: [
-    { key: "vote:1", title: "Glasanje o brisanju: „Stari logo“", startup: STARTUPS[4] },
-    { key: "page_nesting:1", title: "Ana Ilić predlaže da „Cenovnik 2027“ pređe pod „Prodaja“", startup: STARTUPS[2] },
+    { key: "idea_vote:1", title: "Glasaj o ideji „Novi logo za jesen“", startup: STARTUPS[4], ideaId: "ideaNodes_0001" },
+    { key: "idea_vote:2", title: "Glasaj o ideji „Cenovnik 2027“", startup: STARTUPS[2], ideaId: "ideaNodes_0002" },
   ],
   truncated: false,
 };

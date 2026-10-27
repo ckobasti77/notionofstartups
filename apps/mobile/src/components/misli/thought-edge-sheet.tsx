@@ -79,7 +79,7 @@ export function ThoughtEdgeSheet({
   const breakEdge = () => {
     if (busy) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${target.otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${target.otherTitle}" se uklanja sa Mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -156,8 +156,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginBottom: 10,
   },
   input: {

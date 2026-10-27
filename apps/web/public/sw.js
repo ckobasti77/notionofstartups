@@ -68,6 +68,13 @@ function targetUrl(data) {
     if (data.targetId) params.set("channelId", data.targetId);
   } else if (data.targetType === "ideas") {
     params.set("view", "ideas");
+    // Glas ili komentar na ideji nosi ideaId (PROSTOR K16): otvara se njen detalj.
+    if (data.targetId) params.set("ideaId", data.targetId);
+  } else if (data.targetType === "area" && data.targetId) {
+    // Komentar na opisu oblasti (PROSTOR K13): Pregled oblasti.
+    params.set("view", "area");
+    params.set("areaId", data.targetId);
+    params.set("tab", "pregled");
   } else if (data.targetType === "approvals") {
     params.set("view", "approvals");
   } else if (data.targetType === "puls") {

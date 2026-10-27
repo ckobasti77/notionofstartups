@@ -146,10 +146,7 @@ export function PathSheet({
   const openArea = () => {
     haptics.tap();
     onClose();
-    router.navigate({
-      pathname: '/prostor',
-      params: { areaId, areaLabel: area?.label ?? 'Oblast' },
-    });
+    router.push({ pathname: '/oblast/[id]', params: { id: areaId } });
   };
 
   const areaRow =
@@ -162,11 +159,7 @@ export function PathSheet({
         onPress={openArea}
         style={styles.row}
         icon={
-          <View
-            style={[
-              styles.iconChip,
-              { backgroundColor: `${areaColor(colors, area?.key ?? '')}22` },
-            ]}>
+          <View style={styles.iconChip}>
             <FolderClosed size={16} color={areaColor(colors, area?.key ?? '')} />
           </View>
         }
@@ -251,7 +244,7 @@ function AncestorRows({
             accessibilityLabel={`Otvori ${title}, ${pageKindMeta(kind).label}`}
             style={styles.row}
             icon={
-              <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+              <View style={styles.iconChip}>
                 <Icon size={16} color={tint} />
               </View>
             }
@@ -271,8 +264,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   sheetHeading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

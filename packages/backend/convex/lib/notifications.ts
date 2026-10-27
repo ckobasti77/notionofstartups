@@ -24,18 +24,21 @@ export type NotificationType =
   | "puls_ready"
   | "chat_message"
   | "chat_mention"
-  | "chat_dm";
+  | "chat_dm"
+  | "comment_mention"
+  | "comment_added";
 
 export type NotificationTargetType =
   | "page"
   | "ideas"
   | "approvals"
   | "puls"
-  | "chat";
+  | "chat"
+  | "area";
 
 /** Srpske oznake statusa; Convex kod ne uvozi iz app `lib/`. */
 export const TASK_STATUS_LABELS = {
-  backlog: "Backlog",
+  backlog: "Neplanirano",
   next: "Sledeće",
   in_progress: "U toku",
   blocked: "Čeka",
@@ -165,6 +168,15 @@ export const notificationCopy = {
   pulsReady: (startupName: string) => ({
     title: "Stigao je Puls za prošlu nedelju",
     body: `Pregled protekle nedelje za ${startupName}.`,
+  }),
+  // Komentari (PROSTOR P5): `excerpt` je običan tekst komentara, već skraćen.
+  commentMention: (actorName: string, itemTitle: string, excerpt: string) => ({
+    title: `${actorName} te je pomenuo/la u komentaru: „${itemTitle}”`,
+    ...(excerpt === "" ? {} : { body: excerpt }),
+  }),
+  commentAdded: (actorName: string, itemTitle: string, excerpt: string) => ({
+    title: `${actorName} je komentarisao/la „${itemTitle}”`,
+    ...(excerpt === "" ? {} : { body: excerpt }),
   }),
 };
 

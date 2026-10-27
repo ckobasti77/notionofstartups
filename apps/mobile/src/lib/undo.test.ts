@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import type { Id } from '@/convex/_generated/dataModel';
 
 import {
+  chainBulkScheduleRevisions,
   clearUndo,
   dropUndo,
   getUndoSnapshotForTest,
@@ -10,6 +11,8 @@ import {
   hideUndoBar,
   popUndo,
   pushUndo,
+  showUndoNotice,
+  type BulkScheduleItem,
   type UndoAction,
 } from './undo';
 
@@ -144,5 +147,180 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     expect(opened).toBe(1);
     push('Bez druge radnje', 'c');
     expect('secondary' in (getUndoSnapshotForTest().bar ?? {})).toBe(false);
+  });
+
+  test('K12 — uklonjen komentar nosi serverski rok, a Korpa nema rok; traka prikazuje poslednju', () => {
+    const until = Date.now() + 8_000;
+    pushUndo({
+      label: 'Komentar je uklonjen.',
+      action: { kind: 'comment', commentId: 'c1' as Id<'contentContributions'> },
+      undoUntil: until,
+    });
+    expect(getUndoSnapshotForTest().bar?.undoUntil).toBe(until);
+    pushUndo({
+      label: '„Plan" je u Korpi.',
+      action: { kind: 'trashRestore', pageId: 'pg1' as Id<'pages'> },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({ kind: 'trashRestore', pageId: 'pg1' });
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+    // Oba ostaju u „Istoriji radnji" dok ne isteknu.
+    expect(snapshot.stack.map((entry) => entry.action.kind)).toEqual(['trashRestore', 'comment']);
+  });
+
+  test('K17 — promena faze ideje pamti SAČUVANU prethodnu fazu, bez roka', () => {
+    pushUndo({
+      label: 'Ideja je u fazi „Razmatra se”.',
+      action: {
+        kind: 'ideaStage',
+        startupId: 's1' as Id<'startups'>,
+        ideaId: 'i1' as Id<'ideaNodes'>,
+        previousStage: 'predlog',
+      },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({
+      kind: 'ideaStage',
+      startupId: 's1',
+      ideaId: 'i1',
+      previousStage: 'predlog',
+    });
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+    expect(snapshot.stack.map((entry) => entry.action.kind)).toContain('ideaStage');
+  });
+
+  test('K18 — nova beleška: inverz je arhiviranje, a „Otvori” je druga radnja trake', () => {
+    let opened = 0;
+    pushUndo({
+      label: 'Beleška je sačuvana u Lično.',
+      action: { kind: 'thoughtCreate', nodeId: 'n1' as Id<'thoughtNodes'> },
+      secondary: { label: 'Otvori', onPress: () => (opened += 1) },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({ kind: 'thoughtCreate', nodeId: 'n1' });
+    expect(snapshot.bar?.secondary?.label).toBe('Otvori');
+    snapshot.bar?.secondary?.onPress();
+    expect(opened).toBe(1);
+    // Nema serverskog roka: beleška se vraća/arhivira dok traka stoji i iz „Istorije radnji”.
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+  });
+
+  test('K18 — arhivirana beleška se vraća kroz `thoughts` (restoreNodes), bez veza', () => {
+    pushUndo({
+      label: 'Beleška je arhivirana.',
+      action: { kind: 'thoughts', nodeIds: ['n1' as Id<'thoughtNodes'>], edgeIds: [] },
+    });
+    expect(getUndoSnapshotForTest().bar?.action).toEqual({
+      kind: 'thoughts',
+      nodeIds: ['n1'],
+      edgeIds: [],
+    });
+  });
+
+  test('K09 — poruka bez „Poništi" (Korpa) smenjuje traku, a stek ostaje netaknut', () => {
+    let opened = 0;
+    push('Prva', 'a');
+    showUndoNotice({
+      label: 'Vraćeno: „Plan”.',
+      secondary: { label: 'Otvori', onPress: () => (opened += 1) },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    // Traka nudi poruku, ne stavku; stavka i dalje čeka u „Istoriji radnji".
+    expect(snapshot.bar).toBeNull();
+    expect(snapshot.notice?.label).toBe('Vraćeno: „Plan”.');
+    expect(snapshot.stack.map((entry) => entry.label)).toEqual(['Prva']);
+    snapshot.notice?.secondary?.onPress();
+    expect(opened).toBe(1);
+  });
+
+  test('K09 — nova radnja, ✕ i clearUndo sklanjaju poruku; svaki prikaz dobija nov ključ', () => {
+    showUndoNotice({ label: 'Vraćeno.' });
+    const first = getUndoSnapshotForTest().notice!.key;
+    showUndoNotice({ label: 'Vraćeno.' });
+    expect(getUndoSnapshotForTest().notice!.key).not.toBe(first);
+    expect('secondary' in getUndoSnapshotForTest().notice!).toBe(false);
+
+    push('Radnja', 'r');
+    expect(getUndoSnapshotForTest().notice).toBeNull();
+    expect(getUndoSnapshotForTest().bar?.label).toBe('Radnja');
+
+    showUndoNotice({ label: 'Uklonjeno iz Oporavljenog.' });
+    hideUndoBar();
+    expect(getUndoSnapshotForTest().notice).toBeNull();
+    expect(getUndoSnapshotForTest().stack.length).toBe(1);
+
+    showUndoNotice({ label: 'Vraćeno.' });
+    clearUndo();
+    expect(getUndoSnapshotForTest().notice).toBeNull();
+    expect(getUndoSnapshotForTest().stack).toEqual([]);
+  });
+});
+
+describe('lib/undo — „Sredi rokove" (PROSTOR K19)', () => {
+  const DAY = 86_400_000;
+  const item = (id: string, expectedRevision: number): BulkScheduleItem => ({
+    taskPageId: id as Id<'pages'>,
+    dueDate: 1_000 * DAY,
+    taskStatus: 'next',
+    expectedRevision,
+  });
+  const bulk = (items: BulkScheduleItem[]): UndoAction => ({
+    kind: 'bulkSchedule',
+    startupId: 's1' as Id<'startups'>,
+    items,
+  });
+  const itemsOf = (label: string) => {
+    const entry = getUndoSnapshotForTest().stack.find((candidate) => candidate.label === label);
+    if (entry?.action.kind !== 'bulkSchedule') throw new Error('Očekivana je stavka bulkSchedule.');
+    return entry.action.items;
+  };
+
+  test('nova vrsta nosi rok i status OD PRE radnje i reviziju posle nje, bez roka', () => {
+    pushUndo({ label: 'Sređeno: 2 zadatka → sutra.', action: bulk([item('p1', 4), item('p2', 7)]) });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({
+      kind: 'bulkSchedule',
+      startupId: 's1',
+      items: [
+        { taskPageId: 'p1', dueDate: 1_000 * DAY, taskStatus: 'next', expectedRevision: 4 },
+        { taskPageId: 'p2', dueDate: 1_000 * DAY, taskStatus: 'next', expectedRevision: 7 },
+      ],
+    });
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+  });
+
+  test('ulančano poništavanje: starije stavke dobijaju nove revizije samo za vraćene zadatke', () => {
+    pushUndo({ label: 'Prva', action: bulk([item('p1', 4), item('p2', 4)]) });
+    pushUndo({ label: 'Tuđa vrsta', action: checkpointAction('c') });
+    pushUndo({ label: 'Druga', action: bulk([item('p1', 6), item('p3', 6)]) });
+
+    chainBulkScheduleRevisions([
+      { taskPageId: 'p1', revision: 9 },
+      { taskPageId: 'p3', revision: 8 },
+    ]);
+
+    expect(itemsOf('Prva').map((entry) => [entry.taskPageId, entry.expectedRevision])).toEqual([
+      ['p1', 9],
+      ['p2', 4],
+    ]);
+    expect(itemsOf('Druga').map((entry) => [entry.taskPageId, entry.expectedRevision])).toEqual([
+      ['p1', 9],
+      ['p3', 8],
+    ]);
+    // Stavka druge vrste ostaje netaknuta.
+    expect(getUndoSnapshotForTest().stack.find((entry) => entry.label === 'Tuđa vrsta')?.action).toEqual(
+      checkpointAction('c'),
+    );
+  });
+
+  test('ništa se ne objavljuje kad nijedna stavka nema vraćeni zadatak ili je revizija ista', () => {
+    pushUndo({ label: 'Prva', action: bulk([item('p1', 4)]) });
+    const before = getUndoSnapshotForTest().stack;
+
+    chainBulkScheduleRevisions([]);
+    chainBulkScheduleRevisions([{ taskPageId: 'nema-ga', revision: 12 }]);
+    chainBulkScheduleRevisions([{ taskPageId: 'p1', revision: 4 }]);
+
+    expect(getUndoSnapshotForTest().stack).toBe(before);
   });
 });

@@ -72,29 +72,43 @@ describe('Komandni centar na telefonu — sekcije sa redovima', () => {
     });
   });
 
-  test('dozvole: kreator sve, izvršilac samo status, ostali zaključano sa razlogom', () => {
-    const own = startupRow(task('t', { createdByProfileId: 'me' }), context());
+  // PROSTOR P1 (namerna promena pravila): ograničenja važe samo za zaključan zadatak.
+  test('dozvole: otključan svako sve; zaključan — kreator sve, izvršilac samo status, ostali sa razlogom', () => {
+    const open = startupRow(task('t'), context());
+    expect(Object.values(open.permissions).every((perm) => perm.allowed)).toBe(true);
+
+    const own = startupRow(task('t', { createdByProfileId: 'me', lockedAt: 1 }), context());
     expect(own.permissions.status.allowed).toBe(true);
     expect(own.permissions.due.allowed).toBe(true);
 
     const assigned = startupRow(
-      task('t'),
+      task('t', { lockedAt: 1 }),
       context({ assigneeIdsByTask: new Map([['t', ['me']]]) }),
     );
     expect(assigned.permissions.status.allowed).toBe(true);
     expect(assigned.permissions.due.allowed).toBe(false);
     expect(assigned.permissions.due.reason).toBeTruthy();
 
-    const stranger = startupRow(task('t'), context());
+    const stranger = startupRow(task('t', { lockedAt: 1 }), context());
     expect(stranger.permissions.status.allowed).toBe(false);
     expect(stranger.permissions.status.reason).toBeTruthy();
   });
 
-  test('dok se izvršioci ne učitaju, ne-kreator nije izvršilac; segment „Moji" ga pretpostavlja', () => {
-    const loading = startupRow(task('t'), context({ assigneeIdsByTask: null }));
+  test('vlasnik startupa i admin (isManager) menjaju tuđ zaključan zadatak (K19, paritet sa webom)', () => {
+    const manager = startupRow(task('t', { lockedAt: 1 }), { ...context(), isManager: true });
+    expect(Object.values(manager.permissions).every((perm) => perm.allowed)).toBe(true);
+    const member = startupRow(task('t', { lockedAt: 1 }), { ...context(), isManager: false });
+    expect(member.permissions.due.allowed).toBe(false);
+  });
+
+  test('zaključan: dok se izvršioci ne učitaju, ne-kreator nije izvršilac; segment „Moji" ga pretpostavlja', () => {
+    const loading = startupRow(task('t', { lockedAt: 1 }), context({ assigneeIdsByTask: null }));
     expect(loading.permissions.status.allowed).toBe(false);
 
-    const mine = startupRow(task('t'), context({ assigneeIdsByTask: null, assumeAssignee: true }));
+    const mine = startupRow(
+      task('t', { lockedAt: 1 }),
+      context({ assigneeIdsByTask: null, assumeAssignee: true }),
+    );
     expect(mine.permissions.status.allowed).toBe(true);
   });
 

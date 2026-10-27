@@ -465,6 +465,11 @@ export const getWeekly = query({
 });
 
 /**
+ * PROSTOR P9: nema cron-a — `crons.ts` ga više ne registruje (Puls je kartica u
+ * Komandnom centru, bez obaveštenja). Funkcija ostaje nepozvana, a tip
+ * `puls_ready` u validatoru i katalogu, da se postojeća obaveštenja i dalje
+ * prikazuju i utišavaju.
+ *
  * Ponedeljak ujutru: javlja svakom aktivnom članu da je Puls prošle nedelje
  * spreman. `weekRef` je četiri dana unazad — u svakoj zoni to pada u prošlu
  * nedelju, a klijent ga normalizuje na svoj lokalni ponedeljak.

@@ -46,10 +46,17 @@ export function navigateToNotificationDestination(
       navigateToFallback(router, dest);
       return;
     case 'ideas':
+      // Komentar i glas na ideji nose ideaId → detalj ideje; bez id-ja lista ideja.
+      if (dest.entityId) {
+        router.push({ pathname: '/ideja/[id]', params: { id: dest.entityId } });
+        return;
+      }
       router.push('/ideje');
       return;
     case 'approvals':
-      router.push('/odobrenja');
+      // Odobrenja su ugašena (PROSTOR P4); ostaci tog toka (Oporavljeno) i sve
+      // obrisano su u Korpi (K09).
+      router.push('/korpa');
       return;
     case 'puls':
       // Bez `weekStart` Puls sam otvara tekuću nedelju.
@@ -59,12 +66,24 @@ export function navigateToNotificationDestination(
           : { pathname: '/puls', params: { weekStart: String(dest.weekStart) } },
       );
       return;
+    case 'area':
+      // Komentar na opisu oblasti nosi areaId → ekran oblasti (K14); bez id-ja
+      // Komandni centar startupa.
+      if (dest.entityId) {
+        router.push({ pathname: '/oblast/[id]', params: { id: dest.entityId } });
+        return;
+      }
+      navigateToFallback(router, dest);
+      return;
     default:
       navigateToFallback(router, dest);
   }
 }
 
-/** Komandni centar startupa (Prostor) za startup cilj; Moj dan za lični. */
+/**
+ * Komandni centar startupa za startup cilj — od PROSTOR K09 je to sama početna
+ * taba Prostor (bez segmenata, pa bez parametra); Moj dan za lični cilj.
+ */
 function navigateToFallback(
   router: ReturnType<typeof useRouter>,
   dest: NotificationDestination,
@@ -73,5 +92,5 @@ function navigateToFallback(
     router.navigate('/danas');
     return;
   }
-  router.navigate({ pathname: '/prostor', params: { segment: 'komandni-centar' } });
+  router.navigate('/prostor');
 }

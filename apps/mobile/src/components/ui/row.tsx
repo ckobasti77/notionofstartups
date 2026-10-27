@@ -110,8 +110,8 @@ export function Row({
 
   const body = (
     <>
-      {leading != null ? leading : null}
-      {icon != null ? icon : null}
+      {leading != null ? (disabled ? <View style={styles.dimmed}>{leading}</View> : leading) : null}
+      {icon != null ? (disabled ? <View style={styles.dimmed}>{icon}</View> : icon) : null}
       <View style={styles.titleWrap}>
         <Text
           numberOfLines={titleNumberOfLines}
@@ -166,7 +166,7 @@ export function Row({
         accessibilityRole={isToggle ? 'switch' : 'text'}
         accessibilityState={isToggle ? { checked: Boolean(checked), disabled: true } : { disabled: true }}
         accessibilityLabel={resolvedLabel}
-        style={[styles.base, styles.disabled, style]}>
+        style={[styles.base, style]}>
         {body}
       </View>
     );
@@ -217,8 +217,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  disabled: {
-    opacity: 0.4,
+  // Onemogućen red: bledi samo ikona/vodeća oznaka. Naslov je već `mutedForeground`, a
+  // podnaslov često objašnjava ZAŠTO je red onemogućen — mora ostati čitljiv (≥ 4,5:1).
+  dimmed: {
+    opacity: 0.5,
   },
   titleWrap: {
     flex: 1,

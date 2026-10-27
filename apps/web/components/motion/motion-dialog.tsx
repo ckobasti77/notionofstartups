@@ -118,7 +118,8 @@ export function MotionDialog({
     if (target === null) return;
     const lost = document.activeElement === null || document.activeElement === document.body;
     if (!lost) return;
-    if (target.isConnected && target.getClientRects().length > 0) {
+    // `body` (dijalog otvoren klikom na neizborni element) nije meta — tada ide rezerva.
+    if (target !== document.body && target.isConnected && target.getClientRects().length > 0) {
       target.focus({ preventScroll: true });
       return;
     }
@@ -154,6 +155,11 @@ export function MotionDialog({
                 }
               }}
               onCloseAutoFocus={(event) => event.preventDefault()}
+              // Polje koje samo obrađuje Esc (lista @, izmena komentara) nosi `data-escape-local`.
+              onEscapeKeyDown={(event) => {
+                const active = document.activeElement;
+                if (active instanceof HTMLElement && active.dataset.escapeLocal === "true") event.preventDefault();
+              }}
               {...(description ? {} : { "aria-describedby": undefined })}
               className={cn(
                 "desk-surface pointer-events-auto relative flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border bg-popover text-popover-foreground outline-none",

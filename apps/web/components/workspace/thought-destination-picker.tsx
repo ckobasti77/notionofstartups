@@ -47,15 +47,9 @@ export function ThoughtDestinationPicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(44rem,calc(100dvh-2rem))] max-w-xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border/70 px-5 py-5 pr-12 sm:px-6">
-          <DialogTitle className="flex items-center gap-2">
-            <span className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
-              <FolderInput className="size-4" />
-            </span>
-            Pošalji u radni prostor
-          </DialogTitle>
+          <DialogTitle>Pošalji u radni prostor</DialogTitle>
           <DialogDescription>
             Izaberi oblast ili stranicu za {selectedCount === 1 ? "ovu misao" : `${selectedCount} izabranih misli`}.
-            Kopija će biti vidljiva timu, a original ostaje privatan.
           </DialogDescription>
         </DialogHeader>
 
@@ -216,7 +210,7 @@ function DestinationPageNode({
         >
           <Icon className="size-3.5 shrink-0 opacity-80" />
           <span className="min-w-0 flex-1 truncate">{page.title}</span>
-          <span className="shrink-0 text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+          <span className="shrink-0 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             Izaberi
           </span>
         </button>

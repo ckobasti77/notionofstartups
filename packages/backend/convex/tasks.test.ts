@@ -217,12 +217,16 @@ describe("task metadata ugovori", () => {
       title: "Beleška",
     });
 
+    // PROSTOR P1 (namerna promena pravila): status menja svaki član, a na
+    // zaključanom zadatku samo autor, vlasnik, admin i izvršilac.
+    await asOwner.mutation(api.pages.lock, { pageId: taskId });
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {
         pageId: taskId,
         status: "done",
       }),
-    ).rejects.toThrow("Status menja kreator zadatka ili osoba kojoj je dodeljen.");
+    ).rejects.toThrow("zaključana");
+    await asOwner.mutation(api.pages.unlock, { pageId: taskId });
     await expect(
       asOwner.mutation(api.tasks.updateMetadata, {
         pageId: noteId,
@@ -641,8 +645,11 @@ describe("dozvole za brze akcije", () => {
     return { ...context, pageId };
   }
 
-  test("dodeljena osoba menja status, ali ne i ostale podatke", async () => {
-    const { pageId, asMember } = await seedAssignedTask();
+  test("zaključan zadatak: izvršilac menja status, ali ne i ostale podatke", async () => {
+    // PROSTOR P1 (namerna promena pravila): ranije je ovo važilo za svaki
+    // zadatak; sada samo za zaključan (D5), a otključan menja svaki član.
+    const { pageId, asOwner, asMember } = await seedAssignedTask();
+    await asOwner.mutation(api.pages.lock, { pageId });
 
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {
@@ -651,43 +658,41 @@ describe("dozvole za brze akcije", () => {
       }),
     ).resolves.toBe(pageId);
 
+    for (const patch of [
+      { priority: "urgent" as const },
+      { dueDate: Date.UTC(2032, 0, 5, 12) },
+      { instructions: "Menjam instrukcije" },
+      { checkpoints: [{ id: "cp", text: "Korak", completed: false }] },
+    ]) {
+      await expect(
+        asMember.mutation(api.tasks.updateMetadata, { pageId, ...patch }),
+      ).rejects.toThrow("zaključana");
+    }
+
+    await asOwner.mutation(api.pages.unlock, { pageId });
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {
         pageId,
         priority: "urgent",
-      }),
-    ).rejects.toThrow("Prioritet menja samo kreator zadatka.");
-    await expect(
-      asMember.mutation(api.tasks.updateMetadata, {
-        pageId,
         dueDate: Date.UTC(2032, 0, 5, 12),
-      }),
-    ).rejects.toThrow("Rok menja samo kreator zadatka.");
-    await expect(
-      asMember.mutation(api.tasks.updateMetadata, {
-        pageId,
         instructions: "Menjam instrukcije",
       }),
-    ).rejects.toThrow("Instrukcije menja samo kreator zadatka.");
-    await expect(
-      asMember.mutation(api.tasks.updateMetadata, {
-        pageId,
-        checkpoints: [{ id: "cp", text: "Korak", completed: false }],
-      }),
-    ).rejects.toThrow("Checkpointe menja samo kreator zadatka.");
+    ).resolves.toBe(pageId);
   });
 
-  test("dodeljen zadatak: član ne menja tuđe učešće, ali se sam priključuje", async () => {
+  test("zaključan zadatak: član ne menja tuđe učešće, ali se sam priključuje", async () => {
+    // PROSTOR P1 (namerna promena pravila): tuđe učešće na otključanom
+    // zadatku menja svaki član; na zaključanom samo autor, vlasnik i admin.
     const { pageId, owner, member, asOwner, asMember } =
       await seedAssignedTask();
+    await asOwner.mutation(api.pages.lock, { pageId });
 
-    // Skidanje tuđeg izvršioca i dalje ide samo kroz kreatora.
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {
         pageId,
         assigneeProfileIds: [owner.profileId],
       }),
-    ).rejects.toThrow("Tuđe učešće na zadatku menja njegov kreator");
+    ).rejects.toThrow("zaključana");
 
     // Sebe može da doda i kad zadatak već ima izvršioca.
     const current = await asMember.query(api.taskAssignees.listForTask, {
@@ -710,11 +715,19 @@ describe("dozvole za brze akcije", () => {
       ).map((row) => row.profileId),
     ).toContain(member.profileId);
 
-    // Kreator i dalje sme sve.
+    // Autor i dalje sme sve, i na zaključanom.
     await expect(
       asOwner.mutation(api.tasks.updateMetadata, {
         pageId,
         assigneeProfileId: owner.profileId,
+      }),
+    ).resolves.toBe(pageId);
+
+    await asOwner.mutation(api.pages.unlock, { pageId });
+    await expect(
+      asMember.mutation(api.tasks.updateMetadata, {
+        pageId,
+        assigneeProfileIds: [member.profileId],
       }),
     ).resolves.toBe(pageId);
   });
@@ -730,12 +743,15 @@ describe("dozvole za brze akcije", () => {
       title: "Nedodeljen zadatak",
     });
 
+    // PROSTOR P1 (namerna promena pravila): tuđe učešće na zaključanom
+    // zadatku menjaju samo autor, vlasnik i admin.
+    await asOwner.mutation(api.pages.lock, { pageId });
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {
         pageId,
         assigneeProfileId: owner.profileId,
       }),
-    ).rejects.toThrow("Tuđe učešće na zadatku menja njegov kreator");
+    ).rejects.toThrow("zaključana");
 
     await expect(
       asMember.mutation(api.tasks.updateMetadata, {

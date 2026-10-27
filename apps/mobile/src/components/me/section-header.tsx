@@ -26,7 +26,8 @@ export type MeSectionHeaderProps = {
 
 /**
  * Naslov sekcije ličnog nivoa (K12), par web `components/me/section-header.tsx`:
- * overline + broj koji se kotrlja (`NumberRoll`, trenutak 5). Sklopiva sekcija
+ * naslov sekcije normalnim slovima (DIZAJN-SMIRENJE §2) + broj koji se kotrlja
+ * (`NumberRoll`, trenutak 5) kao prigušena meta. Sklopiva sekcija
  * (Blokirano, Završeno danas) je dugme sa `expanded` stanjem; strelica se
  * okreće springom `snappy` (smanjen pokret: odmah, bez rotacije).
  */
@@ -40,7 +41,7 @@ export function MeSectionHeader({
   onToggle,
 }: MeSectionHeaderProps) {
   const colors = useThemeColors();
-  const labelColor = tone === 'danger' ? colors.danger : colors.mutedForeground;
+  const labelColor = tone === 'danger' ? colors.danger : colors.foreground;
 
   const content = (
     <>
@@ -51,7 +52,7 @@ export function MeSectionHeader({
       </Text>
       <NumberRoll
         value={count}
-        style={[styles.count, { color: tone === 'danger' ? colors.danger : colors.foreground }]}
+        style={[styles.count, { color: tone === 'danger' ? colors.danger : colors.mutedForeground }]}
         accessibilityLabel={String(count)}
       />
     </>
@@ -118,15 +119,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   label: {
-    ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
     flexShrink: 1,
   },
   count: {
     ...text.meta,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.regular,
     fontVariant: ['tabular-nums'],
   },
 });

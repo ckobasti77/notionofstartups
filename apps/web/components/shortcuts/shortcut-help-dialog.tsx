@@ -33,7 +33,7 @@ export function ShortcutHelpDialog({ open, onOpenChange, groups, isMac = false }
           <section key={group} aria-labelledby={`${idPrefix}-grupa-${index}`}>
             <h3
               id={`${idPrefix}-grupa-${index}`}
-              className="mb-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+              className="mb-2 text-sm font-semibold"
             >
               {group}
             </h3>

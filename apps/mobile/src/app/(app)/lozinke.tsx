@@ -57,7 +57,7 @@ export default function LozinkeScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Lozinke" onBack={() => router.back()} />
         <EmptyState
-          icon={<ShieldCheck size={40} color={colors.mutedForeground} />}
+          icon={<ShieldCheck size={20} color={colors.mutedForeground} />}
           title="Potreban je administratorski pristup"
           description="Postavljanje lozinki članovima je dostupno samo administratorima."
         />
@@ -71,7 +71,7 @@ export default function LozinkeScreen() {
 
       {profiles && profiles.length === 0 ? (
         <EmptyState
-          icon={<Users size={40} color={colors.mutedForeground} />}
+          icon={<Users size={20} color={colors.mutedForeground} />}
           title="Nema članova"
           description="Još nema aktivnih naloga kojima bi se postavila lozinka."
         />
@@ -80,7 +80,7 @@ export default function LozinkeScreen() {
           loading={loading}
           skeleton={
             <View style={styles.list}>
-              <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View>
                 <SkeletonList
                   count={6}
                   item={(index) => <SkeletonRow index={index} leading="circle" subtitle />}
@@ -94,10 +94,9 @@ export default function LozinkeScreen() {
               showsVerticalScrollIndicator={false}
               refreshControl={refreshControl}>
               <Text style={[styles.note, { color: colors.mutedForeground }]}>
-                Postavi novu lozinku bilo kom članu. Član se odmah prijavljuje novom
-                lozinkom; sve njegove/njene ranije prijave se poništavaju.
+                Postavi novu lozinku članu. Sve njegove ranije prijave se poništavaju.
               </Text>
-              <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View>
                 <StaggerGroup>
                   {profiles.map((item, index) => {
                     const isSelf = profile?._id === item._id;
@@ -170,9 +169,9 @@ function LozinkeError({ message, onRetry }: { message: string; onRetry: () => vo
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Lozinke" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Lista se ne može učitati"
-        description={message || 'Došlo je do greške.'}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
+        title="Lista nije učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -190,13 +189,8 @@ const styles = StyleSheet.create({
   note: {
     ...text.meta,
   },
-  group: {
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
   row: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
   },
   cappedNote: {
     ...text.meta,

@@ -7,6 +7,7 @@ import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
 import { createNotification, notificationCopy } from "./lib/notifications";
 import { requireVisiblePage } from "./lib/pages";
+import { assertCanEditPage, canEditPage } from "./lib/permissions";
 import { getProfileSummary } from "./lib/profile_summary";
 import {
   normalizeAssigneeProfileIds,
@@ -30,8 +31,8 @@ const assigneeValidator = v.object({
 async function requireTaskPage(ctx: MutationCtx, taskPageId: Id<"pages">) {
   const page = await requireVisiblePage(ctx, taskPageId);
   if (page.kind !== "task") throw new Error("Ova stranica nije zadatak.");
-  const { profile } = await requireStartupMember(ctx, page.startupId);
-  return { page, profile };
+  const actor = await requireStartupMember(ctx, page.startupId);
+  return { page, profile: actor.profile, actor };
 }
 
 async function notifyAssignmentChange(
@@ -66,9 +67,11 @@ export const listForTask = query({
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.taskPageId);
     if (page.kind !== "task") throw new Error("Ova stranica nije zadatak.");
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     const rows = await resolveTaskAssignees(ctx, page);
-    const isCreator = page.createdByProfileId === profile._id;
+    // PROSTOR P1: tuđe učešće skida svako ko sme da menja zadatak.
+    const canManage = canEditPage(actor, page);
     const summaries = await Promise.all(
       rows.map((row) => getProfileSummary(ctx, row.profileId)),
     );
@@ -82,8 +85,8 @@ export const listForTask = query({
           avatarUrl: summary.avatarUrl,
           addedByProfileId: row.addedByProfileId,
           createdAt: row.createdAt,
-          // Svoje učešće svako skida sam; tuđe skida autor zadatka.
-          canRemove: isCreator || row.profileId === profile._id,
+          // Svoje učešće svako skida sam; tuđe — ko sme da menja zadatak.
+          canRemove: canManage || row.profileId === profile._id,
         },
       ];
     });
@@ -106,7 +109,8 @@ export const listForTasks = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     if (args.taskPageIds.length > MAX_ASSIGNEE_LOOKUP_PAGES) {
       throw new Error(
         `Odjednom se može učitati najviše ${MAX_ASSIGNEE_LOOKUP_PAGES} zadataka.`,
@@ -136,7 +140,7 @@ export const listForTasks = query({
         continue;
       }
       const rows = await resolveTaskAssignees(ctx, page);
-      const isCreator = page.createdByProfileId === profile._id;
+      const canManage = canEditPage(actor, page);
       const assignees = [];
       for (const row of rows) {
         const summary = await loadSummary(row.profileId);
@@ -147,7 +151,7 @@ export const listForTasks = query({
           avatarUrl: summary.avatarUrl,
           addedByProfileId: row.addedByProfileId,
           createdAt: row.createdAt,
-          canRemove: isCreator || row.profileId === profile._id,
+          canRemove: canManage || row.profileId === profile._id,
         });
       }
       result.push({ taskPageId: page._id, assignees });
@@ -163,10 +167,8 @@ export const setAssignees = mutation({
   },
   returns: v.array(v.id("profiles")),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTaskPage(ctx, args.taskPageId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Spisak izvršilaca menja samo autor zadatka.");
-    }
+    const { page, profile, actor } = await requireTaskPage(ctx, args.taskPageId);
+    assertCanEditPage(actor, page);
     const profileIds = normalizeAssigneeProfileIds(args.profileIds) ?? [];
     const now = Date.now();
     const { added, removed } = await reconcileTaskAssignees(ctx, {
@@ -266,13 +268,9 @@ export const remove = mutation({
   args: { taskPageId: v.id("pages"), profileId: v.id("profiles") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, profile } = await requireTaskPage(ctx, args.taskPageId);
-    if (
-      page.createdByProfileId !== profile._id &&
-      args.profileId !== profile._id
-    ) {
-      throw new Error("Tuđe učešće na zadatku uklanja autor zadatka.");
-    }
+    const { page, profile, actor } = await requireTaskPage(ctx, args.taskPageId);
+    // Sebe skida svako; tuđe učešće — ko sme da menja zadatak (P1).
+    if (args.profileId !== profile._id) assertCanEditPage(actor, page);
     const current = await resolveTaskAssignees(ctx, page);
     if (!current.some((row) => row.profileId === args.profileId)) return null;
     const now = Date.now();

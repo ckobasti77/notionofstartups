@@ -6,7 +6,7 @@ import { Sheet } from '@/components/ui/sheet';
 import { haptics } from '@/lib/haptics';
 import { normalizeNoteLinkHref } from '@/lib/note-link';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text } from '@/theme/tokens';
 
 /**
  * Unos adrese za link u belešci — mobilni parnjak `NoteLinkDialog` sa weba.
@@ -125,14 +125,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   label: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    ...text.meta,
   },
   input: {
     minHeight: 48,

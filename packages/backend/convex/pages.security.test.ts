@@ -365,8 +365,11 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     });
   });
 
-  test("nepotpisan raniji sadržaj ne može naknadno da prisvoji kreator", async () => {
-    const { t, startupA, areaA1, asActor } =
+  test("nepotpisan raniji sadržaj menja svaki član, a zatečeno stanje ostaje u Istoriji", async () => {
+    // PROSTOR P1/P2 (namerna promena pravila): ranije je „raniji zajednički
+    // sadržaj" bio zaključan za sve; sada ga menja svaki član, a zatečeno stanje
+    // ostaje kao bazna revizija bez autora.
+    const { t, startupA, areaA1, asActor, asMember } =
       await seedPagesSecurityWorkspace();
     const pageId = await asActor.mutation(api.pages.create, {
       startupId: startupA,
@@ -387,15 +390,25 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       await ctx.db.delete("contentContributions", contribution._id);
     });
 
-    const page = await asActor.query(api.pages.get, { pageId });
-    expect(page.permissions.canEditBody).toBe(false);
-    await expect(
-      asActor.mutation(api.pages.update, {
-        pageId,
-        expectedRevision: 0,
-        content: "<p>Pokušaj prisvajanja</p>",
-      }),
-    ).rejects.toThrow("Raniji zajednički sadržaj je zaključan");
+    // Raniji sadržaj nije potpisan, ali stranica je već menjana (revision 1),
+    // pa autor bazne revizije nije poznat.
+    await t.run((ctx) => ctx.db.patch("pages", pageId, { revision: 1 }));
+    const page = await asMember.query(api.pages.get, { pageId });
+    expect(page.permissions.canEditBody).toBe(true);
+    await asMember.mutation(api.pages.update, {
+      pageId,
+      expectedRevision: 1,
+      content: "<p>Izmena člana</p>",
+    });
+    const revisions = await asActor.query(api.history.list, {
+      target: { kind: "page", id: pageId },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(revisions.page.map((row) => [row.kind, row.author])).toEqual([
+      ["edit", expect.objectContaining({ displayName: "Member" })],
+      ["baseline", null],
+    ]);
+    expect(revisions.page[1].excerpt).toBe("Nasleđen tekst");
   });
 
   test("legacy body backfill ne duplira canonical ni raniji bodyId zapis", async () => {
@@ -570,7 +583,9 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     expect(visibleIds.size).toBe(200);
   });
 
-  test("tuđi parent ne može da se zaobiđe kroz kreiranje stranice", async () => {
+  // PROSTOR K03 (P4, D4): podstranicu pod tuđom stranicom pravi svaki član;
+  // spisak dece zaključane stranice menjaju samo autor, vlasnik i admin.
+  test("član pravi podstranicu pod tuđom stranicom, a pod zaključanom ne", async () => {
     const { t, startupA, areaA1, asActor, asMember } =
       await seedPagesSecurityWorkspace();
     const foreignParentId = await asMember.mutation(api.pages.create, {
@@ -580,29 +595,55 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       kind: "note",
       title: "Tuđi parent",
     });
+    const childId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: foreignParentId,
+      kind: "task",
+      title: "Dete bez odobrenja",
+    });
+    expect(await t.run((ctx) => ctx.db.get("pages", childId))).toMatchObject({
+      parentPageId: foreignParentId,
+    });
 
-    await expect(
-      asActor.mutation(api.pages.create, {
+    // Actor je vlasnik startupa; zaključanu stranicu ne menja običan član.
+    const lockedParentId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Zaključan parent",
+    });
+    await asActor.mutation(api.pages.lock, { pageId: lockedParentId });
+    const lockedError = await asMember
+      .mutation(api.pages.create, {
         startupId: startupA,
         areaId: areaA1,
-        parentPageId: foreignParentId,
+        parentPageId: lockedParentId,
         kind: "task",
-        title: "Neodobreno dete",
-      }),
-    ).rejects.toThrow("potrebno je odobrenje");
+        title: "Pod zaključanim",
+      })
+      .catch((error: unknown) => error);
+    expect(String(lockedError)).toContain("Zaključan parent");
+    expect((lockedError as { data?: { code?: string } }).data?.code).toBe(
+      "ZAKLJUCANO",
+    );
 
     const children = await t.run((ctx) =>
       ctx.db
         .query("pages")
         .withIndex("by_parentPageId_and_archivedAt", (q) =>
-          q.eq("parentPageId", foreignParentId).eq("archivedAt", null),
+          q.eq("parentPageId", lockedParentId).eq("archivedAt", null),
         )
         .take(2),
     );
     expect(children).toHaveLength(0);
   });
 
-  test("arhiviranje se bezbedno zaustavlja pre nego što ostavi dete iza arhiviranog parenta", async () => {
+  // PROSTOR K03 (D1): brisanje šalje celu granu u Korpu — 201 dete ide sa
+  // roditeljem (ranije: „više od 200" odbijeno), a grana preko 250 se odbija
+  // bez ijedne izmene.
+  test("brisanje šalje granu do 250 stranica u Korpu, a veću odbija bez izmena", async () => {
     const { t, actor, startupA, areaA1, asActor } =
       await seedPagesSecurityWorkspace();
     const parentPageId = await asActor.mutation(api.pages.create, {
@@ -638,25 +679,83 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       }
     });
 
-    await expect(
-      asActor.mutation(api.pages.archive, { pageId: parentPageId }),
-    ).rejects.toThrow("više od 200");
-
-    const state = await t.run(async (ctx) => {
+    await asActor.mutation(api.pages.archive, { pageId: parentPageId });
+    const trashed = await t.run(async (ctx) => {
       const parent = await ctx.db.get("pages", parentPageId);
       const children = await ctx.db
         .query("pages")
         .withIndex("by_parentPageId_and_archivedAt", (q) =>
-          q.eq("parentPageId", parentPageId).eq("archivedAt", null),
+          q
+            .eq("parentPageId", parentPageId)
+            .eq("archivedAt", parent?.archivedAt ?? null),
         )
         .take(202);
       return { parent, children };
     });
-    expect(state.parent?.archivedAt).toBeNull();
-    expect(state.children).toHaveLength(201);
+    expect(trashed.parent).toMatchObject({
+      trashState: "root",
+      trashDescendantCount: 201,
+    });
+    expect(trashed.children).toHaveLength(201);
+    expect(
+      trashed.children.every(
+        (child) =>
+          child.trashState === "descendant" &&
+          child.archivedWithPageId === parentPageId,
+      ),
+    ).toBe(true);
+
+    const bigParentId = await asActor.mutation(api.pages.create, {
+      startupId: startupA,
+      areaId: areaA1,
+      parentPageId: null,
+      kind: "note",
+      title: "Preveliki parent",
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 251; index += 1) {
+        await ctx.db.insert("pages", {
+          startupId: startupA,
+          areaId: areaA1,
+          parentPageId: bigParentId,
+          kind: "note",
+          title: `Veliko dete ${index + 1}`,
+          searchText: "",
+          revision: 0,
+          position: index,
+          taskStatus: null,
+          taskPriority: null,
+          assigneeProfileId: null,
+          dueDate: null,
+          taskSortAt: now,
+          createdByProfileId: actor.profileId,
+          updatedByProfileId: actor.profileId,
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+    await expect(
+      asActor.mutation(api.pages.archive, { pageId: bigParentId }),
+    ).rejects.toThrow("više od 250");
+    const untouched = await t.run(async (ctx) => ({
+      parent: await ctx.db.get("pages", bigParentId),
+      children: await ctx.db
+        .query("pages")
+        .withIndex("by_parentPageId_and_archivedAt", (q) =>
+          q.eq("parentPageId", bigParentId).eq("archivedAt", null),
+        )
+        .take(252),
+    }));
+    expect(untouched.parent?.archivedAt).toBeNull();
+    expect(untouched.children).toHaveLength(251);
   });
 
-  test("samo autor pomera svoju vidljivu karticu na kanvasu oblasti", async () => {
+  test("svaki član pomera vidljivu karticu na kanvasu oblasti", async () => {
+    // PROSTOR P1 (namerna promena pravila, D20): raspored kartica menja svaki
+    // član; scope (samo kartice sa kanvasa oblasti) ostaje.
     const { t, actor, startupA, areaA1, asActor, asMember } =
       await seedPagesSecurityWorkspace();
     const actorPageId = await asActor.mutation(api.pages.create, {
@@ -680,7 +779,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       kind: "note",
     });
     expect(memberCanvas.pages).toEqual([
-      expect.objectContaining({ _id: actorPageId, canMove: false }),
+      expect.objectContaining({ _id: actorPageId, canMove: true }),
     ]);
     await expect(
       asMember.mutation(api.canvases.moveAreaCanvasPages, {
@@ -688,7 +787,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         areaId: areaA1,
         updates: [{ pageId: actorPageId, x: 120, y: 80 }],
       }),
-    ).rejects.toThrow("samo svoje kartice");
+    ).resolves.toBeNull();
     await expect(
       asActor.mutation(api.canvases.moveAreaCanvasPages, {
         startupId: startupA,
@@ -837,7 +936,10 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     ]);
   });
 
-  test("veze kanvasa čuvaju autorstvo, scope i bezbedno uklanjanje", async () => {
+  // PROSTOR K03 (D20): vezu na kanvasu pravi i uklanja svaki član (ranije:
+  // „bar jedna svoja kartica" / „samo vezu koju ste napravili"); autorstvo se
+  // i dalje beleži, a scope i tip ostaju zaštićeni.
+  test("veze kanvasa čuvaju autorstvo, scope i bezbedno uklanjanje, a menja ih svaki član", async () => {
     const {
       t,
       actor,
@@ -889,14 +991,19 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       label: "V2 relacija ostaje nezavisna",
     });
 
-    await expect(
-      asMember.mutation(api.canvases.connectAreaCanvasPages, {
+    const memberLegacyEdgeId = await asMember.mutation(
+      api.canvases.connectAreaCanvasPages,
+      {
         startupId: startupA,
         areaId: areaA1,
         source: actorPageId,
         target: actorPeerId,
-      }),
-    ).rejects.toThrow("posedujete bar jednu karticu");
+      },
+    );
+    await asActor.mutation(api.canvases.disconnectAreaCanvasPages, {
+      startupId: startupA,
+      edgeIds: [memberLegacyEdgeId],
+    });
     await expect(
       asActor.mutation(api.canvases.connectAreaCanvasPages, {
         startupId: startupA,
@@ -928,7 +1035,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         nodeAId: actorPageId,
         nodeBId: nestedPageId,
       }),
-    ).rejects.toThrow("posedujete bar jednu karticu");
+    ).rejects.toThrow("kanvasa iste oblasti");
 
     const edgeId = await asActor.mutation(
       api.canvases.connectAreaCanvasPages,
@@ -994,13 +1101,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     );
     expect(idempotentV2Edges).toHaveLength(1);
 
-    await expect(
-      asMember.mutation(api.canvases.disconnectAreaCanvasPages, {
-        startupId: startupA,
-        edgeIds: [edgeId],
-      }),
-    ).rejects.toThrow("samo vezu koju ste napravili");
-    await asActor.mutation(api.canvases.disconnectAreaCanvasPages, {
+    await asMember.mutation(api.canvases.disconnectAreaCanvasPages, {
       startupId: startupA,
       edgeIds: [edgeId],
     });
@@ -1060,13 +1161,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       nodeAId: actorPageId,
       nodeBId: actorPeerId,
     });
-    await expect(
-      asMember.mutation(api.pages.disconnectCanvasPages, {
-        startupId: startupA,
-        edgeId: legacyEdgeId,
-      }),
-    ).rejects.toThrow("samo vezu koju ste napravili");
-    await asActor.mutation(api.pages.disconnectCanvasPages, {
+    await asMember.mutation(api.pages.disconnectCanvasPages, {
       startupId: startupA,
       edgeId: legacyEdgeId,
     });
@@ -1182,6 +1277,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
       title: "Oblast B",
     });
 
+    // PROSTOR K03: veze više nisu vlasničke, pa odbijanje dolazi od opsega.
     await expect(
       asActor.mutation(api.pages.connectCanvasPages, {
         startupId: startupA,
@@ -1189,7 +1285,7 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         nodeAId: pageA,
         nodeBId: pageB,
       }),
-    ).rejects.toThrow("bar jednu karticu");
+    ).rejects.toThrow("kanvasa iste oblasti");
     await expect(
       asActor.mutation(api.canvases.connectAreaCanvasPages, {
         startupId: startupA,
@@ -1371,8 +1467,10 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     expect(after).toEqual(before);
   });
 
-  test("cross-area move odbija granu sa aktivnim stranicama drugog autora", async () => {
-    const { t, actor, member, startupA, areaA1, areaA2, asActor } =
+  // PROSTOR K03 (D6): grana sa tuđom stranicom se seli; odbija se samo kad u
+  // grani postoji zaključana stranica za koju premeštač nema pravo.
+  test("cross-area move seli granu drugog autora, a odbija je dok je u njoj tuđa zaključana stranica", async () => {
+    const { t, actor, member, startupA, areaA1, areaA2, asMember } =
       await seedPagesSecurityWorkspace();
     const { parentId, childId } = await t.run(async (ctx) => {
       const now = Date.now();
@@ -1403,19 +1501,28 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
         ...base,
         parentPageId: parentId,
         title: "Dete drugog autora",
-        createdByProfileId: member.profileId,
-        updatedByProfileId: member.profileId,
+        createdByProfileId: actor.profileId,
+        updatedByProfileId: actor.profileId,
+        lockedAt: now,
+        lockedByProfileId: actor.profileId,
       });
       return { parentId, childId };
     });
 
+    // Member nije autor deteta ni menadžer (Actor je vlasnik startupa).
+    await t.run((ctx) =>
+      ctx.db.patch("pages", parentId, {
+        createdByProfileId: member.profileId,
+        updatedByProfileId: member.profileId,
+      }),
+    );
     await expect(
-      asActor.mutation(api.pages.move, {
+      asMember.mutation(api.pages.move, {
         pageId: parentId,
         areaId: areaA2,
         parentPageId: null,
       }),
-    ).rejects.toThrow("stranice drugih autora");
+    ).rejects.toThrow("Dete drugog autora");
 
     const persisted = await t.run(async (ctx) => ({
       parent: await ctx.db.get("pages", parentId),
@@ -1423,5 +1530,20 @@ describe("bezbednost stranica i poslovnih oblasti", () => {
     }));
     expect(persisted.parent?.areaId).toBe(areaA1);
     expect(persisted.child?.areaId).toBe(areaA1);
+
+    await t.run((ctx) =>
+      ctx.db.patch("pages", childId, { lockedAt: null, lockedByProfileId: null }),
+    );
+    await asMember.mutation(api.pages.move, {
+      pageId: parentId,
+      areaId: areaA2,
+      parentPageId: null,
+    });
+    const moved = await t.run(async (ctx) => ({
+      parent: await ctx.db.get("pages", parentId),
+      child: await ctx.db.get("pages", childId),
+    }));
+    expect(moved.parent?.areaId).toBe(areaA2);
+    expect(moved.child).toMatchObject({ areaId: areaA2, parentPageId: parentId });
   });
 });

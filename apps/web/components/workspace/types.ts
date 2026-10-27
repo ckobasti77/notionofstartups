@@ -25,21 +25,52 @@ export type MeRoute =
   | { kind: "me-today" }
   | { kind: "me-tasks" }
   | { kind: "me-inbox" }
-  | { kind: "me-chat"; channelId?: Id<"chatChannels"> };
+  | { kind: "me-chat"; channelId?: Id<"chatChannels"> }
+  /** Beleške (PROSTOR P7, K18): moje misli iz svih startupa + lične. */
+  | { kind: "me-notes" };
 
-/** Svet jednog startupa — postojeća unija, bez izmena. */
+/** Filter Zadataka startupa (PROSTOR P11): Svi (podrazumevano) · Moji · osoba. */
+export type TasksFilter = "svi" | "moji";
+
+/** Kartica rute stranice: samo Mapa (zadatak je ignoriše, P14). */
+export type PageTab = "mapa";
+
+/** Kartica oblasti (PROSTOR P12): Pregled je podrazumevan (K07 E15). */
+export type AreaTab = "pregled" | "zadaci" | "dokumenti" | "mapa";
+
+/** Kartice Podešavanja startupa (PROSTOR K20); Opšte je podrazumevana. */
+export type SettingsTab = "opste" | "oblasti" | "tim" | "pozivnice" | "lozinke";
+
+/** Segment Korpe (PROSTOR P3) — isti ključevi kao `trash.list`. */
+export type TrashSegment = "page" | "idea" | "file" | "recovered";
+
+/**
+ * Svet jednog startupa. PROSTOR P11 (K08): `home` → `today`, `my-tasks` →
+ * `tasks` (Moji) i `approvals` → `trash` žive samo kao preusmerenja u
+ * `readWorkspaceRouteCandidate` — nisu više prikazi.
+ */
 export type StartupRoute =
-  | { kind: "home" }
   | { kind: "thoughts" }
-  | { kind: "ideas" }
+  /** `ideaId` = otvoren detalj ideje (fioka, PROSTOR P16, K16). */
+  | { kind: "ideas"; ideaId?: Id<"ideaNodes"> }
   | { kind: "today" }
-  | { kind: "my-tasks" }
+  | {
+      kind: "tasks";
+      /** Odsutno = „Svi". */
+      filter?: TasksFilter;
+      /** Zadaci jednog člana (ima prednost nad `filter`). */
+      profileId?: Id<"profiles">;
+    }
+  | { kind: "trash"; segment?: TrashSegment }
+  /** Podešavanja startupa (K20); bez `tab` otvara se Opšte. */
+  | { kind: "settings"; tab?: SettingsTab }
   | { kind: "activity" }
-  | { kind: "approvals" }
   | { kind: "chat"; channelId?: Id<"chatChannels"> }
   | { kind: "puls"; weekStart?: number }
-  | { kind: "area"; areaId: Id<"startupAreas"> }
-  | { kind: "page"; pageId: Id<"pages"> };
+  /** `tab` iz URL-a ima prednost nad zapamćenom karticom (K07 §5.5). */
+  | { kind: "area"; areaId: Id<"startupAreas">; tab?: AreaTab }
+  /** `tab: "mapa"` = Mapa stranice (PROSTOR P13, K10); bez njega dokument. */
+  | { kind: "page"; pageId: Id<"pages">; tab?: PageTab };
 
 export type WorkspaceRoute = MeRoute | StartupRoute;
 

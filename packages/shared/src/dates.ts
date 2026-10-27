@@ -500,5 +500,5 @@ export function describeDueForRow(
   const due = describeDue(dueMs, nowMs, zone);
   if (!done || dueMs === null || due.tone === "none") return due;
   const date = formatDateShort(dueMs, zone);
-  return { label: date, ariaLabel: `Rok bio ${date}`, tone: "later", dayDiff: due.dayDiff };
+  return { label: date, ariaLabel: `Rok je bio ${date}`, tone: "later", dayDiff: due.dayDiff };
 }

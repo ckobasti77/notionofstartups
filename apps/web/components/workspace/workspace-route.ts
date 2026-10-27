@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import type { MeRoute, WorkspaceRoute, WorkspaceScope } from "./types";
+import type { AreaTab, MeRoute, PageTab, SettingsTab, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
 
 /** Prikazi ličnog nivoa „Ja" (P1). */
 export const ME_ROUTE_KINDS = [
@@ -8,6 +8,7 @@ export const ME_ROUTE_KINDS = [
   "me-tasks",
   "me-inbox",
   "me-chat",
+  "me-notes",
 ] as const satisfies ReadonlyArray<MeRoute["kind"]>;
 
 export function isMeRoute(route: { kind: string }): route is MeRoute {
@@ -19,8 +20,8 @@ export function routeScope(route: WorkspaceRoute): WorkspaceScope {
 }
 
 export type AreasRouteCandidate =
-  | { kind: "area"; areaId: string }
-  | { kind: "page"; pageId: string };
+  | { kind: "area"; areaId: string; tab?: AreaTab }
+  | { kind: "page"; pageId: string; tab?: PageTab };
 
 export type StaticWorkspaceRoute = Exclude<
   WorkspaceRoute,
@@ -52,19 +53,41 @@ export function readWorkspaceRouteCandidate(
   if (view === "me-today") return { kind: "me-today" };
   if (view === "me-tasks") return { kind: "me-tasks" };
   if (view === "me-inbox") return { kind: "me-inbox" };
+  if (view === "me-notes") return { kind: "me-notes" };
   if (view === "me-chat") {
     const channelId = params.get("channelId")?.trim();
     return channelId
       ? { kind: "me-chat", channelId: channelId as Id<"chatChannels"> }
       : { kind: "me-chat" };
   }
-  if (view === "home") return { kind: "home" };
+  // PROSTOR P11 (K08): stari prikazi žive samo kao preusmerenja — linkovi,
+  // obaveštenja i service worker (`public/sw.js`) i dalje šalju ova imena.
+  if (view === "home") return { kind: "today" };
+  if (view === "my-tasks") return { kind: "tasks", filter: "moji" };
+  if (view === "approvals") return { kind: "trash" };
   if (view === "thoughts") return { kind: "thoughts" };
-  if (view === "ideas") return { kind: "ideas" };
+  if (view === "ideas") {
+    // Detalj ideje (K07 E13): nepoznat id prikaz svede na tablu sa porukom.
+    const ideaId = params.get("ideaId")?.trim();
+    return ideaId ? { kind: "ideas", ideaId: ideaId as Id<"ideaNodes"> } : { kind: "ideas" };
+  }
   if (view === "today") return { kind: "today" };
-  if (view === "my-tasks") return { kind: "my-tasks" };
   if (view === "activity") return { kind: "activity" };
-  if (view === "approvals") return { kind: "approvals" };
+  if (view === "tasks") {
+    // `osoba` ima prednost nad `filter`; nepoznat filter = „Svi".
+    const profileId = params.get("osoba")?.trim();
+    if (profileId) return { kind: "tasks", profileId: profileId as Id<"profiles"> };
+    return params.get("filter") === "moji" ? { kind: "tasks", filter: "moji" } : { kind: "tasks" };
+  }
+  if (view === "trash") {
+    const segment = params.get("vrsta");
+    return isTrashSegment(segment) ? { kind: "trash", segment } : { kind: "trash" };
+  }
+  if (view === "settings") {
+    // Nepoznata kartica = Opšte (K07 E13).
+    const tab = params.get("tab");
+    return isSettingsTab(tab) && tab !== "opste" ? { kind: "settings", tab } : { kind: "settings" };
+  }
   if (view === "chat") {
     // `channelId` je opcion — bez njega chat se otvara na listi razgovora.
     // Nevalidan id prikaz gracefully svede na listu (kao `puls` sa `week`).
@@ -83,13 +106,38 @@ export function readWorkspaceRouteCandidate(
   }
   if (view === "area") {
     const areaId = params.get("areaId")?.trim();
-    return areaId ? { kind: "area", areaId } : null;
+    if (!areaId) return null;
+    // Nepoznata kartica = zapamćena ili Pregled (K07 E13, E15).
+    const tab = params.get("tab");
+    return isAreaTab(tab) ? { kind: "area", areaId, tab } : { kind: "area", areaId };
   }
   if (view === "page") {
     const pageId = params.get("pageId")?.trim();
-    return pageId ? { kind: "page", pageId } : null;
+    if (!pageId) return null;
+    // Nepoznata kartica = dokument (K07 E13).
+    return params.get("tab") === "mapa" ? { kind: "page", pageId, tab: "mapa" } : { kind: "page", pageId };
   }
   return null;
+}
+
+/** Kartice Podešavanja startupa redom (K20). */
+export const SETTINGS_TABS: ReadonlyArray<SettingsTab> = ["opste", "oblasti", "tim", "pozivnice", "lozinke"];
+
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return typeof value === "string" && (SETTINGS_TABS as ReadonlyArray<string>).includes(value);
+}
+
+const TRASH_SEGMENT_KEYS: ReadonlyArray<TrashSegment> = ["page", "idea", "file", "recovered"];
+
+function isTrashSegment(value: string | null): value is TrashSegment {
+  return value !== null && (TRASH_SEGMENT_KEYS as ReadonlyArray<string>).includes(value);
+}
+
+/** Kartice oblasti redom (PROSTOR P12). */
+export const AREA_TABS: ReadonlyArray<AreaTab> = ["pregled", "zadaci", "dokumenti", "mapa"];
+
+export function isAreaTab(value: unknown): value is AreaTab {
+  return typeof value === "string" && (AREA_TABS as ReadonlyArray<string>).includes(value);
 }
 
 export function isAreasRouteCandidate(
@@ -138,13 +186,20 @@ export function workspaceRouteHref(
   url.searchParams.delete("pageId");
   url.searchParams.delete("channelId");
   url.searchParams.delete("week");
+  url.searchParams.delete("filter");
+  url.searchParams.delete("osoba");
+  url.searchParams.delete("vrsta");
+  url.searchParams.delete("tab");
+  url.searchParams.delete("ideaId");
   url.searchParams.delete("startupId");
   url.searchParams.set("view", route.kind);
 
   if (route.kind === "area") {
     url.searchParams.set("areaId", route.areaId);
+    if (route.tab) url.searchParams.set("tab", route.tab);
   } else if (route.kind === "page") {
     url.searchParams.set("pageId", route.pageId);
+    if (route.tab) url.searchParams.set("tab", route.tab);
   } else if (
     (route.kind === "chat" || route.kind === "me-chat") &&
     route.channelId
@@ -152,6 +207,15 @@ export function workspaceRouteHref(
     url.searchParams.set("channelId", route.channelId);
   } else if (route.kind === "puls" && route.weekStart !== undefined) {
     url.searchParams.set("week", String(route.weekStart));
+  } else if (route.kind === "tasks") {
+    if (route.profileId) url.searchParams.set("osoba", route.profileId);
+    else if (route.filter === "moji") url.searchParams.set("filter", "moji");
+  } else if (route.kind === "ideas" && route.ideaId) {
+    url.searchParams.set("ideaId", route.ideaId);
+  } else if (route.kind === "trash" && route.segment && route.segment !== "page") {
+    url.searchParams.set("vrsta", route.segment);
+  } else if (route.kind === "settings" && route.tab && route.tab !== "opste") {
+    url.searchParams.set("tab", route.tab);
   }
   // Lični nivo ne pripada startupu: `startupId` se ne upisuje ni kad je
   // prosleđen (startup „u pozadini" se drži u memoriji ljuske, D10).
@@ -162,6 +226,22 @@ export function workspaceRouteHref(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+/**
+ * Razrešena ruta stranice ili oblasti zadržava traženu karticu (`tab=mapa`,
+ * `tab=dokumenti`…): `areasV2.resolveRoute` vraća samo id, a obaveštenja i
+ * linkovi vode i na Mapu ili Dokumente.
+ */
+export function withPageTab(
+  resolved: WorkspaceRoute | null,
+  candidate: WorkspaceRouteCandidate,
+): WorkspaceRoute | null {
+  if (resolved?.kind === "area" && candidate.kind === "area" && candidate.tab) {
+    return resolved.areaId === candidate.areaId ? { ...resolved, tab: candidate.tab } : resolved;
+  }
+  if (resolved?.kind !== "page" || candidate.kind !== "page" || !candidate.tab) return resolved;
+  return resolved.pageId === candidate.pageId ? { ...resolved, tab: candidate.tab } : resolved;
+}
+
 export function workspaceRouteAfterStartupSwitch(
   currentRoute: WorkspaceRoute,
 ): WorkspaceRoute {
@@ -169,10 +249,17 @@ export function workspaceRouteAfterStartupSwitch(
   if (isMeRoute(currentRoute)) return { kind: "today" };
   // Kanali su per-startup: ostani u chatu, ali otpusti izabrani kanal.
   if (currentRoute.kind === "chat") return { kind: "chat" };
-  return currentRoute.kind === "home" ||
-    currentRoute.kind === "ideas" ||
-    currentRoute.kind === "thoughts" ||
-    currentRoute.kind === "today"
+  // Član drugog startupa nije član ovog: filter osobe se ne prenosi.
+  if (currentRoute.kind === "tasks") {
+    return currentRoute.filter === "moji" ? { kind: "tasks", filter: "moji" } : { kind: "tasks" };
+  }
+  // Ideja pripada startupu: u drugom startupu se otvara tabla, bez detalja.
+  if (currentRoute.kind === "ideas") return { kind: "ideas" };
+  // Podešavanja ostaju na istoj kartici (tab važi za svaki startup).
+  if (currentRoute.kind === "settings") return currentRoute;
+  return currentRoute.kind === "thoughts" ||
+    currentRoute.kind === "today" ||
+    currentRoute.kind === "trash"
     ? currentRoute
     : { kind: "today" };
 }

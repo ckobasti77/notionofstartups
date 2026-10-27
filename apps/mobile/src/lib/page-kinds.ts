@@ -46,21 +46,12 @@ export function pageKindLabel(kind: PageKind) {
 }
 
 /**
- * Boja vrste iz semantičkih tokena (web `PAGE_KIND_META`: note sky, task emerald,
- * file amber, table fuchsia → info/success/warning/primary).
+ * Boja ikonice vrste. Od PROSTOR K21 (DIZAJN-SMIRENJE U5) vrsta nije status ni
+ * identitet: svaka vrsta je prigušena, a razlikuje je oblik ikonice — isto kao
+ * web lista (ikonica `text-muted-foreground`). Potpis ostaje zbog pozivalaca.
  */
-export function pageKindColor(colors: ColorTokens, kind: PageKind): string {
-  switch (kind) {
-    case 'task':
-      return colors.success;
-    case 'file':
-      return colors.warning;
-    case 'table':
-      return colors.primary;
-    case 'note':
-    default:
-      return colors.info;
-  }
+export function pageKindColor(colors: ColorTokens, _kind: PageKind): string {
+  return colors.mutedForeground;
 }
 
 /** Samo zadatak nosi status, prioritet, rok, izvršioce i checkpointe. */

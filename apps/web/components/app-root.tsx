@@ -64,9 +64,9 @@ function InviteProblem({
     <div className="pointer-events-none fixed inset-x-3 top-3 z-[80] flex justify-center sm:inset-x-auto sm:right-5 sm:top-5">
       <div
         role="alert"
-        className="pointer-events-auto flex w-full max-w-lg items-start gap-3 rounded-2xl border border-amber-500/30 bg-card/95 p-4 shadow-[var(--shadow-desk)] backdrop-blur-xl"
+        className="pointer-events-auto flex w-full max-w-lg items-start gap-3 rounded-2xl border border-warning/30 bg-card/95 p-4 shadow-[var(--shadow-desk)] backdrop-blur-xl"
       >
-        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-amber-500/12 text-amber-700 dark:text-amber-300">
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-warning/12 text-warning-foreground dark:text-warning">
           <AlertTriangle className="size-4" />
         </span>
         <div className="min-w-0 flex-1">

@@ -3,7 +3,7 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import {
-  Brain,
+  NotebookPen,
   CheckSquare2,
   FileText,
   Lightbulb,
@@ -33,7 +33,7 @@ import type { Id } from "@/convex/_generated/dataModel";
  * unutar te funkcije). Debounce 300 ms, minimum 2 znaka — paritet sa mobilnim.
  *
  * Navigacija je na nivou sekcije (nema deep-linka do čvora/poruke): stranice i
- * zadaci otvaraju detalj u mestu (`onOpenPage`), a ideje/misli/poruke vode na svoj
+ * zadaci otvaraju svoju rutu (`onOpenPage`, PROSTOR K10), a ideje/misli/poruke vode na svoj
  * prikaz kroz `onNavigate` (isti obrazac kao klik na obaveštenje).
  *
  * Upiti su izdvojeni u `SearchResults` iza `SearchResultsBoundary`: Convex
@@ -72,7 +72,7 @@ export function SearchDialog({
         <DialogHeader className="sr-only">
           <DialogTitle>Pretraga</DialogTitle>
           <DialogDescription>
-            Pretraži stranice, zadatke, ideje, misli i poruke u startupu.
+            Pretraži stranice, zadatke, ideje, beleške i poruke u startupu.
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-3 border-b px-4">
@@ -90,8 +90,8 @@ export function SearchDialog({
           {normalizedQuery.length < 2 ? (
             <EmptyState
               icon={Search}
-              title="Pronađi ono što ti treba"
-              description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, misli i poruke ovog startupa."
+              title="Pretraži startup"
+              description="Unesi bar dva slova."
               className="min-h-60 border-0 bg-transparent"
             />
           ) : (
@@ -108,9 +108,6 @@ export function SearchDialog({
             </SearchResultsBoundary>
           )}
         </div>
-        <p className="border-t bg-muted/25 px-4 py-2 text-[0.6875rem] text-muted-foreground">
-          Savet: pritisni <kbd className="rounded border bg-card px-1 py-0.5 font-mono">Ctrl K</kbd> da otvoriš pretragu.
-        </p>
       </DialogContent>
     </Dialog>
   );
@@ -222,7 +219,7 @@ function SearchResults({
               title={nodePrimary(node)}
               subtitle={nodeSubtitle(node)}
               onClick={() => {
-                onNavigate({ kind: "ideas" });
+                onNavigate({ kind: "ideas", ideaId: node._id });
                 onClose();
               }}
             />
@@ -230,15 +227,15 @@ function SearchResults({
         </Group>
       ) : null}
       {thoughts.length > 0 ? (
-        <Group title="Misli">
+        <Group title="Beleške">
           {thoughts.map((node) => (
             <ResultRow
               key={node._id}
-              icon={<Brain className="size-4" />}
+              icon={<NotebookPen className="size-4" />}
               title={nodePrimary(node)}
               subtitle={nodeSubtitle(node)}
               onClick={() => {
-                onNavigate({ kind: "thoughts" });
+                onNavigate({ kind: "me-notes" });
                 onClose();
               }}
             />
@@ -278,7 +275,7 @@ function nodeSubtitle(node: { title: string | null; text: string }) {
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="pb-1">
-      <h3 className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">
         {title}
       </h3>
       <ul>{children}</ul>
@@ -301,17 +298,17 @@ function ResultRow({
     <li>
       <button
         type="button"
-        className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-accent/55"
+        className="flex min-h-14 w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted/60"
         onClick={onClick}
       >
         <span
           aria-hidden="true"
-          className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/9 text-primary"
+          className="grid size-8 shrink-0 place-items-center text-muted-foreground"
         >
           {icon}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{title}</span>
+          <span className="block truncate text-sm font-medium">{title}</span>
           {subtitle ? (
             <span className="block truncate text-xs text-muted-foreground">{subtitle}</span>
           ) : null}

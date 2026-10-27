@@ -1,16 +1,29 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import type { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
-  archivePageWithV2Sidecars,
   movePageAcrossAreasWithSidecars,
   moveWithinArea,
 } from "./areasV2";
 import { recordActivity } from "./lib/activity";
 import { requireStartupMember } from "./lib/auth";
-import { insertContribution } from "./lib/collaboration";
+import { addComment, removeComment, updateComment } from "./lib/comments";
+import { writePageContent } from "./lib/page_content";
+import {
+  assertCanChangeChildren,
+  assertCanEditPage,
+  assertCanMovePage,
+  canArchivePage,
+  canEditPage,
+  canLockPage,
+  conflictError,
+  isPageLocked,
+  pagePermissions,
+  pagePermissionsValidator,
+  permissionError,
+} from "./lib/permissions";
 import {
   cleanPageContent,
   insertWorkspacePage,
@@ -18,14 +31,9 @@ import {
   requirePageArea,
   requirePageParent,
   validateWorkspacePageTarget,
-  workspaceCanvasPreview,
 } from "./lib/page_creation";
-import {
-  pageSearchText,
-  pageTaskSortAt,
-  requireVisiblePage,
-  summarizePage,
-} from "./lib/pages";
+import { requireVisiblePage, summarizePage } from "./lib/pages";
+import { trashPageTree } from "./lib/trash";
 import {
   getProfileSummary,
   profileSummaryValidator as profileSummaryDisplayValidator,
@@ -38,12 +46,12 @@ import {
   pageDocumentValidator,
   pageKindValidator,
   pageSummaryValidator,
+  RECENT_AREA_PAGES_DEFAULT,
+  RECENT_AREA_PAGES_MAX,
   roleValidator,
   taskPriorityValidator,
   taskStatusValidator,
 } from "./lib/validators";
-
-type PageReadCtx = QueryCtx | MutationCtx;
 
 const profileDocumentValidator = v.object({
   _id: v.id("profiles"),
@@ -69,46 +77,11 @@ const pageDetailsValidator = pageDocumentValidator.extend({
   /** Prvi izvršilac; ceo spisak je u `assignees`. */
   assignee: v.union(profileDocumentValidator, v.null()),
   assignees: v.array(profileSummaryDisplayValidator),
-  permissions: v.object({
-    canEdit: v.boolean(),
-    canEditBody: v.boolean(),
-    canMove: v.boolean(),
-    canResize: v.boolean(),
-    canDetach: v.boolean(),
-    canDeleteDirectly: v.boolean(),
-    canRequestDeletion: v.boolean(),
-  }),
+  /** Ko je zaključao stranicu (PROSTOR P1); `null` kad je otključana. */
+  lockedBy: v.union(profileSummaryDisplayValidator, v.null()),
+  /** P25: stara polja ostaju, nova se dodaju (`lib/permissions.ts`). */
+  permissions: pagePermissionsValidator,
 });
-
-async function getPageBodyContributions(
-  ctx: PageReadCtx,
-  pageId: Id<"pages">,
-  bodyId: Id<"pageBodies"> | null,
-) {
-  const sourceIds = bodyId === null ? [pageId] : [pageId, bodyId];
-  const batches = await Promise.all(
-    sourceIds.map((sourceId) =>
-      ctx.db
-        .query("contentContributions")
-        .withIndex("by_sourceKind_and_sourceId", (q) =>
-          q.eq("sourceKind", "page_body").eq("sourceId", sourceId),
-        )
-        .take(2),
-    ),
-  );
-  const byId = new Map(
-    batches
-      .flat()
-      .filter(
-        (contribution) =>
-          contribution.targetKind === "page" &&
-          contribution.targetId === pageId &&
-          contribution.archivedAt === null,
-      )
-      .map((contribution) => [contribution._id, contribution]),
-  );
-  return Array.from(byId.values());
-}
 
 export const listChildren = query({
   args: {
@@ -159,7 +132,8 @@ export const get = query({
   returns: pageDetailsValidator,
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     const [body, creator, updater, assignee, parent] = await Promise.all([
       ctx.db
         .query("pageBodies")
@@ -180,11 +154,10 @@ export const get = query({
         assigneeEntries.map((entry) => getProfileSummary(ctx, entry.profileId)),
       )
     ).filter((summary) => summary !== null);
-    const pageBodyContributions = await getPageBodyContributions(
-      ctx,
-      page._id,
-      body?._id ?? null,
-    );
+    const lockedBy =
+      isPageLocked(page) && page.lockedByProfileId
+        ? await getProfileSummary(ctx, page.lockedByProfileId)
+        : null;
 
     let creatorAvatarUrl = null;
     if (creator?.avatarStorageId) {
@@ -199,30 +172,19 @@ export const get = query({
       updater,
       assignee,
       assignees,
-      permissions: {
-        canEdit: page.createdByProfileId === profile._id,
-        canEditBody:
-          page.createdByProfileId === profile._id &&
-          ((pageBodyContributions.length === 0 &&
-            !(body?.content ?? "").trim()) ||
-            pageBodyContributions.some(
-              (contribution) =>
-                contribution.attribution === "author" &&
-                contribution.authorProfileId === profile._id,
-            )),
-        canMove: page.createdByProfileId === profile._id,
-        canResize: page.createdByProfileId === profile._id,
-        canDetach:
-          page.parentPageId !== null &&
-          (page.createdByProfileId === profile._id ||
-            (parent !== null &&
-              parent.archivedAt === null &&
-              parent.startupId === page.startupId &&
-              parent.areaId === page.areaId &&
-              parent.createdByProfileId === profile._id)),
-        canDeleteDirectly: page.createdByProfileId === profile._id,
-        canRequestDeletion: page.createdByProfileId !== profile._id,
-      },
+      lockedBy,
+      permissions: pagePermissions(actor, page, {
+        parent:
+          parent !== null &&
+          parent.archivedAt === null &&
+          parent.startupId === page.startupId &&
+          parent.areaId === page.areaId
+            ? parent
+            : null,
+        isAssignee: assigneeEntries.some(
+          (entry) => entry.profileId === profile._id,
+        ),
+      }),
     };
   },
 });
@@ -377,6 +339,67 @@ export const recentForStartup = query({
   },
 });
 
+/**
+ * „Nedavne izmene u oblasti” (PROSTOR D19): poslednje izmenjene stranice oblasti
+ * svih vrsta, sa osobom koja je izmenila. Četiri vrste × `limit` redova kroz isti
+ * indeks, spojeno po `updatedAt` — bez novog polja u `activities`.
+ */
+export const recentForArea = query({
+  args: {
+    startupId: v.id("startups"),
+    areaId: v.id("startupAreas"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    pageSummaryValidator.extend({
+      updatedBy: v.union(profileSummaryDisplayValidator, v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireStartupMember(ctx, args.startupId);
+    await requirePageArea(ctx, args.startupId, args.areaId);
+    const limit = boundedLimit(
+      args.limit,
+      RECENT_AREA_PAGES_DEFAULT,
+      RECENT_AREA_PAGES_MAX,
+    );
+    const perKind = await Promise.all(
+      (["note", "task", "file", "table"] as const).map((kind) =>
+        ctx.db
+          .query("pages")
+          .withIndex("by_startup_area_kind_active_updated", (q) =>
+            q
+              .eq("startupId", args.startupId)
+              .eq("areaId", args.areaId)
+              .eq("kind", kind)
+              .eq("archivedAt", null),
+          )
+          .order("desc")
+          .take(limit),
+      ),
+    );
+    const rows = perKind
+      .flat()
+      .sort(
+        (a, b) =>
+          b.updatedAt - a.updatedAt || b._creationTime - a._creationTime,
+      )
+      .slice(0, limit);
+    const editors = new Map(
+      await Promise.all(
+        [...new Set(rows.map((row) => row.updatedByProfileId))].map(
+          async (profileId) =>
+            [profileId, await getProfileSummary(ctx, profileId)] as const,
+        ),
+      ),
+    );
+    return rows.map((row) => ({
+      ...summarizePage(row),
+      updatedBy: editors.get(row.updatedByProfileId) ?? null,
+    }));
+  },
+});
+
 export const create = mutation({
   args: {
     startupId: v.id("startups"),
@@ -396,7 +419,8 @@ export const create = mutation({
   },
   returns: v.id("pages"),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
+    const { profile } = actor;
     const now = Date.now();
     const target = await validateWorkspacePageTarget(ctx, {
       startupId: args.startupId,
@@ -417,11 +441,9 @@ export const create = mutation({
       args.areaId,
       args.parentPageId,
     );
-    if (parent !== null && parent.createdByProfileId !== profile._id) {
-      throw new Error(
-        "Za ugnježđavanje u tuđu stranicu potrebno je odobrenje njenog autora.",
-      );
-    }
+    // PROSTOR P4: podstranicu pod bilo koju stranicu pravi svaki član; spisak
+    // dece zaključane stranice menjaju samo autor, vlasnik startupa i admin.
+    assertCanChangeChildren(actor, parent);
     const page = prepareWorkspacePage(target, {
       title: args.title,
       content: args.content ?? "",
@@ -446,14 +468,15 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error(
-        "Naslov i osnovni sadržaj menja samo kreator. Dodajte svoj tekst.",
-      );
-    }
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
+    // PROSTOR P1: svaki član menja naslov i telo; zaključanu samo autor,
+    // vlasnik startupa i admin. Raniji „zaključan zajednički sadržaj"
+    // (`legacy_neutral`) više ne blokira izmenu — zatečeno stanje ostaje u
+    // Istoriji izmena kao bazna revizija.
+    assertCanEditPage(actor, page);
     if (page.revision !== args.expectedRevision) {
-      throw new Error("KONFLIKT_IZMENA: Neko iz tima je u međuvremenu izmenio ovu stranicu.");
+      throw conflictError(page);
     }
     const body = await ctx.db
       .query("pageBodies")
@@ -464,74 +487,17 @@ export const update = mutation({
       : cleanRequiredText(args.title, "Naslov", 200);
     const currentContent = body?.content ?? "";
     const content = args.content === undefined ? currentContent : cleanPageContent(args.content);
-    const bodyContributions = await getPageBodyContributions(
-      ctx,
-      page._id,
-      body?._id ?? null,
-    );
-    const authoredBodyContribution = bodyContributions.find(
-      (contribution) =>
-        contribution.attribution === "author" &&
-        contribution.authorProfileId === profile._id,
-    );
-    const shouldClaimMissingBody =
-      content !== currentContent &&
-      authoredBodyContribution === undefined &&
-      bodyContributions.length === 0 &&
-      !currentContent.trim();
-    if (
-      content !== currentContent &&
-      authoredBodyContribution === undefined &&
-      !shouldClaimMissingBody
-    ) {
-      throw new Error(
-        "Raniji zajednički sadržaj je zaključan. Dodajte svoj potpisani tekst.",
-      );
-    }
     if (title === page.title && content === currentContent) {
       return { pageId: page._id, revision: page.revision, updatedAt: page.updatedAt };
     }
     const now = Date.now();
-    const revision = page.revision + 1;
-    await ctx.db.patch("pages", page._id, {
+    const { revision } = await writePageContent(ctx, {
+      page,
+      actorProfileId: profile._id,
+      now,
       title,
-      searchText: pageSearchText(title, content),
-      canvasPreview: workspaceCanvasPreview(
-        title,
-        content,
-        page.instructions,
-      ),
-      revision,
-      taskSortAt: pageTaskSortAt(page.dueDate, now),
-      updatedByProfileId: profile._id,
-      updatedAt: now,
+      content,
     });
-    if (body === null) {
-      await ctx.db.insert("pageBodies", { pageId: page._id, content, updatedAt: now });
-    } else if (content !== currentContent) {
-      await ctx.db.patch("pageBodies", body._id, { content, updatedAt: now });
-    }
-    if (
-      content !== currentContent &&
-      authoredBodyContribution !== undefined
-    ) {
-      await ctx.db.patch(
-        "contentContributions",
-        authoredBodyContribution._id,
-        { content, updatedAt: now },
-      );
-    } else if (shouldClaimMissingBody) {
-      await insertContribution(ctx, {
-        startupId: page.startupId,
-        targetKind: "page",
-        targetId: page._id,
-        authorProfileId: profile._id,
-        content,
-        sourceKind: "page_body",
-        sourceId: page._id,
-        createdAt: now,
-      });
-    }
     if (title !== page.title || now - page.updatedAt >= 5 * 60 * 1_000) {
       await recordActivity(ctx, {
         startupId: page.startupId,
@@ -546,6 +512,81 @@ export const update = mutation({
   },
 });
 
+const lockStateValidator = v.object({
+  lockedAt: v.union(v.number(), v.null()),
+  lockedByProfileId: v.union(v.id("profiles"), v.null()),
+});
+
+/**
+ * Zaključavanje (PROSTOR P1): autor stranice, vlasnik startupa ili admin.
+ * Idempotentno; ne menja `revision` (zaključavanje nije izmena sadržaja).
+ */
+export const lock = mutation({
+  args: { pageId: v.id("pages") },
+  returns: lockStateValidator,
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    if (!canLockPage(actor, page)) {
+      throw permissionError(
+        "NEMA_DOZVOLU",
+        "Stranicu zaključava njen autor, vlasnik startupa ili admin.",
+      );
+    }
+    if (isPageLocked(page)) {
+      return {
+        lockedAt: page.lockedAt ?? null,
+        lockedByProfileId: page.lockedByProfileId ?? null,
+      };
+    }
+    const now = Date.now();
+    await ctx.db.patch("pages", page._id, {
+      lockedAt: now,
+      lockedByProfileId: actor.profile._id,
+    });
+    await recordActivity(ctx, {
+      startupId: page.startupId,
+      actorProfileId: actor.profile._id,
+      action: "page_locked",
+      targetType: "page",
+      targetId: page._id,
+      title: page.title,
+    });
+    return { lockedAt: now, lockedByProfileId: actor.profile._id };
+  },
+});
+
+export const unlock = mutation({
+  args: { pageId: v.id("pages") },
+  returns: lockStateValidator,
+  handler: async (ctx, args) => {
+    const page = await requireVisiblePage(ctx, args.pageId);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    if (!canLockPage(actor, page)) {
+      throw permissionError(
+        "NEMA_DOZVOLU",
+        "Stranicu otključava njen autor, vlasnik startupa ili admin.",
+      );
+    }
+    if (!isPageLocked(page)) {
+      return { lockedAt: null, lockedByProfileId: null };
+    }
+    await ctx.db.patch("pages", page._id, {
+      lockedAt: null,
+      lockedByProfileId: null,
+    });
+    await recordActivity(ctx, {
+      startupId: page.startupId,
+      actorProfileId: actor.profile._id,
+      action: "page_unlocked",
+      targetType: "page",
+      targetId: page._id,
+      title: page.title,
+    });
+    return { lockedAt: null, lockedByProfileId: null };
+  },
+});
+
 export const move = mutation({
   args: {
     pageId: v.id("pages"),
@@ -556,21 +597,18 @@ export const move = mutation({
   returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Možete pomerati samo svoju stranicu.");
-    }
+    const actor = await requireStartupMember(ctx, page.startupId);
+    const { profile } = actor;
     await requirePageArea(ctx, page.startupId, args.areaId);
     if (args.parentPageId === page._id) throw new Error("Stranica ne može biti sopstveni roditelj.");
     const parent = await requirePageParent(ctx, page.startupId, args.areaId, args.parentPageId);
-    if (
-      parent !== null &&
-      parent.createdByProfileId !== profile._id
-    ) {
-      throw new Error(
-        "Za ugnježđavanje u tuđu stranicu potrebno je odobrenje njenog autora.",
-      );
-    }
+    // PROSTOR P4 (R5): svaki član premešta i ugnežđava odmah; zaključana
+    // stranica i spisak dece zaključanog roditelja ostaju autoru i menadžeru.
+    const currentParent =
+      page.parentPageId === null
+        ? null
+        : await requireVisiblePage(ctx, page.parentPageId);
+    assertCanMovePage(actor, page, currentParent, parent);
     let cursor = parent;
     for (let depth = 0; cursor !== null && depth < 64; depth += 1) {
       if (cursor._id === page._id) throw new Error("Premeštanje bi napravilo kružnu hijerarhiju.");
@@ -588,7 +626,7 @@ export const move = mutation({
       await movePageAcrossAreasWithSidecars(ctx, {
         page,
         targetAreaId: args.areaId,
-        actorProfileId: profile._id,
+        actor,
         position: args.position,
         now,
       });
@@ -618,11 +656,9 @@ export const archive = mutation({
   returns: v.id("pages"),
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Tuđa stranica se briše samo jednoglasnim glasanjem.");
-    }
-    await archivePageWithV2Sidecars(ctx, page, profile._id);
+    const actor = await requireStartupMember(ctx, page.startupId);
+    // PROSTOR P3: brisanje šalje celu granu u Korpu (svaki član, R7 + D6).
+    await trashPageTree(ctx, { actor, page, now: Date.now() });
     return page._id;
   },
 });
@@ -655,15 +691,11 @@ export const addEntry = mutation({
       updatedAt: now,
     });
 
-    await insertContribution(ctx, {
-      startupId: page.startupId,
-      targetKind: "page",
-      targetId: page._id,
-      authorProfileId: profile._id,
+    // PROSTOR P5: unos je komentar — odmah vidljiv, sa aktivnošću i obaveštenjima.
+    await addComment(ctx, {
+      target: { kind: "page", id: page._id },
       content: cleaned,
-      sourceKind: "page_entry",
-      sourceId: entryId,
-      createdAt: now,
+      source: { kind: "page_entry", id: entryId },
     });
 
     await ctx.db.patch("pages", page._id, {
@@ -674,6 +706,18 @@ export const addEntry = mutation({
     return entryId;
   },
 });
+
+async function contributionOfEntry(
+  ctx: MutationCtx,
+  entryId: Id<"pageEntries">,
+) {
+  return await ctx.db
+    .query("contentContributions")
+    .withIndex("by_sourceKind_and_sourceId", (q) =>
+      q.eq("sourceKind", "page_entry").eq("sourceId", entryId),
+    )
+    .unique();
+}
 
 export const updateEntry = mutation({
   args: {
@@ -693,18 +737,17 @@ export const updateEntry = mutation({
     }
     const content = cleanPageContent(args.content);
     if (!content.trim()) throw new Error("Tekst ne može biti prazan.");
-    const now = Date.now();
-    await ctx.db.patch("pageEntries", entry._id, { content, updatedAt: now });
-    const contribution = await ctx.db
-      .query("contentContributions")
-      .withIndex("by_sourceKind_and_sourceId", (q) =>
-        q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
-      )
-      .unique();
+    const contribution = await contributionOfEntry(ctx, entry._id);
     if (contribution !== null) {
-      await ctx.db.patch("contentContributions", contribution._id, {
+      // Isto pravilo kao za svaki komentar (R13); usput ogleda i sam unos.
+      await updateComment(ctx, {
+        commentId: contribution._id,
         content,
-        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch("pageEntries", entry._id, {
+        content,
+        updatedAt: Date.now(),
       });
     }
     return entry._id;
@@ -718,26 +761,14 @@ export const deleteEntry = mutation({
   },
   handler: async (ctx, args) => {
     const page = await requireVisiblePage(ctx, args.pageId);
-    const { profile } = await requireStartupMember(ctx, page.startupId);
+    await requireStartupMember(ctx, page.startupId);
     const entry = await ctx.db.get("pageEntries", args.entryId);
     if (entry && entry.pageId === page._id) {
-      if (entry.authorProfileId !== profile._id) {
-        throw new Error(
-          "Tuđa izmena se uklanja samo jednoglasnim glasanjem.",
-        );
-      }
-      await ctx.db.delete("pageEntries", args.entryId);
-      const contribution = await ctx.db
-        .query("contentContributions")
-        .withIndex("by_sourceKind_and_sourceId", (q) =>
-          q.eq("sourceKind", "page_entry").eq("sourceId", entry._id),
-        )
-        .unique();
-      if (contribution !== null) {
-        await ctx.db.patch("contentContributions", contribution._id, {
-          archivedAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+      // PROSTOR P5/R14: autor svoj, vlasnik startupa i admin tuđi. Red unosa se
+      // NE briše — komentar se arhivira (vraća se u roku od 8 s).
+      const contribution = await contributionOfEntry(ctx, entry._id);
+      if (contribution !== null && contribution.archivedAt === null) {
+        await removeComment(ctx, contribution._id);
       }
     }
   },
@@ -750,7 +781,7 @@ export const listAreaCanvasPages = query({
     kind: v.optional(pageKindValidator),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const actor = await requireStartupMember(ctx, args.startupId);
     await requirePageArea(ctx, args.startupId, args.areaId);
     const kind = args.kind;
     const filteredPages = kind
@@ -794,11 +825,12 @@ export const listAreaCanvasPages = query({
         return {
           ...p,
           creator: creator ? { displayName: creator.displayName, avatarUrl: creatorAvatarUrl } : null,
-          canEdit: p.createdByProfileId === profile._id,
-          canMove: p.createdByProfileId === profile._id,
-          canResize: p.createdByProfileId === profile._id,
-          canDeleteDirectly: p.createdByProfileId === profile._id,
-          canRequestDeletion: p.createdByProfileId !== profile._id,
+          // PROSTOR P1/P3: kartice su na vrhu oblasti (bez roditelja).
+          canEdit: canEditPage(actor, p),
+          canMove: true,
+          canResize: true,
+          canDeleteDirectly: canArchivePage(actor, p, null),
+          canRequestDeletion: false,
         };
       })
     );
@@ -816,9 +848,9 @@ export const listAreaCanvasPages = query({
         )
         .map((edge) => ({
           ...edge,
-          canEdit: edge.authorProfileId === profile._id,
-          canDeleteDirectly: edge.authorProfileId === profile._id,
-          canRequestDeletion: edge.authorProfileId !== profile._id,
+          canEdit: true,
+          canDeleteDirectly: true,
+          canRequestDeletion: false,
         })),
     };
   },
@@ -850,12 +882,11 @@ export const connectCanvasPages = mutation({
       nodeA.archivedAt !== null ||
       nodeB.archivedAt !== null ||
       nodeA.parentPageId !== null ||
-      nodeB.parentPageId !== null ||
-      (nodeA.createdByProfileId !== profile._id &&
-        nodeB.createdByProfileId !== profile._id)
+      nodeB.parentPageId !== null
     ) {
+      // PROSTOR D20: veze pravi svaki član; opseg (startup, oblast, vrh) ostaje.
       throw new Error(
-        "Vezu možete napraviti samo ako posedujete bar jednu karticu.",
+        "Poveži samo dostupne kartice sa kanvasa iste oblasti.",
       );
     }
     if (nodeA.kind !== nodeB.kind) {
@@ -907,22 +938,12 @@ export const disconnectCanvasPages = mutation({
     edgeId: v.id("pageEdges"),
   },
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     const edge = await ctx.db.get("pageEdges", args.edgeId);
     if (edge === null || edge.startupId !== args.startupId) {
       throw new Error("Veza nije pronađena.");
     }
-    const [nodeA, nodeB] = await Promise.all([
-      ctx.db.get("pages", edge.nodeAId),
-      ctx.db.get("pages", edge.nodeBId),
-    ]);
-    const ownsLegacyEndpoint =
-      edge.authorProfileId === undefined &&
-      (nodeA?.createdByProfileId === profile._id ||
-        nodeB?.createdByProfileId === profile._id);
-    if (edge.authorProfileId !== profile._id && !ownsLegacyEndpoint) {
-      throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-    }
+    // PROSTOR D20: vezu uklanja svaki član.
     if (edge.archivedAt === undefined || edge.archivedAt === null) {
       await ctx.db.delete("pageEdges", args.edgeId);
     }

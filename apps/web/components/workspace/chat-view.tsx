@@ -113,7 +113,7 @@ export function ChatView({
             <EmptyState
               icon={MessagesSquare}
               title="Izaberi razgovor"
-              description="Otvori kanal, diskusiju ili direktnu poruku iz liste sa leve strane da započneš razgovor."
+              description="Otvori kanal ili poruku iz liste."
               className="max-w-md border-none bg-transparent"
             />
           </div>

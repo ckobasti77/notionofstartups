@@ -13,7 +13,7 @@ import { haptics } from '@/lib/haptics';
 import { type ThoughtColor } from '@/lib/thought-colors';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text } from '@/theme/tokens';
 
 /** Backend limiti (`thoughts.ts`): naslov ≤200, tekst ≤12000. */
 const MAX_TITLE = 200;
@@ -78,7 +78,7 @@ export function ThoughtNodeSheet({
     const cleanTitle = title.trim();
     if (!cleanTitle) {
       haptics.warning();
-      Alert.alert('Prazan naslov', 'Misao mora imati naslov.');
+      Alert.alert('Prazan naslov', 'Beleška mora imati naslov.');
       return;
     }
     setBusy(true);
@@ -94,7 +94,7 @@ export function ThoughtNodeSheet({
       onClose();
     } catch (error) {
       haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Misao nije sačuvana.'));
+      Alert.alert('Greška', accessErrorMessage(error, 'Beleška nije sačuvana.'));
     } finally {
       setBusy(false);
     }
@@ -103,7 +103,7 @@ export function ThoughtNodeSheet({
   const remove = () => {
     if (!thought) return;
     haptics.warning();
-    Alert.alert('Obriši misao', 'Ova misao će biti uklonjena sa kanvasa.', [
+    Alert.alert('Obriši belešku', 'Ova beleška će biti uklonjena sa mape.', [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Obriši',
@@ -116,7 +116,7 @@ export function ThoughtNodeSheet({
             // Traka „Poništi" (`restoreNodes`) je jedini put nazad — backend nema
             // upit za arhivirane misli (PARITET A6).
             pushUndo({
-              label: 'Misao je arhivirana.',
+              label: 'Beleška je arhivirana.',
               action: { kind: 'thoughts', nodeIds: [thought._id], edgeIds: [] },
             });
             haptics.success();
@@ -125,7 +125,7 @@ export function ThoughtNodeSheet({
           } catch (error) {
             onArchiveFailed?.();
             haptics.error();
-            Alert.alert('Greška', accessErrorMessage(error, 'Misao nije obrisana.'));
+            Alert.alert('Greška', accessErrorMessage(error, 'Beleška nije obrisana.'));
           } finally {
             setBusy(false);
           }
@@ -146,14 +146,14 @@ export function ThoughtNodeSheet({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
         <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
-          Misao
+          Beleška
         </Text>
         <TextInput
           value={title}
           onChangeText={setTitle}
           maxLength={MAX_TITLE}
           placeholder="Naslov"
-          accessibilityLabel="Naslov misli"
+          accessibilityLabel="Naslov beleške"
           placeholderTextColor={colors.mutedForeground}
           selectionColor={colors.primary}
           editable={!busy}
@@ -165,7 +165,7 @@ export function ThoughtNodeSheet({
           multiline
           maxLength={MAX_TEXT}
           placeholder="Tekst (opciono)"
-          accessibilityLabel="Tekst misli"
+          accessibilityLabel="Tekst beleške"
           placeholderTextColor={colors.mutedForeground}
           selectionColor={colors.primary}
           editable={!busy}
@@ -215,8 +215,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   input: {
     minHeight: 48,

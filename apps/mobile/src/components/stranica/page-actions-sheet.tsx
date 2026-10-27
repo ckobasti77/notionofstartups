@@ -4,7 +4,11 @@ import {
   ChevronLeft,
   FolderInput,
   FolderOutput,
+  History,
   Link2,
+  Lock,
+  LockOpen,
+  Map as MapIcon,
   Pencil,
   Scissors,
   Trash2,
@@ -12,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { conflictFromError } from '@/components/collab/collab-model';
 import { PageTargetPicker } from '@/components/stranica/page-target-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,9 +28,9 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pageKindColor, pageKindLabel, pageKindMeta, type PageKind } from '@/lib/page-kinds';
 import { areaColor } from '@/lib/task-meta';
-import { pushUndo } from '@/lib/undo';
+import { pushUndo, showUndoNotice } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 type PageDetails = FunctionReturnType<typeof api.pages.get>;
 
@@ -39,7 +44,7 @@ export type SheetView = 'menu' | 'move' | 'moveTarget' | 'nest' | 'relate' | 're
 const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
   move: 'Premesti u oblast',
   moveTarget: 'Mesto u oblasti',
-  nest: 'Ugnjezdi pod…',
+  nest: 'Ugnezdi u…',
   relate: 'Poveži sa…',
   rename: 'Preimenuj',
 };
@@ -57,6 +62,12 @@ const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
  * Dozvole se poštuju na klijentu isto kao na webu (`permissions` iz `pages.get`), ali
  * server ostaje autoritet — greška se prikazuje istim `accessErrorMessage` obrascem
  * kao svuda u aplikaciji.
+ *
+ * PROSTOR K12: svaki član menja i premešta otključanu stranicu (P1, P4), „Obriši"
+ * šalje celu granu u Korpu uz „Poništi" (P3) — nema glasanja ni zahteva. Dodato je
+ * zaključavanje, Istorija izmena i Mapa; Istorija i Mapa su sheet/ekran koje ekran
+ * otvara (modali se ne ugnežđuju), pa ih ovde samo traži kroz `onOpenHistory` i
+ * `onOpenMap`.
  */
 export function PageActionsSheet({
   open,
@@ -64,6 +75,9 @@ export function PageActionsSheet({
   initialView = 'menu',
   onClose,
   onArchived,
+  onOpenHistory,
+  onOpenMap,
+  savePending = false,
 }: {
   open: boolean;
   page: PageDetails;
@@ -73,8 +87,14 @@ export function PageActionsSheet({
    */
   initialView?: SheetView;
   onClose: () => void;
-  /** Poziva se posle uspešnog DIREKTNOG arhiviranja (ne posle zahteva za glasanje). */
+  /** Poziva se posle slanja stranice u Korpu. */
   onArchived: () => void;
+  /** „Istorija izmena": ekran zatvara ovaj sheet i otvara svoj. */
+  onOpenHistory?: () => void;
+  /** „Prikaži na mapi": samo kad stranica ima podstranice (zadatak nema mapu). */
+  onOpenMap?: () => void;
+  /** Editor još čuva izmene: brisanje čeka da se sačuvaju. */
+  savePending?: boolean;
 }) {
   const colors = useThemeColors();
   const [view, setView] = useState<SheetView>(initialView);
@@ -90,10 +110,11 @@ export function PageActionsSheet({
 
   const movePage = useMutation(api.areasV2.movePage);
   const requestNesting = useMutation(api.areasV2.requestNesting);
+  const lockPage = useMutation(api.pages.lock);
+  const unlockPage = useMutation(api.pages.unlock);
   const detachPage = useMutation(api.areasV2.detachPage);
   const createRelation = useMutation(api.areasV2.createRelation);
   const archivePage = useMutation(api.areasV2.archivePage);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
   const updatePage = useMutation(api.areasV2.updatePage);
 
   const [renameTitle, setRenameTitle] = useState(page.title);
@@ -175,41 +196,32 @@ export function PageActionsSheet({
     busyKey: string,
   ) =>
     void runAction(busyKey, async () => {
-      const result = await movePage({
+      await movePage({
         startupId: page.startupId,
         pageId: page._id,
         targetAreaId,
         targetParentPageId: targetParent?.id ?? null,
       });
-      // Oblast je promenjena u OBA ishoda, pa traka „Poništi" ide uvek — a njena
-      // poruka nosi celu istinu umesto Alert-a. Alert bi stajao IZNAD trake i
-      // pojeo joj 8 sekundi (ista greška kao „Poništi" ispod sheet-a, K3).
+      // Premešta se odmah (P4); traka „Poništi" nosi celu istinu umesto Alert-a — Alert
+      // bi stajao IZNAD trake i pojeo joj 8 sekundi (ista greška kao „Poništi" ispod
+      // sheet-a, K3).
       pushPlaceUndo(
         targetParent === null
           ? `Premešteno u „${label}".`
-          : result.nestingStatus === 'pending'
-            ? `Premešteno u „${label}"; ugnježdavanje pod „${targetParent.title}" čeka odobrenje autora.`
-            : `Premešteno u „${label}" pod „${targetParent.title}".`,
+          : `Premešteno u „${label}" pod „${targetParent.title}".`,
       );
       return null;
     });
 
   const nestInto = (targetParentPageId: Id<'pages'>, targetTitle: string) =>
     void runAction(targetParentPageId, async () => {
-      const result = await requestNesting({
+      await requestNesting({
         startupId: page.startupId,
         childPageId: page._id,
         targetParentPageId,
       });
-      // Ugnježđavanje pod tuđu stranicu ide kroz odobrenje — to se mora reći, inače
-      // izgleda kao da se ništa nije desilo (stranica ostaje gde je bila). Tada nad
-      // stranicom ništa nije ni upisano, pa traka „Poništi" nema šta da vrati i
-      // Alert je jedina površina.
-      if (result.nestingStatus === 'pending') {
-        return `Zahtev je poslat autoru stranice „${targetTitle}". Ugnježđavanje čeka odobrenje.`;
-      }
-      // Uspeh ima traku „Poništi", pa Alert-a nema (isti obrazac kao „Preimenuj").
-      pushPlaceUndo(`Ugnježdeno pod „${targetTitle}".`);
+      // Ugnežđuje se odmah (P4), uz traku „Poništi" koja vraća prethodno mesto.
+      pushPlaceUndo(`Ugnežđeno pod „${targetTitle}".`);
       return null;
     });
 
@@ -260,8 +272,8 @@ export function PageActionsSheet({
     } catch (error) {
       haptics.error();
       setRenameError(
-        String(error).includes('KONFLIKT_IZMENA')
-          ? 'Neko iz tima je u međuvremenu izmenio ovu stranicu. Zatvori sheet i pokušaj ponovo.'
+        conflictFromError(error) !== null
+          ? 'Neko iz tima je u međuvremenu izmenio ovu stranicu. Zatvori radnje i pokušaj ponovo.'
           : accessErrorMessage(error, 'Stranica nije preimenovana.'),
       );
     } finally {
@@ -274,18 +286,18 @@ export function PageActionsSheet({
     // Destruktivno po strukturi stabla — upozorenje pre potvrde, ne posle.
     haptics.warning();
     Alert.alert(
-      'Izdvojiti stranicu?',
-      `„${page.title || 'Stranica bez naslova'}" se odvaja od roditelja i vraća u koren oblasti.`,
+      'Odvojiti stranicu?',
+      `„${page.title || 'Stranica bez naslova'}" se odvaja od nadređene stavke i vraća u koren oblasti.`,
       [
         { text: 'Otkaži', style: 'cancel' },
         {
-          text: 'Izdvoji',
+          text: 'Odvoji',
           style: 'destructive',
           onPress: () =>
             void runAction('detach', async () => {
               const result = await detachPage({ startupId: page.startupId, pageId: page._id });
               if (result.status !== 'detached') {
-                throw new Error('Stranica više nije ugnježdena.');
+                throw new Error('Stranica više nije ugnežđena.');
               }
               return 'Stranica je vraćena u koren oblasti.';
             }),
@@ -294,53 +306,46 @@ export function PageActionsSheet({
     );
   };
 
-  const archiveOrRequest = () => {
+  /** Zaključaj / otključaj (`pages.lock/unlock`); poruka ide na traku ekrana ispod sheet-a. */
+  const setLocked = (locked: boolean) => {
     if (busyId !== null) return;
-    if (!page.permissions.canDeleteDirectly) {
-      haptics.tap();
-      setBusyId('archive');
-      void requestDeletion({ target: { kind: 'page', id: page._id } })
-        .then(() => {
-          haptics.success();
-          close();
-          Alert.alert('Poslato', 'Glasanje o brisanju je pokrenuto.');
-        })
-        .catch((error: unknown) => {
-          haptics.error();
-          Alert.alert('Greška', accessErrorMessage(error, 'Zahtev nije poslat.'));
-        })
-        .finally(() => setBusyId(null));
+    const noun = page.kind === 'task' ? 'Zadatak' : 'Stranica';
+    const done = page.kind === 'task' ? (locked ? 'zaključan' : 'otključan') : locked ? 'zaključana' : 'otključana';
+    void runAction('lock', async () => {
+      if (locked) await lockPage({ pageId: page._id });
+      else await unlockPage({ pageId: page._id });
+      showUndoNotice({ label: `${noun} je ${done}.` });
+      return null;
+    });
+  };
+
+  /** „Obriši" šalje celu granu u Korpu (P3); `trash.restore` je „Poništi". */
+  const archive = () => {
+    if (busyId !== null) return;
+    if (savePending) {
+      haptics.warning();
+      Alert.alert('Sačekaj trenutak', 'Izmene se još čuvaju. Pokušaj ponovo za par sekundi.');
       return;
     }
-    haptics.warning();
-    Alert.alert(
-      'Obrisati stranicu?',
-      'Podstranice će biti izvučene nivo iznad.',
-      [
-        { text: 'Otkaži', style: 'cancel' },
-        {
-          text: 'Obriši',
-          style: 'destructive',
-          onPress: () => {
-            setBusyId('archive');
-            void archivePage({ startupId: page.startupId, pageId: page._id })
-              .then(() => {
-                haptics.success();
-                // `close()` PRE `onArchived()`: ako pozivalac nema istoriju za
-                // `router.back()` (npr. deep link), sheet se ipak zatvara umesto
-                // da ostane otvoren nad upravo arhiviranom stranicom.
-                close();
-                onArchived();
-              })
-              .catch((error: unknown) => {
-                haptics.error();
-                Alert.alert('Greška', accessErrorMessage(error, 'Stranica nije arhivirana.'));
-              })
-              .finally(() => setBusyId(null));
-          },
-        },
-      ],
-    );
+    haptics.tap();
+    setBusyId('archive');
+    void archivePage({ startupId: page.startupId, pageId: page._id })
+      .then(() => {
+        haptics.success();
+        pushUndo({
+          label: `„${page.title || 'Bez naslova'}" je u Korpi.`,
+          action: { kind: 'trashRestore', pageId: page._id },
+        });
+        // `close()` PRE `onArchived()`: ako pozivalac nema istoriju za `router.back()`
+        // (npr. deep link), sheet se ipak zatvara umesto da ostane nad obrisanom stranicom.
+        close();
+        onArchived();
+      })
+      .catch((error: unknown) => {
+        haptics.error();
+        Alert.alert('Greška', accessErrorMessage(error, 'Stranica nije poslata u Korpu.'));
+      })
+      .finally(() => setBusyId(null));
   };
 
   const areaById = new Map((startup?.areas ?? []).map((area) => [area._id, area.label]));
@@ -356,6 +361,56 @@ export function PageActionsSheet({
               {page.title || 'Stranica bez naslova'}
             </Text>
             <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
+              {onOpenHistory === undefined ? null : (
+                <Row
+                  title="Istorija izmena"
+                  subtitle="Ranije verzije; možeš da vratiš bilo koju"
+                  onPress={onOpenHistory}
+                  disabled={busyId !== null}
+                  style={styles.row}
+                  icon={<History size={20} color={colors.mutedForeground} />}
+                />
+              )}
+              {page.permissions.canLock || page.permissions.canUnlock ? (
+                <Row
+                  title={
+                    page.permissions.canUnlock
+                      ? 'Otključaj'
+                      : page.kind === 'task'
+                        ? 'Zaključaj zadatak'
+                        : 'Zaključaj stranicu'
+                  }
+                  subtitle={
+                    page.permissions.canUnlock
+                      ? 'Svaki član opet može da menja'
+                      : page.kind === 'task'
+                        ? 'Menjaju ga autor, vlasnik startupa i admin'
+                        : 'Menjaju je autor, vlasnik startupa i admin'
+                  }
+                  onPress={() => setLocked(page.permissions.canLock)}
+                  disabled={busyId !== null}
+                  showChevron={false}
+                  style={styles.row}
+                  icon={
+                    page.permissions.canUnlock ? (
+                      <LockOpen size={20} color={colors.mutedForeground} />
+                    ) : (
+                      <Lock size={20} color={colors.mutedForeground} />
+                    )
+                  }
+                  value={busyId === 'lock' ? <ActivityIndicator color={colors.primary} /> : undefined}
+                />
+              ) : null}
+              {onOpenMap === undefined ? null : (
+                <Row
+                  title="Prikaži na mapi"
+                  subtitle="Podstranice kao Mapa"
+                  onPress={onOpenMap}
+                  disabled={busyId !== null}
+                  style={styles.row}
+                  icon={<MapIcon size={20} color={colors.mutedForeground} />}
+                />
+              )}
               <Row
                 title="Premesti u oblast"
                 subtitle="Bira se oblast, pa mesto u njoj"
@@ -365,16 +420,16 @@ export function PageActionsSheet({
                 icon={<FolderOutput size={20} color={colors.mutedForeground} />}
               />
               <Row
-                title="Ugnjezdi pod…"
-                subtitle="Bilo koja dubina u ovoj oblasti; tuđa stranica traži odobrenje"
+                title="Ugnezdi u…"
+                subtitle="Bilo koja dubina u ovoj oblasti"
                 onPress={() => setView('nest')}
                 disabled={!page.permissions.canMove}
                 style={styles.row}
                 icon={<FolderInput size={20} color={colors.mutedForeground} />}
               />
               <Row
-                title="Izdvoji"
-                subtitle="Odvaja od roditelja i vraća u koren oblasti"
+                title="Odvoji"
+                subtitle="Odvaja od nadređene stavke i vraća u koren oblasti"
                 onPress={detach}
                 disabled={!page.permissions.canDetach || busyId !== null}
                 showChevron={false}
@@ -400,7 +455,9 @@ export function PageActionsSheet({
                   subtitle={
                     page.permissions.canEdit
                       ? 'Menja naslov ove stranice'
-                      : 'Naslov menja samo autor stranice'
+                      : page.kind === 'task'
+                        ? 'Zadatak je zaključan'
+                        : 'Stranica je zaključana'
                   }
                   onPress={() => setView('rename')}
                   disabled={!page.permissions.canEdit}
@@ -411,12 +468,14 @@ export function PageActionsSheet({
               <Row
                 title="Obriši"
                 subtitle={
-                  page.permissions.canDeleteDirectly
-                    ? 'Arhivira stranicu; podstranice idu nivo iznad'
-                    : 'Traži jednoglasno glasanje tima'
+                  page.permissions.canArchive
+                    ? 'Ide u Korpu; vraća se sa podstranicama'
+                    : page.kind === 'task'
+                      ? 'Zadatak je zaključan'
+                      : 'Stranica je zaključana'
                 }
-                onPress={archiveOrRequest}
-                disabled={busyId !== null}
+                onPress={archive}
+                disabled={busyId !== null || !page.permissions.canArchive}
                 showChevron={false}
                 style={styles.row}
                 icon={<Trash2 size={20} color={colors.mutedForeground} />}
@@ -547,7 +606,7 @@ export function PageActionsSheet({
                   excludePageId={page._id}
                   currentParentPageId={page.parentPageId}
                   busyId={busyId}
-                  rootEmpty="U ovoj oblasti nema druge stranice pod koju bi se ugnjezdila."
+                  rootEmpty="U ovoj oblasti nema druge stranice pod koju bi se ugnezdila."
                   onPick={nestInto}
                 />
               ) : null}
@@ -623,7 +682,7 @@ function TargetList({
             style={styles.row}
             accessibilityLabel={item.subtitle ? `${item.title}, ${item.subtitle}` : item.title}
             icon={
-              <View style={[styles.iconChip, { backgroundColor: `${item.tint}22` }]}>
+              <View style={styles.iconChip}>
                 {Icon ? <Icon size={16} color={item.tint} /> : null}
               </View>
             }
@@ -652,8 +711,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

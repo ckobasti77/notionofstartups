@@ -17,7 +17,6 @@ import {
   cleanOptionalText,
   cleanRequiredText,
 } from "./lib/validators";
-import { applyApprovedDeletion } from "./collaboration";
 
 async function getAreas(
   ctx: Parameters<typeof requireProfile>[0],
@@ -368,29 +367,21 @@ export const removeMember = mutation({
         q.eq("profileId", profile._id).eq("vote", "pending"),
       )
       .take(200);
+    // PROSTOR P4: glasanje je ugašeno. Listić uklonjenog člana se i dalje
+    // izuzima, ali stari zahtev se više ne izvršava (brisanje ide kroz Korpu);
+    // otvorene zahteve zatvara `migrations.closeLegacyRequests`.
     for (const ballot of pendingBallots) {
       if (ballot.startupId !== startup._id) continue;
       const request = await ctx.db.get("deletionRequests", ballot.requestId);
       if (request === null || request.status !== "pending") continue;
-      const eligibleCount = Math.max(0, request.eligibleCount - 1);
       await ctx.db.patch("deletionBallots", ballot._id, {
         vote: "excused",
         updatedAt: now,
       });
-      if (request.approveCount === eligibleCount) {
-        await applyApprovedDeletion(ctx, request);
-        await ctx.db.patch("deletionRequests", request._id, {
-          status: "approved",
-          eligibleCount,
-          resolvedAt: now,
-          updatedAt: now,
-        });
-      } else {
-        await ctx.db.patch("deletionRequests", request._id, {
-          eligibleCount,
-          updatedAt: now,
-        });
-      }
+      await ctx.db.patch("deletionRequests", request._id, {
+        eligibleCount: Math.max(0, request.eligibleCount - 1),
+        updatedAt: now,
+      });
     }
     await ctx.db.patch("startupMembers", membership._id, { archivedAt: now });
     await recordActivity(ctx, {

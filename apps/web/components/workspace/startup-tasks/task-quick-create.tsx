@@ -104,7 +104,7 @@ export function TaskQuickCreate({
           autoFocus={autoFocus}
           disabled={disabled}
           autoComplete="off"
-          className="h-12 w-full rounded-xl border border-input bg-card px-3.5 text-base font-semibold tracking-[-0.01em] shadow-xs outline-none transition-colors placeholder:font-normal placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          className="h-12 w-full rounded-xl border border-input bg-card px-3.5 text-base font-semibold tracking-[-0.01em] outline-none transition-colors placeholder:font-normal placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         />
         <p id={hintId} className="text-xs text-muted-foreground">
           Enter pravi zadatak. Ostalo menjaš čipovima ili kasnije u zadatku.
@@ -195,7 +195,7 @@ export function TaskQuickCreate({
             </div>
             <div role="group" aria-labelledby={checkpointsHeadingId} className="space-y-2">
               <p id={checkpointsHeadingId} className="flex items-center gap-1.5 text-sm font-medium">
-                <ListChecks className="size-4 text-primary" aria-hidden="true" /> Koraci
+                <ListChecks className="size-4 text-muted-foreground" aria-hidden="true" /> Koraci
               </p>
               <TaskCheckpointDraftList
                 items={draft.checkpoints}

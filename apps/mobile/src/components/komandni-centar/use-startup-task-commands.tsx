@@ -21,7 +21,7 @@ import { useQueryTolerant } from '@/hooks/use-query-tolerant';
 import { useToday } from '@/hooks/use-today';
 import { haptics } from '@/lib/haptics';
 import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
-import { duration } from '@/theme/motion';
+import { DURATIONS } from '@/theme/motion';
 
 export type StartupRowActions = {
   onToggleDone: (row: TaskRowModel, done: boolean) => void;
@@ -164,7 +164,7 @@ export function useStartupTaskCommands({
             setActionsKey(null);
             // Dva sestrinska `Modal`-a istovremeno iOS ne prikazuje: panel čeka kraj izlaza sheet-a radnji.
             if (panelTimer.current !== null) clearTimeout(panelTimer.current);
-            panelTimer.current = setTimeout(() => openPanel(row), duration.exit + 60);
+            panelTimer.current = setTimeout(() => openPanel(row), DURATIONS.quick + 60);
           }}
           onToggleDone={(row, done) => {
             setActionsKey(null);

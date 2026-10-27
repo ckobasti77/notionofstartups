@@ -1,40 +1,9 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
-type ActivityAction =
-  | "startup_created"
-  | "startup_updated"
-  | "startup_archived"
-  | "member_added"
-  | "member_removed"
-  | "invite_created"
-  | "invite_claimed"
-  | "invite_revoked"
-  | "page_created"
-  | "page_updated"
-  | "page_moved"
-  | "page_archived"
-  | "task_updated"
-  | "contribution_created"
-  | "contribution_updated"
-  | "deletion_requested"
-  | "deletion_voted"
-  | "deletion_resolved"
-  | "nesting_requested"
-  | "nesting_resolved"
-  | "content_recovered"
-  | "content_soft_deleted"
-  | "member_password_changed";
-
-type ActivityTargetType =
-  | "startup"
-  | "profile"
-  | "invite"
-  | "page"
-  | "idea"
-  | "contribution"
-  | "request"
-  | "recovered";
+/** Radnje i ciljevi aktivnosti — jedini izvor je `activities` u `schema.ts`. */
+export type ActivityAction = Doc<"activities">["action"];
+export type ActivityTargetType = Doc<"activities">["targetType"];
 
 export async function recordActivity(
   ctx: MutationCtx,

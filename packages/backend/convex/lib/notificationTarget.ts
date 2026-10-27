@@ -15,7 +15,8 @@ import type { NotificationTargetType } from "./notifications";
  *
  * `targetId` semantika po tipu (postavlja se u `lib/notifications.ts` na mestu
  * događaja): `page` → pageId, `chat` → channelId, `puls` → početak nedelje (ms),
- * `ideas`/`approvals` → null.
+ * `ideas` → ideaId (komentar i glas na ideji; odsutno = lista ideja), `area` →
+ * areaId (komentar na opis oblasti), `approvals` → null.
  *
  * Opseg (`scope`): obaveštenje sa `startupId: null` je LIČNO (poruka iz ličnog
  * razgovora, van startupa) — klijent ga otvara bez promene aktivnog startupa (web
@@ -29,6 +30,7 @@ export type NotificationScreen =
   | "ideas"
   | "approvals"
   | "puls"
+  | "area"
   | "today";
 
 export type NotificationScope = "startup" | "personal";
@@ -37,7 +39,7 @@ export type NotificationDestination = {
   screen: NotificationScreen;
   /** `personal` samo kad je `startupId` eksplicitno `null`. */
   scope: NotificationScope;
-  /** channelId za `chat`, pageId za `page` — inače null. */
+  /** channelId za `chat`, pageId za `page`, ideaId za `ideas`, areaId za `area` — inače null. */
   entityId: string | null;
   /** `puls`: početak tražene nedelje (ms) ako je poznat, inače null. */
   weekStart: number | null;
@@ -70,7 +72,14 @@ function destinationFor(
         ? { screen: "page", entityId: targetId, weekStart: null }
         : { screen: "today", entityId: null, weekStart: null };
     case "ideas":
-      return { screen: "ideas", entityId: null, weekStart: null };
+      // Bez ideaId (stari pozivi) klijent otvara listu ideja.
+      return { screen: "ideas", entityId: targetId || null, weekStart: null };
+    case "area":
+      // Ekran oblasti dolazi sa K13/K14; do tada klijenti padaju na komandni
+      // centar (njihova `default` grana), isto kao za `today`.
+      return targetId
+        ? { screen: "area", entityId: targetId, weekStart: null }
+        : { screen: "today", entityId: null, weekStart: null };
     case "approvals":
       return { screen: "approvals", entityId: null, weekStart: null };
     case "puls": {

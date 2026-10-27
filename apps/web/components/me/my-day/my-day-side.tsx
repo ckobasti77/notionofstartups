@@ -18,7 +18,8 @@ export type MyDaySideProps = {
   pending: SideBlock<SidePending>;
   onOpenInbox: () => void;
   onOpenChat: () => void;
-  onOpenPending: (startupId: string) => void;
+  /** „Glasaj": ideja u svom startupu (detalj na tabli Ideja). */
+  onOpenPending: (item: { startupId: string; ideaId: string }) => void;
 };
 
 /**
@@ -28,7 +29,6 @@ export type MyDaySideProps = {
  */
 export function MyDaySide({ now, inbox, chat, pending, onOpenInbox, onOpenChat, onOpenPending }: MyDaySideProps) {
   if (inbox.status === "hidden" && chat.status === "hidden" && pending.status === "hidden") return null;
-  const firstPending = pending.status === "ready" ? pending.data.items[0] : undefined;
   return (
     <aside aria-label="Sažetak" className="flex flex-col gap-3">
       {inbox.status !== "hidden" ? (
@@ -108,8 +108,8 @@ export function MyDaySide({ now, inbox, chat, pending, onOpenInbox, onOpenChat, 
           count={blockCount(pending, (data) => data.items.length)}
           countLabel="čeka tvoju odluku"
           more={pending.status === "ready" && pending.data.truncated}
-          actionLabel={firstPending ? "Odobrenja" : undefined}
-          onAction={firstPending ? () => onOpenPending(firstPending.startup._id) : undefined}
+          actionLabel="Inbox"
+          onAction={onOpenInbox}
         >
           {pending.status === "loading" ? (
             <BlockSkeleton rows={2} />
@@ -121,13 +121,13 @@ export function MyDaySide({ now, inbox, chat, pending, onOpenInbox, onOpenChat, 
                 <li key={item.key}>
                   <button
                     type="button"
-                    onClick={() => onOpenPending(item.startup._id)}
+                    onClick={() => onOpenPending({ startupId: item.startup._id, ideaId: item.ideaId })}
                     className="flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
                   >
                     <StartupChip startup={item.startup} size="xs" className="mt-0.5" />
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-2 text-sm leading-5">{item.title}</span>
-                      <span className="text-xs text-muted-foreground">{item.startup.name} · Odobrenja</span>
+                      <span className="text-xs text-muted-foreground">{item.startup.name}</span>
                     </span>
                   </button>
                 </li>
@@ -170,7 +170,7 @@ function SideCard({
     >
       <div className="mb-1.5 flex min-h-8 items-center gap-2 px-1">
         <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <h2 id={headingId} className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        <h2 id={headingId} className="text-sm font-semibold">
           {title}
         </h2>
         {count !== null && count > 0 ? (
@@ -241,14 +241,15 @@ function BlockSkeleton({ rows = 3 }: { rows?: number }) {
 }
 
 export type MyDaySummaryChipsProps = Pick<MyDaySideProps, "inbox" | "chat" | "pending" | "onOpenInbox" | "onOpenChat"> & {
-  onOpenApprovals: () => void;
+  /** Čip „Čeka tebe": prva ideja koja čeka glas. */
+  onOpenFirstPending: () => void;
 };
 
 /**
  * Ispod `xl` (plan K07 E11): jedna traka sa 3 sažeta čipa umesto kolone —
  * čip se vidi samo kad ima nešto (> 0).
  */
-export function MyDaySummaryChips({ inbox, chat, pending, onOpenInbox, onOpenChat, onOpenApprovals }: MyDaySummaryChipsProps) {
+export function MyDaySummaryChips({ inbox, chat, pending, onOpenInbox, onOpenChat, onOpenFirstPending }: MyDaySummaryChipsProps) {
   const chips = [
     { key: "inbox", label: "Inbox", icon: Inbox, count: blockCount(inbox, (data) => data.unread), onClick: onOpenInbox },
     { key: "chat", label: "Poruke", icon: MessageCircle, count: blockCount(chat, (data) => data.total), onClick: onOpenChat },
@@ -257,7 +258,7 @@ export function MyDaySummaryChips({ inbox, chat, pending, onOpenInbox, onOpenCha
       label: "Čeka tebe",
       icon: Hourglass,
       count: blockCount(pending, (data) => data.items.length),
-      onClick: onOpenApprovals,
+      onClick: onOpenFirstPending,
     },
   ].filter((chip) => chip.count !== null && chip.count > 0);
   if (chips.length === 0) return null;

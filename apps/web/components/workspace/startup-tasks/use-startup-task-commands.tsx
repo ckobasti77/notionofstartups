@@ -62,8 +62,8 @@ function optimisticEntry(dayKey: string, taskPageId: Id<"pages">): OverviewEntry
 }
 
 /**
- * Optimistička slika za liste u startupu: Komandni centar (`tasks.commandCenter`)
- * i Moji zadaci / tabla (`tasks.listForStartup`, svaka strana posebno), pa red
+ * Optimistička slika za liste u startupu: Komandni centar (`tasks.commandCenter`,
+ * `tasks.listEverywhere` za „Za tebe") i Moji zadaci / tabla (`tasks.listForStartup`, svaka strana posebno), pa red
  * odmah doputuje Flip-om u novu zonu ili kolonu.
  */
 function patchStartupLists(store: OptimisticLocalStore, pageId: Id<"pages">, patch: StartupTaskPatch) {
@@ -76,6 +76,18 @@ function patchStartupLists(store: OptimisticLocalStore, pageId: Id<"pages">, pat
     if (value === undefined) continue;
     const page = patchStartupTasks(value.page, pageId, patch);
     if (page !== value.page) store.setQuery(api.tasks.listForStartup, args, { ...value, page: [...page] });
+  }
+  // „Za tebe" u Komandnom centru (PROSTOR K19): moji otvoreni zadaci iz `tasks.listEverywhere`.
+  for (const { args, value } of store.getAllQueries(api.tasks.listEverywhere)) {
+    if (value === undefined) continue;
+    const items = patchStartupTasks(value.items, pageId, patch);
+    if (items !== value.items) store.setQuery(api.tasks.listEverywhere, args, { ...value, items: [...items] });
+  }
+  // Zadaci oblasti (PROSTOR P12, K13): isti red, ista tabla.
+  for (const { args, value } of store.getAllQueries(api.tasks.listForArea)) {
+    if (value === undefined) continue;
+    const page = patchStartupTasks(value.page, pageId, patch);
+    if (page !== value.page) store.setQuery(api.tasks.listForArea, args, { ...value, page: [...page] });
   }
 }
 

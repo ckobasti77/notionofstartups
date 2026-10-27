@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireStartupMember } from "./lib/auth";
 import { requirePageArea } from "./lib/page_creation";
+import { canLayoutOnMap } from "./lib/permissions";
 import {
   pageKindValidator,
   taskPriorityValidator,
@@ -234,7 +235,8 @@ export const getAreaCanvas = query({
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    const member = await requireStartupMember(ctx, args.startupId);
+    const { profile } = member;
     await requirePageArea(ctx, args.startupId, args.areaId);
 
     const rawPages = await ctx.db
@@ -315,8 +317,9 @@ export const getAreaCanvas = query({
         y: layout?.y ?? (row - 1) * 205,
         width: layout?.width ?? DEFAULT_PAGE_NODE_WIDTH,
         height: layout?.height ?? DEFAULT_PAGE_NODE_HEIGHT,
-        canMove: page.createdByProfileId === profile._id,
-        canResize: page.createdByProfileId === profile._id,
+        // Raspored menja svaki član (PROSTOR P1, D20).
+        canMove: canLayoutOnMap(member),
+        canResize: canLayoutOnMap(member),
         creator: creatorsById.get(page.createdByProfileId) ?? null,
       };
     }));
@@ -384,9 +387,6 @@ export const moveAreaCanvasPages = mutation({
       ) {
         throw new Error("Pomeri samo dostupne kartice sa kanvasa oblasti.");
       }
-      if (page.createdByProfileId !== profile._id) {
-        throw new Error("Možete pomerati samo svoje kartice.");
-      }
       await syncLegacyAndV2Placement(ctx, {
         page,
         actorProfileId: profile._id,
@@ -420,10 +420,6 @@ export const resizeAreaCanvasPage = mutation({
     ) {
       throw new Error("Kartica više nije dostupna.");
     }
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Možete promeniti veličinu samo svoje kartice.");
-    }
-
     const now = Date.now();
     await syncLegacyAndV2Placement(ctx, {
       page,
@@ -463,10 +459,6 @@ export const resetAreaCanvasPageSize = mutation({
     ) {
       throw new Error("Kartica više nije dostupna.");
     }
-    if (page.createdByProfileId !== profile._id) {
-      throw new Error("Možete vratiti veličinu samo svoje kartice.");
-    }
-
     await syncLegacyAndV2Placement(ctx, {
       page,
       actorProfileId: profile._id,
@@ -591,14 +583,7 @@ export const connectAreaCanvasPages = mutation({
     if (source.kind !== target.kind) {
       throw new Error("Na podeljenom kanvasu poveži kartice istog tipa.");
     }
-    if (
-      source.createdByProfileId !== profile._id &&
-      target.createdByProfileId !== profile._id
-    ) {
-      throw new Error(
-        "Vezu možete napraviti samo ako posedujete bar jednu karticu.",
-      );
-    }
+    // Veze pravi svaki član (PROSTOR D20).
 
     const pairKey = [args.source, args.target].sort().join(":");
     const [existing, existingV2] = await Promise.all([
@@ -715,7 +700,7 @@ export const disconnectAreaCanvasPages = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireStartupMember(ctx, args.startupId);
+    await requireStartupMember(ctx, args.startupId);
     if (args.edgeIds.length > 100) {
       throw new Error("Ukloni najviše 100 veza odjednom.");
     }
@@ -726,17 +711,7 @@ export const disconnectAreaCanvasPages = mutation({
         throw new Error("Veza nije pronađena.");
       }
       await requirePageArea(ctx, args.startupId, edge.areaId);
-      const [source, target] = await Promise.all([
-        ctx.db.get("pages", edge.nodeAId),
-        ctx.db.get("pages", edge.nodeBId),
-      ]);
-      const ownsLegacyEndpoint =
-        edge.authorProfileId === undefined &&
-        (source?.createdByProfileId === profile._id ||
-          target?.createdByProfileId === profile._id);
-      if (edge.authorProfileId !== profile._id && !ownsLegacyEndpoint) {
-        throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-      }
+      // Vezu uklanja svaki član (PROSTOR D20).
       if (edge.archivedAt === undefined || edge.archivedAt === null) {
         const existingV2 = await ctx.db
           .query("pageCanvasEdgesV2")
@@ -749,17 +724,6 @@ export const disconnectAreaCanvasPages = mutation({
               .eq("pairKey", edge.pairKey),
           )
           .unique();
-        const ownsV2Endpoint =
-          existingV2?.authorProfileId === undefined &&
-          (source?.createdByProfileId === profile._id ||
-            target?.createdByProfileId === profile._id);
-        if (
-          existingV2 !== null &&
-          existingV2.authorProfileId !== profile._id &&
-          !ownsV2Endpoint
-        ) {
-          throw new Error("Možete ukloniti samo vezu koju ste napravili.");
-        }
         if (existingV2 !== null) {
           await ctx.db.patch("pageCanvasEdgesV2", existingV2._id, {
             archivedAt: now,

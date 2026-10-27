@@ -49,6 +49,8 @@ export type MyDayItem = {
   areaLabel: string | null;
   isCreator: boolean;
   isAssignee: boolean;
+  /** PROSTOR P1: zaključan za gledaoca (nije autor, vlasnik ni admin). */
+  lockedForViewer?: boolean;
 };
 
 export type MyDayPlanEntry = {
@@ -170,6 +172,7 @@ export type MyDayOverviewLike = {
     createdAt: number;
     isCreator: boolean;
     isAssignee: boolean;
+    lockedForViewer?: boolean;
     startup: { _id: string; name: string };
     area: { label: string } | null;
   }>;
@@ -219,6 +222,7 @@ export function fromOverview(
       areaLabel: task.area?.label ?? null,
       isCreator: task.isCreator,
       isAssignee: task.isAssignee,
+      lockedForViewer: task.lockedForViewer ?? false,
     });
   }
   for (const task of overview.personal) {

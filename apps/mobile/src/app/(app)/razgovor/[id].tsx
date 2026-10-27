@@ -36,7 +36,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { findChannelArea, type ChatMember, type ChatMessage } from '@/lib/chat';
 import { accessErrorMessage } from '@/lib/errors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, MIN_TOUCH_TARGET, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, MIN_TOUCH_TARGET, text, type ColorTokens } from '@/theme/tokens';
 
 /** Koliko članova startupa chat čita za pominjanja i imena autora (isto kao pre K16). */
 const STARTUP_MEMBERS_LIMIT = 50;
@@ -181,7 +181,7 @@ export default function ConversationScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <MinimalHeader title="Razgovor" onBack={() => goBack(router)} colors={colors} />
         <EmptyState
-          icon={<MessagesSquare size={40} color={colors.mutedForeground} />}
+          icon={<MessagesSquare size={20} color={colors.mutedForeground} />}
           title="Razgovor nije pronađen"
           description="Možda je arhiviran ili više nisi član."
           actionLabel="Nazad na razgovore"
@@ -380,7 +380,7 @@ function MinimalHeader({
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <ConversationErrorState
-      message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju razgovora.')}
+      message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
       onRetry={retry}
     />
   );
@@ -393,9 +393,9 @@ function ConversationErrorState({ message, onRetry }: { message: string; onRetry
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <MinimalHeader title="Razgovor" onBack={() => goBack(router)} colors={colors} />
       <EmptyState
-        icon={<MessageSquareX size={40} color={colors.destructive} />}
-        title="Razgovor se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju razgovora.'}
+        icon={<MessageSquareX size={20} color={colors.destructive} />}
+        title="Razgovor nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />
@@ -431,7 +431,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   minimalTitle: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
 });

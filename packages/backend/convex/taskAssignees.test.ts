@@ -124,7 +124,9 @@ describe("spisak izvršilaca zadatka", () => {
     ).toBeNull();
   });
 
-  test("svaki član sam sebe dodaje i skida, tuđe učešće menja kreator", async () => {
+  test("svaki član sam sebe dodaje i skida; tuđe učešće na zaključanom menja samo autor, vlasnik i admin", async () => {
+    // PROSTOR P1 (namerna promena pravila): ranije je tuđe učešće skidao samo
+    // kreator; sada svaki član, osim na zaključanom zadatku.
     const { taskPageId, members, asPerson, asOwner, ids } =
       await seedAssigneeWorkspace();
     const asFirst = asPerson(members[0]);
@@ -138,34 +140,49 @@ describe("spisak izvršilaca zadatka", () => {
     await asFirst.mutation(api.taskAssignees.join, { taskPageId });
     expect(await ids()).toHaveLength(2);
 
+    await asOwner.mutation(api.pages.lock, { pageId: taskPageId });
     await expect(
       asFirst.mutation(api.taskAssignees.remove, {
         taskPageId,
         profileId: members[1].profileId,
       }),
-    ).rejects.toThrow("uklanja autor zadatka");
+    ).rejects.toThrow("zaključana");
 
+    // Sebe skida svako, i sa zaključanog zadatka.
     await asFirst.mutation(api.taskAssignees.leave, { taskPageId });
     expect(await ids()).toEqual([members[1].profileId]);
 
-    await asOwner.mutation(api.taskAssignees.remove, {
+    await asOwner.mutation(api.pages.unlock, { pageId: taskPageId });
+    await asFirst.mutation(api.taskAssignees.remove, {
       taskPageId,
       profileId: members[1].profileId,
     });
     expect(await ids()).toEqual([]);
   });
 
-  test("spisak menja samo kreator i staje na gornjoj granici", async () => {
-    const { taskPageId, members, asPerson } = await seedAssigneeWorkspace(
-      MAX_TASK_ASSIGNEES + 1,
-    );
+  test("spisak menja svaki član, zaključan samo autor, vlasnik i admin", async () => {
+    // PROSTOR P1 (namerna promena pravila): ranije „samo autor zadatka".
+    const { taskPageId, members, asPerson, asOwner, admin, ids } =
+      await seedAssigneeWorkspace(MAX_TASK_ASSIGNEES + 1);
 
+    await asPerson(members[0]).mutation(api.taskAssignees.setAssignees, {
+      taskPageId,
+      profileIds: [members[1].profileId],
+    });
+    expect(await ids()).toEqual([members[1].profileId]);
+
+    await asOwner.mutation(api.pages.lock, { pageId: taskPageId });
     await expect(
       asPerson(members[0]).mutation(api.taskAssignees.setAssignees, {
         taskPageId,
         profileIds: [members[0].profileId],
       }),
-    ).rejects.toThrow("samo autor zadatka");
+    ).rejects.toThrow("zaključana");
+    await asPerson(admin).mutation(api.taskAssignees.setAssignees, {
+      taskPageId,
+      profileIds: [members[2].profileId],
+    });
+    expect(await ids()).toEqual([members[2].profileId]);
   });
 
   test("preko granice izvršilaca mutacija pada", async () => {
@@ -181,7 +198,9 @@ describe("spisak izvršilaca zadatka", () => {
     ).rejects.toThrow(`najviše ${MAX_TASK_ASSIGNEES} izvršilaca`);
   });
 
-  test("svaki izvršilac menja status i štiklira checkpointe", async () => {
+  test("svaki izvršilac menja status i štiklira checkpointe, i na zaključanom zadatku", async () => {
+    // PROSTOR P1 (namerna promena pravila): na otključanom zadatku korake
+    // završava svaki član; na zaključanom samo autor, menadžer i izvršilac (D5).
     const { taskPageId, members, asPerson, asOwner } =
       await seedAssigneeWorkspace();
     const asSecond = asPerson(members[1]);
@@ -190,12 +209,13 @@ describe("spisak izvršilaca zadatka", () => {
       taskPageId,
       text: "Prvi korak",
     });
+    await asOwner.mutation(api.pages.lock, { pageId: taskPageId });
     await expect(
       asSecond.mutation(api.taskCheckpoints.setCompleted, {
         checkpointId,
         completed: true,
       }),
-    ).rejects.toThrow("autor ili osoba kojoj je zadatak dodeljen");
+    ).rejects.toThrow("zaključana");
 
     await asOwner.mutation(api.taskAssignees.setAssignees, {
       taskPageId,

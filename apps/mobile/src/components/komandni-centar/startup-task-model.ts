@@ -40,6 +40,8 @@ export type StartupRowsContext = {
   assumeAssignee?: boolean;
   /** Plan za danas: refKey → id stavke plana. */
   plannedKeys: ReadonlyMap<string, string>;
+  /** Vlasnik startupa ili admin — menja i zaključane zadatke (P1). */
+  isManager?: boolean;
 };
 
 export function startupRow(task: StartupTaskLike, context: StartupRowsContext): TaskRowModel {
@@ -51,6 +53,7 @@ export function startupRow(task: StartupTaskLike, context: StartupRowsContext): 
     assigneeIds: context.assigneeIdsByTask ? (context.assigneeIdsByTask.get(task._id) ?? null) : null,
     assumeAssignee: context.assumeAssignee,
     plannedKeys: context.plannedKeys,
+    isManager: context.isManager,
   });
 }
 

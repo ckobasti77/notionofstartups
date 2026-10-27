@@ -13,7 +13,6 @@ import {
   BackgroundVariant,
   ConnectionMode,
   Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
@@ -31,7 +30,6 @@ import {
 import { useMutation } from "convex/react";
 import {
   ArrowUpRight,
-  Check,
   Copy,
   FolderInput,
   GitBranchPlus,
@@ -46,9 +44,18 @@ import {
   Trash2,
   Undo2,
   Ungroup,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { IDEA_STAGE_LABELS, ideaDisplayStage, type IdeaStage, type IdeaStoredStage } from "@devotion/shared";
+
+import {
+  MAP_FRAME_CLASS,
+  MapEmptyState,
+  MapHistoryButtons,
+  MapStatusBar,
+} from "@/components/map/map-chrome";
+import { mapIdeaCard } from "@/components/map/map-model";
+import { selectNestingDropTarget } from "@/components/workspace/canvases/nesting-drop";
 
 import { Button } from "@/components/ui/button";
 import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
@@ -65,9 +72,13 @@ import {
 } from "@/components/workspace/canvases/idea-flow-node";
 import styles from "@/components/workspace/canvases/connected-canvas.module.css";
 import { useCanvasColorMode } from "@/components/workspace/canvases/use-canvas-color-mode";
-import { useCanvasNavigation } from "@/components/workspace/canvases/use-canvas-navigation";
+import {
+  useCanvasNavigation,
+  useMapActivation,
+} from "@/components/workspace/canvases/use-canvas-navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { useWorkspaceHistory } from "@/components/workspace/workspace-history";
 
@@ -97,16 +108,15 @@ type IdeaNode = {
     email: string;
     avatarUrl: string | null;
   } | null;
-  pendingDeletionRequest: { _id: Id<"deletionRequests"> } | null;
+  /** Sačuvana faza (PROSTOR P6); bez nje „Predlog". */
+  stage?: IdeaStage | null;
+  /** Dozvole iz `ideas.list` (PROSTOR P6): „Pretvori" samo u fazi „Odobreno" i samo odgovornom. */
+  permissions: { canConvert: boolean };
   canEdit: boolean;
   canMove: boolean;
   canResize: boolean;
   canDeleteDirectly: boolean;
-  canRequestDeletion: boolean;
   canDetach: boolean;
-  nestingRequestId: Id<"nestingRequests"> | null;
-  nestingModerationStatus: "pending" | "rejected" | null;
-  canModerateNesting: boolean;
 };
 
 type IdeaEdge = {
@@ -115,8 +125,6 @@ type IdeaEdge = {
   nodeBId: Id<"ideaNodes">;
   label: string | null;
   canEdit: boolean;
-  canDeleteDirectly: boolean;
-  canRequestDeletion: boolean;
 };
 
 type IdeasCanvasViewProps = {
@@ -125,6 +133,8 @@ type IdeasCanvasViewProps = {
   edges: IdeaEdge[];
   canvasState: { x: number; y: number; zoom: number };
   searchActive?: boolean;
+  /** „Poništi pretragu" iz praznog stanja Mape. */
+  onClearSearch?: () => void;
   onConvertIdea: (idea: IdeaNode) => void;
   onEditIdea: (idea: IdeaNode) => void;
   onNestIdea: (idea: IdeaNode) => void;
@@ -144,14 +154,6 @@ const NODE_TYPES = { idea: IdeaFlowNodeCard };
 const EDGE_TYPES = { default: ThoughtEdge };
 const DEFAULT_IDEA_WIDTH = 288;
 const DEFAULT_IDEA_HEIGHT = 196;
-const MINI_MAP_COLORS: Record<IdeaCanvasColor, string> = {
-  neutral: "#94a3b8",
-  violet: "#8b5cf6",
-  blue: "#3b82f6",
-  green: "#10b981",
-  amber: "#f59e0b",
-  rose: "#f43f5e",
-};
 
 const SERBIAN_ARIA_LABELS = {
   "node.a11yDescription.default":
@@ -167,44 +169,52 @@ const SERBIAN_ARIA_LABELS = {
     y: number;
   }) => `Ideja je pomerena ${direction}. Nova pozicija je ${Math.round(x)}, ${Math.round(y)}.`,
   "edge.a11yDescription.default": "Pritisni Enter ili Space da izabereš vezu.",
-  "controls.ariaLabel": "Kontrole kanvasa ideja",
+  "controls.ariaLabel": "Kontrole mape ideja",
   "controls.zoomIn.ariaLabel": "Uvećaj prikaz",
   "controls.zoomOut.ariaLabel": "Umanji prikaz",
   "controls.fitView.ariaLabel": "Prikaži sve ideje",
   "controls.interactive.ariaLabel": "Uključi ili isključi interakciju",
-  "minimap.ariaLabel": "Minimapa ideja",
   "handle.ariaLabel": "Tačka za povezivanje ideja",
 } as const;
 
-function toFlowNode(node: IdeaNode): IdeaFlowNode {
+function ideaStage(node: IdeaNode): IdeaStage {
+  if (node.stage === "postalo_zadatak") return "postalo_zadatak";
+  return ideaDisplayStage({
+    stage: (node.stage ?? null) as IdeaStoredStage | null,
+    convertedPageId: node.convertedPageId,
+  });
+}
+
+function toFlowNode(node: IdeaNode, now: number): IdeaFlowNode {
   const size = {
     width: node.width ?? DEFAULT_IDEA_WIDTH,
     height: node.height ?? DEFAULT_IDEA_HEIGHT,
   };
+  const stage = ideaStage(node);
   return {
     id: node._id,
     type: "idea",
     position: { x: node.x, y: node.y },
     data: {
-      title: node.title,
-      text: node.text,
-      color: node.color,
-      authorName: node.author?.displayName ?? "Član tima",
-      authorAvatarUrl: node.author?.avatarUrl ?? null,
-      createdAt: node.createdAt,
-      upvotes: node.upvotes,
-      downvotes: node.downvotes,
-      userVote: node.userVote,
-      isApproved: node.isApproved,
-      convertedPageId: node.convertedPageId,
-      pendingDeletion: node.pendingDeletionRequest !== null,
+      card: mapIdeaCard(
+        {
+          title: node.title,
+          text: node.text,
+          color: node.color,
+          authorName: node.author?.displayName ?? "Član tima",
+          createdAt: node.createdAt,
+          stageLabel: IDEA_STAGE_LABELS[stage],
+          upvotes: node.upvotes,
+          downvotes: node.downvotes,
+          userVote: node.userVote,
+        },
+        now,
+      ),
       canEdit: node.canEdit,
       canResize: node.canResize,
-      canDeleteDirectly: node.canDeleteDirectly,
-      canRequestDeletion: node.canRequestDeletion,
       canDetach: node.canDetach,
-      nestingModerationStatus: node.nestingModerationStatus,
-      canModerateNesting: node.canModerateNesting,
+      canConvert: node.permissions.canConvert,
+      nestingTarget: false,
     },
     parentId: node.parentIdeaId,
     expandParent: node.parentIdeaId !== undefined,
@@ -263,13 +273,14 @@ function parentsBeforeChildren(nodeDocs: IdeaNode[]) {
   return ordered;
 }
 
-function toFlowNodes(nodeDocs: IdeaNode[]) {
+function toFlowNodes(nodeDocs: IdeaNode[], now: number) {
   const ids = new Set(nodeDocs.map((node) => node._id));
   return parentsBeforeChildren(nodeDocs).map((node) =>
     toFlowNode(
       node.parentIdeaId !== undefined && !ids.has(node.parentIdeaId)
         ? { ...node, parentIdeaId: undefined }
         : node,
+      now,
     ),
   );
 }
@@ -315,6 +326,7 @@ function IdeasCanvasBody({
   edges: edgeDocs,
   canvasState,
   searchActive = false,
+  onClearSearch,
   onConvertIdea,
   onEditIdea,
   onNestIdea,
@@ -322,8 +334,11 @@ function IdeasCanvasBody({
 }: IdeasCanvasViewProps) {
   const flowRef = useRef<ReactFlowInstance<IdeaFlowNode, IdeaFlowEdge> | null>(null);
   const preDragPositionsRef = useRef(new Map<string, { x: number; y: number }>());
+  const nestingTargetIdRef = useRef<string | null>(null);
+  // Sat za „pre N" na karticama: jednom po otvaranju Mape (kao ranije).
+  const [now] = useState(() => Date.now());
   const [nodes, setNodes] = useState<IdeaFlowNode[]>(() =>
-    toFlowNodes(nodeDocs),
+    toFlowNodes(nodeDocs, now),
   );
   const [edges, setEdges] = useState<IdeaFlowEdge[]>(() => edgeDocs.map(toFlowEdge));
   const [viewport, setViewport] = useState<Viewport>({
@@ -340,6 +355,12 @@ function IdeasCanvasBody({
   });
   const colorMode = useCanvasColorMode();
   const canvasNavigation = useCanvasNavigation();
+  const {
+    ref: mapRef,
+    active: mapActive,
+    handlers: mapActivationHandlers,
+    deactivate: deactivateMap,
+  } = useMapActivation();
 
   const createIdeaMutation = useMutation(api.ideas.create);
   const voteMutation = useMutation(api.ideas.vote);
@@ -350,9 +371,7 @@ function IdeasCanvasBody({
   const disconnectMutation = useMutation(api.ideas.disconnect);
   const archiveIdeaMutation = useMutation(api.ideas.archive);
   const restoreIdeaMutation = useMutation(api.ideas.restoreOwn);
-  const requestDeletionMutation = useMutation(api.collaboration.requestDeletion);
   const requestNestingMutation = useMutation(api.collaboration.requestNesting);
-  const resolveNestingMutation = useMutation(api.collaboration.resolveNesting);
   const detachIdeaMutation = useMutation(api.collaboration.detachIdea);
   const updateEdgeLabelMutation = useMutation(api.ideas.updateEdgeLabel);
   const saveViewportMutation = useMutation(api.ideas.saveViewport);
@@ -379,11 +398,11 @@ function IdeasCanvasBody({
             ? { ...rawDoc, parentIdeaId: undefined }
             : rawDoc;
         const previous = currentById.get(doc._id);
-        const next = toFlowNode(doc);
+        const next = toFlowNode(doc, now);
         return { ...next, selected: previous?.selected ?? false };
       });
     });
-  }, [nodeDocs]);
+  }, [nodeDocs, now]);
 
   useEffect(() => {
     // Edge selection is local, while the connection list comes from Convex.
@@ -433,7 +452,7 @@ function IdeasCanvasBody({
       toast.success("Ideje su povezane.");
     } catch (error) {
       setEdges((current) => current.filter((edge) => edge.id !== temporaryId));
-      toast.error(error instanceof Error ? error.message : "Veza nije sačuvana.");
+      toast.error(accessErrorMessage(error, "Veza nije sačuvana."));
     }
   }, [connectMutation, disconnectMutation, pushHistory, startupId]);
 
@@ -456,7 +475,7 @@ function IdeasCanvasBody({
         });
       })
       .catch((error) => {
-        toast.error(error instanceof Error ? error.message : "Glas nije sačuvan.");
+        toast.error(accessErrorMessage(error, "Glas nije sačuvan."));
       });
   }, [docsById, pushHistory, startupId, voteMutation]);
 
@@ -477,34 +496,13 @@ function IdeasCanvasBody({
 
   const detach = useCallback((ideaId: Id<"ideaNodes">) => {
     void detachIdeaMutation({ startupId, ideaId })
-      .then(() => toast.success("Kartica je izvučena iz grupe."))
+      .then(() => toast.success("Ideja je odvojena."))
       .catch((error) =>
         toast.error(
-          error instanceof Error ? error.message : "Kartica nije izvučena.",
+          accessErrorMessage(error, "Ideja nije odvojena."),
         ),
       );
   }, [detachIdeaMutation, startupId]);
-
-  const moderateNesting = useCallback(
-    (requestId: Id<"nestingRequests">, approve: boolean) => {
-      void resolveNestingMutation({ requestId, approve })
-        .then(() =>
-          toast.success(
-            approve
-              ? "Ugnježdenje je odobreno."
-              : "Ugnježdenje je odbijeno za tim.",
-          ),
-        )
-        .catch((error) =>
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Odluka o ugnježdenju nije sačuvana.",
-          ),
-        );
-    },
-    [resolveNestingMutation],
-  );
 
   const selectConnected = useCallback((ideaId: Id<"ideaNodes">) => {
     const selected = new Set<string>([ideaId]);
@@ -578,7 +576,7 @@ function IdeasCanvasBody({
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Ideje nisu duplirane.",
+        accessErrorMessage(error, "Ideje nisu duplirane."),
       );
     }
   }, [
@@ -594,39 +592,32 @@ function IdeasCanvasBody({
   const remove = useCallback((ideaId: Id<"ideaNodes">) => {
     const idea = docsById.get(ideaId);
     if (!idea) return;
-    if (!idea.canDeleteDirectly) {
-      void requestDeletionMutation({
-        target: { kind: "idea", id: ideaId },
-      })
-        .then(() => toast.success("Glasanje o brisanju je pokrenuto."))
-        .catch((error) =>
-          toast.error(
-            error instanceof Error ? error.message : "Zahtev nije poslat.",
-          ),
-        );
-      return;
-    }
+    // Brisanje je uvek u Korpu (PROSTOR P3); server proverava dozvolu (R7).
     void archiveIdeaMutation({ startupId, ideaId })
-      .then((result) => {
-        if (result.recoveredId) {
-          toast.success("Ideja je obrisana, a tuđe izmene su oporavljene.");
-          return;
-        }
+      .then(() => {
+        // Jedno stanje za toast i istoriju Mape: dvostruko vraćanje je no-op.
+        let trashed = true;
+        const restoreOnce = async () => {
+          if (!trashed) return;
+          trashed = false;
+          await restoreIdeaMutation({ startupId, ideaId });
+        };
         pushHistory({
           label: "brisanje ideje",
-          undo: () => restoreIdeaMutation({ startupId, ideaId }),
-          redo: () => archiveIdeaMutation({ startupId, ideaId }),
+          undo: restoreOnce,
+          redo: async () => {
+            await archiveIdeaMutation({ startupId, ideaId });
+            trashed = true;
+          },
         });
-        toast.success("Ideja je obrisana.", {
+        toast.success("Ideja je u Korpi.", {
           duration: 8_000,
           action: {
-            label: "Undo",
+            label: "Poništi",
             onClick: () =>
-              void restoreIdeaMutation({ startupId, ideaId }).catch((error) =>
+              void restoreOnce().catch((error) =>
                 toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Ideja nije vraćena.",
+                  accessErrorMessage(error, "Ideja nije vraćena."),
                 ),
               ),
           },
@@ -634,13 +625,12 @@ function IdeasCanvasBody({
       })
       .catch((error) =>
         toast.error(
-          error instanceof Error ? error.message : "Ideja nije obrisana.",
+          accessErrorMessage(error, "Ideja nije obrisana."),
         ),
       );
   }, [
     archiveIdeaMutation,
     docsById,
-    requestDeletionMutation,
     pushHistory,
     restoreIdeaMutation,
     startupId,
@@ -702,9 +692,7 @@ function IdeasCanvasBody({
           ),
         );
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Veličina oblačića nije sačuvana.",
+          accessErrorMessage(error, "Veličina ideje nije sačuvana."),
         );
       });
   }, [
@@ -737,7 +725,7 @@ function IdeasCanvasBody({
       })
       .catch((error) => {
         toast.error(
-          error instanceof Error ? error.message : "Početna veličina nije vraćena.",
+          accessErrorMessage(error, "Početna veličina nije vraćena."),
         );
       });
   }, [
@@ -751,40 +739,29 @@ function IdeasCanvasBody({
   const archiveEdge = useCallback((edgeId: Id<"ideaEdges">) => {
     const edge = edgeDocsById.get(edgeId);
     if (!edge) return;
-    const operation = edge.canDeleteDirectly
-      ? disconnectMutation({ startupId, edgeId })
-      : requestDeletionMutation({
-          target: { kind: "idea_edge", id: edgeId },
-        });
-    void operation
+    // Veze uklanja svaki član (PROSTOR D20) — bez zahteva.
+    void disconnectMutation({ startupId, edgeId })
       .then(() => {
-        if (edge.canDeleteDirectly) {
-          pushHistory({
-            label: "uklanjanje veze ideja",
-            undo: () => connectMutation({
-              startupId,
-              nodeAId: edge.nodeAId,
-              nodeBId: edge.nodeBId,
-              ...(edge.label ? { label: edge.label } : {}),
-            }),
-            redo: () => disconnectMutation({ startupId, edgeId }),
-          });
-        }
-        toast.success(
-          edge.canDeleteDirectly
-            ? "Veza je uklonjena."
-            : "Glasanje o brisanju veze je pokrenuto.",
-        );
+        pushHistory({
+          label: "uklanjanje veze ideja",
+          undo: () => connectMutation({
+            startupId,
+            nodeAId: edge.nodeAId,
+            nodeBId: edge.nodeBId,
+            ...(edge.label ? { label: edge.label } : {}),
+          }),
+          redo: () => disconnectMutation({ startupId, edgeId }),
+        });
+        toast.success("Veza je uklonjena.");
       })
       .catch((error) => {
-        toast.error(error instanceof Error ? error.message : "Veza nije uklonjena.");
+        toast.error(accessErrorMessage(error, "Veza nije uklonjena."));
       });
   }, [
     connectMutation,
     disconnectMutation,
     edgeDocsById,
     pushHistory,
-    requestDeletionMutation,
     startupId,
   ]);
 
@@ -811,6 +788,74 @@ function IdeasCanvasBody({
       zoom: Number(next.zoom.toFixed(2)),
     });
   }, [saveViewportMutation, startupId]);
+
+  /**
+   * Cilj ugnežđavanja kao na Mapi oblasti: centar ideje u drugoj ideji, najveće
+   * preklapanje (`selectNestingDropTarget`). Ugnežđene ideje imaju relativne
+   * pozicije, pa se poredi apsolutni položaj iz xyflow-a.
+   */
+  const ideaDropTarget = useCallback((node: IdeaFlowNode): string | null => {
+    const instance = flowRef.current;
+    if (!instance) return null;
+    const rectOf = (id: string) => {
+      const internal = instance.getInternalNode(id);
+      if (!internal) return null;
+      return {
+        id,
+        position: internal.internals.positionAbsolute,
+        width: internal.measured.width ?? internal.width,
+        height: internal.measured.height ?? internal.height,
+      };
+    };
+    const dragged = rectOf(node.id);
+    if (!dragged) return null;
+    const candidates = instance
+      .getIntersectingNodes(node)
+      .flatMap((candidate) => {
+        const rect = rectOf(candidate.id);
+        return rect ? [rect] : [];
+      });
+    return selectNestingDropTarget(dragged, candidates)?.id ?? null;
+  }, []);
+
+  const updateIdeaNestingTarget = useCallback((targetId: string | null) => {
+    if (nestingTargetIdRef.current === targetId) return;
+    nestingTargetIdRef.current = targetId;
+    setNodes((current) =>
+      current.map((node) => {
+        const nestingTarget = node.id === targetId;
+        return node.data.nestingTarget === nestingTarget
+          ? node
+          : { ...node, data: { ...node.data, nestingTarget } };
+      }),
+    );
+  }, []);
+
+  /** „Poništi" ugnežđavanja ili odvajanja: stari roditelj i stari položaj. */
+  const restoreIdeaParent = useCallback(
+    async (
+      ideaId: Id<"ideaNodes">,
+      previousParentId: Id<"ideaNodes"> | undefined,
+      position: { x: number; y: number } | undefined,
+    ) => {
+      if (previousParentId === undefined) {
+        await detachIdeaMutation({ startupId, ideaId });
+      } else {
+        await requestNestingMutation({
+          startupId,
+          childIdeaId: ideaId,
+          parentIdeaId: previousParentId,
+        });
+      }
+      if (position) {
+        await updatePositionsMutation({
+          startupId,
+          updates: [{ id: ideaId, x: position.x, y: position.y }],
+        });
+      }
+    },
+    [detachIdeaMutation, requestNestingMutation, startupId, updatePositionsMutation],
+  );
 
   const invokeKeyboardContextMenu = useCallback(() => {
     const node = nodes.find((item) => item.selected);
@@ -852,6 +897,7 @@ function IdeasCanvasBody({
       return;
     }
     if (event.key === "Escape") {
+      deactivateMap();
       setNodes((current) =>
         current.map((node) => ({ ...node, selected: false })),
       );
@@ -871,6 +917,7 @@ function IdeasCanvasBody({
     }
   }, [
     archiveEdge,
+    deactivateMap,
     duplicateSelection,
     edges,
     invokeKeyboardContextMenu,
@@ -896,11 +943,15 @@ function IdeasCanvasBody({
         <ContextMenu.Root open={contextOpen} onOpenChange={setContextOpen}>
           <ContextMenu.Trigger asChild>
         <div
-          className={cn(styles.canvas, styles.ideasCanvas)}
+          ref={mapRef}
+          className={cn(styles.canvas, MAP_FRAME_CLASS)}
           data-canvas-space-pan={canvasNavigation.spacePressed}
           data-canvas-zoom-modifier={canvasNavigation.zoomModifierPressed}
+          data-map-active={mapActive}
           role="application"
+          aria-roledescription="mapa"
           tabIndex={0}
+          {...mapActivationHandlers}
           onKeyDownCapture={handleKeyDown}
           onDoubleClick={(event) => {
             const target = event.target;
@@ -925,7 +976,18 @@ function IdeasCanvasBody({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={(connection) => void connectIdeas(connection)}
+          onNodeDrag={(_event, node, draggedNodes) => {
+            const idea = docsById.get(node.id as Id<"ideaNodes">);
+            const target =
+              draggedNodes.length === 1 && idea?.canEdit
+                ? ideaDropTarget(node)
+                : null;
+            updateIdeaNestingTarget(
+              target !== null && target !== idea?.parentIdeaId ? target : null,
+            );
+          }}
           onNodeDragStart={(_event, _node, draggedNodes) => {
+            updateIdeaNestingTarget(null);
             preDragPositionsRef.current = new Map(
               draggedNodes.map((dragged) => [
                 dragged.id,
@@ -948,6 +1010,9 @@ function IdeasCanvasBody({
             if (idea) onEditIdea(idea);
           }}
           onNodeDragStop={(_event, node, draggedNodes) => {
+            const dropTargetId =
+              draggedNodes.length === 1 ? ideaDropTarget(node) : null;
+            updateIdeaNestingTarget(null);
             if (draggedNodes.length > 50) {
               toast.error("Pomeraj najviše 50 ideja odjednom.");
               return;
@@ -981,41 +1046,56 @@ function IdeasCanvasBody({
                 try {
                   if (draggedNodes.length === 1) {
                     const idea = docsById.get(node.id as Id<"ideaNodes">);
-                    const parent = flowRef.current
-                      ?.getIntersectingNodes(node)
-                      .find((candidate) => candidate.id !== node.id);
+                    const previousParentId = idea?.parentIdeaId;
+                    const previousPosition = before.find(
+                      (item) => item.id === idea?._id,
+                    );
+                    const undoAction = (ideaId: Id<"ideaNodes">) => ({
+                      label: "Poništi",
+                      onClick: () =>
+                        void restoreIdeaParent(
+                          ideaId,
+                          previousParentId,
+                          previousPosition,
+                        ).catch((error: unknown) =>
+                          toast.error(
+                            accessErrorMessage(error, "Promena nije poništena."),
+                          ),
+                        ),
+                    });
                     if (
                       idea?.canEdit &&
-                      parent &&
-                      idea.parentIdeaId !== parent.id
+                      dropTargetId !== null &&
+                      previousParentId !== dropTargetId
                     ) {
-                      const result = await requestNestingMutation({
+                      // PROSTOR P4: odmah, bez zahteva; „Poništi" vraća roditelja i mesto.
+                      await requestNestingMutation({
                         startupId,
                         childIdeaId: idea._id,
-                        parentIdeaId: parent.id as Id<"ideaNodes">,
+                        parentIdeaId: dropTargetId as Id<"ideaNodes">,
                       });
-                      toast.success(
-                        result.status === "pending"
-                          ? "Predlog ugnježdenja je odmah vidljiv timu."
-                          : "Ideja je ugnježdena.",
-                      );
+                      toast.success("Ideja je ugnežđena.", {
+                        duration: 8_000,
+                        action: undoAction(idea._id),
+                      });
                     } else if (
                       idea?.canDetach &&
-                      idea.parentIdeaId !== undefined &&
-                      !parent
+                      previousParentId !== undefined &&
+                      dropTargetId === null
                     ) {
                       await detachIdeaMutation({
                         startupId,
                         ideaId: idea._id,
                       });
-                      toast.success("Ideja je izvučena iz grupe.");
+                      toast.success("Ideja je odvojena.", {
+                        duration: 8_000,
+                        action: undoAction(idea._id),
+                      });
                     }
                   }
                 } catch (error) {
                   toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Ugnježdenje nije sačuvano.",
+                    accessErrorMessage(error, "Ugnežđavanje nije sačuvano."),
                   );
                 }
                 pushHistory({
@@ -1034,7 +1114,7 @@ function IdeasCanvasBody({
                 });
               })
               .catch((error) => {
-                toast.error(error instanceof Error ? error.message : "Pozicija nije sačuvana.");
+                toast.error(accessErrorMessage(error, "Pozicija nije sačuvana."));
               });
           }}
           onNodeContextMenu={(_event, node) => {
@@ -1084,7 +1164,8 @@ function IdeasCanvasBody({
           connectionMode={ConnectionMode.Loose}
           zoomOnDoubleClick={false}
           zoomOnScroll={false}
-          panOnScroll={false}
+          panOnScroll={mapActive}
+          preventScrolling={mapActive}
           panOnDrag={[1, 2]}
           panActivationKeyCode="Space"
           zoomActivationKeyCode={["Control", "Meta"]}
@@ -1101,8 +1182,8 @@ function IdeasCanvasBody({
           nodesConnectable
           nodesFocusable
           edgesFocusable
-          fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
-          aria-label="Kanvas timskih ideja"
+          fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
+          aria-label="Mapa ideja"
           ariaLabelConfig={SERBIAN_ARIA_LABELS}
           colorMode={colorMode}
         >
@@ -1113,58 +1194,30 @@ function IdeasCanvasBody({
             color="color-mix(in oklab, var(--muted-foreground) 30%, transparent)"
           />
           <Controls position="bottom-left" showInteractive={false} />
-          <MiniMap
-            position="bottom-right"
-            pannable
-            zoomable
-            nodeColor={(node) => MINI_MAP_COLORS[node.data.color as IdeaCanvasColor]}
-            maskColor="color-mix(in oklab, var(--background) 58%, transparent)"
-          />
 
-          <Panel position="top-left" className="m-3 sm:m-5">
-            <div className="flex items-center gap-1 rounded-2xl border border-border/80 bg-card/92 p-1 shadow-md backdrop-blur-xl">
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-10 rounded-xl"
-                aria-label="Poništi poslednju promenu"
-                disabled={historyState.undoCount === 0 || historyState.busy}
-                onClick={() => void runHistory("undo")}
-              >
-                <Undo2 className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-10 rounded-xl"
-                aria-label="Ponovi promenu"
-                disabled={historyState.redoCount === 0 || historyState.busy}
-                onClick={() => void runHistory("redo")}
-              >
-                <Redo2 className="size-4" />
-              </Button>
-              <span className="sr-only" aria-live="polite">
-                Dostupno je {historyState.undoCount} poništavanja i{" "}
-                {historyState.redoCount} ponavljanja.
-              </span>
-            </div>
+          <Panel position="top-left" className="m-3">
+            <MapHistoryButtons
+              undoCount={historyState.undoCount}
+              redoCount={historyState.redoCount}
+              busy={historyState.busy}
+              onUndo={() => void runHistory("undo")}
+              onRedo={() => void runHistory("redo")}
+              undoIcon={<Undo2 className="size-4" aria-hidden="true" />}
+              redoIcon={<Redo2 className="size-4" aria-hidden="true" />}
+            />
           </Panel>
 
-          <Panel position="top-right" className="m-3 sm:m-5">
+          <Panel position="top-right" className="m-3">
             <CanvasActionRail
-              ariaLabel="Akcije kanvasa ideja"
+              ariaLabel="Radnje na mapi ideja"
               identity={{
-                label: "Kanvas ideja",
+                label: "Mapa ideja",
                 icon: Lightbulb,
                 count: nodes.length,
-                className:
-                  "bg-amber-500/12 text-amber-700 dark:text-amber-300",
               }}
               sections={[
                 {
-                  id: "Kreiranje",
+                  id: "Novo",
                   items: [
                     {
                       id: "new-idea",
@@ -1178,8 +1231,6 @@ function IdeasCanvasBody({
                           });
                         onCreateIdea(undefined, center);
                       },
-                      className:
-                        "bg-amber-500 text-white hover:bg-amber-500/90 hover:text-white dark:text-slate-950",
                     },
                   ],
                 },
@@ -1187,36 +1238,29 @@ function IdeasCanvasBody({
             />
           </Panel>
 
-          <Panel position="bottom-center" className="!mb-4 hidden md:block">
-            <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/92 px-3.5 py-2 text-[0.6875rem] font-medium text-muted-foreground shadow-md backdrop-blur-xl">
-              <MousePointer2 className="size-3.5" />
-              Otvori karticu · izaberi za resize · preimenuj vezu
-              <span className="ml-1 font-mono text-foreground">{Math.round(viewport.zoom * 100)}%</span>
-            </div>
+          <Panel position="bottom-center" className="!mb-3">
+            <MapStatusBar zoom={viewport.zoom} active={mapActive} />
           </Panel>
         </ReactFlow>
 
         {nodes.length === 0 ? (
-          <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-6">
-            <div className="pointer-events-auto max-w-sm rounded-3xl border border-border/80 bg-card/94 p-7 text-center shadow-xl backdrop-blur-xl">
-              <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-amber-500/12 text-amber-600 dark:text-amber-300">
-                {searchActive ? <SearchX className="size-5" /> : <Lightbulb className="size-5" />}
-              </span>
-              <h3 className="mt-4 text-base font-bold">
-                {searchActive ? "Nema ideja za ovu pretragu" : "Prva ideja počinje ovde"}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {searchActive
-                  ? "Promeni pojam za pretragu da ponovo vidiš kartice."
-                  : "Dodaj ideju, a zatim je poveži sa srodnim predlozima."}
-              </p>
-              {!searchActive ? (
-                <Button className="mt-5 rounded-xl" onClick={() => onCreateIdea()}>
-                  <Plus className="size-4" /> Dodaj prvu ideju
+          <MapEmptyState
+            icon={searchActive ? SearchX : Lightbulb}
+            title={searchActive ? "Nijedna ideja ne odgovara pretrazi." : "Još nema ideja."}
+            actions={
+              searchActive ? (
+                onClearSearch ? (
+                  <Button variant="outline" onClick={onClearSearch}>
+                    Poništi pretragu
+                  </Button>
+                ) : null
+              ) : (
+                <Button variant="outline" onClick={() => onCreateIdea()}>
+                  <Plus className="size-4" aria-hidden="true" /> Nova ideja
                 </Button>
-              ) : null}
-            </div>
-          </div>
+              )
+            }
+          />
         ) : null}
         </div>
           </ContextMenu.Trigger>
@@ -1235,7 +1279,7 @@ function IdeasCanvasBody({
                       onSelect={() => edit(idea._id)}
                     >
                       <ArrowUpRight className="size-4" />
-                      {idea.canEdit ? "Otvori i uredi" : "Otvori i dodaj izmenu"}
+                      Otvori
                     </ContextMenu.Item>
                     <ContextMenu.Item
                       className={styles.contextItem}
@@ -1248,7 +1292,7 @@ function IdeasCanvasBody({
                         className={styles.contextItem}
                         onSelect={() => nest(idea._id)}
                       >
-                        <FolderInput className="size-4" /> Ubaci karticu u…
+                        <FolderInput className="size-4" /> Ugnezdi u…
                       </ContextMenu.Item>
                     ) : null}
                     {idea.canDetach ? (
@@ -1256,28 +1300,8 @@ function IdeasCanvasBody({
                         className={styles.contextItem}
                         onSelect={() => detach(idea._id)}
                       >
-                        <Ungroup className="size-4" /> Izvuci iz grupe
+                        <Ungroup className="size-4" /> Odvoji
                       </ContextMenu.Item>
-                    ) : null}
-                    {idea.canModerateNesting && idea.nestingRequestId ? (
-                      <>
-                        <ContextMenu.Item
-                          className={styles.contextItem}
-                          onSelect={() =>
-                            moderateNesting(idea.nestingRequestId!, true)
-                          }
-                        >
-                          <Check className="size-4" /> Odobri ugnježdenje
-                        </ContextMenu.Item>
-                        <ContextMenu.Item
-                          className={cn(styles.contextItem, styles.contextDanger)}
-                          onSelect={() =>
-                            moderateNesting(idea.nestingRequestId!, false)
-                          }
-                        >
-                          <X className="size-4" /> Odbij ugnježdenje
-                        </ContextMenu.Item>
-                      </>
                     ) : null}
                     <ContextMenu.Item
                       className={styles.contextItem}
@@ -1292,12 +1316,12 @@ function IdeasCanvasBody({
                     >
                       <Copy className="size-4" /> Dupliraj
                     </ContextMenu.Item>
-                    {idea.isApproved && !idea.convertedPageId ? (
+                    {idea.permissions.canConvert ? (
                       <ContextMenu.Item
                         className={styles.contextItem}
                         onSelect={() => convert(idea._id)}
                       >
-                        <Maximize2 className="size-4" /> Pretvori
+                        <Maximize2 className="size-4" /> Pretvori u zadatak ili belešku
                       </ContextMenu.Item>
                     ) : null}
                     <ContextMenu.Separator className={styles.contextSeparator} />
@@ -1305,8 +1329,7 @@ function IdeasCanvasBody({
                       className={cn(styles.contextItem, styles.contextDanger)}
                       onSelect={() => remove(idea._id)}
                     >
-                      <Trash2 className="size-4" />
-                      {idea.canDeleteDirectly ? "Obriši" : "Zatraži brisanje"}
+                      <Trash2 className="size-4" /> Obriši
                     </ContextMenu.Item>
                   </>
                 );
@@ -1327,8 +1350,7 @@ function IdeasCanvasBody({
                       className={cn(styles.contextItem, styles.contextDanger)}
                       onSelect={() => archiveEdge(edge._id)}
                     >
-                      <Trash2 className="size-4" />
-                      {edge.canDeleteDirectly ? "Ukloni vezu" : "Zatraži brisanje"}
+                      <Trash2 className="size-4" /> Ukloni vezu
                     </ContextMenu.Item>
                   </>
                 );
@@ -1411,9 +1433,7 @@ function IdeasCanvasBody({
                 toast.success(label ? "Naziv veze je sačuvan." : "Naziv veze je uklonjen.");
               } catch (error) {
                 toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Naziv veze nije sačuvan.",
+                  accessErrorMessage(error, "Naziv veze nije sačuvan."),
                 );
               } finally {
                 setEdgeEditorPending(false);

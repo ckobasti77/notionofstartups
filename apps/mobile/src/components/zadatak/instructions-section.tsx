@@ -1,4 +1,4 @@
-import { ChevronRight, Pencil, X } from 'lucide-react-native';
+import { ChevronRight, History, Pencil, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -14,16 +14,21 @@ const MAX_INSTRUCTIONS = 20_000; // ogledalo `MAX_TASK_INSTRUCTIONS_LENGTH`
 /**
  * Sklopiva sekcija instrukcija zadatka (docs/mobile/02-EKRANI.md §9.2). Prikaz za
  * sve; kreator (`canEdit`) dobija olovku koja otvara sheet sa višelinijskim unosom.
- * Snimanje ide kroz `onSave` → `updateMetadata({ instructions })` (prazno = `null`).
+ * Snimanje ide kroz `onSave` (prazno = `null`). `onOpenHistory` dodaje „Istorija izmena"
+ * (revizije instrukcija, K07 §6.2); `onDraftChange` javlja unos za „<Ime> uređuje".
  */
 export function InstructionsSection({
   instructions,
   canEdit,
   onSave,
+  onOpenHistory,
+  onDraftChange,
 }: {
   instructions: string | null | undefined;
   canEdit: boolean;
   onSave: (text: string | null) => void;
+  onOpenHistory?: () => void;
+  onDraftChange?: () => void;
 }) {
   const colors = useThemeColors();
   const text = instructions?.trim() ?? '';
@@ -60,6 +65,16 @@ export function InstructionsSection({
           />
           <Text style={[styles.headerLabel, { color: colors.foreground }]}>Instrukcije</Text>
         </Pressable>
+        {onOpenHistory === undefined ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Istorija izmena instrukcija"
+            onPress={onOpenHistory}
+            hitSlop={8}
+            style={styles.editButton}>
+            <History size={16} color={colors.mutedForeground} />
+          </Pressable>
+        )}
         {canEdit ? (
           <Pressable
             accessibilityRole="button"
@@ -100,7 +115,10 @@ export function InstructionsSection({
         </View>
         <Input
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={(value) => {
+            setDraft(value);
+            onDraftChange?.();
+          }}
           placeholder="Opiši šta treba uraditi…"
           multiline
           autoFocus
@@ -132,11 +150,11 @@ const styles = StyleSheet.create({
   },
   headerLabel: {
     ...text.body,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.semibold,
   },
   editButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

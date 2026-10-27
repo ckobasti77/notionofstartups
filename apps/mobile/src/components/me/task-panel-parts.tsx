@@ -165,7 +165,7 @@ export function PanelSection({
         <View style={styles.sectionTitleRow}>
           <Text
             accessibilityRole="header"
-            style={[styles.overline, { color: colors.mutedForeground }]}>
+            style={[styles.overline, { color: colors.foreground }]}>
             {title}
           </Text>
           {lockedReason ? <Lock size={13} color={colors.mutedForeground} /> : null}
@@ -486,10 +486,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   overline: {
-    ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    ...text.body,
+    fontWeight: fontWeight.semibold,
   },
   reason: {
     ...text.body,

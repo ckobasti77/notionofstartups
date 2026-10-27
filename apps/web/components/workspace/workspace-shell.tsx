@@ -1,24 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
-import {
-  Building2,
-  ExternalLink,
-  FileText,
-  FolderOutput,
-  LoaderCircle,
-  Plus,
-  Sparkles,
-  UserRound,
-} from "lucide-react";
+import { Building2 } from "lucide-react";
+import { pendingIdeaVotes, type QuickAddKind } from "@devotion/shared";
 
 import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
 import { InboxSkeleton } from "@/components/me/inbox/inbox-skeleton";
+import { NotesSkeleton } from "@/components/me/notes/notes-skeleton";
 import { MyTasksSkeleton } from "@/components/me/tasks/my-tasks-skeleton";
 import { buildMyDay, firstNameOf, openByStartup, openTodayCount } from "@/components/me/my-day/my-day-model";
 import { MeSidebar, type MeSidebarProps } from "@/components/me/shell/me-sidebar";
@@ -37,31 +29,26 @@ import { WorkspaceRail } from "@/components/workspace/workspace-rail";
 import { SHELL_SHORTCUTS } from "@/lib/shortcuts/registry";
 import { useToday } from "@/lib/use-today";
 import { ActivityView } from "@/components/workspace/activity-view";
-import { ApprovalsView } from "@/components/workspace/approvals-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
-import { AreaView } from "@/components/workspace/area-view";
+import { AreaView, effectiveAreaTab } from "@/components/workspace/area/area-view";
 import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
-import { HomeView } from "@/components/workspace/home-view";
-import { IdeasView } from "@/components/workspace/ideas-view";
-import { MoveToAreaMenu } from "@/components/workspace/move-to-area-menu";
+import { IdeasView } from "@/components/workspace/ideas/ideas-view";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { NotificationSettingsDialog } from "@/components/workspace/notification-settings-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
 import { CommandCenterView } from "@/components/workspace/command-center-view";
 import {
-  NotificationsSheet,
   useNotificationToasts,
   type NotificationItem,
 } from "@/components/workspace/notifications-panel";
 import { PulsView } from "@/components/workspace/puls-view";
-import { TasksView } from "@/components/workspace/tasks-view";
+import { TasksView, type TasksFilterValue } from "@/components/workspace/tasks-view";
+import { SettingsContainer } from "@/components/workspace/settings/settings-container";
+import { TrashContainer } from "@/components/workspace/trash/trash-container";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
-import {
-  ProfileAvatar,
-} from "@/components/workspace/workspace-ui";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
 import {
   WorkspaceErrorBoundary,
@@ -73,63 +60,41 @@ import type {
   ThoughtDropTarget,
   ThoughtSidebarDragRequest,
 } from "@/components/workspace/thought-sharing";
-import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, WorkspaceRoute } from "@/components/workspace/types";
+import type { CreatePageTarget, MeRoute, ProfileWithAvatar, StartupRoute, TrashSegment, WorkspaceRoute } from "@/components/workspace/types";
 import type { InboxNavigation } from "@/components/me/inbox/inbox-container";
 import { MobileWorkspaceMenu, StartupEmptyRail, WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { MotionDialog } from "@/components/motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { PageEditorSaveState } from "@/components/workspace/page-editor-view";
 import {
-  ITEM_SIZE_DIMENSIONS,
-  ItemSizeMenu,
-  ItemSizePicker,
-  workspaceItemDialogContentClass,
-  type ItemSizePreset,
-} from "@/components/workspace/workspace-item-dialog";
+  isSettling,
+  leavePageQuestion,
+  type PageEditorSaveState,
+} from "@/components/workspace/page/page-autosave-model";
 import {
-  useWorkspaceHistory,
   WorkspaceHistoryProvider,
 } from "@/components/workspace/workspace-history";
 import {
   isAreasRouteCandidate,
   isMeRoute,
+  pageArchiveFallbackRoute,
   readWorkspaceLocation,
   resolvedAreasRoute,
+  withPageTab,
   workspaceRouteAfterStartupSwitch,
   workspaceRouteHref,
 } from "@/components/workspace/workspace-route";
 
-const PageEditorView = dynamic(
-  () => import("@/components/workspace/page-editor-view").then((module) => module.PageEditorView),
+const PageRouteView = dynamic(
+  () => import("@/components/workspace/page/page-route-view").then((module) => module.PageRouteView),
   {
     loading: () => (
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
-        <Skeleton className="h-6 w-72" />
-        <Skeleton className="h-[38rem] rounded-2xl" />
-      </div>
-    ),
-  },
-);
-
-const PageWorkspaceView = dynamic(
-  () =>
-    import("@/components/workspace/page-workspace-view").then(
-      (module) => module.PageWorkspaceView,
-    ),
-  {
-    loading: () => (
-      <div className="mx-auto w-full max-w-7xl space-y-4 px-4 py-7 sm:px-7 lg:px-10">
-        <Skeleton className="h-6 w-72" />
-        <Skeleton className="h-[42rem] rounded-3xl" />
+      <div className="mx-auto w-full max-w-6xl space-y-4 px-4 pt-4 sm:px-6 lg:px-8 lg:pt-6">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-8 w-2/3" />
+        <Skeleton className="h-[40vh] rounded-lg" />
       </div>
     ),
   },
@@ -141,7 +106,7 @@ const ThoughtsCanvasView = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
-        <LoaderCircle className="mr-2 size-4 animate-spin text-primary" /> Otvaram privatni kanvas…
+        <span role="status">Otvaram mapu beleški…</span>
       </div>
     ),
   },
@@ -158,6 +123,17 @@ const MyTasksContainer = dynamic(
     loading: () => (
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
         <MyTasksSkeleton />
+      </div>
+    ),
+  },
+);
+
+const NotesContainer = dynamic(
+  () => import("@/components/me/notes/notes-container").then((module) => module.NotesContainer),
+  {
+    loading: () => (
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7 lg:px-8 lg:py-8">
+        <NotesSkeleton />
       </div>
     ),
   },
@@ -181,9 +157,68 @@ const InboxContainer = dynamic(
 
 /** Prvi prikaz iz URL-a (ljuska se učitava tek na klijentu, posle prijave). */
 function initialRoute(): WorkspaceRoute {
-  if (typeof window === "undefined") return { kind: "home" };
+  if (typeof window === "undefined") return { kind: "today" };
   const candidate = readWorkspaceLocation(window.location.search).route;
-  return candidate && !isAreasRouteCandidate(candidate) ? candidate : { kind: "home" };
+  return candidate && !isAreasRouteCandidate(candidate) ? candidate : { kind: "today" };
+}
+
+/** Naslov ispod `lg` (podnaslov uz ime startupa) — plan K07 §2.3. */
+function startupRouteTitle(route: StartupRoute): string {
+  switch (route.kind) {
+    case "today":
+      return "Komandni centar";
+    case "tasks":
+      return "Zadaci";
+    case "ideas":
+      return "Ideje";
+    case "chat":
+      return "Poruke";
+    case "trash":
+      return "Korpa";
+    case "settings":
+      return "Podešavanja";
+    case "activity":
+      return "Aktivnost";
+    case "puls":
+      return "Puls";
+    case "thoughts":
+      return "Beleške";
+    case "area":
+      return "Dokumenti";
+    case "page":
+      return "Stranica";
+  }
+}
+
+/** Prikaz sa nacrtom koji se sam čuva: stranica i oblast (Pregled nosi opis oblasti, K13). */
+function holdsDraft(route: WorkspaceRoute): boolean {
+  return route.kind === "page" || route.kind === "area";
+}
+
+/** Isti prikaz sa nacrtom: ista stranica ili oblast i ista kartica. */
+function sameDraftView(current: WorkspaceRoute, next: WorkspaceRoute): boolean {
+  if (current.kind === "page" && next.kind === "page") {
+    return current.pageId === next.pageId && (current.tab ?? null) === (next.tab ?? null);
+  }
+  if (current.kind === "area" && next.kind === "area") {
+    // Poredi se prikazana kartica: link iz menija bez `tab` ostaje na istoj kartici.
+    return (
+      current.areaId === next.areaId &&
+      effectiveAreaTab(current.areaId, current.tab) === effectiveAreaTab(next.areaId, next.tab)
+    );
+  }
+  return false;
+}
+
+/** Filter Zadataka iz rute (osoba ima prednost). */
+function tasksFilterOf(route: Extract<StartupRoute, { kind: "tasks" }>): TasksFilterValue {
+  return route.profileId ?? route.filter ?? "svi";
+}
+
+function tasksRouteOf(filter: TasksFilterValue): StartupRoute {
+  if (filter === "svi") return { kind: "tasks" };
+  if (filter === "moji") return { kind: "tasks", filter: "moji" };
+  return { kind: "tasks", profileId: filter };
 }
 
 export function WorkspaceShell(props: { profile: ProfileWithAvatar; onSignOut: () => void }) {
@@ -217,6 +252,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     direction: 0,
   });
   const routeResolutionRequestRef = useRef(0);
+  // Nazad/Napred posle „Napusti" ne pita ponovo.
+  const bypassPopGuardRef = useRef(false);
   const activeStartupIdRef = useRef<Id<"startups"> | null>(null);
   const resetForStartupIdRef = useRef<Id<"startups"> | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -233,30 +270,27 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const [quickAdd, setQuickAdd] = useState<{
     open: boolean;
     preset: { startupId: Id<"startups"> } | null;
-  }>({ open: false, preset: null });
+    kind: QuickAddKind;
+  }>({ open: false, preset: null, kind: "task" });
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
   const [profileOpen, setProfileOpen] = useState(false);
-  const [detailPageId, setDetailPageId] = useState<Id<"pages"> | null>(null);
-  const [detailSaveState, setDetailSaveState] =
-    useState<PageEditorSaveState>("saved");
-  const [detailDetachBusy, setDetailDetachBusy] = useState(false);
   const [pageSaveState, setPageSaveState] =
     useState<PageEditorSaveState>("saved");
+  // Stranica upravo napravljena iz dijaloga: fokus ide na naslov (K07 §5.6).
+  const [createdPageId, setCreatedPageId] = useState<Id<"pages"> | null>(null);
+  // Napuštanje stranice sa nesačuvanim izmenama (K07 §3): prvo se sačeka do
+  // 2 s da se čuvanje završi, pa tek onda pitanje „Ostani" / „Napusti".
+  const [leaveRequest, setLeaveRequest] = useState<{ proceed: () => void; asked: boolean } | null>(null);
+  const stayButtonRef = useRef<HTMLButtonElement>(null);
   // Drag and drop state for pages in sidebar
   const [draggedPageId, setDraggedPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropPageId, setActiveDropPageId] = useState<Id<"pages"> | null>(null);
   const [activeDropAreaId, setActiveDropAreaId] = useState<Id<"startupAreas"> | null>(null);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   const markNotificationRead = useMutation(api.notifications.markRead);
   const movePage = useMutation(api.areasV2.movePage);
-  const resizePage = useMutation(api.areasV2.resizePage);
-  const resetPageSize = useMutation(api.areasV2.resetPageSize);
-  const detachPage = useMutation(api.areasV2.detachPage);
   const convex = useConvex();
-  const { pushHistory } = useWorkspaceHistory();
   const startupIdFromUrl =
     typeof window === "undefined"
       ? null
@@ -268,20 +302,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       : undefined) ??
     startups?.[0];
   const startupId = startup?._id;
-  const approvalsOverview = useQuery(
-    api.collaboration.overview,
-    startup ? { startupId: startup._id } : "skip",
-  );
-  const pageNestingInbox = useQuery(
-    api.areasV2.listNestingInbox,
-    startup ? { startupId: startup._id } : "skip",
-  );
-  const unreadNotifications = useQuery(
-    api.notifications.unreadCount,
-    startup ? { startupId: startup._id } : "skip",
-  );
   // Tolerantno kao ostali brojači: od K08 hrani i bedž „Ja" i meni.
   const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
+  // Bedž „Ideje" u meniju startupa (K07 §5.9): ideje u „Razmatra se" koje
+  // čekaju moj glas u ovom startupu (P22).
+  const ideaVotes = useQueryTolerant(
+    api.inbox.pending,
+    startupId === undefined ? "skip" : { startupId, include: ["idea_vote"] },
+  );
   // Lični nivo: tolerantno — greška brojača ne sme da obori ljusku; bedž se
   // tada samo ne prikazuje (plan K01 §5).
   const today = useToday();
@@ -301,52 +329,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         : null,
     [myDayOverview, today.now],
   );
-  // Tolerantno: pad `pages.get` obara body dijaloga kroz granicu, a footer se
-  // degradira na „Autor nije dostupan" umesto da sruši ceo shell.
-  const detailPage = useQueryTolerant(
-    api.pages.get,
-    detailPageId ? { pageId: detailPageId } : "skip",
-  );
-  const detailCanvas = useQuery(
-    api.areasV2.getCanvas,
-    detailPage && startup && detailPage.startupId === startup._id
-      ? {
-          startupId: startup._id,
-          areaId: detailPage.areaId,
-          rootPageId: detailPage.parentPageId,
-        }
-      : "skip",
-  );
-  const detailCardSize = detailCanvas?.pages.find(
-    (page) => page._id === detailPageId,
-  );
-
   const canLeaveActivePage = useCallback((
     nextRoute: WorkspaceRoute,
+    proceed: () => void,
   ) => {
-    const staysOnSamePage =
-      route.kind === "page" &&
-      nextRoute.kind === "page" &&
-      route.pageId === nextRoute.pageId;
-    if (route.kind !== "page" || staysOnSamePage) return true;
-
-    if (pageSaveState === "dirty" || pageSaveState === "saving") {
-      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
-      return false;
-    }
-    if (
-      (pageSaveState === "invalid" ||
-        pageSaveState === "error" ||
-        pageSaveState === "conflict") &&
-      !window.confirm(
-        pageSaveState === "invalid"
-          ? "Naslov je prazan i nacrt ne može da se sačuva. Napustiti stranicu i odbaciti nacrt?"
-          : "Izmene nisu sačuvane. Napustiti stranicu?",
-      )
-    ) {
-      return false;
-    }
-    return true;
+    // Ista stranica (ili oblast), isti prikaz: dokument → Mapa iste stranice
+    // demontira editor, pa je i to napuštanje (V2 recenzije K10); isto važi za
+    // karticu oblasti — Pregled nosi nacrt opisa (K13).
+    if (!holdsDraft(route) || sameDraftView(route, nextRoute) || pageSaveState === "saved") return true;
+    setLeaveRequest({ proceed, asked: !isSettling(pageSaveState) });
+    return false;
   }, [pageSaveState, route]);
 
   const navigateRoute = useCallback((
@@ -357,14 +349,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       targetStartupId?: Id<"startups">;
     } = {},
   ) => {
-    if (!options.bypassGuard && !canLeaveActivePage(nextRoute)) return false;
+    if (
+      !options.bypassGuard &&
+      !canLeaveActivePage(nextRoute, () =>
+        navigateRouteRef.current(nextRoute, { ...options, bypassGuard: true }),
+      )
+    ) {
+      return false;
+    }
     const navigationStartupId = options.targetStartupId ?? startupId;
-    const leavesCurrentPage =
-      route.kind === "page" &&
-      !(
-        nextRoute.kind === "page" &&
-        nextRoute.pageId === route.pageId
-      );
+    const leavesCurrentPage = holdsDraft(route) && !sameDraftView(route, nextRoute);
     if (leavesCurrentPage) setPageSaveState("saved");
     if (selectedStartupId === null && navigationStartupId) {
       setSelectedStartupId(navigationStartupId);
@@ -389,6 +383,32 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     selectedStartupId,
     startupId,
   ]);
+  // Odložena navigacija (posle čuvanja) mora da vidi najnoviju funkciju.
+  const navigateRouteRef = useRef(navigateRoute);
+  useEffect(() => {
+    navigateRouteRef.current = navigateRoute;
+  }, [navigateRoute]);
+
+  // Čeka se kraj čuvanja (do 2 s); sačuvano → idi, inače pitaj.
+  const leavePending = leaveRequest !== null && !leaveRequest.asked;
+  useEffect(() => {
+    if (!leavePending || leaveRequest === null) return;
+    const request = leaveRequest;
+    const saved = pageSaveState === "saved";
+    // Sačuvano → nastavi odmah; čuvanje traje → pitaj posle 2 s; zapelo → pitaj odmah.
+    const timer = window.setTimeout(
+      () => {
+        if (saved) {
+          setLeaveRequest(null);
+          request.proceed();
+        } else {
+          setLeaveRequest((current) => (current ? { ...current, asked: true } : current));
+        }
+      },
+      saved || !isSettling(pageSaveState) ? 0 : 2_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [leavePending, leaveRequest, pageSaveState]);
 
   const resolveLocationRoute = useCallback(async (
     currentStartupId: Id<"startups">,
@@ -431,7 +451,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           : { startupId: currentStartupId, pageId: candidate.pageId },
       );
       if (routeResolutionRequestRef.current !== requestId) return;
-      const resolved = resolvedAreasRoute(value);
+      const resolved = withPageTab(resolvedAreasRoute(value), candidate);
       if (resolved) {
         navigateRoute(resolved, {
           replace: true,
@@ -450,14 +470,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     }
 
     navigateRoute(
-      { kind: "home" },
+      { kind: "today" },
       {
         replace: true,
         bypassGuard: true,
         targetStartupId: currentStartupId,
       },
     );
-    toast.error("Traženi prikaz nije dostupan. Vraćen si na početnu stranu.");
+    toast.error("Traženi prikaz nije dostupan. Otvoren je Komandni centar.");
   }, [convex, navigateRoute]);
 
   useEffect(() => {
@@ -472,12 +492,19 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         resetForStartupIdRef.current = null;
         void resolveLocationRoute(startupId);
       } else {
-        navigateRoute({ kind: "home" }, { replace: true });
+        navigateRoute({ kind: "today" }, { replace: true });
       }
     }
 
     function onPopState() {
-      if (!canLeaveActivePage({ kind: "home" })) {
+      if (bypassPopGuardRef.current) {
+        bypassPopGuardRef.current = false;
+      } else if (
+        !canLeaveActivePage({ kind: "today" }, () => {
+          bypassPopGuardRef.current = true;
+          window.history.back();
+        })
+      ) {
         window.history.pushState(
           null,
           "",
@@ -570,25 +597,38 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   function openInStartup(
     targetStartupId: Id<"startups">,
     target: { pageId: Id<"pages"> } | { route: WorkspaceRoute },
+    bypassGuard = false,
   ) {
+    if (!bypassGuard && deferScopeChange(() => openInStartup(targetStartupId, target, true))) return;
     const nextRoute: WorkspaceRoute =
-      "route" in target ? target.route : { kind: "today" };
+      "route" in target ? target.route : { kind: "page", pageId: target.pageId };
     markScopeMotion({ kind: "startup", startupId: targetStartupId });
     if (startup?._id !== targetStartupId) {
       resetForStartupIdRef.current = targetStartupId;
-      if (!navigateRoute(nextRoute, { targetStartupId })) {
+      if (!navigateRoute(nextRoute, { targetStartupId, bypassGuard })) {
         resetForStartupIdRef.current = null;
         return;
       }
       setSelectedStartupId(targetStartupId);
       resetStartupLocalState();
-    } else if (!navigateRoute(nextRoute)) {
+    } else if (!navigateRoute(nextRoute, { bypassGuard })) {
       return;
     }
-    if ("pageId" in target) openPageDetails(target.pageId);
   }
 
-  function selectStartup(nextStartupId: Id<"startups">) {
+  /**
+   * Promena startupa ili otvaranje iz drugog opsega dok stranica još čuva:
+   * cela radnja (ne samo navigacija) se ponavlja posle čuvanja ili „Napusti",
+   * da izabrani startup i ruta ostanu usklađeni. `true` = radnja je odložena.
+   */
+  function deferScopeChange(retry: () => void): boolean {
+    if (!holdsDraft(route) || pageSaveState === "saved") return false;
+    setLeaveRequest({ proceed: retry, asked: !isSettling(pageSaveState) });
+    return true;
+  }
+
+  function selectStartup(nextStartupId: Id<"startups">, bypassGuard = false) {
+    if (!bypassGuard && deferScopeChange(() => selectStartup(nextStartupId, true))) return;
     // Iz „Ja" je izbor startupa nov unos u istoriji (Nazad vraća u „Ja");
     // između startupa ostaje zamena kao ranije.
     const fromMe = isMeRoute(route);
@@ -601,6 +641,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         !navigateRoute(nextRoute, {
           replace: !fromMe,
           targetStartupId: nextStartupId,
+          bypassGuard,
         })
       ) {
         resetForStartupIdRef.current = null;
@@ -681,7 +722,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       });
       if (result.nestingStatus === "pending") {
         toast.info(
-          "Zahtev je poslat autoru roditeljske stranice. Stavka ostaje na trenutnom mestu do odobrenja.",
+          "Zahtev je poslat autoru nadređene stranice. Stavka ostaje na trenutnom mestu do odobrenja.",
         );
       } else {
         toast.success("Stranica je uspešno premeštena.");
@@ -737,36 +778,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     setCreateOpen(true);
   }
 
-  function canLeavePageDetails() {
-    if (detailSaveState === "dirty" || detailSaveState === "saving") {
-      toast.info("Sačekaj trenutak da se izmene sačuvaju.");
-      return false;
-    }
-    if (
-      (detailSaveState === "invalid" ||
-        detailSaveState === "error" ||
-        detailSaveState === "conflict") &&
-      !window.confirm(
-        detailSaveState === "invalid"
-          ? "Naslov je prazan i nacrt ne može da se sačuva. Napustiti detalje i odbaciti nacrt?"
-          : "Izmene nisu sačuvane. Napustiti detalje?",
-      )
-    ) {
-      return false;
-    }
-    return true;
-  }
+  const clearCreatedPage = useCallback(() => setCreatedPageId(null), []);
 
-  function openPageDetails(pageId: Id<"pages">) {
-    if (detailPageId !== null && !canLeavePageDetails()) return;
-    setDetailSaveState("saved");
-    setDetailPageId(pageId);
-  }
-
-  function closePageDetails() {
-    if (!canLeavePageDetails()) return;
-    setDetailPageId(null);
-    setDetailSaveState("saved");
+  /** Stranica se svuda otvara rutom (K07 E2) — brzi detalj u dijalogu ne postoji. */
+  function openPage(pageId: Id<"pages">) {
+    navigateRoute({ kind: "page", pageId });
   }
 
   /**
@@ -776,17 +792,22 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
    */
   async function openNotificationTarget(item: NotificationItem) {
     {
-      setNotificationsOpen(false);
       void markNotificationRead({ notificationId: item._id }).catch(() => {
         // Neuspelo označavanje ne sme da blokira navigaciju.
       });
 
+      // Odobrenja više ne postoje (PROSTOR P3/P11): stari cilj vodi u Korpu.
       if (item.targetType === "approvals") {
-        navigateRoute({ kind: "approvals" });
+        navigateRoute({ kind: "trash" });
         return;
       }
       if (item.targetType === "ideas") {
-        navigateRoute({ kind: "ideas" });
+        // Glas ili komentar na ideji nosi ideaId (K04-6): otvara se njen detalj.
+        navigateRoute(
+          item.targetId === null
+            ? { kind: "ideas" }
+            : { kind: "ideas", ideaId: item.targetId as Id<"ideaNodes"> },
+        );
         return;
       }
       if (item.targetType === "puls") {
@@ -808,6 +829,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         );
         return;
       }
+      if (item.targetType === "area") {
+        // Komentar na opisu oblasti: targetId je areaId, ne pageId — otvara se
+        // Pregled oblasti (tu su opis i Komentari, K13).
+        navigateRoute(
+          item.targetId === null
+            ? { kind: "today" }
+            : { kind: "area", areaId: item.targetId as Id<"startupAreas">, tab: "pregled" },
+        );
+        return;
+      }
       if (item.targetId === null) {
         navigateRoute({ kind: "today" });
         return;
@@ -824,11 +855,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           toast.error("Sadržaj obaveštenja više ne postoji.");
           return;
         }
-        if (resolved.kind === "page") {
-          openPageDetails(resolved.pageId);
-          return;
-        }
         navigateRoute(resolved);
+        if (resolved.kind === "page") return;
         toast.info("Sadržaj više nije dostupan; otvorena je njegova oblast.");
       } catch {
         toast.error("Sadržaj obaveštenja više ne postoji.");
@@ -880,9 +908,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     }
     const route: StartupRoute =
       screen === "approvals"
-        ? { kind: "approvals" }
-        : screen === "ideas"
-          ? { kind: "ideas" }
+        ? { kind: "trash" }
+        : screen === "area" && entityId !== null
+          ? { kind: "area", areaId: entityId as Id<"startupAreas">, tab: "pregled" }
+          : screen === "ideas"
+          ? entityId === null
+            ? { kind: "ideas" }
+            : { kind: "ideas", ideaId: entityId as Id<"ideaNodes"> }
           : screen === "puls"
             ? weekStart === null
               ? { kind: "puls" }
@@ -895,144 +927,17 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     openInStartup(targetStartupId, { route });
   }
 
-  function resizeDetailCard(preset: ItemSizePreset) {
-    if (
-      !detailPageId ||
-      !detailPage ||
-      !detailCardSize ||
-      !detailCardSize.canResize ||
-      detailPage.startupId !== startup._id
-    ) {
-      return;
-    }
-    const pageId = detailPageId;
-    const scope = {
-      startupId: startup._id,
-      areaId: detailPage.areaId,
-      rootPageId: detailPage.parentPageId,
-      pageId,
-    };
-    const before = {
-      width: detailCardSize.width,
-      height: detailCardSize.height,
-    };
-    const dimensions = ITEM_SIZE_DIMENSIONS[preset];
-    void resizePage({ ...scope, ...dimensions })
-      .then(() => {
-        pushHistory({
-          label: "promena veličine kartice",
-          undo: () => resizePage({ ...scope, ...before }),
-          redo: () => resizePage({ ...scope, ...dimensions }),
-        });
-        toast.success("Veličina oblačića je sačuvana.");
-      })
-      .catch((error) =>
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Veličina oblačića nije sačuvana.",
-        ),
-      );
-  }
-
-  function resetDetailCardSize() {
-    if (
-      !detailPageId ||
-      !detailPage ||
-      !detailCardSize ||
-      !detailCardSize.canResize ||
-      detailPage.startupId !== startup._id
-    ) {
-      return;
-    }
-    const pageId = detailPageId;
-    const scope = {
-      startupId: startup._id,
-      areaId: detailPage.areaId,
-      rootPageId: detailPage.parentPageId,
-      pageId,
-    };
-    const before = {
-      width: detailCardSize.width,
-      height: detailCardSize.height,
-    };
-    void resetPageSize(scope)
-      .then(() => {
-        pushHistory({
-          label: "vraćanje početne veličine kartice",
-          undo: () => resizePage({ ...scope, ...before }),
-          redo: () => resetPageSize(scope),
-        });
-        toast.success("Vraćena je početna veličina kartice.");
-      })
-      .catch((error) =>
-        toast.error(
-          error instanceof Error ? error.message : "Početna veličina nije vraćena.",
-        ),
-      );
-  }
-
-  async function detachDetailPage() {
-    if (
-      !detailPageId ||
-      !detailPage?.permissions.canDetach ||
-      detailDetachBusy ||
-      !canLeavePageDetails()
-    ) {
-      return;
-    }
-    if (
-      !window.confirm(
-        "Odvojiti ovu stavku od roditelja i vratiti je u koren oblasti?",
-      )
-    ) {
-      return;
-    }
-    setDetailDetachBusy(true);
-    try {
-      const result = await detachPage({
-        startupId: startup._id,
-        pageId: detailPageId,
-      });
-      if (result.status !== "detached") {
-        throw new Error("Stavka više nije ugnežđena.");
-      }
-      toast.success("Stavka je odvojena i vraćena u koren oblasti.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Stavka nije odvojena.",
-      );
-    } finally {
-      setDetailDetachBusy(false);
-    }
-  }
-
-  function createChildFromDetails() {
-    if (!detailPage || !canLeavePageDetails()) return;
-    const target = {
-      areaId: detailPage.areaId,
-      parentPageId: detailPage._id,
-    };
-    setDetailPageId(null);
-    setDetailSaveState("saved");
-    openCreate(target);
-  }
-
-  function openAdmin() {
-    setAdminMode("edit");
-    setAdminOpen(true);
-  }
-
   /** Brzi unos: iz startupa sa njim unapred izabranim, iz „Ja" bez preseta. */
   function openQuickAdd() {
     setQuickAdd({
       open: true,
       preset: startup && !isMeRoute(route) ? { startupId: startup._id } : null,
+      // Iz Beleški se brzi unos otvara kao Beleška (P7, K18).
+      kind: route.kind === "me-notes" ? "note" : "task",
     });
   }
 
   function openCreateStartup() {
-    setAdminMode("create");
     setAdminOpen(true);
   }
 
@@ -1057,26 +962,23 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onCreate: openCreate,
     onCreateArea: () => setCreateAreaOpen(true),
     onSearch: () => setSearchOpen(true),
-    onAdmin: openAdmin,
+    onOpenSettings: () => navigateRoute({ kind: "settings" }),
+    onOpenNotificationSettings: () => setNotificationSettingsOpen(true),
     onProfile: () => setProfileOpen(true),
     onSignOut,
     draggedPageId,
     activeDropPageId,
     activeDropAreaId,
-    pendingApprovals:
-      (approvalsOverview?.pendingCount ?? 0) +
-      (pageNestingInbox?.incoming.length ?? 0),
-    unreadNotifications: unreadNotifications?.count ?? 0,
     chatUnread:
       chatUnread?.byStartup.find((entry) => entry.startupId === startup._id)
         ?.unreadCount ?? 0,
-    onOpenNotifications: () => setNotificationsOpen(true),
+    ideasWaiting: pendingIdeaVotes(ideaVotes?.items ?? []).length,
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
     onDragPageOver: handleDragPageOver,
     onDropPage: handleDropPage,
   };
-  const routeKey = route.kind === "page" ? `page:${route.pageId}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
+  const routeKey = route.kind === "page" ? `page:${route.pageId}:${route.tab ?? ""}` : route.kind === "area" ? `area:${route.areaId}` : route.kind;
   const meActive = isMeRoute(route);
   const currentScope: RailScope = meActive
     ? { kind: "me" }
@@ -1120,13 +1022,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         ? "Inbox"
         : route.kind === "me-chat"
           ? "Poruke"
-          : "Moj dan";
-  const notificationCount = meActive
-    ? (inboxUnread?.total.count ?? 0)
-    : (unreadNotifications?.count ?? 0);
-  const notificationCapped = meActive
-    ? (inboxUnread?.total.capped ?? false)
-    : (unreadNotifications?.capped ?? false);
+          : route.kind === "me-notes"
+            ? "Beleške"
+            : "Moj dan";
+  // Zvono startupa je ugašeno (P11, K07 E7): Inbox u „Ja" nosi sva obaveštenja.
+  const notificationCount = inboxUnread?.total.count ?? 0;
+  const notificationCapped = inboxUnread?.total.capped ?? false;
   return (
     <div className="app-canvas flex h-dvh overflow-hidden bg-background">
       <a
@@ -1156,6 +1057,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         }
         loadingMore={startupsStatus === "LoadingMore"}
         onProfile={() => setProfileOpen(true)}
+        onNotificationSettings={() => setNotificationSettingsOpen(true)}
         onSignOut={onSignOut}
       />
       <ScopeSwap
@@ -1182,21 +1084,21 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               : {
                   kind: "startup",
                   startup,
-                  subtitle: route.kind === "page" ? "Stranica" : route.kind === "thoughts" ? "Moje misli · Samo ti" : route.kind === "my-tasks" ? "Moji zadaci" : route.kind === "today" ? "Komandni centar" : route.kind === "chat" ? "Poruke" : route.kind === "puls" ? "Puls nedelje" : route.kind === "approvals" ? "Odobrenja" : "Radni prostor",
+                  subtitle: startupRouteTitle(route),
                   onSearch: () => setSearchOpen(true),
                 }
           }
           notifications={{
-            label: meActive ? "Inbox" : "Obaveštenja",
+            label: "Inbox",
             count: notificationCount,
             capped: notificationCapped,
-            onOpen: () => (meActive ? goToMe({ kind: "me-inbox" }) : setNotificationsOpen(true)),
+            onOpen: () => goToMe({ kind: "me-inbox" }),
           }}
           onQuickAdd={meActive ? openQuickAdd : undefined}
         />
         <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat" || route.kind === "me-chat"}>
           {route.kind === "me-today" ? (
-            <WorkspaceErrorBoundary key="me-today" title="Moj dan se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-today" title="Moj dan nije učitan." className="m-4 min-h-[20rem]">
               <MyDayContainer
                 today={today}
                 firstName={firstNameOf(profile.displayName)}
@@ -1209,13 +1111,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onQuickAdd={openQuickAdd}
                 onOpenInbox={() => goToMe({ kind: "me-inbox" })}
                 onOpenChat={() => goToMe({ kind: "me-chat" })}
-                onOpenApprovals={(approvalsStartupId) =>
-                  openInStartup(approvalsStartupId, { route: { kind: "approvals" } })
+                onOpenIdea={(ideaStartupId, ideaId) =>
+                  openInStartup(ideaStartupId, { route: { kind: "ideas", ideaId } })
                 }
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-tasks" ? (
-            <WorkspaceErrorBoundary key="me-tasks" title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-tasks" title="Moji zadaci nisu učitani." className="m-4 min-h-[20rem]">
               <MyTasksContainer
                 today={today}
                 profileId={profile._id}
@@ -1225,7 +1127,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-inbox" ? (
-            <WorkspaceErrorBoundary key="me-inbox" title="Inbox se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-inbox" title="Inbox nije učitan." className="m-4 min-h-[20rem]">
               <InboxContainer
                 today={today}
                 startups={startups}
@@ -1234,7 +1136,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-chat" ? (
-            <WorkspaceErrorBoundary key="me-chat" title="Poruke se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-chat" title="Poruke nisu učitane." className="m-4 min-h-[20rem]">
               <ChatHubContainer
                 today={today}
                 profile={profile}
@@ -1245,294 +1147,213 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onOpenInStartup={openInStartup}
               />
             </WorkspaceErrorBoundary>
-          ) : route.kind === "home" ? (
-            <HomeView startup={startup} profile={profile} onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })} onOpenPage={openPageDetails} onCreate={(kind) => openCreate({ initialKind: kind })} />
+          ) : route.kind === "me-notes" ? (
+            <WorkspaceErrorBoundary key="me-notes" title="Beleške nisu učitane." className="m-4 min-h-[20rem]">
+              <NotesContainer
+                today={today}
+                startups={startups}
+                onOpenMap={(mapStartupId) => openInStartup(mapStartupId, { route: { kind: "thoughts" } })}
+                onOpenIdea={(ideaStartupId, ideaId) =>
+                  openInStartup(ideaStartupId, { route: { kind: "ideas", ideaId } })
+                }
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "thoughts" ? (
-            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPageDetails} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
+            <WorkspaceErrorBoundary key={`thoughts-${startup._id}`} title="Mapa beleški nije učitana." className="m-4 min-h-[20rem]">
+              <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "ideas" ? (
+            <WorkspaceErrorBoundary key={`ideas-${startup._id}`} title="Ideje nisu učitane." className="m-4 min-h-[20rem]">
             <IdeasView
               startup={startup}
-              onOpenPage={openPageDetails}
-              onOpenChannel={(channelId) =>
-                navigateRoute({ kind: "chat", channelId })
+              profile={profile}
+              today={today}
+              ideaId={route.ideaId ?? null}
+              onOpenIdea={(nextIdeaId) =>
+                navigateRoute(nextIdeaId === null ? { kind: "ideas" } : { kind: "ideas", ideaId: nextIdeaId }, { replace: true })
               }
+              onOpenPage={openPage}
+              onOpenTrash={() => navigateRoute({ kind: "trash", segment: "idea" })}
+              onOpenChannel={(channelId) => navigateRoute({ kind: "chat", channelId })}
             />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "today" ? (
-            <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar nije učitan." className="m-4 min-h-[20rem]">
               <CommandCenterView
                 startup={startup}
                 profile={profile}
                 today={today}
                 startups={startups}
-                onOpenPage={openPageDetails}
+                onOpenPage={openPage}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
+                nav={{
+                  openMyTasks: () => navigateRoute(tasksRouteOf("moji")),
+                  openIdeas: () => navigateRoute({ kind: "ideas" }),
+                  openIdea: (ideaId) => navigateRoute({ kind: "ideas", ideaId }),
+                  openActivity: () => navigateRoute({ kind: "activity" }),
+                  openPuls: () => navigateRoute({ kind: "puls" }),
+                  openArea: (areaId) => navigateRoute({ kind: "area", areaId }),
+                }}
               />
             </WorkspaceErrorBoundary>
-          ) : route.kind === "my-tasks" ? (
-            <WorkspaceErrorBoundary key={`my-tasks-${startup._id}`} title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+          ) : route.kind === "tasks" ? (
+            <WorkspaceErrorBoundary key={`tasks-${startup._id}`} title="Zadaci nisu učitani." className="m-4 min-h-[20rem]">
               <TasksView
                 startup={startup}
                 profile={profile}
                 today={today}
                 startups={startups}
-                onOpenPage={openPageDetails}
+                filter={tasksFilterOf(route)}
+                onFilterChange={(filter) => navigateRoute(tasksRouteOf(filter), { replace: true })}
+                onOpenPage={openPage}
                 onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
                 onCreateTask={() => openCreate({ initialKind: "task" })}
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "puls" ? (
-            <PulsView
+            <WorkspaceErrorBoundary key={`puls-${startup._id}`} title="Puls nije učitan." className="m-4 min-h-[20rem]">
+              <PulsView
+                startup={startup}
+                initialWeekStart={route.weekStart ?? null}
+                onOpenPage={openPage}
+                onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
+              />
+            </WorkspaceErrorBoundary>
+          ) : route.kind === "activity" ? (
+            <ActivityView
               startup={startup}
-              initialWeekStart={route.weekStart ?? null}
-              onOpenPage={openPageDetails}
+              onOpenPage={openPage}
+              onOpenIdea={(ideaId) => navigateRoute({ kind: "ideas", ideaId })}
               onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
             />
-          ) : route.kind === "activity" ? (
-            <ActivityView startup={startup} />
-          ) : route.kind === "approvals" ? (
-            <ApprovalsView startup={startup} />
-          ) : route.kind === "chat" ? (
-            <ChatView
+          ) : route.kind === "trash" ? (
+            <TrashContainer
+              key={`trash-${startup._id}`}
+              startupId={startup._id}
+              segment={route.segment ?? "page"}
+              onSegmentChange={(segment: TrashSegment) =>
+                navigateRoute(segment === "page" ? { kind: "trash" } : { kind: "trash", segment }, { replace: true })
+              }
+              now={today.now}
+              onOpen={(target) =>
+                target.kind === "page" ? openPage(target.pageId) : navigateRoute({ kind: "ideas", ideaId: target.ideaId })
+              }
+            />
+          ) : route.kind === "settings" ? (
+            <SettingsContainer
+              key={`settings-${startup._id}`}
               startup={startup}
               profile={profile}
-              channelId={route.channelId}
-              onSelectChannel={(channelId) =>
-                navigateRoute({ kind: "chat", channelId })
+              tab={route.tab}
+              onTabChange={(tab) =>
+                navigateRoute(tab === "opste" ? { kind: "settings" } : { kind: "settings", tab }, { replace: true })
               }
-              onOpenList={() => navigateRoute({ kind: "chat" })}
-              onOpenPage={openPageDetails}
             />
+          ) : route.kind === "chat" ? (
+            <WorkspaceErrorBoundary key={`chat-${startup._id}`} title="Poruke nisu učitane." className="m-4 min-h-[20rem]">
+              <ChatView
+                startup={startup}
+                profile={profile}
+                channelId={route.channelId}
+                onSelectChannel={(channelId) =>
+                  navigateRoute({ kind: "chat", channelId })
+                }
+                onOpenList={() => navigateRoute({ kind: "chat" })}
+                onOpenPage={openPage}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "area" ? (
             <AreaView
               startup={startup}
               profile={profile}
               areaId={route.areaId}
-              onOpenCanvas={(pageId) =>
-                navigateRoute({ kind: "page", pageId })
-              }
-              onOpenDetails={openPageDetails}
+              tab={route.tab}
+              today={today}
+              startups={startups}
+              onTabChange={(tab) => navigateRoute({ kind: "area", areaId: route.areaId, tab }, { replace: true })}
+              onOpenPage={openPage}
+              onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
               onCreate={openCreate}
-              onCreateArea={() => setCreateAreaOpen(true)}
+              onSaveStateChange={setPageSaveState}
             />
           ) : (
             <WorkspaceErrorBoundary
               key={route.pageId}
-              title="Stranica se ne može učitati"
+              title="Stranica nije učitana."
               className="min-h-[24rem]"
             >
-            <PageWorkspaceView
-              startup={startup}
-              pageId={route.pageId}
-              onOpenCanvas={(pageId) =>
-                navigateRoute({ kind: "page", pageId })
-              }
-              onOpenArea={(areaId) =>
-                navigateRoute({ kind: "area", areaId })
-              }
-              onOpenChannel={(channelId) =>
-                navigateRoute({ kind: "chat", channelId })
-              }
-              onOpenDetails={openPageDetails}
-              onCreateChild={openCreate}
-              onSaveStateChange={setPageSaveState}
-              onArchived={(fallbackRoute) => {
-                setPageSaveState("saved");
-                if (
-                  navigateRoute(fallbackRoute, {
-                    bypassGuard: true,
-                  })
-                ) {
-                  toast.info(
-                    fallbackRoute.kind === "page"
-                      ? "Otvoren je roditeljski kanvas."
-                      : "Otvorena je pripadajuća oblast.",
-                  );
-                }
-              }}
-            />
+              <PageRouteView
+                startup={startup}
+                profileId={profile._id}
+                pageId={route.pageId}
+                tab={route.tab}
+                now={today.now}
+                today={today}
+                autoFocusTitle={createdPageId === route.pageId}
+                onAutoFocusDone={clearCreatedPage}
+                onOpenPage={openPage}
+                onOpenMap={(pageId) => navigateRoute({ kind: "page", pageId, tab: "mapa" })}
+                onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
+                onOpenChannel={(channelId) => navigateRoute({ kind: "chat", channelId })}
+                onOpenTrash={() => navigateRoute({ kind: "trash" }, { bypassGuard: true })}
+                onCreateChild={openCreate}
+                onSaveStateChange={setPageSaveState}
+                onArchived={(page) => {
+                  setPageSaveState("saved");
+                  navigateRoute(pageArchiveFallbackRoute(page), { bypassGuard: true, replace: true });
+                }}
+              />
             </WorkspaceErrorBoundary>
           )}
         </MotionStage>
       </div>
       {sidebarDragRequest ? <ThoughtSidebarDragLayer key={sidebarDragRequest.sessionId} request={sidebarDragRequest} onActiveTargetChange={setActiveThoughtDropTarget} onDwellTarget={dwellThoughtTarget} onComplete={completeThoughtSidebarDrag} onCancel={cancelThoughtSidebarDrag} /> : null}
-      <NotificationsSheet
-        open={notificationsOpen}
-        onOpenChange={setNotificationsOpen}
-        startupId={startup._id}
-        onOpenNotification={openNotificationTarget}
-        onOpenSettings={() => {
-          // Zatvori panel pa otvori dijalog — samo jedan modal aktivan u datom
-          // trenutku (izbegava dupli overlay i nestovane Radix modale).
-          setNotificationsOpen(false);
-          setNotificationSettingsOpen(true);
-        }}
-      />
       <NotificationSettingsDialog
         open={notificationSettingsOpen}
         onOpenChange={setNotificationSettingsOpen}
       />
-      <Dialog
-        open={detailPageId !== null}
+      <MotionDialog
+        open={leaveRequest?.asked ?? false}
         onOpenChange={(open) => {
-          if (!open) closePageDetails();
+          if (!open) setLeaveRequest(null);
         }}
-      >
-        <DialogContent
-          className={`${workspaceItemDialogContentClass} grid-rows-[auto_minmax(0,1fr)_auto]`}
-        >
-          <div className="relative z-30 flex flex-wrap items-center gap-3 border-b border-border/70 bg-card/90 px-4 py-3 pr-14 backdrop-blur-xl sm:px-6 sm:pr-16">
-            <DialogHeader className="sr-only">
-              <DialogTitle>Detalji sadržaja</DialogTitle>
-              <DialogDescription>
-                Pročitaj i izmeni belešku ili zadatak bez napuštanja trenutnog prikaza.
-              </DialogDescription>
-            </DialogHeader>
-            <span className="inline-flex items-center gap-2 text-sm font-semibold">
-              <span className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary">
-                <FileText className="size-4" />
-              </span>
-              Detalji stavke
-            </span>
-            {detailCardSize?.canResize ? (
-              <>
-                <ItemSizeMenu
-                  className="ml-auto sm:hidden"
-                  onChange={resizeDetailCard}
-                  onReset={resetDetailCardSize}
-                />
-                <ItemSizePicker
-                  className="ml-auto hidden w-auto sm:block"
-                  onChange={resizeDetailCard}
-                  onReset={resetDetailCardSize}
-                />
-              </>
-            ) : null}
+        title={route.kind === "area" ? "Opis oblasti još nije sačuvan. Napusti prikaz?" : leavePageQuestion(pageSaveState)}
+        description={
+          route.kind === "area"
+            ? "Ako napustiš prikaz, nesačuvan tekst se gubi."
+            : "Ako napustiš stranicu, nesačuvan tekst se gubi."
+        }
+        width="26rem"
+        bodyClassName="py-2"
+        initialFocus={() => stayButtonRef.current}
+        footer={
+          <>
+            <Button ref={stayButtonRef} type="button" variant="outline" onClick={() => setLeaveRequest(null)}>
+              Ostani
+            </Button>
             <Button
               type="button"
-              size="sm"
-              variant="outline"
-              className="h-10 rounded-xl"
+              variant="destructive"
               onClick={() => {
-                if (!detailPageId) return;
-                if (!canLeavePageDetails()) return;
-                const pageId = detailPageId;
-                if (!navigateRoute({ kind: "page", pageId })) return;
-                setDetailPageId(null);
-                setDetailSaveState("saved");
+                // Navigacija sama vraća stanje stranice na „sačuvano".
+                const request = leaveRequest;
+                setLeaveRequest(null);
+                request?.proceed();
               }}
             >
-              <ExternalLink className="size-4" />
-              Puni prikaz
+              Napusti
             </Button>
-          </div>
-          <div className="scrollbar-thin min-h-0 overflow-y-auto overscroll-contain bg-background">
-            {detailPageId ? (
-              <WorkspaceErrorBoundary
-                key={detailPageId}
-                title="Stranica se ne može učitati"
-                className="m-4 min-h-[20rem]"
-              >
-              <PageEditorView
-                key={detailPageId}
-                startup={startup}
-                pageId={detailPageId}
-                presentation="dialog"
-                onSaveStateChange={setDetailSaveState}
-                onOpenPage={openPageDetails}
-                onOpenArea={(areaId) => {
-                  if (!canLeavePageDetails()) return;
-                  if (!navigateRoute({ kind: "area", areaId })) return;
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                }}
-                onOpenChannel={(channelId) => {
-                  if (!canLeavePageDetails()) return;
-                  if (!navigateRoute({ kind: "chat", channelId })) return;
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                }}
-                onCreateChild={(target) => {
-                  if (!canLeavePageDetails()) return;
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                  openCreate(target);
-                }}
-                onArchived={() => {
-                  setDetailPageId(null);
-                  setDetailSaveState("saved");
-                }}
-              />
-              </WorkspaceErrorBoundary>
-            ) : null}
-          </div>
-          <footer className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-4 py-3 shadow-[0_-14px_30px_-24px_rgba(0,0,0,0.6)] backdrop-blur sm:px-6">
-            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              {detailPage?.creator ? (
-                <>
-                  <ProfileAvatar
-                    profile={detailPage.creator}
-                    className="size-6 shrink-0"
-                  />
-                  <span className="truncate">
-                    Kreirao/la{" "}
-                    <strong className="font-semibold text-foreground">
-                      {detailPage.creator.displayName}
-                    </strong>
-                  </span>
-                </>
-              ) : (
-                <>
-                  <UserRound className="size-4" aria-hidden="true" />
-                  Autor nije dostupan
-                </>
-              )}
-            </div>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {detailPage?.permissions.canDetach ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={detailDetachBusy}
-                  onClick={() => void detachDetailPage()}
-                >
-                  {detailDetachBusy ? (
-                    <LoaderCircle
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <FolderOutput aria-hidden="true" />
-                  )}
-                  Odvoji u oblast
-                </Button>
-              ) : null}
-              {detailPage?.permissions.canMove && startup.areas.length > 1 ? (
-                <MoveToAreaMenu
-                  startupId={startup._id}
-                  pageId={detailPage._id}
-                  pageTitle={detailPage.title}
-                  currentAreaId={detailPage.areaId}
-                  areas={startup.areas}
-                />
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!detailPage}
-                onClick={createChildFromDetails}
-              >
-                <Plus aria-hidden="true" />
-                Podstranica
-              </Button>
-            </div>
-          </footer>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        {null}
+      </MotionDialog>
 
-      <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} profileId={profile._id} now={today.now} target={createTarget} onCreated={openPageDetails} />
+            <CreatePageDialog key={`${createOpen}-${createTarget?.areaId ?? "none"}-${createTarget?.parentPageId ?? "root"}-${createTarget?.initialKind ?? "note"}`} open={createOpen} onOpenChange={setCreateOpen} startup={startup} profileId={profile._id} now={today.now} target={createTarget} onCreated={(pageId) => {
+        setCreatedPageId(pageId);
+        openPage(pageId);
+      }} />
       <QuickAddContainer
         open={quickAdd.open}
         onOpenChange={(open) => setQuickAdd((current) => ({ ...current, open }))}
@@ -1541,24 +1362,28 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         startups={startups}
         preset={quickAdd.preset}
         onOpenTask={(taskStartupId, pageId) => openInStartup(taskStartupId, { pageId })}
+        initialKind={quickAdd.kind}
+        onOpenNotes={() => goToMe({ kind: "me-notes" })}
       />
       <CreateAreaDialog key={`${createAreaOpen}-${startup._id}`} open={createAreaOpen} onOpenChange={setCreateAreaOpen} startup={startup} onCreated={(areaId) => navigateRoute({ kind: "area", areaId })} />
       <SearchDialog key={`${searchOpen}`} open={searchOpen} onOpenChange={setSearchOpen} startupId={startup._id} onOpenPage={(pageId) => {
         setSearchOpen(false);
-        openPageDetails(pageId);
+        openPage(pageId);
       }} onNavigate={(route) => {
         setSearchOpen(false);
-        navigateRoute(route);
+        // Beleške su u „Ja": lični prikaz ide kroz `goToMe` (smer trake, pamćenje prikaza).
+        if (isMeRoute(route)) goToMe(route);
+        else navigateRoute(route);
       }} />
       <ProfileDialog key={`${profileOpen}-${profile.updatedAt}`} open={profileOpen} onOpenChange={setProfileOpen} profile={profile} />
       {destinationRequest ? <ThoughtDestinationPicker key={`${startup._id}-${destinationRequest.nodeIds.join("-")}`} open startup={startup} selectedCount={destinationRequest.nodeIds.length} onOpenChange={(open) => { if (!open) cancelDestinationPicker(); }} onSelect={completeDestinationPicker} /> : null}
-      {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${adminMode}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={adminMode === "create" ? undefined : startup} onStartupCreated={selectStartup} onCreateStartup={openCreateStartup} /> : null}
+      {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={selectStartup} /> : null}
     </div>
   );
 }
 
-function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary" /> Otvaram radni prostor…</div></main></div>; }
+function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><span role="status">Otvaram radni prostor…</span></div></main></div>; }
 
 function EmptyWorkspace({ profile, onAdmin, onSignOut, adminOpen, setAdminOpen, onStartupCreated }: { profile: ProfileWithAvatar; onAdmin: () => void; onSignOut: () => void; adminOpen: boolean; setAdminOpen: (open: boolean) => void; onStartupCreated: (startupId: Id<"startups">) => void }) {
-  return <div className="app-canvas flex h-dvh overflow-hidden"><StartupEmptyRail profile={profile} onAdmin={onAdmin} onSignOut={onSignOut} /><main className="flex flex-1 items-center justify-center p-5"><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="desk-surface max-w-lg rounded-3xl border bg-card p-7 text-center sm:p-10"><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><Building2 className="size-6" /></span><p className="mt-6 text-[0.6875rem] font-bold uppercase tracking-[0.15em] text-primary">Privatan timski prostor</p><h1 className="mt-2 text-2xl font-bold tracking-[-0.04em]">Prvi startup počinje ovde</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Kreiraj prostor, a mi ćemo automatski dodati Dev, Marketing, Sales i Ostalo oblasti.</p>{profile.role === "admin" ? <Button className="mt-6" onClick={onAdmin}><Sparkles /> Kreiraj startup</Button> : <p className="mt-6 rounded-xl bg-muted px-4 py-3 text-sm">Administrator još nije dodelio startup ovom profilu.</p>}</motion.div></main>{profile.role === "admin" ? <AdminDialog key={`${adminOpen}-empty`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={onStartupCreated} /> : null}</div>;
+  return <div className="app-canvas flex h-dvh overflow-hidden"><StartupEmptyRail profile={profile} onAdmin={onAdmin} onSignOut={onSignOut} /><main className="flex flex-1 items-center justify-center p-5"><div className="max-w-md rounded-xl border bg-card p-7 text-center"><Building2 className="mx-auto size-5 text-muted-foreground" aria-hidden="true" /><h1 className="mt-4 text-xl font-semibold tracking-[-0.02em]">Još nema startupa</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{profile.role === "admin" ? "Napravi prvi startup. Dobija oblasti Razvoj, Marketing, Prodaja i Ostalo." : "Administrator ti još nije dodelio startup."}</p>{profile.role === "admin" ? <Button className="mt-5" onClick={onAdmin}>Napravi startup</Button> : null}</div></main>{profile.role === "admin" ? <AdminDialog key={`${adminOpen}-empty`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={onStartupCreated} /> : null}</div>;
 }

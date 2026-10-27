@@ -165,6 +165,8 @@ describe("fajlovi u oblačiću", () => {
     });
     const storageId = await store("x", "image/png");
 
+    // PROSTOR P1 (namerna promena pravila): član sme da dodaje fajlove, ali
+    // tuđa dozvola za slanje i dalje ne prolazi.
     await expect(
       asMember.mutation(api.pageFiles.attach, {
         pageId,
@@ -172,7 +174,7 @@ describe("fajlovi u oblačiću", () => {
         token,
         name: "tudje.png",
       }),
-    ).rejects.toThrow("samo njegov autor");
+    ).rejects.toThrow("Dozvola za slanje fajla nije ispravna");
     // Neuspeh autorizacije ne sme da dira blob — pozivalac nije dokazao da je
     // blob njegov.
     expect(
@@ -282,8 +284,11 @@ describe("fajlovi u oblačiću", () => {
     ).toBeNull();
   });
 
-  test("brisanje uklanja i blob i prenumeriše preostale", async () => {
-    const { t, pageId, asOwner, upload } = await seedFileWorkspace();
+  // PROSTOR K03 (P19, D8): uklanjanje priloga je meko — svaki član ga šalje u
+  // Korpu, blob ostaje u storage-u, a „Vrati" ga vraća na kraj spiska.
+  test("uklanjanje ide u Korpu: blob ostaje, preostali se prenumerišu, Vrati ga vraća", async () => {
+    const { t, pageId, member, asOwner, asMember, startupId, upload } =
+      await seedFileWorkspace();
     await upload("a.png", "image/png");
     const second = await upload("b.png", "image/png");
     await upload("c.png", "image/png");
@@ -292,7 +297,7 @@ describe("fajlovi u oblačiću", () => {
       const row = await ctx.db.get("pageFiles", second.fileId);
       return row?.storageId ?? null;
     });
-    await asOwner.mutation(api.pageFiles.remove, { fileId: second.fileId });
+    await asMember.mutation(api.pageFiles.remove, { fileId: second.fileId });
 
     const files = await asOwner.query(api.pageFiles.list, { pageId });
     expect(files.map((file) => file.name)).toEqual(["a.png", "c.png"]);
@@ -301,15 +306,54 @@ describe("fajlovi u oblačiću", () => {
       storageId === null
         ? null
         : await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
-    ).toBe(null);
+    ).not.toBeNull();
+    expect(
+      await t.run((ctx) => ctx.db.get("pageFiles", second.fileId)),
+    ).toMatchObject({
+      archivedAt: expect.any(Number),
+      archivedByProfileId: member.profileId,
+      trashState: "root",
+    });
+    const trash = await asOwner.query(api.trash.list, {
+      startupId,
+      kind: "file",
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(trash.page).toEqual([
+      expect.objectContaining({
+        kind: "file",
+        fileId: second.fileId,
+        name: "b.png",
+        pageAvailable: true,
+        canRestore: true,
+      }),
+    ]);
+
+    await asOwner.mutation(api.trash.restore, {
+      target: { kind: "file", id: second.fileId },
+    });
+    const restored = await asOwner.query(api.pageFiles.list, { pageId });
+    expect(restored.map((file) => file.name)).toEqual([
+      "a.png",
+      "c.png",
+      "b.png",
+    ]);
+    expect(restored.map((file) => file.position)).toEqual([0, 1, 2]);
   });
 
-  test("tuđi oblačić ne prima fajlove, ali ih član vidi", async () => {
-    const { pageId, asMember } = await seedFileWorkspace();
+  test("član dodaje fajlove u tuđi oblačić, osim kad je zaključan", async () => {
+    // PROSTOR P1/P19 (namerna promena pravila): ranije je tuđi oblačić
+    // odbijao fajlove; sada samo zaključan (autor, vlasnik, admin).
+    const { pageId, asOwner, asMember } = await seedFileWorkspace();
     await expect(
       asMember.mutation(api.pageFiles.generateUploadUrl, { pageId }),
-    ).rejects.toThrow("samo njegov autor");
+    ).resolves.toMatchObject({ token: expect.any(String) });
     expect(await asMember.query(api.pageFiles.list, { pageId })).toEqual([]);
+
+    await asOwner.mutation(api.pages.lock, { pageId });
+    await expect(
+      asMember.mutation(api.pageFiles.generateUploadUrl, { pageId }),
+    ).rejects.toThrow("zaključana");
   });
 
   test("fajl API odbija stranice koje ne podržavaju fajlove", async () => {
@@ -372,8 +416,11 @@ describe("prilozi u belešci", () => {
     expect(doc?.filePrimaryCategory).toBeUndefined();
   });
 
-  test("prune briše nereferencirane priloge starije od grace perioda", async () => {
-    const { t, asOwner, upload, createNote } = await seedFileWorkspace();
+  // PROSTOR K03 (D8): prune sklanja meko — blob ostaje, prilog nije u Korpi, a
+  // vraća se čim mu se id ponovo pojavi u telu (poništeno brisanje slike).
+  test("prune meko sklanja nereferencirane priloge starije od grace perioda i vraća ih po id-ju", async () => {
+    const { t, startupId, asOwner, upload, createNote } =
+      await seedFileWorkspace();
     const noteId = await createNote();
     const first = await upload("a.png", "image/png", "a", noteId);
     const second = await upload("b.png", "image/png", "b", noteId);
@@ -406,7 +453,7 @@ describe("prilozi u belešci", () => {
     expect(files.map((file) => file.name)).toEqual(["b.png"]);
     expect(files.map((file) => file.position)).toEqual([0]);
 
-    const [firstBlob, , thirdBlob] = await t.run((ctx) =>
+    const blobs = await t.run((ctx) =>
       Promise.all(
         storageIds.map((storageId) =>
           storageId === null
@@ -415,8 +462,24 @@ describe("prilozi u belešci", () => {
         ),
       ),
     );
-    expect(firstBlob).toBeNull();
-    expect(thirdBlob).toBeNull();
+    expect(blobs.every((blob) => blob !== null)).toBe(true);
+    const pruned = await t.run((ctx) => ctx.db.get("pageFiles", first.fileId));
+    expect(pruned?.archivedAt).toEqual(expect.any(Number));
+    expect(pruned?.trashState).toBeUndefined();
+    const trash = await asOwner.query(api.trash.list, {
+      startupId,
+      kind: "file",
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(trash.page).toEqual([]);
+
+    await asOwner.mutation(api.pageFiles.prune, {
+      pageId: noteId,
+      keepFileIds: [second.fileId, first.fileId],
+    });
+    const back = await asOwner.query(api.pageFiles.list, { pageId: noteId });
+    expect(back.map((file) => file.name)).toEqual(["b.png", "a.png"]);
+    expect(back.map((file) => file.position)).toEqual([0, 1]);
   });
 
   test("prune ne dira sveže priloge — upload možda još nije sačuvan u telu", async () => {
@@ -433,14 +496,20 @@ describe("prilozi u belešci", () => {
     expect(files.map((file) => file.name)).toEqual(["svez.png"]);
   });
 
-  test("prune odbija ne-vlasnika i stranice koje nisu beleške", async () => {
+  // PROSTOR K03 (P1, D8): sklanjanje priloga tuđe beleške radi svaki član (meko);
+  // zaključanu belešku samo autor, vlasnik startupa i admin.
+  test("prune radi svaki član, zaključanu belešku ne; samo za beleške", async () => {
     const { pageId, asOwner, asMember, createNote } =
       await seedFileWorkspace();
     const noteId = await createNote();
 
     await expect(
       asMember.mutation(api.pageFiles.prune, { pageId: noteId, keepFileIds: [] }),
-    ).rejects.toThrow("samo njegov autor");
+    ).resolves.toEqual({ removed: 0 });
+    await asOwner.mutation(api.pages.lock, { pageId: noteId });
+    await expect(
+      asMember.mutation(api.pageFiles.prune, { pageId: noteId, keepFileIds: [] }),
+    ).rejects.toThrow("zaključana");
     await expect(
       asOwner.mutation(api.pageFiles.prune, { pageId, keepFileIds: [] }),
     ).rejects.toThrow("samo za beleške");

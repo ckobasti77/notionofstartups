@@ -13,7 +13,6 @@ import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatMessageTime, porukaWord, resolveMentions } from "@/lib/chat";
-import { cn } from "@/lib/utils";
 
 /**
  * „Diskusija" nad entitetom (stranica/zadatak/ideja). Zove `chat.channelForAnchor`;
@@ -74,25 +73,17 @@ export function EntityDiscussionPanel({
   };
 
   return (
-    <section
-      className={cn(
-        "rounded-2xl border border-border/70 bg-card p-4 shadow-sm",
-        className,
-      )}
-      aria-label="Diskusija"
-    >
+    <section className={className} aria-label="Diskusija">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/9 text-primary">
-            <MessagesSquare className="size-4" aria-hidden="true" />
-          </span>
+          <MessagesSquare className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
-            <h3 className="text-sm font-bold tracking-[-0.01em]">Diskusija</h3>
-            <p className="truncate text-[0.6875rem] text-muted-foreground">
+            <h3 className="text-sm font-semibold">Diskusija</h3>
+            <p className="truncate text-xs leading-5 text-muted-foreground">
               {loading
                 ? "Učitavanje…"
                 : messageCount === 0
-                  ? "Započni razgovor tima o ovoj stavci."
+                  ? "Nema poruka."
                   : `${messageCount} ${porukaWord(messageCount)}`}
             </p>
           </div>
@@ -112,13 +103,13 @@ export function EntityDiscussionPanel({
       </div>
 
       {loading ? (
-        <Skeleton className="mt-3 h-14 rounded-xl" />
+        <Skeleton className="mt-3 h-14 rounded-lg" />
       ) : channel && channel.lastMessagePreview ? (
         <button
           type="button"
           disabled={!onOpenChannel}
           onClick={() => onOpenChannel?.(channel._id)}
-          className="mt-3 flex w-full items-start gap-2 rounded-xl border border-border/60 bg-muted/25 p-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-muted/25"
+          className="mt-3 flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent"
         >
           {channel.lastMessageAuthor ? (
             <ProfileAvatar
@@ -132,7 +123,7 @@ export function EntityDiscussionPanel({
                 {channel.lastMessageAuthor?.displayName ?? "Sistem"}
               </span>
               <time
-                className="shrink-0 text-[0.625rem] text-muted-foreground"
+                className="shrink-0 text-xs text-muted-foreground"
                 dateTime={new Date(channel.lastMessageAt).toISOString()}
               >
                 {formatMessageTime(channel.lastMessageAt)}

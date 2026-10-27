@@ -306,7 +306,7 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
     <View style={styles.flex}>
       {files.length === 0 ? (
         <EmptyState
-          icon={<Paperclip size={40} color={colors.mutedForeground} />}
+          icon={<Paperclip size={20} color={colors.mutedForeground} />}
           title="Nema priloga"
           description="Dodaj sliku, dokument ili fotografiju table."
           actionLabel={showAdd ? 'Dodaj prilog' : undefined}
@@ -319,12 +319,12 @@ export function FilesPanel({ pageId, canManage }: { pageId: Id<'pages'>; canMana
           {files.map((file) => {
             const Icon = CATEGORY_META[file.category].icon;
             return (
-              <View key={file._id} style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View key={file._id} style={styles.row}>
                 <Row
                   style={styles.rowMain}
                   icon={
-                    <View style={[styles.iconChip, { backgroundColor: colors.accent }]}>
-                      <Icon size={20} color={colors.primary} />
+                    <View style={styles.iconChip}>
+                      <Icon size={20} color={colors.mutedForeground} />
                     </View>
                   }
                   title={file.name}
@@ -486,8 +486,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   renameHeading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   renameError: {
     ...text.body,
@@ -509,8 +508,6 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
   },
   rowMain: {
     flex: 1,
