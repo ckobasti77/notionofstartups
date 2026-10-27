@@ -100,6 +100,7 @@ import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
 import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
 import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
 import { ProstorK14Katalog } from '@/components/katalog/prostor-k14';
+import { ProstorK17Katalog } from '@/components/katalog/prostor-k17';
 import { UndoBar } from '@/components/undo-bar';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
@@ -902,14 +903,14 @@ export default function DizajnKatalogScreen() {
         {k14Log ? <Caption text={k14Log} colors={colors} /> : null}
 
         <SectionHeader title="Čeka tebe" />
-        <Caption text="Glasanje o brisanju (Glasaj) i predlog premeštanja (Pogledaj)" colors={colors} />
+        <Caption text="Ideje na glasanju — „Glasaj” otvara ideju (K17)" colors={colors} />
         <View style={styles.pendingDemo}>
           {katalogInboxPending(demoNow).map((item) => (
             <PendingRow
               key={pendingKey(item)}
               item={item}
               now={demoNow}
-              onOpen={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}
+              onOpen={(target) => setK14Log(`Otvori ideju: ${target.title}`)}
             />
           ))}
         </View>
@@ -955,7 +956,7 @@ export default function DizajnKatalogScreen() {
                 current.map((entry) => (entry._id === target._id ? { ...entry, readAt: demoNow } : entry)),
               )
             }
-            onOpenPending={(target) => setK14Log(`Odobrenja: ${target.startup.name}`)}
+            onOpenPending={(target) => setK14Log(`Otvori ideju: ${target.title}`)}
             onMarkAllRead={() =>
               setK14Items((current) => current.map((entry) => (entry.readAt === null ? { ...entry, readAt: demoNow } : entry)))
             }
@@ -1050,6 +1051,9 @@ export default function DizajnKatalogScreen() {
 
         {/* PROSTOR K14: oblast — kartice, opis, Istorija, Komentari, Nedavne izmene. */}
         <ProstorK14Katalog />
+
+        {/* PROSTOR K17: Ideje — čipovi faza, lista, Faza i „Pretvori“, red u Prostoru. */}
+        <ProstorK17Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 

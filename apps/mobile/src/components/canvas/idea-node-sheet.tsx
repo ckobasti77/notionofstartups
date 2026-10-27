@@ -22,6 +22,9 @@ export type IdeaDetail = {
   downvotes: number;
   userVote: 'up' | 'down' | null;
   author: { displayName: string } | null;
+  /** Stižu uz čvor iz `ideas.list`; pretvorena ideja ne prima glasove (server ih odbija). */
+  convertedPageId?: string | null;
+  permissions?: { canVote?: boolean };
 };
 
 /**
@@ -79,7 +82,7 @@ export function IdeaNodeSheet({
               upvotes={idea.upvotes}
               downvotes={idea.downvotes}
               userVote={idea.userVote}
-              disabled={busy}
+              disabled={busy || idea.convertedPageId != null || idea.permissions?.canVote === false}
               onVote={(next) => void castVote(next)}
             />
           </View>

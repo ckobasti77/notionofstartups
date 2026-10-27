@@ -41,12 +41,23 @@ export function areasLabel(count: number): string {
   return `${count} ${last === 1 && lastTwo !== 11 ? 'oblast' : 'oblasti'}`;
 }
 
+/** „2 čeka" — ideje koje čekaju tvoj glas (K17); bez ijedne nema vrednosti. */
+export function ideaVotesLabel(count: number): string | null {
+  return count > 0 ? `${count} čeka` : null;
+}
+
 /**
- * Desna vrednost reda „Dokumenti" (broj oblasti iz `startups.get`); `null` dok
- * stiže. Zadaci i Korpa su bez broja (K07), Ideje broj dobijaju u K17, a Kanali
- * nose broj nepročitanih kao pilulu, ne kao tekst.
+ * Desna vrednost reda: „Dokumenti" nosi broj oblasti (`startups.get`), „Ideje"
+ * broj onih što čekaju tvoj glas (`inbox.pending`, K17); `null` dok broj stiže.
+ * Zadaci i Korpa su bez broja (K07), a Kanali nose broj nepročitanih kao pilulu,
+ * ne kao tekst.
  */
-export function hubRowValue(id: ProstorHubDestination, areaCount: number | null): string | null {
+export function hubRowValue(
+  id: ProstorHubDestination,
+  areaCount: number | null,
+  ideaVotes: number | null = null,
+): string | null {
   if (id === 'oblasti' && areaCount !== null) return areasLabel(areaCount);
+  if (id === 'ideje' && ideaVotes !== null) return ideaVotesLabel(ideaVotes);
   return null;
 }

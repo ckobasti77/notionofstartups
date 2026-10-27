@@ -5,6 +5,7 @@ import {
   inboxMarkedMessage,
   inboxScopeKey,
   inboxTarget,
+  pendingIdeaVotes,
   type InboxScope,
   type InboxSegment,
   type InboxTarget,
@@ -35,6 +36,8 @@ import {
 } from './inbox-view';
 
 const PAGE_SIZE = 25;
+/** „Čeka tebe" donosi ideje na glasanje samo uz `include` (K01 D16, plan K07 R4). */
+const PENDING_ARGS = { include: ['idea_vote' as const] };
 
 type FeedArgs = { startupId?: Id<'startups'> | null; unreadOnly?: boolean };
 
@@ -96,7 +99,7 @@ function InboxContent({
     [startupResults],
   );
   const counts = useQueryTolerant(api.inbox.unreadCounts, {}) ?? null;
-  const pendingQuery = useQueryState(api.inbox.pending, {});
+  const pendingQuery = useQueryState(api.inbox.pending, PENDING_ARGS);
   const markRead = useMutation(api.notifications.markRead);
   const markAllRead = useMutation(api.inbox.markAllRead);
   const refreshControl = useListRefresh();
@@ -119,7 +122,8 @@ function InboxContent({
         ? { status: 'error', retry }
         : {
             status: 'ready',
-            items: pendingQuery.data.items as ReadonlyArray<InboxPendingModel>,
+            // Crtaju se samo ideje; stare vrste (brisanje, ugnežđavanje) više ne postoje (P22).
+            items: pendingIdeaVotes(pendingQuery.data.items) as ReadonlyArray<InboxPendingModel>,
             truncated: pendingQuery.data.truncated,
           };
 

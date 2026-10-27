@@ -31,11 +31,12 @@ const KIND_OPTIONS: { kind: TargetKind; label: string; Icon: typeof CheckSquare2
 ];
 
 /**
- * Konverzija odobrene ideje u stranicu (PARITET A4) — pandan web dijalogu
- * „Pretvori Ideju u Radnu Stavku" (`ideas-view.tsx`): traži SAMO vrstu i oblast
- * (opciona polja mutacije ni web ne šalje). Po uspehu vodi pravo na novu
- * stranicu/zadatak, kao web `onOpenPage`. Ideja ostaje u listi, obeležena kao
- * pretvorena.
+ * Pretvaranje ideje u zadatak ili belešku (PARITET A4, PROSTOR P6) — pandan web
+ * dijalogu „Pretvori" (`ideas/idea-dialogs.tsx`): traži SAMO vrstu i oblast
+ * (opciona polja mutacije ni web ne šalje). Otvara se samo kome server dozvoljava
+ * (`permissions.canConvert`: faza „Odobreno" + autor, vlasnik ili admin). Po
+ * uspehu vodi pravo na novu stranicu/zadatak; ideja ostaje u listi kao
+ * „Postalo zadatak".
  */
 export function IdeaConvertSheet({
   open,
@@ -68,7 +69,14 @@ export function IdeaConvertSheet({
     if (open) setKind('task');
   }, [open]);
   useEffect(() => {
-    if (open) setAreaId(startup?.areas[0]?._id ?? null);
+    // Izbor se čuva dok oblast postoji; živi update startupa ga ne vraća na prvu.
+    if (open) {
+      setAreaId((current) =>
+        current !== null && startup?.areas.some((area) => area._id === current)
+          ? current
+          : (startup?.areas[0]?._id ?? null),
+      );
+    }
   }, [open, startup]);
 
   if (renderIdea === null) return null;
@@ -105,11 +113,10 @@ export function IdeaConvertSheet({
   return (
     <Sheet visible={open && idea !== null} onClose={onClose} maxHeight="85%" style={styles.sheet}>
       <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
-        Pretvori u stranicu
+        Pretvori u zadatak ili belešku
       </Text>
       <Text style={[styles.explain, { color: colors.mutedForeground }]}>
-        Odobrena ideja postaje radna stavka u izabranoj oblasti. Ideja ostaje u
-        listi, sa vezom ka rezultatu.
+        Nastaje u izabranoj oblasti. Ideja ostaje u Idejama, sa vezom ka rezultatu.
       </Text>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
@@ -173,7 +180,7 @@ export function IdeaConvertSheet({
           </View>
         ) : startup.areas.length === 0 ? (
           <Text style={[styles.emptyAreas, { color: colors.mutedForeground }]}>
-            Ovaj startup još nema oblasti — dodaj ih pre konverzije.
+            Ovaj startup još nema oblasti — dodaj je pre pretvaranja.
           </Text>
         ) : (
           <View style={styles.chips}>
@@ -269,8 +276,6 @@ const styles = StyleSheet.create({
   label: {
     ...text.meta,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   chips: {
     flexDirection: 'row',

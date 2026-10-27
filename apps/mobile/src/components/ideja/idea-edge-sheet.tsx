@@ -26,9 +26,9 @@ export type IdeaEdgeDetail = {
 
 /**
  * Uređivanje jedne veze ideja (PARITET A4) — uzor `thought-edge-sheet.tsx`:
- * naziv (`updateEdgeLabel`, samo autor veze), prekid (`disconnect` + traka
- * „Poništi"; tuđa veza ide kroz glasanje tima — `disconnect` je za nju serverski
- * TIH no-op, pa se red ni ne nudi) i „Otvori ideju" ka drugom kraju veze.
+ * naziv (`updateEdgeLabel`), prekid (`disconnect` + traka „Poništi") i „Otvori
+ * ideju" ka drugom kraju veze. PROSTOR D20: vezu menja i uklanja svaki član, pa
+ * nema glasanja o brisanju — `edge.canEdit` i `canDeleteDirectly` stižu sa servera.
  */
 export function IdeaEdgeSheet({
   detail,
@@ -45,7 +45,6 @@ export function IdeaEdgeSheet({
   const colors = useThemeColors();
   const updateEdgeLabel = useMutation(api.ideas.updateEdgeLabel);
   const disconnect = useMutation(api.ideas.disconnect);
-  const requestDeletion = useMutation(api.collaboration.requestDeletion);
 
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
@@ -81,7 +80,7 @@ export function IdeaEdgeSheet({
   const breakEdge = () => {
     if (busy) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${otherTitle}" se uklanja sa Mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -115,24 +114,6 @@ export function IdeaEdgeSheet({
     ]);
   };
 
-  const requestBreak = () => {
-    if (busy) return;
-    setBusy(true);
-    haptics.tap();
-    void requestDeletion({ target: { kind: 'idea_edge', id: edge._id } })
-      .then(() => {
-        haptics.success();
-        onClose();
-        // Prikaz glasanja već postoji na ekranu Odobrenja („Veza ideja").
-        Alert.alert('Poslato', 'Glasanje o brisanju veze je pokrenuto.');
-      })
-      .catch((error: unknown) => {
-        haptics.error();
-        Alert.alert('Greška', accessErrorMessage(error, 'Zahtev nije poslat.'));
-      })
-      .finally(() => setBusy(false));
-  };
-
   return (
     <Sheet visible={detail !== null} onClose={onClose} avoidKeyboard style={styles.sheet}>
       <Text
@@ -157,7 +138,7 @@ export function IdeaEdgeSheet({
           ]}
         />
       ) : edge.label ? (
-        // Tuđa veza: naziv se samo čita (menja ga isključivo autor veze).
+        // Bez prava izmene (stari odgovor servera): naziv se samo čita.
         <Text style={[styles.readOnlyLabel, { color: colors.mutedForeground }]}>
           {edge.label}
         </Text>
@@ -179,16 +160,7 @@ export function IdeaEdgeSheet({
             disabled={busy}
             style={styles.flexBtn}
           />
-        ) : (
-          <Button
-            label="Zatraži brisanje"
-            variant="ghost"
-            onPress={requestBreak}
-            loading={busy && !edge.canEdit}
-            disabled={busy}
-            style={styles.flexBtn}
-          />
-        )}
+        ) : null}
         {edge.canEdit ? (
           <Button
             label="Sačuvaj"

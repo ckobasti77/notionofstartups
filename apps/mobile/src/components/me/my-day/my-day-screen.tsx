@@ -3,6 +3,7 @@ import {
   completionCall,
   formatDayHeading,
   moveInPlan,
+  pendingIdeaVotes,
   planCall,
   isOptimisticId,
   withEntry,
@@ -54,6 +55,9 @@ import {
 } from './my-day-model';
 import { MyDayView } from './my-day-view';
 import { useCompletionQueue } from './use-completion-queue';
+
+/** „Čeka tebe" donosi ideje na glasanje samo uz `include` (plan K07 R4). */
+const PENDING_ARGS = { include: ['idea_vote' as const] };
 
 /**
  * Tab „Danas" = Moj dan (K12; O1, P5) — telefonski par web `MyDayContainer`
@@ -196,13 +200,23 @@ export function MyDayScreen() {
   // --- Sažeti čipovi (plan K07 E11): deljene pretplate sa tab barom ---
   const inboxCounts = useQueryTolerant(api.inbox.unreadCounts, {});
   const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
-  const pendingState = useQueryTolerant(api.inbox.pending, {});
+  // „Čeka tebe" su ideje na glasanje, samo uz `include` (K01 D16); stare vrste ne postoje (P22).
+  const pendingState = useQueryTolerant(api.inbox.pending, PENDING_ARGS);
+  const pendingIdeas = useMemo(
+    () => (pendingState ? pendingIdeaVotes(pendingState.items) : null),
+    [pendingState],
+  );
+  // Čip vodi kao Inbox: prva ideja otvara svoj ekran (prebacuje aktivni startup ako treba),
+  // a bez ijedne ideje otvara Inbox (K07 R18).
   const openPending = () => {
-    const first = pendingState?.items[0];
-    if (!first) return;
+    const first = pendingIdeas?.[0];
+    if (!first) {
+      router.navigate('/obavestenja');
+      return;
+    }
     openStartupEntity(router, setActiveStartupId, {
       startupId: first.startup._id,
-      href: '/odobrenja',
+      href: { pathname: '/ideja/[id]', params: { id: first.ideaId } },
       currentStartupId: activeStartupId,
     });
   };
@@ -259,7 +273,7 @@ export function MyDayScreen() {
         summary={{
           inbox: inboxCounts ? inboxCounts.total.count : null,
           chat: chatUnread ? chatUnread.total.unreadCount : null,
-          pending: pendingState ? pendingState.items.length : null,
+          pending: pendingIdeas ? pendingIdeas.length : null,
           onOpenInbox: () => router.navigate('/obavestenja'),
           onOpenChat: () => router.navigate('/chat'),
           onOpenPending: openPending,

@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
-import { areasLabel, hubRowValue, PROSTOR_HUB_ROWS, PROSTOR_TEMP_ROWS } from './prostor-hub-model';
+import {
+  areasLabel,
+  hubRowValue,
+  ideaVotesLabel,
+  PROSTOR_HUB_ROWS,
+  PROSTOR_TEMP_ROWS,
+} from './prostor-hub-model';
 
 describe('Prostor — redovi početne startupa (K09, P18)', () => {
   test('redovi su tačno Zadaci · Dokumenti · Ideje · Kanali · Korpa, tim redom', () => {
@@ -24,11 +30,20 @@ describe('Prostor — redovi početne startupa (K09, P18)', () => {
     expect(areasLabel(0)).toBe('0 oblasti');
   });
 
-  test('samo Dokumenti imaju tekstualnu vrednost; dok broj stiže je nema', () => {
+  test('samo Dokumenti i Ideje imaju tekstualnu vrednost; dok broj stiže je nema', () => {
     expect(hubRowValue('oblasti', 4)).toBe('4 oblasti');
     expect(hubRowValue('oblasti', null)).toBeNull();
-    for (const id of ['zadaci', 'ideje', 'kanali', 'korpa'] as const) {
-      expect(hubRowValue(id, 4)).toBeNull();
+    for (const id of ['zadaci', 'kanali', 'korpa'] as const) {
+      expect(hubRowValue(id, 4, 3)).toBeNull();
     }
+    expect(hubRowValue('ideje', 4)).toBeNull();
+  });
+
+  test('K17 — Ideje nose broj ideja koje čekaju tvoj glas (bez ijedne: ništa)', () => {
+    expect(hubRowValue('ideje', 4, 2)).toBe('2 čeka');
+    expect(hubRowValue('ideje', null, 1)).toBe('1 čeka');
+    expect(hubRowValue('ideje', 4, 0)).toBeNull();
+    expect(hubRowValue('ideje', 4, null)).toBeNull();
+    expect(ideaVotesLabel(7)).toBe('7 čeka');
   });
 });

@@ -1,67 +1,73 @@
+import {
+  IDEA_CONVERTED_REASON,
+  IDEA_STAGE_CHANGE_REASON,
+  IDEA_STAGE_LABELS,
+} from '@devotion/shared';
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { Ellipsis, FileOutput, Lightbulb, TriangleAlert } from 'lucide-react-native';
+import { Ellipsis, FileOutput, Flag, History, Lightbulb, Pencil, TriangleAlert } from 'lucide-react-native';
 import { useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
-import { EmptyState } from '@/components/empty-state';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ColorRow } from '@/components/ui/color-row';
-import { IconButton } from '@/components/ui/icon-button';
-import { Input } from '@/components/ui/input';
-import { Row } from '@/components/ui/row';
-import { Sheet } from '@/components/ui/sheet';
 import { DiscussionLink } from '@/components/chat/discussion-link';
-import { ContributionThread } from '@/components/ideja/contribution-thread';
-import { IdeaActionsSheet, ideaDisplayTitle } from '@/components/ideja/idea-actions-sheet';
+import {
+  CommentsEntryRow,
+  CommentsSheet,
+  useCommentsSummary,
+} from '@/components/collab/comments-sheet';
+import { RevisionHistorySheet } from '@/components/collab/revision-history-sheet';
+import { EmptyState } from '@/components/empty-state';
+import { IdeaActionsSheet } from '@/components/ideja/idea-actions-sheet';
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { IdeaEdgeSheet, type IdeaEdgeDetail } from '@/components/ideja/idea-edge-sheet';
 import { IdeaEdgesSection } from '@/components/ideja/idea-edges-section';
+import { IdeaStageSheet } from '@/components/ideja/idea-stage-sheet';
+import {
+  convertHint,
+  ideaAuthorLine,
+  ideaDraftError,
+  ideaTitle,
+  stageLockedReason,
+} from '@/components/ideja/ideje-model';
+import { useIdeaVote } from '@/components/ideja/use-idea-vote';
 import { VoteButtons } from '@/components/ideja/vote-buttons';
+import { useLiveNow } from '@/components/collab/use-live-now';
 import { UndoBar } from '@/components/undo-bar';
+import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
+import { Input } from '@/components/ui/input';
+import { Row } from '@/components/ui/row';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { Sheet } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SkeletonCard, SkeletonList, SkeletonMessage } from '@/components/ui/skeletons';
+import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { absoluteNodePosition } from '@/lib/canvas-position';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import type { NodeColor } from '@/lib/thought-colors';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, space, text } from '@/theme/tokens';
+import { fontWeight, space, text } from '@/theme/tokens';
 
 /**
- * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (akcije → edit /
+ * Pauza između zatvaranja jednog i otvaranja drugog sheet-a (akcije → izmena /
  * konverzija). Dva istovremena RN `Modal`-a na Androidu umeju da progutaju
  * `onRequestClose` (vidi `misli.tsx`).
  */
 const SHEET_HANDOFF_MS = 320;
 
 /**
- * Ekran ideje — pandan web `idea-discussion-dialog.tsx`. Do sad je ideja na
- * telefonu bila samo red u listi (bez detalja), pa se diskusija tima uopšte nije
- * videla.
+ * Ekran ideje (PROSTOR P6, P16; plan K07 §5.9) — par web fioke ideje:
+ * tekst sa „Izmeni" i Istorijom izmena, Za/Protiv za svakog člana, Faza (sheet,
+ * samo kome server dozvoljava), Veze, Komentari (sheet) i „Pretvori u zadatak ili
+ * belešku" (samo u fazi „Odobreno" i samo kome server dozvoljava).
  *
- * Zašto ekran, a ne sheet: nit je duga, ima kompozer i uređivanje teksta —
- * tastatura i sheet na telefonu se tuku za istu polovinu ekrana.
- *
- * Podaci: `ideas.list` (ista pretplata koju lista/canvas već drže, pa ideja stiže
- * bez dodatnog upita) + `collaboration.listContributionsPaginated`. Bez nove
- * backend funkcije. Akcije (veze, gnježdenje, veličina, konverzija, brisanje sa
- * undo) žive u deljenom `IdeaActionsSheet` (PARITET A4/A6).
+ * Podaci: `ideas.list` (R7 — `ideas.get` ne postoji; ista pretplata koju lista i
+ * Mapa već drže). Ekran ne računa „autor": čita `permissions` sa servera (R17).
+ * Nema kartice u kartici — sekcije su naslov + sadržaj (SMIRENJE §1.5).
  */
 export default function IdejaScreen() {
   const colors = useThemeColors();
@@ -69,17 +75,22 @@ export default function IdejaScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const ideaId = id as Id<'ideaNodes'>;
-  const { activeStartupId } = useActiveStartup();
+  const { activeStartupId, restoring } = useActiveStartup();
+  const now = useLiveNow(60_000);
 
   const data = useQuery(
     api.ideas.list,
     activeStartupId ? { startupId: activeStartupId } : 'skip',
   );
-  const vote = useMutation(api.ideas.vote);
   const updateIdea = useMutation(api.ideas.update);
-  const [voting, setVoting] = useState(false);
+  const { cast, busyId } = useIdeaVote(activeStartupId);
+  const commentsSummary = useCommentsSummary({ kind: 'idea', id: ideaId });
+
   const [actionsOpen, setActionsOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
+  const [stageOpen, setStageOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [branchParent, setBranchParent] = useState<{
     id: Id<'ideaNodes'>;
     title: string;
@@ -87,38 +98,29 @@ export default function IdejaScreen() {
     y?: number;
   } | null>(null);
   const [edgeDetail, setEdgeDetail] = useState<IdeaEdgeDetail | null>(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftText, setDraftText] = useState('');
-  const [draftColor, setDraftColor] = useState<NodeColor>('violet');
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
   const idea = data?.nodes.find((node) => node._id === ideaId) ?? null;
 
-  const castVote = async (voteType: 'up' | 'down') => {
-    if (!activeStartupId || voting) return;
-    setVoting(true);
+  const openEdit = () => {
+    if (idea === null) return;
     haptics.tap();
-    try {
-      await vote({ startupId: activeStartupId, ideaId, voteType });
-      haptics.success();
-    } catch (error) {
-      haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Glas nije zabeležen.'));
-    } finally {
-      setVoting(false);
-    }
+    setDraftTitle(idea.title ?? '');
+    setDraftText(idea.text);
+    setEditError(null);
+    setEditing(true);
   };
 
-  /** Izmena ideje — pandan `ideas.update` sa weba. Boja se bira u `ColorRow`-u, isto kao kod misli. */
+  /** Izmena ideje — `ideas.update`; svaki član sme, prethodni tekst ostaje u Istoriji izmena. */
   async function saveEdit() {
     if (!activeStartupId || idea === null || saving) return;
-    const nextTitle = draftTitle.trim();
-    const nextText = draftText.trim();
-    if (!nextTitle || !nextText) {
-      setEditError('Naslov i tekst su obavezni.');
+    const problem = ideaDraftError({ title: draftTitle, text: draftText });
+    if (problem !== null) {
+      setEditError(problem);
       return;
     }
     setSaving(true);
@@ -127,9 +129,10 @@ export default function IdejaScreen() {
       await updateIdea({
         startupId: activeStartupId,
         ideaId,
-        title: nextTitle,
-        text: nextText,
-        color: draftColor,
+        title: draftTitle.trim(),
+        text: draftText.trim(),
+        // Boja je samo oznaka na Mapi (K16-4): izmena teksta je ne menja.
+        color: idea.color ?? 'violet',
       });
       haptics.success();
       setEditing(false);
@@ -139,6 +142,15 @@ export default function IdejaScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (activeStartupId === null && restoring) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ScreenHeader title="Ideja" onBack={() => router.back()} />
+        <IdeaSkeleton />
+      </View>
+    );
   }
 
   if (activeStartupId === null) {
@@ -169,151 +181,169 @@ export default function IdejaScreen() {
         <ScreenHeader title="Ideja" onBack={() => router.back()} />
         <EmptyState
           icon={<Lightbulb size={40} color={colors.mutedForeground} />}
-          title="Ideja više ne postoji"
-          description="Možda je arhivirana ili pripada drugom startupu."
-          actionLabel="Nazad"
-          onAction={() => router.back()}
+          title="Ideja nije pronađena."
+          description="Možda je u Korpi ili pripada drugom startupu."
+          actionLabel="Otvori Korpu"
+          onAction={() => router.replace('/korpa')}
         />
       </View>
     );
   }
 
-  const title = (idea.title ?? '').trim() || 'Ideja';
+  const title = ideaTitle(idea);
+  const convert = convertHint(idea);
+  const lockedReason = stageLockedReason(idea, {
+    changeStage: IDEA_STAGE_CHANGE_REASON,
+    converted: IDEA_CONVERTED_REASON,
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Visina zaglavlja je offset za `KeyboardAvoidingView` — isti obrazac kao
-          `zadatak/[id].tsx`. */}
-      <View onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
-        <ScreenHeader
-          title={title}
-          onBack={() => router.back()}
-          // Bezuslovno: „Poveži sa idejom…" ima svaki član (bar jedna strana veze
-          // mora biti njegova kartica), a brisanje/glasanje takođe ima svako.
-          actions={
-            <IconButton
-              accessibilityLabel="Akcije ideje"
+      <ScreenHeader
+        title={title}
+        titleNumberOfLines={2}
+        subtitle={ideaAuthorLine(idea, now)}
+        onBack={() => router.back()}
+        actions={
+          <IconButton
+            accessibilityLabel="Akcije ideje"
+            onPress={() => {
+              haptics.tap();
+              setActionsOpen(true);
+            }}>
+            <Ellipsis size={20} color={colors.foreground} />
+          </IconButton>
+        }
+      />
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}>
+        {idea.text.trim() ? (
+          <Text selectable style={[styles.body, { color: colors.foreground }]}>
+            {idea.text.trim()}
+          </Text>
+        ) : null}
+        <View style={styles.textActions}>
+          {idea.permissions.canEdit ? (
+            <Button
+              label="Izmeni"
+              variant="secondary"
+              size="sm"
+              icon={<Pencil size={16} color={colors.secondaryForeground} />}
+              onPress={openEdit}
+              style={styles.textAction}
+            />
+          ) : null}
+          <Button
+            label="Istorija izmena"
+            variant="secondary"
+            size="sm"
+            icon={<History size={16} color={colors.secondaryForeground} />}
+            onPress={() => {
+              haptics.tap();
+              setHistoryOpen(true);
+            }}
+            style={styles.textAction}
+          />
+        </View>
+
+        <VoteButtons
+          upvotes={idea.upvotes}
+          downvotes={idea.downvotes}
+          userVote={idea.userVote}
+          disabled={busyId === ideaId || !idea.permissions.canVote}
+          onVote={(next) => void cast(ideaId, idea.userVote, next)}
+        />
+
+        <View>
+          <Row
+            icon={<Flag size={20} color={colors.mutedForeground} />}
+            title="Faza"
+            value={IDEA_STAGE_LABELS[idea.stage]}
+            subtitle={lockedReason ?? undefined}
+            titleNumberOfLines={1}
+            // Bez prava: red bez strelice i bez dodira, razlog stoji u podnaslovu.
+            onPress={
+              idea.permissions.canSetStage
+                ? () => {
+                    haptics.tap();
+                    setStageOpen(true);
+                  }
+                : undefined
+            }
+            showChevron={idea.permissions.canSetStage}
+            accessibilityHint={idea.permissions.canSetStage ? 'Otvara izbor faze' : lockedReason ?? undefined}
+          />
+          {convert.kind === 'button' ? (
+            <Button
+              label="Pretvori u zadatak ili belešku"
+              variant="secondary"
+              icon={<FileOutput size={18} color={colors.secondaryForeground} />}
               onPress={() => {
                 haptics.tap();
-                setActionsOpen(true);
-              }}>
-              <Ellipsis size={20} color={colors.foreground} />
-            </IconButton>
-          }
-        />
-      </View>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        // `padding` na OBA sistema: Expo SDK 57 edge-to-edge (Android) razbija OS
-        // `adjustResize`, pa se tastatura kompenzuje u JS-u (isti obrazac i
-        // komentar kao `zadatak/[id].tsx` / `razgovor/[id].tsx`). Bez ovoga
-        // kompozer „Dodaj tekst" u Diskusiji na Androidu ostaje pod tastaturom.
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
-            {idea.text.trim() ? (
-              <Text style={[styles.body, { color: colors.foreground }]}>{idea.text.trim()}</Text>
-            ) : null}
-            {idea.author ? (
-              <Text style={[styles.meta, { color: colors.mutedForeground }]}>
-                Autor: {idea.author.displayName}
-              </Text>
-            ) : null}
-            <View style={styles.statusRow}>
-              <Badge
-                label={idea.isApproved ? 'Odobreno' : 'U razmatranju'}
-                variant={idea.isApproved ? 'success' : 'outline'}
-              />
-              <Text style={[styles.meta, { color: colors.mutedForeground }]}>
-                Odobrena je ideja koja ima više glasova za nego protiv.
-              </Text>
-            </View>
-            <VoteButtons
-              upvotes={idea.upvotes}
-              downvotes={idea.downvotes}
-              userVote={idea.userVote}
-              disabled={voting}
-              onVote={(next) => void castVote(next)}
+                setConvertOpen(true);
+              }}
+              style={styles.convert}
             />
-            {idea.convertedPageId ? (
-              // `/stranica/[id]` sama preusmerava zadatak na `/zadatak/[id]`,
-              // pa ne moramo znati vrstu rezultata.
-              <Row
-                icon={<FileOutput size={20} color={colors.mutedForeground} />}
-                title="Pretvorena u stranicu"
-                subtitle="Otvori radnu stavku nastalu iz ove ideje"
-                onPress={() => {
-                  haptics.tap();
-                  router.push({
-                    pathname: '/stranica/[id]',
-                    params: { id: idea.convertedPageId as string },
-                  });
-                }}
-                style={styles.convertedRow}
-              />
-            ) : null}
-          </View>
+          ) : convert.kind === 'hint' ? (
+            <Text style={[styles.meta, { color: colors.mutedForeground }]}>{convert.text}</Text>
+          ) : null}
+          {idea.convertedPageId ? (
+            // `/stranica/[id]` sama preusmerava zadatak na `/zadatak/[id]`,
+            // pa ne moramo znati vrstu rezultata.
+            <Row
+              icon={<FileOutput size={20} color={colors.mutedForeground} />}
+              title="Postalo zadatak"
+              subtitle="Otvori rezultat"
+              onPress={() => {
+                haptics.tap();
+                router.push({
+                  pathname: '/stranica/[id]',
+                  params: { id: idea.convertedPageId as string },
+                });
+              }}
+            />
+          ) : null}
+        </View>
 
-          <IdeaEdgesSection
-            ideaId={ideaId}
-            nodes={data.nodes}
-            edges={data.edges}
-            onOpenEdge={setEdgeDetail}
-          />
+        <IdeaEdgesSection
+          ideaId={ideaId}
+          nodes={data.nodes}
+          edges={data.edges}
+          onOpenEdge={setEdgeDetail}
+        />
 
-          {/* Naziv je isti kao na webu (`ideas-view.tsx` „Predlozi izmena"): ovo su
-              doprinosi koje autor ideje odobrava, NE chat. Chat je red ispod. */}
-          <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.foreground }]}>
-            Predlozi izmena
-          </Text>
-          <Text style={[styles.meta, text.body, { color: colors.mutedForeground }]}>
-            Tekst članova ide na odobrenje autoru ideje — dok čeka, stoji označen.
-          </Text>
-          <ContributionThread target={{ kind: 'idea', id: ideaId }} canAdd />
-
-          {/* Prava diskusija tima nad idejom (PARITET B4) — isti `anchorType: 'idea'`
-              kanal koji web `EntityDiscussionPanel` otvara na oba svoja mesta
-              (`ideas-view.tsx:646` i `:818`). Redosled je isti kao na webu:
-              predlozi izmena, pa diskusija. */}
-          <DiscussionLink
-            anchor={{ type: 'idea', id: ideaId }}
-            startupId={activeStartupId}
-          />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <View>
+          <CommentsEntryRow summary={commentsSummary} onPress={() => setCommentsOpen(true)} />
+          {/* Razgovor tima o ideji u Porukama (PARITET B4) — isti `anchorType: 'idea'` kanal. */}
+          <DiscussionLink anchor={{ type: 'idea', id: ideaId }} startupId={activeStartupId} />
+        </View>
+      </ScrollView>
 
       <IdeaActionsSheet
         open={actionsOpen}
         idea={actionsOpen ? idea : null}
         nodes={data.nodes}
         edges={data.edges}
-        currentProfileId={data.currentProfileId}
         startupId={activeStartupId}
         onClose={() => setActionsOpen(false)}
         onEdit={() => {
           setActionsOpen(false);
-          setTimeout(() => {
-            setDraftTitle(idea.title ?? '');
-            setDraftText(idea.text);
-            setDraftColor(idea.color ?? 'violet');
-            setEditError(null);
-            setEditing(true);
-          }, SHEET_HANDOFF_MS);
+          setTimeout(openEdit, SHEET_HANDOFF_MS);
         }}
         onConvert={() => {
           setActionsOpen(false);
           setTimeout(() => setConvertOpen(true), SHEET_HANDOFF_MS);
         }}
+        onStage={() => {
+          setActionsOpen(false);
+          setTimeout(() => setStageOpen(true), SHEET_HANDOFF_MS);
+        }}
         onBranch={() => {
           const at = absoluteNodePosition(data.nodes, idea._id, (n) => n.parentIdeaId);
           const parent = {
             id: idea._id,
-            title: ideaDisplayTitle(idea),
+            title: ideaTitle(idea),
             ...(at.complete ? { x: at.x, y: at.y } : {}),
           };
           setActionsOpen(false);
@@ -327,6 +357,13 @@ export default function IdejaScreen() {
         idea={convertOpen ? idea : null}
         startupId={activeStartupId}
         onClose={() => setConvertOpen(false)}
+      />
+
+      <IdeaStageSheet
+        open={stageOpen}
+        idea={stageOpen ? idea : null}
+        startupId={activeStartupId}
+        onClose={() => setStageOpen(false)}
       />
 
       <IdeaCreateSheet
@@ -347,15 +384,31 @@ export default function IdejaScreen() {
         }}
       />
 
-      {/* Obrisana ideja/veza/doprinos se vraća odavde (PARITET A6); traka preživi
-          i `router.back()` sa ovog ekrana (modul-store). */}
+      <CommentsSheet
+        target={{ kind: 'idea', id: ideaId }}
+        startupId={activeStartupId}
+        title={`Komentari · ${title}`}
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+      />
+
+      <RevisionHistorySheet
+        target={{ kind: 'idea', id: ideaId }}
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        title="Istorija izmena · Ideja"
+        format="text"
+        subject="page"
+        // Ideja nema broj revizije (vraćanje ne proverava konflikt).
+        currentRevision={undefined}
+        lockedReason={idea.permissions.canEdit ? null : IDEA_CONVERTED_REASON}
+      />
+
+      {/* Obrisana ideja/veza se vraća odavde (PARITET A6); traka preživi i
+          `router.back()` sa ovog ekrana (modul-store). */}
       <UndoBar />
 
-      <Sheet
-        visible={editing}
-        onClose={() => setEditing(false)}
-        avoidKeyboard
-        style={styles.editSheet}>
+      <Sheet visible={editing} onClose={() => setEditing(false)} avoidKeyboard style={styles.editSheet}>
         <Text accessibilityRole="header" style={[styles.editHeading, { color: colors.foreground }]}>
           Izmeni ideju
         </Text>
@@ -364,6 +417,7 @@ export default function IdejaScreen() {
             {editError}
           </Text>
         )}
+        <ScrollView style={styles.editScroll} keyboardShouldPersistTaps="handled">
         <Input
           value={draftTitle}
           onChangeText={(next) => {
@@ -387,7 +441,10 @@ export default function IdejaScreen() {
           placeholder="O čemu se radi?"
           style={styles.editBody}
         />
-        <ColorRow value={draftColor} onChange={setDraftColor} disabled={saving} colors={colors} />
+        <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+          Prethodni tekst ostaje u Istoriji izmena.
+        </Text>
+        </ScrollView>
         <View style={styles.editActions}>
           <Button
             label="Otkaži"
@@ -408,21 +465,14 @@ export default function IdejaScreen() {
   );
 }
 
-
-/** Oblik ekrana ideje: kartica (naslov, tekst, autor, glasovi), pa nit diskusije. */
+/** Oblik ekrana ideje: tekst, glasovi, redovi. */
 function IdeaSkeleton() {
-  const colors = useThemeColors();
   return (
     <View style={styles.content} accessible accessibilityLiveRegion="polite" accessibilityLabel="Učitavanje ideje">
-      <SkeletonCard style={[styles.card, { backgroundColor: colors.surface }]}>
-        <Skeleton width="62%" height={20} />
-        <Skeleton width="100%" height={14} />
-        <Skeleton width="78%" height={14} />
-        <Skeleton width="30%" height={12} />
-        <Skeleton width={140} height={36} borderRadius={radius.control} />
-      </SkeletonCard>
-      <Skeleton width="35%" height={20} />
-      <SkeletonList count={3} item={(index) => <SkeletonMessage index={index} />} />
+      <Skeleton width="100%" height={14} />
+      <Skeleton width="78%" height={14} />
+      <Skeleton width="100%" height={48} />
+      <SkeletonList count={3} item={(index) => <SkeletonRow index={index} />} />
     </View>
   );
 }
@@ -439,7 +489,7 @@ function IdejaError({ message, onRetry }: { message: string; onRetry: () => void
       <ScreenHeader title="Ideja" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Ideja se ne može učitati"
+        title="Ideja nije učitana."
         description={message || 'Došlo je do greške pri učitavanju ideje.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
@@ -457,6 +507,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: fontWeight.semibold,
   },
+  // Dugmad ostaju ispod; polja se skroluju kad ih tastatura stisne.
+  editScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
   editBody: {
     minHeight: 120,
     textAlignVertical: 'top',
@@ -472,39 +527,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  flex: {
-    flex: 1,
-  },
   content: {
-    padding: 16,
-    gap: 12,
-  },
-  card: {
-    gap: 8,
-    padding: 14,
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  title: {
-    ...text.title,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 16,
   },
   body: {
     ...text.body,
   },
-  meta: {
-    ...text.meta,
-  },
-  statusRow: {
+  textActions: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  sectionTitle: {
-    ...text.title,
+  textAction: {
+    flexGrow: 0,
+  },
+  convert: {
     marginTop: 8,
   },
-  convertedRow: {
-    paddingHorizontal: 0,
-    minHeight: 48,
+  meta: {
+    ...text.meta,
   },
 });

@@ -268,6 +268,17 @@ export type UndoAction =
    */
   | { kind: 'trashRestore'; pageId: Id<'pages'> }
   /**
+   * Promenjena faza ideje (PROSTOR K17, par web „Poništi" posle promene faze).
+   * Inverzan upis: `previousStage` je SAČUVANA faza OD PRE radnje (`setStage` je
+   * vraća kao `previousStage`), pa je poništavanje isti `ideas.setStage` poziv.
+   */
+  | {
+      kind: 'ideaStage';
+      startupId: Id<'startups'>;
+      ideaId: Id<'ideaNodes'>;
+      previousStage: 'predlog' | 'razmatra_se' | 'odobreno' | 'odbijeno';
+    }
+  /**
    * Završen (ili vraćen) zadatak u startupu iz Moj dan (K12). Inverzan upis, ne
    * vraćanje arhiviranog: `status` je status OD PRE radnje (npr. „U toku"), pa je
    * poništavanje isti `tasks.updateMetadata` poziv — isto što web radi kroz

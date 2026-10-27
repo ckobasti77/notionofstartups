@@ -45,6 +45,7 @@ import {
   type ThoughtNodeTarget,
 } from '@/components/canvas/thought-node-sheet-actions';
 import { EmptyState } from '@/components/empty-state';
+import { TidyIdeasButton } from '@/components/ideja/tidy-ideas-button';
 import { ThoughtConversionSheet } from '@/components/misli/thought-conversion-sheet';
 import { UndoBar } from '@/components/undo-bar';
 import { useActiveStartup } from '@/context/active-startup';
@@ -904,21 +905,25 @@ export default function CanvasScreen() {
         onBack={() => router.back()}
         colors={colors}
         right={
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={landscape ? 'Vrati u uspravan prikaz' : 'Rotiraj u položeni prikaz'}
-            accessibilityState={{ selected: landscape }}
-            onPress={() => {
-              haptics.select();
-              void toggleOrientation();
-            }}
-            style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
-            {landscape ? (
-              <Minimize2 size={22} color={colors.foreground} />
-            ) : (
-              <Maximize2 size={22} color={colors.foreground} />
-            )}
-          </Pressable>
+          <>
+            {/* „Sredi raspored" je sa liste Ideja prešao ovde (K07 §5.9). */}
+            {isIdeas && activeStartupId ? <TidyIdeasButton startupId={activeStartupId} /> : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={landscape ? 'Vrati u uspravan prikaz' : 'Rotiraj u položeni prikaz'}
+              accessibilityState={{ selected: landscape }}
+              onPress={() => {
+                haptics.select();
+                void toggleOrientation();
+              }}
+              style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted }]}>
+              {landscape ? (
+                <Minimize2 size={22} color={colors.foreground} />
+              ) : (
+                <Maximize2 size={22} color={colors.foreground} />
+              )}
+            </Pressable>
+          </>
         }
       />
 

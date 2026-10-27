@@ -1,4 +1,4 @@
-import { hubUnreadLabel } from '@devotion/shared';
+import { hubUnreadLabel, pendingIdeaVotes } from '@devotion/shared';
 import { useRouter } from 'expo-router';
 import {
   Activity,
@@ -56,11 +56,14 @@ const ROW_HINT: Record<ProstorHubDestination, string> = {
  */
 export function ProstorHubRows({
   areaCount,
+  ideaVotes = null,
   channelsUnread,
   onOpen,
 }: {
   /** Broj oblasti za „Dokumenti"; `null` dok stiže. */
   areaCount: number | null;
+  /** Ideje koje čekaju tvoj glas, za „Ideje" (K17); `null` dok stiže. */
+  ideaVotes?: number | null;
   /** Nepročitano u chatu ovog startupa (pilula uz „Kanali"). */
   channelsUnread: number;
   onOpen: (destination: ProstorHubDestination) => void;
@@ -71,7 +74,7 @@ export function ProstorHubRows({
         <HubRow
           key={row.id}
           row={row}
-          value={hubRowValue(row.id, areaCount)}
+          value={hubRowValue(row.id, areaCount, ideaVotes)}
           unread={row.id === 'kanali' ? channelsUnread : 0}
           onOpen={onOpen}
         />
@@ -131,19 +134,26 @@ function HubRow({
 }
 
 /**
- * Kontejner redova: broj oblasti iz `startups.get` i nepročitano iz
- * `chat.unreadSummary` (isti izvor kao bedž taba). Oba su pratioci — pad upita
- * samo sakrije broj, redovi i dalje vode gde treba.
+ * Kontejner redova: broj oblasti iz `startups.get`, ideje na glasanju iz
+ * `inbox.pending` i nepročitano iz `chat.unreadSummary` (isti izvor kao bedž
+ * taba). Sve su pratioci — pad upita samo sakrije broj, redovi i dalje vode gde treba.
  */
 export function ProstorHub({ startupId }: { startupId: Id<'startups'> }) {
   const router = useRouter();
   const startup = useQueryTolerant(api.startups.get, { startupId });
   const unread = useQueryTolerant(api.chat.unreadSummary, {});
+  // Ideje koje čekaju moj glas u OVOM startupu (K17); pratilac — pad samo sakrije broj.
+  const pending = useQueryTolerant(api.inbox.pending, {
+    startupId,
+    include: ['idea_vote' as const],
+  });
+  const ideaVotes = pending ? pendingIdeaVotes(pending.items).length : null;
   const channelsUnread =
     unread?.byStartup.find((entry) => entry.startupId === startupId)?.unreadCount ?? 0;
   return (
     <ProstorHubRows
       areaCount={startup ? startup.areas.length : null}
+      ideaVotes={ideaVotes}
       channelsUnread={channelsUnread}
       onOpen={(destination) => openProstorDestination(router, destination)}
     />

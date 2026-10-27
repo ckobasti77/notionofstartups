@@ -166,6 +166,27 @@ describe('lib/undo — stek poništavanja (PARITET-REVIZIJA C12)', () => {
     expect(snapshot.stack.map((entry) => entry.action.kind)).toEqual(['trashRestore', 'comment']);
   });
 
+  test('K17 — promena faze ideje pamti SAČUVANU prethodnu fazu, bez roka', () => {
+    pushUndo({
+      label: 'Ideja je u fazi „Razmatra se”.',
+      action: {
+        kind: 'ideaStage',
+        startupId: 's1' as Id<'startups'>,
+        ideaId: 'i1' as Id<'ideaNodes'>,
+        previousStage: 'predlog',
+      },
+    });
+    const snapshot = getUndoSnapshotForTest();
+    expect(snapshot.bar?.action).toEqual({
+      kind: 'ideaStage',
+      startupId: 's1',
+      ideaId: 'i1',
+      previousStage: 'predlog',
+    });
+    expect(snapshot.bar?.undoUntil).toBeUndefined();
+    expect(snapshot.stack.map((entry) => entry.action.kind)).toContain('ideaStage');
+  });
+
   test('K09 — poruka bez „Poništi" (Korpa) smenjuje traku, a stek ostaje netaknut', () => {
     let opened = 0;
     push('Prva', 'a');
