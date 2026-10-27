@@ -1207,3 +1207,28 @@ Spisak privatnosti iz zadatka → dokaz: nečlan/uklonjen član/arhiviran profil
 - Deploy: stari klijenti posle novog backenda (F7) — drži razmak Convex → web → telefon JS kratkim.
 
 **K23 — dopuna (završna provera):** sve provere iz definicije završenog koraka ponovo puštene na konačnom stanju: `npx convex codegen` ✓ (`_generated` nepromenjen), tsc backend ✓, tsc web ✓, `expo-rute.cjs` + tsc telefon ✓, eslint ✓ (bez izlaza), vitest ✓ — 148 fajlova, 1564 testa (`.nocni-run/prostor/tmp/K23-vitest4.log`). `netstat`: nijedan slušalac na 3000–3003, 8081, 19006; nijedan moj pozadinski zadatak ni radnik nije aktivan.
+
+## K24 — Završni izveštaj i snimci   (2026-10-27 13:55)
+**Fajlovi:**
+- Nov: `docs/PROSTOR-REPORT.md` (odeljci 0–10 + prilog „Testovi menjani zbog novog pravila").
+- Novi snimci: `docs/prostor/snimci/K24-{ljuska-startup,stranica,oblast,korpa}-1440-tamna.png`, `K24-{ljuska-startup,stranica,oblast,korpa}-390-svetla.png`, `K24-{komandni-centar,zadatak-strana,ideje,beleske}-1440-svetla.png`, `K24-{komandni-centar,zadatak-strana,ideje,beleske}-390-tamna.png` (16).
+- Obrisano: zaostali `docs/prostor/snimci/page-*.yml` (1, iz ovog koraka); `console-*.log` premešten u `.nocni-run/prostor/tmp/K24/`.
+- Dokazi (privremeno): `.nocni-run/prostor/tmp/K24/` — logovi provera (`tsc-*.log`, `eslint.log`, `vitest.log`, `build.log`, `provere.txt`), izvod izveštaja K23 radnika (`K23-radnik-*.txt`), sažeci progress-a (`digest-{A,B,C}.md`), izvod testova menjanih zbog pravila (`testovi-menjani.md`).
+
+**Šta je urađeno:** Napisan završni izveštaj za Jovana iz plana, svih sekcija progress-a (K02–K23; K04–K22 saželi su Sonnet radnici u `digest-*.md`, provereno uz sekcije K02, K03 i K23 koje sam čitao sam), šeme (`git diff b735a39 HEAD -- schema.ts`), logova runnera (broj testova po koraku iz `logs/K*_test.json`) i LICNO izveštaja (broj testova pre runa: 101/1.031, potvrđeno sa 101 test fajlom na `b735a39`). Proverio sam napomenu nadzora o K23: log `K23_main_1.jsonl` pokazuje da je pet radnika zaustavljeno (`killed.system: 5`), pa nastavljeno porukom „završi u narednih 10 minuta i vrati izveštaj sa onim što imaš do sada"; svih pet je predalo izveštaj, ali su delimični (radnik pariteta: „Rok je istekao pre kraja pregleda"). Rupe iz njihovih odeljaka „Nije provereno" su upisane u izveštaj §3 i §7 (tačka 10). Završni snimci: osam glavnih površina iz izloga, 1440 (viewport) i 390 (cela strana), bez bočnog skrola i grešaka u konzoli. Provere puštene na konačnom stanju; dev server ugašen.
+
+**ODLUKE:**
+- K24-1 Snimci: najviše 16, a površina je osam (ljuska, Komandni centar, stranica, zadatak, oblast, Ideje, Korpa, Beleške) — svaka po jednom na 1440 i 390, u suprotnim temama (pola površina 1440 tamna + 390 svetla, pola obrnuto). Tako su obe širine i obe teme pokrivene, a nijedna glavna površina ne ispada; sve kombinacije po površini već postoje iz K08–K22.
+- K24-2 Snimci na 390 su cela strana (`fullPage`): na 844 px visine viewport prikazuje skoro samo traku izloga.
+- K24-3 Tvrdnju K23-6 („svih pet oblasti nezavisno pregledane") izveštaj ne prenosi bez ograde: pregled je delimičan i to je navedeno po oblasti (§3), uz stavke ručne provere (§7.10). Nova revizija nije pokretana (napomena nadzora).
+- K24-4 U §5 su svi P1–P25 sa napomenom gde je run odstupio ili precizirao, a od ODLUKA iz koraka samo one koje menjaju ono što tim vidi ili koje su koraci sami označili kao Jovanovo pitanje (22 reda); tehničke ostaju u progress-u.
+- K24-5 `procesi.ps1` je pušten bez `-ExecutionPolicy Bypass` (varijanta sa njim je odbijena, „Security Weaken"); skripta je radila i ispisala red uslova. Varijanta bez prekidača nije zaobilaženje — ista skripta, ista komanda, bez spuštanja politike.
+- K24-6 Stavka „isManager na telefonskom ekranu Zadaci" (K19-9) je proverena grep-om na konačnom stanju: i dalje otvorena, upisana u §3 i §5.
+
+**Novi paketi:** nema
+**Šema:** nema
+**Testovi:** nisu pisani ni menjani (korak je izveštaj).
+**Testovi menjani zbog novog pravila:** nema (zbirna lista svih koraka je prilog izveštaja).
+**Paritet:** nema nove funkcije. Izveštaj nabraja IZUZETKE i otvorene razlike (telefon Zadaci `isManager`, kartica oblasti, sortiranje ideja, konflikt preimenovanja u sheet-u, trajanje „Poništi" za „Sredi rokove").
+**Rezultat provere:** tsc backend ✓, tsc web ✓, `expo-rute.cjs` + tsc telefon ✓, eslint ✓ (bez izlaza), vitest ✓ — 148 fajlova, 1.564 testa; `npm run build` ✓. Kod nije menjan. `procesi.ps1` (bez `-ExecutionPolicy Bypass`) → „USLOV 4: OK - nijedan dev server ni slusalac na dev portu iz ovog repoa ne radi."
+**Za Jovana ujutru:** čitaj `docs/PROSTOR-REPORT.md` — §0 (ukratko), §4 (BLOKADE), §5 (odluke), §6 (deploy redosled i `closeLegacyRequests`), §7 (ručna provera sa dva naloga i na telefonu).
