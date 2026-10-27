@@ -66,9 +66,16 @@ export function navigateToNotificationDestination(
           : { pathname: '/puls', params: { weekStart: String(dest.weekStart) } },
       );
       return;
+    case 'area':
+      // Komentar na opisu oblasti nosi areaId → ekran oblasti (K14); bez id-ja
+      // Komandni centar startupa.
+      if (dest.entityId) {
+        router.push({ pathname: '/oblast/[id]', params: { id: dest.entityId } });
+        return;
+      }
+      navigateToFallback(router, dest);
+      return;
     default:
-      // Uključuje `area` (komentar na opisu oblasti): ekran oblasti dolazi sa
-      // K14, do tada Komandni centar startupa.
       navigateToFallback(router, dest);
   }
 }

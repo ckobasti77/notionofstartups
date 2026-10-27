@@ -33,10 +33,16 @@ describe('obaveštenje → ekran na telefonu (PROSTOR K09)', () => {
     expect(calls).toEqual([{ method: 'navigate', href: '/prostor' }]);
   });
 
-  test('`area` do K14 pada na početnu Prostora; lična rezerva ide na Danas', () => {
+  test('`area` otvara ekran oblasti (K14); bez id-ja pada na početnu Prostora; lična rezerva ide na Danas', () => {
     const area = fakeRouter();
     navigateToNotificationDestination(area.router, dest({ screen: 'area', entityId: 'a1' }));
-    expect(area.calls).toEqual([{ method: 'navigate', href: '/prostor' }]);
+    expect(area.calls).toEqual([
+      { method: 'push', href: { pathname: '/oblast/[id]', params: { id: 'a1' } } },
+    ]);
+
+    const noId = fakeRouter();
+    navigateToNotificationDestination(noId.router, dest({ screen: 'area' }));
+    expect(noId.calls).toEqual([{ method: 'navigate', href: '/prostor' }]);
 
     const personal = fakeRouter();
     navigateToNotificationDestination(personal.router, dest({ screen: 'today', scope: 'personal' }));

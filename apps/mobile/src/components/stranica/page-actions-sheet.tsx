@@ -44,7 +44,7 @@ export type SheetView = 'menu' | 'move' | 'moveTarget' | 'nest' | 'relate' | 're
 const VIEW_TITLE: Record<Exclude<SheetView, 'menu'>, string> = {
   move: 'Premesti u oblast',
   moveTarget: 'Mesto u oblasti',
-  nest: 'Ugnjezdi pod…',
+  nest: 'Ugnezdi u…',
   relate: 'Poveži sa…',
   rename: 'Preimenuj',
 };
@@ -286,12 +286,12 @@ export function PageActionsSheet({
     // Destruktivno po strukturi stabla — upozorenje pre potvrde, ne posle.
     haptics.warning();
     Alert.alert(
-      'Izdvojiti stranicu?',
+      'Odvojiti stranicu?',
       `„${page.title || 'Stranica bez naslova'}" se odvaja od roditelja i vraća u koren oblasti.`,
       [
         { text: 'Otkaži', style: 'cancel' },
         {
-          text: 'Izdvoji',
+          text: 'Odvoji',
           style: 'destructive',
           onPress: () =>
             void runAction('detach', async () => {
@@ -420,7 +420,7 @@ export function PageActionsSheet({
                 icon={<FolderOutput size={20} color={colors.mutedForeground} />}
               />
               <Row
-                title="Ugnjezdi pod…"
+                title="Ugnezdi u…"
                 subtitle="Bilo koja dubina u ovoj oblasti"
                 onPress={() => setView('nest')}
                 disabled={!page.permissions.canMove}
@@ -428,7 +428,7 @@ export function PageActionsSheet({
                 icon={<FolderInput size={20} color={colors.mutedForeground} />}
               />
               <Row
-                title="Izdvoji"
+                title="Odvoji"
                 subtitle="Odvaja od roditelja i vraća u koren oblasti"
                 onPress={detach}
                 disabled={!page.permissions.canDetach || busyId !== null}

@@ -166,12 +166,15 @@ export function PageCreateSheet({
   startupId,
   areaId,
   parentPageId,
+  initialKind,
   onClose,
 }: {
   open: boolean;
   startupId: Id<'startups'>;
   areaId: Id<'startupAreas'>;
   parentPageId: Id<'pages'> | null;
+  /** Vrsta izabrana pri otvaranju (npr. „Novi zadatak" na kartici Zadaci); vraćen nacrt ima prednost. */
+  initialKind?: PageKind;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
@@ -310,6 +313,8 @@ export function PageCreateSheet({
       if (draft !== null) {
         hydrate(draft);
         assigneeDefaultedRef.current = true;
+      } else if (initialKind !== undefined) {
+        setKind(initialKind);
       }
     } else if (!open) {
       openedRef.current = false;

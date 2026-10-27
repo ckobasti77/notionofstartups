@@ -13,9 +13,12 @@ const SIZE = 56;
 export function QuickAddFab({
   onPress,
   label = 'Brzi unos',
+  bottomInset = 0,
 }: {
   onPress: () => void;
   label?: string;
+  /** Ekrani bez tab bara (gurnuti) dodaju donji safe area, da dugme ne zađe u home indikator. */
+  bottomInset?: number;
 }) {
   const colors = useThemeColors();
   return (
@@ -25,6 +28,7 @@ export function QuickAddFab({
       onPress={onPress}
       style={({ pressed }) => [
         styles.fab,
+        bottomInset > 0 && { bottom: 16 + bottomInset },
         {
           backgroundColor: colors.primary,
           shadowColor: SHADOW_COLOR,

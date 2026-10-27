@@ -146,10 +146,7 @@ export function PathSheet({
   const openArea = () => {
     haptics.tap();
     onClose();
-    router.navigate({
-      pathname: '/prostor',
-      params: { areaId, areaLabel: area?.label ?? 'Oblast' },
-    });
+    router.push({ pathname: '/oblast/[id]', params: { id: areaId } });
   };
 
   const areaRow =

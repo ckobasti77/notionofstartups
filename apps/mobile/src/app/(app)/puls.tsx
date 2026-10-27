@@ -94,14 +94,11 @@ export default function PulsScreen() {
     setWeekStart(next);
   }
 
-  /** Red oblasti vodi u Prostor otvoren na toj oblasti — pandan web `puls-view`,
-   *  gde je red dugme koje menja `WorkspaceRoute` na tu oblast. */
+  /** Red oblasti otvara ekran oblasti (K14) — pandan web `puls-view`, gde je red
+   *  dugme koje menja `WorkspaceRoute` na tu oblast. */
   function openArea(area: AreaSummary) {
     haptics.tap();
-    router.navigate({
-      pathname: '/prostor',
-      params: { areaId: area.areaId, areaLabel: area.label },
-    });
+    router.push({ pathname: '/oblast/[id]', params: { id: area.areaId } });
   }
 
   const weekEnd = addWeeks(weekStart, 1);

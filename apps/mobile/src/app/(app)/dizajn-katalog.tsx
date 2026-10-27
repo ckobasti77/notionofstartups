@@ -99,6 +99,7 @@ import {
 import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
 import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
 import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
+import { ProstorK14Katalog } from '@/components/katalog/prostor-k14';
 import { UndoBar } from '@/components/undo-bar';
 import { DatePickerSheet } from '@/components/ui/date-picker-sheet';
 import {
@@ -1046,6 +1047,9 @@ export default function DizajnKatalogScreen() {
 
         {/* PROSTOR K12: komentari, unos sa @, zaključano i „uređuje“. */}
         <ProstorK12Katalog />
+
+        {/* PROSTOR K14: oblast — kartice, opis, Istorija, Komentari, Nedavne izmene. */}
+        <ProstorK14Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 

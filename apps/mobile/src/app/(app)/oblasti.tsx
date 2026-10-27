@@ -8,6 +8,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
 import { exitFade, listLayout, useListEntering } from '@/components/motion';
+import {
+  AREA_ROW_TASK_COUNT_MAX,
+  areaMetaLine,
+  taskCountFromPage,
+  TASK_COUNT_PAGE_SIZE,
+  type CountValue,
+} from '@/components/oblast/area-model';
 import { CreateAreaSheet } from '@/components/prostor/create-area-sheet';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { Row } from '@/components/ui/row';
@@ -39,14 +46,6 @@ type RecentPage = {
   updatedAt: number;
 };
 
-/** „1 stranica" · „3 stranice" · „7 stranica" (za čitač ekrana). */
-function pagesLabel(label: string, count: number): string {
-  const lastTwo = count % 100;
-  const last = count % 10;
-  const noun = last === 1 && lastTwo !== 11 ? 'stranica' : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? 'stranice' : 'stranica';
-  return `${label} ${noun}`;
-}
-
 /** „14:22" danas, inače dan („juče", „7. avgust"). */
 function formatRecentTime(updatedAt: number, now: number): string {
   const day = startOfLocalDay(updatedAt);
@@ -55,10 +54,8 @@ function formatRecentTime(updatedAt: number, now: number): string {
 
 /**
  * „Dokumenti" (PROSTOR P18, plan K07 §4.5) — lista oblasti aktivnog startupa sa
- * brojem stranica na vrhu oblasti, „Nova oblast" i „Nedavno". Ulaz je red
- * „Dokumenti" u Prostoru; do sada je ovo bio segment „Oblasti" Prostora.
- * Dodir na oblast do K14 otvara postojeći ekran oblasti u Prostoru
- * (`/prostor?areaId=`), a od K14 vodi na `/oblast/[id]`.
+ * brojem stranica i zadataka, „Nova oblast" i „Nedavno". Ulaz je red „Dokumenti"
+ * u Prostoru; dodir na oblast otvara ekran oblasti (`/oblast/[id]`, K14).
  */
 export default function OblastiScreen() {
   const colors = useThemeColors();
@@ -91,9 +88,7 @@ export default function OblastiScreen() {
 
   const openArea = (area: Doc<'startupAreas'>) => {
     haptics.tap();
-    // Do K14: ekran oblasti živi u Prostoru i otvara se parametrom (isto kao red
-    // oblasti u Pulsu); `dismissTo` se vraća na postojeći tab, ne gura drugi.
-    dismissToProstor(router, { areaId: area._id, areaLabel: area.label });
+    router.push({ pathname: '/oblast/[id]', params: { id: area._id } });
   };
 
   const openPage = (page: RecentPage) => {
@@ -141,31 +136,22 @@ export default function OblastiScreen() {
               showsVerticalScrollIndicator={false}
               refreshControl={refreshControl}>
               <Animated.View layout={layout}>
-                {startup.areas.map((area, index) => {
-                  const count = countByArea.get(area._id);
-                  const label = count ? (count.capped ? `${count.count}+` : String(count.count)) : null;
-                  return (
-                    <Animated.View
-                      key={area._id}
-                      entering={entering(index)}
-                      exiting={exitFade(reduced)}
-                      layout={layout}>
-                      <Row
-                        icon={<FolderClosed size={20} color={colors.mutedForeground} />}
-                        title={area.label}
-                        value={
-                          label ??
-                          (counts === undefined ? (
-                            <Skeleton width={26} height={14} borderRadius={radius.sm} />
-                          ) : undefined)
-                        }
-                        accessibilityLabel={`Otvori oblast ${area.label}${label && count ? `, ${pagesLabel(label, count.count)}` : ''}`}
-                        onPress={() => openArea(area)}
-                        style={[styles.row, styles.rowSingle]}
-                      />
-                    </Animated.View>
-                  );
-                })}
+                {startup.areas.map((area, index) => (
+                  <Animated.View
+                    key={area._id}
+                    entering={entering(index)}
+                    exiting={exitFade(reduced)}
+                    layout={layout}>
+                    <AreaListRow
+                      startupId={startup._id}
+                      area={area}
+                      pages={countByArea.get(area._id) ?? null}
+                      pagesLoading={counts === undefined}
+                      withTasks={index < AREA_ROW_TASK_COUNT_MAX}
+                      onPress={() => openArea(area)}
+                    />
+                  </Animated.View>
+                ))}
                 <Animated.View layout={layout}>
                   <Row
                     icon={<Plus size={20} color={colors.mutedForeground} />}
@@ -233,7 +219,56 @@ export default function OblastiScreen() {
   );
 }
 
-/** Oblik reda oblasti: ikonica, naziv, broj desno. */
+/**
+ * Red oblasti: naziv + meta „12 stranica · 8 zadataka". Broj stranica dolazi iz
+ * jednog upita za celu listu, a broj zadataka iz prve strane `tasks.listForArea`
+ * (50, „50+") — pretplata po redu, pa samo za prvih `AREA_ROW_TASK_COUNT_MAX`.
+ * Pad brojeva ne obara red: ostaje naziv bez mete.
+ */
+function AreaListRow({
+  startupId,
+  area,
+  pages,
+  pagesLoading,
+  withTasks,
+  onPress,
+}: {
+  startupId: Id<'startups'>;
+  area: Doc<'startupAreas'>;
+  pages: CountValue | null;
+  pagesLoading: boolean;
+  withTasks: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const firstTaskPage = useQueryTolerant(
+    api.tasks.listForArea,
+    withTasks
+      ? {
+          startupId,
+          areaId: area._id,
+          paginationOpts: { numItems: TASK_COUNT_PAGE_SIZE, cursor: null },
+        }
+      : 'skip',
+  );
+  const tasks = firstTaskPage ? taskCountFromPage(firstTaskPage) : null;
+  const meta = areaMetaLine(pages, tasks);
+  const waiting = meta === null && (pagesLoading || (withTasks && firstTaskPage === undefined));
+  return (
+    <Row
+      icon={<FolderClosed size={20} color={colors.mutedForeground} />}
+      title={area.label}
+      subtitle={
+        meta ?? (waiting ? <Skeleton width={120} height={13} borderRadius={radius.sm} /> : undefined)
+      }
+      accessibilityLabel={`Otvori oblast ${area.label}${meta ? `, ${meta}` : ''}`}
+      onPress={onPress}
+      style={[styles.row, meta === null && !waiting && styles.rowSingle]}
+    />
+  );
+}
+
+/** Oblik reda oblasti: ikonica, naziv, meta ispod. */
 function AreasSkeleton() {
   return (
     <View
@@ -244,7 +279,7 @@ function AreasSkeleton() {
       <SkeletonList
         count={4}
         gap={0}
-        item={(index) => <SkeletonRow index={index} leading="icon" trailing="value" />}
+        item={(index) => <SkeletonRow index={index} leading="icon" subtitle />}
       />
     </View>
   );

@@ -7,14 +7,10 @@ type Router = ReturnType<typeof useRouter>;
  * expo-router taj NAVIGATE vezuje za postojeći `(tabs)` samo kad je on na vrhu
  * steka, pa bi sa Korpe/Dokumenata gurnuo DRUGI `(tabs)` iznad ekrana (dupli
  * Prostor, „nazad" vraća na ekran sa kog se otišlo). `dismissTo` skida ekrane
- * do postojećeg `(tabs)` (i doda ga ako ga nema), uz opcione parametre.
+ * do postojećeg `(tabs)` (i doda ga ako ga nema).
  */
-export function dismissToProstor(
-  router: Router,
-  params?: { areaId: string; areaLabel: string },
-): void {
-  if (params) router.dismissTo({ pathname: '/prostor', params });
-  else router.dismissTo('/prostor');
+export function dismissToProstor(router: Router): void {
+  router.dismissTo('/prostor');
 }
 
 /**
