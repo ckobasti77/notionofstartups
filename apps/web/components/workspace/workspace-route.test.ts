@@ -411,4 +411,45 @@ describe("workspace URL route contract", () => {
       expect(withPageTab({ kind: "page", pageId: "page-1" as never }, { kind: "page", pageId: "page-1" })).toEqual({ kind: "page", pageId: "page-1" });
     });
   });
+
+  describe("oblast sa karticama (PROSTOR P12, K13)", () => {
+    it("tab iz URL-a bira karticu; nepoznata ili bez nje ostavlja izbor oblasti", () => {
+      for (const tab of ["pregled", "zadaci", "dokumenti", "mapa"] as const) {
+        expect(readWorkspaceRouteCandidate(`?view=area&areaId=area-1&tab=${tab}`)).toEqual({ kind: "area", areaId: "area-1", tab });
+      }
+      expect(readWorkspaceRouteCandidate("?view=area&areaId=area-1&tab=nesto")).toEqual({ kind: "area", areaId: "area-1" });
+      expect(readWorkspaceRouteCandidate("?view=area&areaId=area-1")).toEqual({ kind: "area", areaId: "area-1" });
+      expect(readWorkspaceRouteCandidate("?view=area&tab=zadaci")).toBeNull();
+      expect(readAreasRouteCandidate("?view=area&areaId=area-1&tab=dokumenti")).toEqual({ kind: "area", areaId: "area-1", tab: "dokumenti" });
+      // Service worker (`public/sw.js`): komentar na opisu oblasti otvara Pregled.
+      expect(readWorkspaceLocation("?startupId=startup-3&view=area&areaId=area-1&tab=pregled")).toEqual({
+        route: { kind: "area", areaId: "area-1", tab: "pregled" },
+        startupId: "startup-3",
+        hasExplicitView: true,
+      });
+    });
+
+    it("href nosi karticu oblasti, a prelaz na drugi prikaz je briše", () => {
+      expect(
+        workspaceRouteHref({ kind: "area", areaId: "area-1" as never, tab: "dokumenti" }, "https://example.test/", "startup-1" as never),
+      ).toBe("/?view=area&areaId=area-1&tab=dokumenti&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "area", areaId: "area-1" as never }, "https://example.test/?view=area&areaId=area-1&tab=mapa", "startup-1" as never),
+      ).toBe("/?view=area&areaId=area-1&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "page", pageId: "page-1" as never }, "https://example.test/?view=area&areaId=area-1&tab=zadaci", "startup-1" as never),
+      ).toBe("/?view=page&pageId=page-1&startupId=startup-1");
+    });
+
+    it("razrešena oblast zadržava traženu karticu samo za istu oblast", () => {
+      const candidate = { kind: "area", areaId: "area-1", tab: "dokumenti" } as const;
+      expect(withPageTab({ kind: "area", areaId: "area-1" as never }, candidate)).toEqual({ kind: "area", areaId: "area-1", tab: "dokumenti" });
+      expect(withPageTab({ kind: "area", areaId: "area-2" as never }, candidate)).toEqual({ kind: "area", areaId: "area-2" });
+      expect(withPageTab({ kind: "area", areaId: "area-1" as never }, { kind: "area", areaId: "area-1" })).toEqual({ kind: "area", areaId: "area-1" });
+    });
+
+    it("promena startupa iz oblasti vodi na Komandni centar", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "area", areaId: "area-1" as never, tab: "zadaci" })).toEqual({ kind: "today" });
+    });
+  });
 });

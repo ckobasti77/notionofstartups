@@ -77,6 +77,12 @@ function patchStartupLists(store: OptimisticLocalStore, pageId: Id<"pages">, pat
     const page = patchStartupTasks(value.page, pageId, patch);
     if (page !== value.page) store.setQuery(api.tasks.listForStartup, args, { ...value, page: [...page] });
   }
+  // Zadaci oblasti (PROSTOR P12, K13): isti red, ista tabla.
+  for (const { args, value } of store.getAllQueries(api.tasks.listForArea)) {
+    if (value === undefined) continue;
+    const page = patchStartupTasks(value.page, pageId, patch);
+    if (page !== value.page) store.setQuery(api.tasks.listForArea, args, { ...value, page: [...page] });
+  }
 }
 
 export type StartupTaskCommands = {

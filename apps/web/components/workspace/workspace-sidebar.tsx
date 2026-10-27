@@ -640,7 +640,7 @@ function SidebarContent(
                       onShowMore={(parentPageId) =>
                         props.onRouteChange(
                           parentPageId === null
-                            ? { kind: "area", areaId: area._id }
+                            ? { kind: "area", areaId: area._id, tab: "dokumenti" }
                             : { kind: "page", pageId: parentPageId },
                         )
                       }

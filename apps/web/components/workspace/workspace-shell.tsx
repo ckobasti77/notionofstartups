@@ -28,7 +28,7 @@ import { SHELL_SHORTCUTS } from "@/lib/shortcuts/registry";
 import { useToday } from "@/lib/use-today";
 import { ActivityView } from "@/components/workspace/activity-view";
 import { AdminDialog } from "@/components/workspace/admin-dialog";
-import { AreaView } from "@/components/workspace/area-view";
+import { AreaView, effectiveAreaTab } from "@/components/workspace/area/area-view";
 import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
@@ -174,6 +174,26 @@ function startupRouteTitle(route: StartupRoute): string {
   }
 }
 
+/** Prikaz sa nacrtom koji se sam čuva: stranica i oblast (Pregled nosi opis oblasti, K13). */
+function holdsDraft(route: WorkspaceRoute): boolean {
+  return route.kind === "page" || route.kind === "area";
+}
+
+/** Isti prikaz sa nacrtom: ista stranica ili oblast i ista kartica. */
+function sameDraftView(current: WorkspaceRoute, next: WorkspaceRoute): boolean {
+  if (current.kind === "page" && next.kind === "page") {
+    return current.pageId === next.pageId && (current.tab ?? null) === (next.tab ?? null);
+  }
+  if (current.kind === "area" && next.kind === "area") {
+    // Poredi se prikazana kartica: link iz menija bez `tab` ostaje na istoj kartici.
+    return (
+      current.areaId === next.areaId &&
+      effectiveAreaTab(current.areaId, current.tab) === effectiveAreaTab(next.areaId, next.tab)
+    );
+  }
+  return false;
+}
+
 /** Filter Zadataka iz rute (osoba ima prednost). */
 function tasksFilterOf(route: Extract<StartupRoute, { kind: "tasks" }>): TasksFilterValue {
   return route.profileId ?? route.filter ?? "svi";
@@ -291,14 +311,10 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     nextRoute: WorkspaceRoute,
     proceed: () => void,
   ) => {
-    // Ista stranica, isti prikaz: dokument → Mapa iste stranice demontira editor,
-    // pa je i to napuštanje (V2 recenzije K10).
-    const staysOnSamePage =
-      route.kind === "page" &&
-      nextRoute.kind === "page" &&
-      route.pageId === nextRoute.pageId &&
-      (route.tab ?? null) === (nextRoute.tab ?? null);
-    if (route.kind !== "page" || staysOnSamePage || pageSaveState === "saved") return true;
+    // Ista stranica (ili oblast), isti prikaz: dokument → Mapa iste stranice
+    // demontira editor, pa je i to napuštanje (V2 recenzije K10); isto važi za
+    // karticu oblasti — Pregled nosi nacrt opisa (K13).
+    if (!holdsDraft(route) || sameDraftView(route, nextRoute) || pageSaveState === "saved") return true;
     setLeaveRequest({ proceed, asked: !isSettling(pageSaveState) });
     return false;
   }, [pageSaveState, route]);
@@ -320,13 +336,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       return false;
     }
     const navigationStartupId = options.targetStartupId ?? startupId;
-    const leavesCurrentPage =
-      route.kind === "page" &&
-      !(
-        nextRoute.kind === "page" &&
-        nextRoute.pageId === route.pageId &&
-        (nextRoute.tab ?? null) === (route.tab ?? null)
-      );
+    const leavesCurrentPage = holdsDraft(route) && !sameDraftView(route, nextRoute);
     if (leavesCurrentPage) setPageSaveState("saved");
     if (selectedStartupId === null && navigationStartupId) {
       setSelectedStartupId(navigationStartupId);
@@ -590,7 +600,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
    * da izabrani startup i ruta ostanu usklađeni. `true` = radnja je odložena.
    */
   function deferScopeChange(retry: () => void): boolean {
-    if (route.kind !== "page" || pageSaveState === "saved") return false;
+    if (!holdsDraft(route) || pageSaveState === "saved") return false;
     setLeaveRequest({ proceed: retry, asked: !isSettling(pageSaveState) });
     return true;
   }
@@ -793,9 +803,13 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         return;
       }
       if (item.targetType === "area") {
-        // Komentar na opisu oblasti: targetId je areaId, ne pageId. Ekran oblasti
-        // dolazi sa K13; do tada Komandni centar (kao `notificationDestination`).
-        navigateRoute({ kind: "today" });
+        // Komentar na opisu oblasti: targetId je areaId, ne pageId — otvara se
+        // Pregled oblasti (tu su opis i Komentari, K13).
+        navigateRoute(
+          item.targetId === null
+            ? { kind: "today" }
+            : { kind: "area", areaId: item.targetId as Id<"startupAreas">, tab: "pregled" },
+        );
         return;
       }
       if (item.targetId === null) {
@@ -868,7 +882,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     const route: StartupRoute =
       screen === "approvals"
         ? { kind: "trash" }
-        : screen === "ideas"
+        : screen === "area" && entityId !== null
+          ? { kind: "area", areaId: entityId as Id<"startupAreas">, tab: "pregled" }
+          : screen === "ideas"
           ? { kind: "ideas" }
           : screen === "puls"
             ? weekStart === null
@@ -1183,12 +1199,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               startup={startup}
               profile={profile}
               areaId={route.areaId}
-              onOpenCanvas={(pageId) =>
-                navigateRoute({ kind: "page", pageId })
-              }
-              onOpenDetails={openPage}
+              tab={route.tab}
+              today={today}
+              startups={startups}
+              onTabChange={(tab) => navigateRoute({ kind: "area", areaId: route.areaId, tab }, { replace: true })}
+              onOpenPage={openPage}
+              onOpenFull={(pageId) => navigateRoute({ kind: "page", pageId })}
               onCreate={openCreate}
-              onCreateArea={() => setCreateAreaOpen(true)}
+              onSaveStateChange={setPageSaveState}
             />
           ) : (
             <WorkspaceErrorBoundary
@@ -1231,8 +1249,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         onOpenChange={(open) => {
           if (!open) setLeaveRequest(null);
         }}
-        title={leavePageQuestion(pageSaveState)}
-        description="Ako napustiš stranicu, nesačuvan tekst se gubi."
+        title={route.kind === "area" ? "Opis oblasti još nije sačuvan. Napusti prikaz?" : leavePageQuestion(pageSaveState)}
+        description={
+          route.kind === "area"
+            ? "Ako napustiš prikaz, nesačuvan tekst se gubi."
+            : "Ako napustiš stranicu, nesačuvan tekst se gubi."
+        }
         width="26rem"
         bodyClassName="py-2"
         initialFocus={() => stayButtonRef.current}

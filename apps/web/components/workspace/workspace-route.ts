@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import type { MeRoute, PageTab, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
+import type { AreaTab, MeRoute, PageTab, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
 
 /** Prikazi ličnog nivoa „Ja" (P1). */
 export const ME_ROUTE_KINDS = [
@@ -19,7 +19,7 @@ export function routeScope(route: WorkspaceRoute): WorkspaceScope {
 }
 
 export type AreasRouteCandidate =
-  | { kind: "area"; areaId: string }
+  | { kind: "area"; areaId: string; tab?: AreaTab }
   | { kind: "page"; pageId: string; tab?: PageTab };
 
 export type StaticWorkspaceRoute = Exclude<
@@ -95,7 +95,10 @@ export function readWorkspaceRouteCandidate(
   }
   if (view === "area") {
     const areaId = params.get("areaId")?.trim();
-    return areaId ? { kind: "area", areaId } : null;
+    if (!areaId) return null;
+    // Nepoznata kartica = zapamćena ili Pregled (K07 E13, E15).
+    const tab = params.get("tab");
+    return isAreaTab(tab) ? { kind: "area", areaId, tab } : { kind: "area", areaId };
   }
   if (view === "page") {
     const pageId = params.get("pageId")?.trim();
@@ -110,6 +113,13 @@ const TRASH_SEGMENT_KEYS: ReadonlyArray<TrashSegment> = ["page", "idea", "file",
 
 function isTrashSegment(value: string | null): value is TrashSegment {
   return value !== null && (TRASH_SEGMENT_KEYS as ReadonlyArray<string>).includes(value);
+}
+
+/** Kartice oblasti redom (PROSTOR P12). */
+export const AREA_TABS: ReadonlyArray<AreaTab> = ["pregled", "zadaci", "dokumenti", "mapa"];
+
+export function isAreaTab(value: unknown): value is AreaTab {
+  return typeof value === "string" && (AREA_TABS as ReadonlyArray<string>).includes(value);
 }
 
 export function isAreasRouteCandidate(
@@ -167,6 +177,7 @@ export function workspaceRouteHref(
 
   if (route.kind === "area") {
     url.searchParams.set("areaId", route.areaId);
+    if (route.tab) url.searchParams.set("tab", route.tab);
   } else if (route.kind === "page") {
     url.searchParams.set("pageId", route.pageId);
     if (route.tab) url.searchParams.set("tab", route.tab);
@@ -193,13 +204,17 @@ export function workspaceRouteHref(
 }
 
 /**
- * Razrešena ruta stranice zadržava traženu karticu (`tab=mapa`): `areasV2.resolveRoute`
- * vraća samo id, a obaveštenja i linkovi vode i na Mapu.
+ * Razrešena ruta stranice ili oblasti zadržava traženu karticu (`tab=mapa`,
+ * `tab=dokumenti`…): `areasV2.resolveRoute` vraća samo id, a obaveštenja i
+ * linkovi vode i na Mapu ili Dokumente.
  */
 export function withPageTab(
   resolved: WorkspaceRoute | null,
   candidate: WorkspaceRouteCandidate,
 ): WorkspaceRoute | null {
+  if (resolved?.kind === "area" && candidate.kind === "area" && candidate.tab) {
+    return resolved.areaId === candidate.areaId ? { ...resolved, tab: candidate.tab } : resolved;
+  }
   if (resolved?.kind !== "page" || candidate.kind !== "page" || !candidate.tab) return resolved;
   return resolved.pageId === candidate.pageId ? { ...resolved, tab: candidate.tab } : resolved;
 }

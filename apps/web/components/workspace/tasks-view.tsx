@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
   type FocusEvent,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
@@ -69,7 +70,7 @@ const ASSIGNEE_LOOKUP_MAX = 300;
  * Poslednja učitana vrednost za isti `scope` (izvedeno stanje, bez efekta).
  * Promena filtera briše zapamćeno, da redovi ne dobiju izvršioce drugog skupa.
  */
-function useLastReady<T>(value: T | undefined, scope: string): T | undefined {
+export function useLastReady<T>(value: T | undefined, scope: string): T | undefined {
   const [last, setLast] = useState<{ scope: string; value: T | undefined }>({ scope, value });
   if (last.scope !== scope) {
     setLast({ scope, value });
@@ -468,70 +469,16 @@ export function TasksBody({
           </TabsList>
         </div>
         {loading ? (
-          <div role="status" className="space-y-1" aria-label="Učitavanje zadataka">
-            {[0, 1, 2, 3, 4].map((item) => (
-              <Skeleton key={item} className="h-14 w-full rounded-lg md:h-11" />
-            ))}
-          </div>
+          <TaskSectionsSkeleton />
         ) : (
-          <div ref={scopeRef} onFocus={onListFocus}>
-            <TabsContent value="list">
-              {count === 0 ? (
-                <TasksEmpty filter={filter} onCreateTask={onCreateTask} />
-              ) : (
-                <div>
-                  <div
-                    aria-hidden="true"
-                    className="hidden items-center gap-2 border-b border-border px-2 pb-1.5 text-xs font-medium text-muted-foreground lg:flex"
-                  >
-                    {/* Iste širine kao red: kvačica 32 · naslov · oblast 120 · status 96 · rok 104 · prioritet 88 · radnje 100. */}
-                    <span className="w-8 shrink-0" />
-                    <span className="flex flex-1 items-center gap-3">
-                      <span className="flex-1">Zadatak</span>
-                      <span className="flex shrink-0">
-                        <span className="w-[120px]">Oblast</span>
-                        <span className="w-24">Status</span>
-                        <span className="w-[104px]">Rok</span>
-                        <span className="w-[88px]">Prioritet</span>
-                      </span>
-                    </span>
-                    <span className="w-[100px] shrink-0" />
-                  </div>
-                  <ul data-section="all" className="mt-1 space-y-0.5">
-                    {(sections[0]?.rows ?? []).map((row) => (
-                      <li key={row.key} data-flip-id={row.key}>
-                        <TaskRow
-                          row={row}
-                          now={now}
-                          actions={actions}
-                          canOpen
-                          columns
-                          showStartup={false}
-                          selected={selectedKey === row.key}
-                          active={activeKey === row.key}
-                          request={request?.key === row.key ? request : null}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </TabsContent>
-            <TabsContent value="board">
-              {count === 0 ? (
-                <TasksEmpty filter={filter} onCreateTask={onCreateTask} />
-              ) : (
-                // `relative`: apsolutni elementi u kolonama (sr-only brojač) ostaju u skroleru, ne šire stranu.
-                <div className="scrollbar-thin relative -mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-                  <div className="grid min-w-[74rem] grid-cols-5 gap-3">
-                    {sections.map((column) => (
-                      <BoardColumn key={column.id} status={column.id as StartupTaskStatus} rows={column.rows} {...rowProps} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </TabsContent>
-          </div>
+          <TaskSectionsView
+            {...rowProps}
+            sections={sections}
+            count={count}
+            scopeRef={scopeRef}
+            onListFocus={onListFocus}
+            empty={<TasksEmpty filter={filter} onCreateTask={onCreateTask} />}
+          />
         )}
       </Tabs>
       {loadMore && !loading ? (
@@ -544,6 +491,109 @@ export function TasksBody({
       <p role="status" aria-live="polite" className="sr-only">
         {announcement}
       </p>
+    </div>
+  );
+}
+
+/** Učitavanje liste zadataka: pet redova iste visine kao red. */
+export function TaskSectionsSkeleton() {
+  return (
+    <div role="status" className="space-y-1" aria-label="Učitavanje zadataka">
+      {[0, 1, 2, 3, 4].map((item) => (
+        <Skeleton key={item} className="h-14 w-full rounded-lg md:h-11" />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Lista i tabla zadataka (sadržaj `Tabs` sa vrednostima `list` / `board`) —
+ * isti red zadatka u Zadacima startupa i u Zadacima oblasti (PROSTOR P12).
+ * Roditelj drži `Tabs` i prekidač prikaza.
+ */
+export function TaskSectionsView({
+  now,
+  sections,
+  count,
+  actions,
+  scopeRef,
+  selectedKey,
+  activeKey,
+  request,
+  onListFocus,
+  empty,
+}: {
+  now: number;
+  sections: StartupTaskSection[];
+  count: number;
+  actions: TaskRowActions;
+  scopeRef: RefObject<HTMLDivElement | null>;
+  selectedKey: string | null;
+  activeKey: string | null;
+  request: RowRequest | null;
+  onListFocus: (event: FocusEvent<HTMLElement>) => void;
+  /** Prazna lista (isti tekst za listu i tablu). */
+  empty: ReactNode;
+}) {
+  const rowProps = { now, actions, selectedKey, activeKey, request };
+  return (
+    <div ref={scopeRef} onFocus={onListFocus}>
+      <TabsContent value="list">
+        {count === 0 ? (
+          empty
+        ) : (
+          <div>
+            <div
+              aria-hidden="true"
+              className="hidden items-center gap-2 border-b border-border px-2 pb-1.5 text-xs font-medium text-muted-foreground lg:flex"
+            >
+              {/* Iste širine kao red: kvačica 32 · naslov · oblast 120 · status 96 · rok 104 · prioritet 88 · radnje 100. */}
+              <span className="w-8 shrink-0" />
+              <span className="flex flex-1 items-center gap-3">
+                <span className="flex-1">Zadatak</span>
+                <span className="flex shrink-0">
+                  <span className="w-[120px]">Oblast</span>
+                  <span className="w-24">Status</span>
+                  <span className="w-[104px]">Rok</span>
+                  <span className="w-[88px]">Prioritet</span>
+                </span>
+              </span>
+              <span className="w-[100px] shrink-0" />
+            </div>
+            <ul data-section="all" className="mt-1 space-y-0.5">
+              {(sections[0]?.rows ?? []).map((row) => (
+                <li key={row.key} data-flip-id={row.key}>
+                  <TaskRow
+                    row={row}
+                    now={now}
+                    actions={actions}
+                    canOpen
+                    columns
+                    showStartup={false}
+                    selected={selectedKey === row.key}
+                    active={activeKey === row.key}
+                    request={request?.key === row.key ? request : null}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </TabsContent>
+      <TabsContent value="board">
+        {count === 0 ? (
+          empty
+        ) : (
+          // `relative`: apsolutni elementi u kolonama (sr-only brojač) ostaju u skroleru, ne šire stranu.
+          <div className="scrollbar-thin relative -mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+            <div className="grid min-w-[74rem] grid-cols-5 gap-3">
+              {sections.map((column) => (
+                <BoardColumn key={column.id} status={column.id as StartupTaskStatus} rows={column.rows} {...rowProps} />
+              ))}
+            </div>
+          </div>
+        )}
+      </TabsContent>
     </div>
   );
 }

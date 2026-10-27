@@ -33,6 +33,9 @@ export type TasksFilter = "svi" | "moji";
 /** Kartica rute stranice: samo Mapa (zadatak je ignoriše, P14). */
 export type PageTab = "mapa";
 
+/** Kartica oblasti (PROSTOR P12): Pregled je podrazumevan (K07 E15). */
+export type AreaTab = "pregled" | "zadaci" | "dokumenti" | "mapa";
+
 /** Segment Korpe (PROSTOR P3) — isti ključevi kao `trash.list`. */
 export type TrashSegment = "page" | "idea" | "file" | "recovered";
 
@@ -56,7 +59,8 @@ export type StartupRoute =
   | { kind: "activity" }
   | { kind: "chat"; channelId?: Id<"chatChannels"> }
   | { kind: "puls"; weekStart?: number }
-  | { kind: "area"; areaId: Id<"startupAreas"> }
+  /** `tab` iz URL-a ima prednost nad zapamćenom karticom (K07 §5.5). */
+  | { kind: "area"; areaId: Id<"startupAreas">; tab?: AreaTab }
   /** `tab: "mapa"` = Mapa stranice (PROSTOR P13, K10); bez njega dokument. */
   | { kind: "page"; pageId: Id<"pages">; tab?: PageTab };
 

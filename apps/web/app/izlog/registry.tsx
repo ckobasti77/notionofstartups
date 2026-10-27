@@ -11,6 +11,7 @@ import LjuskaEkran from "./ekrani/ljuska";
 import LjuskaStartupEkran from "./ekrani/ljuska-startup";
 import MojDanEkran from "./ekrani/moj-dan";
 import MojiZadaciEkran from "./ekrani/moji-zadaci";
+import OblastEkran from "./ekrani/oblast";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
 import PorukeEkran from "./ekrani/poruke";
@@ -109,5 +110,11 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K11",
     varijante: ["clan", "zakljucan", "sa-komentarima"],
     Komponenta: ZadatakStranaEkran,
+  },
+  oblast: {
+    naslov: "Oblast — Pregled, Zadaci, Dokumenti",
+    korak: "K13",
+    varijante: ["pregled", "istorija", "opis-konflikt", "zadaci", "zadaci-tabla", "dokumenti", "prazna", "ucitavanje", "greska"],
+    Komponenta: OblastEkran,
   },
 };
