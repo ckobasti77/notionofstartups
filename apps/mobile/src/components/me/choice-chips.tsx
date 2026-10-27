@@ -259,7 +259,7 @@ export function SheetTaskHeader({
   );
 }
 
-/** Status zadatka u startupu: Backlog · Sledeće · U toku · Blokirano · Gotovo (par web menija „Status"). */
+/** Status zadatka u startupu: Neplanirano · Sledeće · U toku · Blokirano · Gotovo (par web menija „Status"). */
 export function StatusChoiceChips({
   value,
   onSelect,

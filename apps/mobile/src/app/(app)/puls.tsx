@@ -419,7 +419,7 @@ function TrendLine({
     return (
       <View style={styles.trendRow}>
         <Minus size={13} color={colors.mutedForeground} />
-        <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>isto kao prošle</Text>
+        <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>isto kao prošle nedelje</Text>
       </View>
     );
   }
@@ -432,7 +432,7 @@ function TrendLine({
     <View style={styles.trendRow}>
       <Arrow size={13} color={color} />
       <Text style={[styles.trendValue, { color }]}>{delta}</Text>
-      <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>vs prošle</Text>
+      <Text style={[styles.trendMuted, { color: colors.mutedForeground }]}>od prošle nedelje</Text>
     </View>
   );
 }
@@ -459,7 +459,7 @@ function StuckSection({
         </Text>
       </View>
       {tasks.length === 0 ? (
-        <EmptyCard colors={colors} text="Ništa nije zapelo. Sve teče." />
+        <EmptyCard colors={colors} text="Ništa nije zapelo." />
       ) : (
         <View style={styles.cards}>
           {tasks.map((task) => (
@@ -822,8 +822,8 @@ function PulsErrorState({ message, onRetry }: { message: string; onRetry: () => 
       <ScreenHeader title="Puls" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Puls se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju Pulsa.'}
+        title="Puls nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

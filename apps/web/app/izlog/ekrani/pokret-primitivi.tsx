@@ -131,7 +131,7 @@ function MenuDemo() {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="backlog">Backlog</SelectItem>
+          <SelectItem value="backlog">Neplanirano</SelectItem>
           <SelectItem value="next">Sledeće</SelectItem>
           <SelectItem value="in_progress">U toku</SelectItem>
           <SelectItem value="done">Gotovo</SelectItem>

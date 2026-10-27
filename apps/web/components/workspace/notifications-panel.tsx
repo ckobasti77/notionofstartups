@@ -181,7 +181,7 @@ export function NotificationsSheet({
               <EmptyState
                 icon={BellRing}
                 title="Još nema obaveštenja"
-                description="Kada ti neko dodeli zadatak, izglasa ideju ili se rok približi, javićemo ti ovde."
+                description="Ovde stižu zadaci, glasovi i rokovi."
                 className="min-h-40"
               />
             ) : (
@@ -313,7 +313,7 @@ const PUSH_COPY: Record<
 > = {
   checking: null,
   unsupported: {
-    title: "Ovaj browser ne može da prima obaveštenja",
+    title: "Ovaj pregledač ne može da prima obaveštenja",
     description:
       "Otvori aplikaciju u Chrome-u na računaru ili je dodaj na početni ekran na telefonu.",
   },
@@ -336,7 +336,7 @@ const PUSH_COPY: Record<
     description: "Ovaj uređaj prima obaveštenja i kada je aplikacija zatvorena.",
   },
   blocked: {
-    title: "Obaveštenja su blokirana u browseru",
+    title: "Obaveštenja su blokirana u pregledaču",
     description:
       "Klikni na ikonu levo od adrese, izaberi Obaveštenja i prebaci na „Dozvoli”, pa osveži stranicu.",
   },

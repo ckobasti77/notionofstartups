@@ -20,7 +20,7 @@ export default function ObavestenjaScreen() {
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <ObavestenjaErrorState
-      message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju obaveštenja.')}
+      message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
       onRetry={retry}
     />
   );
@@ -33,8 +33,8 @@ function ObavestenjaErrorState({ message, onRetry }: { message: string; onRetry:
       <MeHeader title={TAB_TITLES.obavestenja} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Obaveštenja se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju obaveštenja.'}
+        title="Obaveštenja nisu učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

@@ -78,7 +78,7 @@ export function PageNodeSheet({
   const breakEdge = (edge: PageNodeEdge) => {
     if (busy !== null || !page) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -189,7 +189,7 @@ export function PageNodeSheet({
               subtitle={
                 checkpointTotal === 0
                   ? 'Zadatak nema korake.'
-                  : 'Koraci se na kanvasu razmeštaju i povezuju'
+                  : 'Koraci se na mapi razmeštaju i povezuju'
               }
               onPress={() => {
                 // Sheet se sklanja: koraci doskaču u orbitu oko kartice, a modal bi ih
@@ -212,8 +212,8 @@ export function PageNodeSheet({
               !page.canConnect
                 ? 'Vezu možete praviti samo od ili ka svojoj kartici.'
                 : page.nodeCount < 2
-                  ? 'Na kanvasu nema druge stavke.'
-                  : 'Zatim tapni karticu ili korak sa kojim se povezuje'
+                  ? 'Na mapi nema druge stavke.'
+                  : 'Zatim dodirni karticu ili korak sa kojim se povezuje'
             }
             emptyNote="Nema veza sa ove kartice."
             busy={busy}

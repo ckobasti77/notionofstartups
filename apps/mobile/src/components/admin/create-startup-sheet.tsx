@@ -70,8 +70,7 @@ export function CreateStartupSheet({
           Novi startup
         </Text>
         <Text style={[styles.description, { color: colors.mutedForeground }]}>
-          Dobija podrazumevane oblasti (Dev, Marketing, Sales, Other) i opšti kanal za tim. Logo
-          dodaješ posle, iz administracije startupa.
+          Dobija oblasti Razvoj, Marketing, Prodaja i Ostalo i opšti kanal. Logo dodaješ posle.
         </Text>
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Naziv</Text>

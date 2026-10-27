@@ -296,7 +296,7 @@ describe("Čeka tebe", () => {
   });
 
   test("naslovi i ključevi", () => {
-    expect(pendingTitle(vote)).toBe("Glasanje o brisanju: „Stari logo“");
+    expect(pendingTitle(vote)).toBe("Brisanje: „Stari logo“");
     expect(pendingTitle(nesting)).toBe("Ana Ilić predlaže da „Cenovnik“ pređe pod „Prodaja“");
     expect(pendingTitle({ ...nesting, kind: "idea_nesting", requesterName: null })).toBe(
       "Neko predlaže da „Cenovnik“ pređe pod „Prodaja“",

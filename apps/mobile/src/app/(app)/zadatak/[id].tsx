@@ -154,7 +154,7 @@ export default function ZadatakScreen() {
 
   const notifyError = (error: unknown) => {
     haptics.error();
-    Alert.alert('Nešto nije prošlo', accessErrorMessage(error, 'Pokušaj ponovo.'));
+    Alert.alert('Greška', accessErrorMessage(error, 'Pokušaj ponovo.'));
   };
   const run = (promise: Promise<unknown>) => {
     void promise.then(() => haptics.success()).catch(notifyError);
@@ -181,7 +181,7 @@ export default function ZadatakScreen() {
         <EmptyState
           icon={<ClipboardX size={40} color={colors.mutedForeground} />}
           title="Ovo nije zadatak"
-          description="Ova stranica nije zadatak, pa nema detalja zadatka."
+          description="Ova stranica nije zadatak."
         />
       </View>
     );
@@ -304,7 +304,7 @@ export default function ZadatakScreen() {
               haptics.tap();
               setPathOpen(true);
             }}
-            subtitleAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
+            subtitleAccessibilityLabel="Putanja do korena. Otvara nadređenu stavku"
             onBack={() => router.back()}
             actions={
               <>

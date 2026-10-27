@@ -36,8 +36,8 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
       <ScreenHeader title="Kanali" onBack={() => goBack(router)} />
       <EmptyState
         icon={<MessageSquareX size={40} color={colors.destructive} />}
-        title="Kanali se ne mogu učitati"
-        description={accessErrorMessage(error, 'Došlo je do greške pri učitavanju razgovora.')}
+        title="Kanali nisu učitani."
+        description={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
         actionLabel="Pokušaj ponovo"
         onAction={retry}
       />

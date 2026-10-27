@@ -124,7 +124,7 @@ export default function EditorProbeScreen() {
               <View style={[styles.overlay, { backgroundColor: colors.background }]}>
                 <EmptyState
                   icon={<TriangleAlert size={40} color={colors.destructive} />}
-                  title="Proba se ne može učitati"
+                  title="Proba nije učitana."
                   description={failed}
                   actionLabel="Pokušaj ponovo"
                   onAction={reload}

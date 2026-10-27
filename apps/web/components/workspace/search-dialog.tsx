@@ -90,8 +90,8 @@ export function SearchDialog({
           {normalizedQuery.length < 2 ? (
             <EmptyState
               icon={Search}
-              title="Pronađi ono što ti treba"
-              description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, beleške i poruke ovog startupa."
+              title="Pretraži startup"
+              description="Unesi bar dva slova."
               className="min-h-60 border-0 bg-transparent"
             />
           ) : (

@@ -65,14 +65,14 @@ export function TidyIdeasButton({ startupId }: { startupId: Id<'startups'> }) {
     const topLevel = ideas.nodes.filter((node) => node.parentIdeaId === undefined);
     if (topLevel.length === 0) {
       haptics.warning();
-      Alert.alert('Nema šta da se sredi', 'Sve ideje su ugnježdene u druge kartice.');
+      Alert.alert('Nema šta da se sredi', 'Sve ideje su ugnežđene u druge kartice.');
       return;
     }
     const targets = topLevel.slice(0, MAX_BULK);
     haptics.warning();
     Alert.alert(
       'Srediti raspored?',
-      `${ideasCountLabel(targets.length)} (bez ugnježdenih) se raspoređuje u urednu mrežu na Mapi. Ručni raspored tih kartica se gubi.`,
+      `${ideasCountLabel(targets.length)} (bez ugnežđenih) se raspoređuje u urednu mrežu na Mapi. Ručni raspored tih kartica se gubi.`,
       [
         { text: 'Otkaži', style: 'cancel' },
         { text: 'Sredi', onPress: () => void run(targets, topLevel.length > targets.length) },

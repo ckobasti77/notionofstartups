@@ -45,7 +45,7 @@ export type IdeaActionsView = 'menu' | 'connect' | 'nest' | 'size';
 
 const VIEW_TITLE: Record<Exclude<IdeaActionsView, 'menu'>, string> = {
   connect: 'Poveži sa idejom',
-  nest: 'Ugnjezdi u…',
+  nest: 'Ugnezdi u…',
   size: 'Veličina oblačića',
 };
 
@@ -265,7 +265,7 @@ export function IdeaActionsSheet({
             />
             {target.permissions.canEdit ? (
               <Row
-                title="Ugnjezdi u…"
+                title="Ugnezdi u…"
                 subtitle="Kartica ulazi u grupu odmah"
                 onPress={() => setView('nest')}
                 disabled={busyId !== null}
@@ -317,7 +317,7 @@ export function IdeaActionsSheet({
                 title="Pretvori u zadatak ili belešku"
                 subtitle={
                   convert.kind === 'button'
-                    ? 'Odobrena ideja postaje radna stavka'
+                    ? 'Odobrena ideja postaje zadatak'
                     : convert.text
                 }
                 onPress={() => onConvert(target)}
@@ -357,7 +357,7 @@ export function IdeaActionsSheet({
                 <Text style={[styles.empty, { color: colors.mutedForeground }]}>
                   {view === 'connect'
                     ? 'Nema druge ideje za povezivanje.'
-                    : 'Nema druge ideje u koju bi se ova ugnjezdila.'}
+                    : 'Nema druge ideje u koju bi se ova ugnezdila.'}
                 </Text>
               ) : (
                 candidates.map((candidate) => {
@@ -405,7 +405,7 @@ export function IdeaActionsSheet({
                               });
                               // Server ugnježdava odmah za svakog člana (`status` je uvek `approved`).
                               void result;
-                              return 'Ideja je ugnježdena.';
+                              return 'Ideja je ugnežđena.';
                             })
                       }
                       disabled={disabled}

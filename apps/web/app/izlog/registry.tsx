@@ -18,6 +18,7 @@ import MojiZadaciEkran from "./ekrani/moji-zadaci";
 import OblastEkran from "./ekrani/oblast";
 import PanelZadatkaEkran from "./ekrani/panel-zadatka";
 import PokretEkran from "./ekrani/pokret";
+import PodesavanjaStartupaEkran from "./ekrani/podesavanja-startupa";
 import PorukeEkran from "./ekrani/poruke";
 import StranicaEkran from "./ekrani/stranica";
 import ZadatakStranaEkran from "./ekrani/zadatak-strana";
@@ -90,6 +91,12 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     korak: "K08",
     varijante: ["stranice", "ideje", "prilozi", "oporavljeno", "prazna", "ucitavanje", "greska"],
     Komponenta: KorpaEkran,
+  },
+  "podesavanja-startupa": {
+    naslov: "Podešavanja startupa",
+    korak: "K20",
+    varijante: ["opste-admin", "opste-clan", "oblasti", "tim", "tim-clan", "pozivnice", "lozinke", "ucitavanje", "greska"],
+    Komponenta: PodesavanjaStartupaEkran,
   },
   stranica: {
     naslov: "Stranica — dokument tima",

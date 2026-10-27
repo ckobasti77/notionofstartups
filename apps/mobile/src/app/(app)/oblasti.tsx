@@ -123,8 +123,7 @@ export default function OblastiScreen() {
       {!loading && startup.areas.length === 0 ? (
         <EmptyState
           icon={<FolderOpen size={40} color={colors.mutedForeground} />}
-          title="Još nema oblasti"
-          description="Oblasti i stranice tima pojaviće se ovde."
+          title="Nema oblasti."
           actionLabel="Nova oblast"
           onAction={() => setCreateAreaOpen(true)}
         />

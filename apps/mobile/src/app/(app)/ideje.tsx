@@ -315,7 +315,7 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Ideje nisu učitane."
-        description={message || 'Došlo je do greške pri učitavanju ideja.'}
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

@@ -165,7 +165,7 @@ export const IZLOG_SIDE_INBOX: SideInbox = {
   items: [
     { id: "n1", title: "Milica Jovanović ti je dodelila „Snimi reel za novi meni“", startup: STARTUPS[0], createdAt: at(24, "08:12") },
     { id: "n2", title: "Nikola Petrović: „Pogledaj ponudu pre ručka“", startup: null, createdAt: at(24, "07:55") },
-    { id: "n3", title: "Glasanje o brisanju: „Stari logo“", startup: STARTUPS[4], createdAt: at(23, "18:30") },
+    { id: "n3", title: "Brisanje: „Stari logo“", startup: STARTUPS[4], createdAt: at(23, "18:30") },
   ],
 };
 

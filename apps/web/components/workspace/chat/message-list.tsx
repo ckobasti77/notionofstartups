@@ -267,7 +267,7 @@ export function MessageList({
             <EmptyState
               icon={MessagesSquare}
               title="Još niko nije pisao"
-              description="Budi prvi — napiši poruku da započneš razgovor."
+              description="Napiši prvu poruku."
               className="max-w-md border-none bg-transparent"
             />
           </div>

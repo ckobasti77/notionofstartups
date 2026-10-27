@@ -380,7 +380,7 @@ function MinimalHeader({
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <ConversationErrorState
-      message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju razgovora.')}
+      message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
       onRetry={retry}
     />
   );
@@ -394,8 +394,8 @@ function ConversationErrorState({ message, onRetry }: { message: string; onRetry
       <MinimalHeader title="Razgovor" onBack={() => goBack(router)} colors={colors} />
       <EmptyState
         icon={<MessageSquareX size={40} color={colors.destructive} />}
-        title="Razgovor se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju razgovora.'}
+        title="Razgovor nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

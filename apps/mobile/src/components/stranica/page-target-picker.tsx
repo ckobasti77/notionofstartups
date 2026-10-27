@@ -156,13 +156,13 @@ function PickerLevel({
             <Row
               title={title}
               titleNumberOfLines={2}
-              subtitle={isCurrentParent ? 'Trenutni roditelj' : pageKindLabel(kind)}
+              subtitle={isCurrentParent ? 'Trenutna nadređena stavka' : pageKindLabel(kind)}
               onPress={isCurrentParent ? undefined : () => onPick(candidate._id, title)}
               disabled={isCurrentParent || busyId !== null}
               showChevron={busyId === null && !isCurrentParent}
               accessibilityLabel={
                 isCurrentParent
-                  ? `${title}, trenutni roditelj`
+                  ? `${title}, trenutna nadređena stavka`
                   : `Izaberi ${title}, ${pageKindLabel(kind)}`
               }
               style={[styles.row, indent]}

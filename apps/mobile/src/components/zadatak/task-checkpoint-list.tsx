@@ -106,7 +106,7 @@ export function TaskCheckpointList({
 
   const notifyError = (error: unknown) => {
     haptics.error();
-    Alert.alert('Nešto nije prošlo', accessErrorMessage(error, 'Pokušaj ponovo.'));
+    Alert.alert('Greška', accessErrorMessage(error, 'Pokušaj ponovo.'));
   };
 
   const toggle = (item: TaskCheckpoint) => {
@@ -441,7 +441,7 @@ export function TaskCheckpointList({
                       accessibilityLabel={
                         item.canDeleteDirectly
                           ? `Obriši: ${item.text}`
-                          : `Zatraži brisanje: ${item.text}`
+                          : `Obriši: ${item.text}`
                       }
                       onPress={() => remove(item)}
                       style={styles.rowAction}

@@ -38,8 +38,8 @@ const ROW_HINT: Record<ProstorHubDestination, string> = {
   zadaci: 'Otvara sve zadatke tima',
   oblasti: 'Otvara oblasti i stranice',
   ideje: 'Otvara ideje tima',
-  kanali: 'Otvara chat ovog startupa',
-  korpa: 'Otvara obrisano',
+  kanali: 'Otvara kanale ovog startupa',
+  korpa: 'Otvara Korpu',
 };
 
 /**

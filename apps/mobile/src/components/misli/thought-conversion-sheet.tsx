@@ -13,7 +13,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
-import { misaoWord, thoughtDisplayTitle, vezaWord } from '@/lib/thought-layout';
+import { thoughtDisplayTitle, vezaWord } from '@/lib/thought-layout';
 import { showUndoNotice } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, radius, text } from '@/theme/tokens';
@@ -44,19 +44,28 @@ function successMessage(ideaCount: number, edgeCount: number): string {
   const lastTwo = ideaCount % 100;
   let message: string;
   if (ideaCount === 1) {
-    message = 'Ideja je kreirana. Originalna misao je ostala privatna.';
+    message = 'Ideja je kreirana. Original je ostao privatan.';
   } else if (lastDigit === 1 && lastTwo !== 11) {
     // Brojevi na -1 (21, 31, 41…) idu uz jedninu ženskog roda: „21 ideja je kreirana".
-    message = `${ideaCount} ideja je kreirana. Originalne misli su ostale privatne.`;
+    message = `${ideaCount} ideja je kreirana. Originali su ostali privatni.`;
   } else if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) {
-    message = `${ideaCount} ideje su kreirane. Originalne misli su ostale privatne.`;
+    message = `${ideaCount} ideje su kreirane. Originali su ostali privatni.`;
   } else {
-    message = `${ideaCount} ideja je kreirano. Originalne misli su ostale privatne.`;
+    message = `${ideaCount} ideja je kreirano. Originali su ostali privatni.`;
   }
   if (edgeCount > 0) {
     message += ` Preneto je i ${edgeCount} ${vezaWord(edgeCount)}.`;
   }
   return message;
+}
+
+/** „beleška / beleške / beleški" uz broj (isti obrazac kao `vezaWord`). */
+function beleskaWord(count: number): string {
+  const lastDigit = count % 10;
+  const lastTwo = count % 100;
+  if (lastDigit === 1 && lastTwo !== 11) return 'beleška';
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) return 'beleške';
+  return 'beleški';
 }
 
 /** Cilj „Pošalji u startup": startup u kome sam aktivan član. */
@@ -152,10 +161,10 @@ export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
     if (count > MAX_BULK) {
       haptics.warning();
       Alert.alert(
-        pick ? 'Previše beleški' : 'Previše misli',
+        'Previše beleški',
         pick
           ? `Odaberi najviše ${MAX_BULK} beleški za slanje u startup.`
-          : `Odaberi najviše ${MAX_BULK} misli za slanje u Ideje.`,
+          : `Odaberi najviše ${MAX_BULK} beleški za slanje u Ideje.`,
       );
       return;
     }
@@ -201,7 +210,7 @@ export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
       haptics.error();
       Alert.alert(
         'Greška',
-        accessErrorMessage(error, pick ? 'Beleška nije poslata. Pokušaj ponovo.' : 'Misao nije poslata u Ideje.'),
+        accessErrorMessage(error, pick ? 'Beleška nije poslata. Pokušaj ponovo.' : 'Beleška nije poslata u Ideje.'),
       );
     } finally {
       setBusy(false);
@@ -236,8 +245,8 @@ export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
         Pošalji u Ideje
       </Text>
       <Text style={[styles.explain, { color: colors.mutedForeground }]}>
-        Misao prvo postaje timska ideja — tim je vidi, komentariše i glasa. Zadatak ili
-        beleška se prave iz odobrene ideje. Original ostaje privatan na tvom kanvasu.
+        Beleška postaje timska ideja: tim je vidi, komentariše i glasa. Original ostaje
+        privatan na tvojoj mapi.
       </Text>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
@@ -251,14 +260,14 @@ export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
                   style={[styles.itemTitle, { color: colors.foreground }]}>
                   {thoughtDisplayTitle(
                     { title: node.title ?? null, text: node.text ?? '' },
-                    'Nova misao',
+                    'Nova beleška',
                   )}
                 </Text>
               </View>
             ))}
             {count > MAX_LISTED ? (
               <Text style={[styles.moreText, { color: colors.mutedForeground }]}>
-                + još {count - MAX_LISTED} {misaoWord(count - MAX_LISTED)}
+                + još {count - MAX_LISTED} {beleskaWord(count - MAX_LISTED)}
               </Text>
             ) : null}
           </>
@@ -266,13 +275,13 @@ export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
           <View style={styles.itemRow}>
             <ArrowDown size={16} color={colors.mutedForeground} />
             <Text style={[styles.itemTitle, { color: colors.foreground }]}>
-              {count} {count === 1 ? 'izabrana misao' : count <= 4 ? 'izabrane misli' : 'izabranih misli'} sa kanvasa
+              {count} {count === 1 ? 'izabrana beleška' : count <= 4 ? 'izabrane beleške' : 'izabranih beleški'} sa mape
             </Text>
           </View>
         )}
         {count > 1 ? (
           <Text style={[styles.moreText, { color: colors.mutedForeground }]}>
-            Veze između izabranih misli se čuvaju i prenose u Ideje.
+            Veze između izabranih beleški se čuvaju i prenose u Ideje.
           </Text>
         ) : null}
       </ScrollView>

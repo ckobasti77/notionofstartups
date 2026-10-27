@@ -288,7 +288,7 @@ export default function CanvasScreen() {
   // posle 20s ponudi „pokušaj ponovo" umesto večnog spinera.
   useEffect(() => {
     if (!loading) return;
-    const timer = setTimeout(() => setFailed('Isteklo vreme učitavanja kanvasa.'), 20000);
+    const timer = setTimeout(() => setFailed('Mapa se predugo učitava.'), 20000);
     return () => clearTimeout(timer);
   }, [loading]);
 
@@ -319,7 +319,7 @@ export default function CanvasScreen() {
       postToWeb({ type: 'connect', sourceId: source.nodeId });
       haptics.tap();
       AccessibilityInfo.announceForAccessibility(
-        'Izaberi stavku za vezu. Tapni karticu ili korak sa kojim se povezuje.',
+        'Izaberi stavku za vezu. Dodirni karticu ili korak sa kojim se povezuje.',
       );
     },
     [postToWeb],
@@ -546,7 +546,7 @@ export default function CanvasScreen() {
         haptics.success();
         setConnectSource(null);
         postToWeb({ type: 'connect', sourceId: null });
-        const label = msg.canvas === 'ideas' ? 'Ideje su povezane.' : 'Misli su povezane.';
+        const label = msg.canvas === 'ideas' ? 'Ideje su povezane.' : 'Beleške su povezane.';
         pushUndo({
           label,
           action:
@@ -607,7 +607,7 @@ export default function CanvasScreen() {
         applyNodeSize(msg.id, msg.width, msg.height);
         const isIdea = msg.canvas === 'ideas';
         pushUndo({
-          label: `Veličina ${isIdea ? 'ideje' : 'misli'}: ${msg.width} × ${msg.height}.`,
+          label: `Veličina ${isIdea ? 'ideje' : 'beleške'}: ${msg.width} × ${msg.height}.`,
           action: isIdea
             ? {
                 kind: 'ideaResize',
@@ -647,8 +647,8 @@ export default function CanvasScreen() {
                 ? 'Ideja je pomerena.'
                 : `${count} ${isPaucal(count) ? 'ideje su pomerene' : 'ideja je pomereno'}.`
               : count === 1
-                ? 'Misao je pomerena.'
-                : `${count} misli je pomereno.`,
+                ? 'Beleška je pomerena.'
+                : `${count} ${isPaucal(count) ? 'beleške su pomerene' : 'beleški je pomereno'}.`,
           action:
             msg.canvas === 'ideas'
               ? {
@@ -797,7 +797,7 @@ export default function CanvasScreen() {
     // Trosmerno: jedan čvor → otvori; više čvorova → „U Ideje (N)" (jedina bulk
     // akcija koju read-only embed dozvoljava — selekcija stiže kroz most); inače novo.
     primaryAction = hasSingleSelection
-      ? { label: 'Otvori misao', icon: openIcon, onPress: () => setOpenThought(selectedNode as ThoughtDetail) }
+      ? { label: 'Otvori belešku', icon: openIcon, onPress: () => setOpenThought(selectedNode as ThoughtDetail) }
       : selectedNodeIds.length > 1
         ? {
             label: `U Ideje (${selectedNodeIds.length})`,
@@ -805,14 +805,14 @@ export default function CanvasScreen() {
             onPress: () => {
               if (selectedNodeIds.length > MAX_BULK) {
                 haptics.warning();
-                Alert.alert('Previše misli', `Odaberi najviše ${MAX_BULK} misli za slanje u Ideje.`);
+                Alert.alert('Previše beleški', `Odaberi najviše ${MAX_BULK} beleški za slanje u Ideje.`);
                 return;
               }
               // Id-jevi iz embeda SU `thoughtNodes` id-jevi (flow node id = doc._id).
               setConversionIds(selectedNodeIds as Id<'thoughtNodes'>[]);
             },
           }
-        : { label: 'Nova misao', icon: newIcon, onPress: () => setCreateOpen(true) };
+        : { label: 'Nova beleška', icon: newIcon, onPress: () => setCreateOpen(true) };
   } else if (isArea && activeStartupId) {
     // Tap čvora već otvara stranicu (node:open), pa je primarna akcija samo kreiranje.
     primaryAction = { label: 'Nova stranica', icon: newIcon, onPress: () => setCreateOpen(true) };
@@ -858,7 +858,7 @@ export default function CanvasScreen() {
     : selectedIdea
       ? 'Akcije ideje'
       : selectedThought
-        ? 'Akcije misli'
+        ? 'Akcije beleške'
         : 'Akcije kartice';
   const nodeAction: RailAction | undefined =
     editMode && !connectSource && hasNodeActions
@@ -875,7 +875,7 @@ export default function CanvasScreen() {
       : undefined;
 
   if (!KINDS.includes(kind)) {
-    return <Fallback title="Nepoznat canvas" message={`Vrsta „${kind}" ne postoji.`} colors={colors} onBack={() => router.back()} />;
+    return <Fallback title="Nepoznata mapa" message={`Vrsta „${kind}" ne postoji.`} colors={colors} onBack={() => router.back()} />;
   }
   // Gejt na ZAMRZNUTI token, ne na živi `token`: WebView sme da montira tek kad
   // `injectedAuth` ima pravi token (injekcija se izvršava samo pri učitavanju — bez tokena
@@ -887,8 +887,8 @@ export default function CanvasScreen() {
   if (!webBase || !url) {
     return (
       <Fallback
-        title="Canvas nije dostupan"
-        message="EXPO_PUBLIC_WEB_URL nije podešen — dodaj web adresu u .env.local (vidi .env.example)."
+        title="Mapa nije dostupna"
+        message="Adresa web aplikacije nije podešena."
         colors={colors}
         onBack={() => router.back()}
       />
@@ -901,7 +901,7 @@ export default function CanvasScreen() {
         // Kanvas zadatka je `kind: 'page'` nad stranicom čiji je `kind: 'task'` —
         // naslov „Stranica" bi tamo bio pogrešan, a to je jedini kanvas na kom su
         // koraci vidljivi bez poruke `checkpoints` (K4).
-        title={isPage && parentPage?.kind === 'task' ? 'Canvas zadatka' : canvasKindLabel(kind)}
+        title={isPage && parentPage?.kind === 'task' ? 'Mapa zadatka' : canvasKindLabel(kind)}
         onBack={() => router.back()}
         colors={colors}
         right={
@@ -972,7 +972,7 @@ export default function CanvasScreen() {
 
         {loading && !failed ? (
           <View style={[styles.overlay, { backgroundColor: colors.background }]}>
-            <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje kanvasa" />
+            <ActivityIndicator color={colors.primary} accessibilityLabel="Učitavanje mape" />
           </View>
         ) : null}
 
@@ -980,7 +980,7 @@ export default function CanvasScreen() {
           <View style={[styles.overlay, { backgroundColor: colors.background }]}>
             <EmptyState
               icon={<TriangleAlert size={40} color={colors.destructive} />}
-              title="Canvas se ne može učitati"
+              title="Mapa nije učitana"
               description={failed}
               actionLabel="Pokušaj ponovo"
               onAction={reload}
@@ -1085,7 +1085,7 @@ export default function CanvasScreen() {
             onStartConnect={(thought) =>
               startConnect({
                 nodeId: thought._id,
-                title: (thought.title ?? thought.text).trim() || 'Misao',
+                title: (thought.title ?? thought.text).trim() || 'Beleška',
               })
             }
             onApplied={(width, height) => {
@@ -1211,7 +1211,7 @@ function Fallback({
 }) {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Canvas" onBack={onBack} colors={colors} />
+      <Header title="Mapa" onBack={onBack} colors={colors} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.mutedForeground} />}
         title={title}
@@ -1234,11 +1234,11 @@ function CanvasError({ message, onRetry }: { message: string; onRetry: () => voi
   const router = useRouter();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Header title="Canvas" onBack={() => router.back()} colors={colors} />
+      <Header title="Mapa" onBack={() => router.back()} colors={colors} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Canvas se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju kanvasa.'}
+        title="Mapa nije učitana"
+        description={message || 'Mapa nije učitana.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

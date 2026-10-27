@@ -413,6 +413,41 @@ describe("workspace URL route contract", () => {
     });
   });
 
+  describe("Podešavanja startupa (PROSTOR K20)", () => {
+    it("čita karticu, nepoznata kartica i bez nje je Opšte", () => {
+      expect(readWorkspaceRouteCandidate("?view=settings")).toEqual({ kind: "settings" });
+      expect(readWorkspaceRouteCandidate("?view=settings&tab=opste")).toEqual({ kind: "settings" });
+      expect(readWorkspaceRouteCandidate("?view=settings&tab=nesto")).toEqual({ kind: "settings" });
+      for (const tab of ["oblasti", "tim", "pozivnice", "lozinke"] as const) {
+        expect(readWorkspaceRouteCandidate(`?view=settings&tab=${tab}`)).toEqual({ kind: "settings", tab });
+      }
+    });
+
+    it("povratni put za svaku karticu, a drugi prikazi brišu tab", () => {
+      for (const route of [
+        { kind: "settings" },
+        { kind: "settings", tab: "oblasti" },
+        { kind: "settings", tab: "lozinke" },
+      ] satisfies WorkspaceRoute[]) {
+        const href = workspaceRouteHref(route, "https://example.test/", "startup-1" as never);
+        expect(readWorkspaceRouteCandidate(new URL(href, "https://example.test").search)).toEqual(route);
+      }
+      expect(
+        workspaceRouteHref({ kind: "settings", tab: "tim" }, "https://example.test/", "startup-1" as never),
+      ).toBe("/?view=settings&tab=tim&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "settings", tab: "opste" }, "https://example.test/?tab=tim", "startup-1" as never),
+      ).toBe("/?view=settings&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "trash" }, "https://example.test/?view=settings&tab=tim", "startup-1" as never),
+      ).toBe("/?view=trash&startupId=startup-1");
+    });
+
+    it("promena startupa ostaje u Podešavanjima", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "settings", tab: "oblasti" })).toEqual({ kind: "settings", tab: "oblasti" });
+    });
+  });
+
   describe("stranica kao dokument i Mapa stranice (PROSTOR P13, K10)", () => {
     it("tab=mapa otvara Mapu, nepoznata kartica i bez nje dokument", () => {
       expect(readWorkspaceRouteCandidate("?view=page&pageId=page-1&tab=mapa")).toEqual({ kind: "page", pageId: "page-1", tab: "mapa" });

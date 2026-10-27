@@ -232,7 +232,7 @@ export type PendingItemLike =
 /** Tekst stavke „Čeka tebe" (plan K07 §3, Inbox). */
 export function pendingTitle(item: PendingItemLike): string {
   if (item.kind === "idea_vote") return `Glasaj o ideji „${item.title}“`;
-  if (item.kind === "deletion_vote") return `Glasanje o brisanju: „${item.title}“`;
+  if (item.kind === "deletion_vote") return `Brisanje: „${item.title}“`;
   const who = item.requesterName ?? "Neko";
   return `${who} predlaže da „${item.childTitle}“ pređe pod „${item.parentTitle}“`;
 }

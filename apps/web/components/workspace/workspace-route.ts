@@ -1,6 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
-import type { AreaTab, MeRoute, PageTab, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
+import type { AreaTab, MeRoute, PageTab, SettingsTab, TrashSegment, WorkspaceRoute, WorkspaceScope } from "./types";
 
 /** Prikazi ličnog nivoa „Ja" (P1). */
 export const ME_ROUTE_KINDS = [
@@ -83,6 +83,11 @@ export function readWorkspaceRouteCandidate(
     const segment = params.get("vrsta");
     return isTrashSegment(segment) ? { kind: "trash", segment } : { kind: "trash" };
   }
+  if (view === "settings") {
+    // Nepoznata kartica = Opšte (K07 E13).
+    const tab = params.get("tab");
+    return isSettingsTab(tab) && tab !== "opste" ? { kind: "settings", tab } : { kind: "settings" };
+  }
   if (view === "chat") {
     // `channelId` je opcion — bez njega chat se otvara na listi razgovora.
     // Nevalidan id prikaz gracefully svede na listu (kao `puls` sa `week`).
@@ -113,6 +118,13 @@ export function readWorkspaceRouteCandidate(
     return params.get("tab") === "mapa" ? { kind: "page", pageId, tab: "mapa" } : { kind: "page", pageId };
   }
   return null;
+}
+
+/** Kartice Podešavanja startupa redom (K20). */
+export const SETTINGS_TABS: ReadonlyArray<SettingsTab> = ["opste", "oblasti", "tim", "pozivnice", "lozinke"];
+
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return typeof value === "string" && (SETTINGS_TABS as ReadonlyArray<string>).includes(value);
 }
 
 const TRASH_SEGMENT_KEYS: ReadonlyArray<TrashSegment> = ["page", "idea", "file", "recovered"];
@@ -202,6 +214,8 @@ export function workspaceRouteHref(
     url.searchParams.set("ideaId", route.ideaId);
   } else if (route.kind === "trash" && route.segment && route.segment !== "page") {
     url.searchParams.set("vrsta", route.segment);
+  } else if (route.kind === "settings" && route.tab && route.tab !== "opste") {
+    url.searchParams.set("tab", route.tab);
   }
   // Lični nivo ne pripada startupu: `startupId` se ne upisuje ni kad je
   // prosleđen (startup „u pozadini" se drži u memoriji ljuske, D10).
@@ -241,6 +255,8 @@ export function workspaceRouteAfterStartupSwitch(
   }
   // Ideja pripada startupu: u drugom startupu se otvara tabla, bez detalja.
   if (currentRoute.kind === "ideas") return { kind: "ideas" };
+  // Podešavanja ostaju na istoj kartici (tab važi za svaki startup).
+  if (currentRoute.kind === "settings") return currentRoute;
   return currentRoute.kind === "thoughts" ||
     currentRoute.kind === "today" ||
     currentRoute.kind === "trash"

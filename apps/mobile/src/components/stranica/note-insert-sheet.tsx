@@ -160,7 +160,7 @@ export function NoteInsertSheet({
         haptics.warning();
         Alert.alert(
           'Prevelika tabela',
-          `Tabela u belešci može imati najviše ${NOTE_TABLE_MAX_ROWS} redova i ${NOTE_TABLE_MAX_COLS} kolona — za veće tabele koristi tabela oblačić.`,
+          `Tabela u belešci može imati najviše ${NOTE_TABLE_MAX_ROWS} redova i ${NOTE_TABLE_MAX_COLS} kolona — za veće tabele napravi stranicu Tabela.`,
         );
         return;
       }
@@ -168,7 +168,7 @@ export function NoteInsertSheet({
         haptics.warning();
         Alert.alert(
           'Nema mesta',
-          'Tabela je prevelika za telo ove beleške — koristi tabela oblačić.',
+          'Tabela je prevelika za ovu belešku — napravi stranicu Tabela.',
         );
         return;
       }
@@ -240,8 +240,7 @@ export function NoteInsertSheet({
         </>
       ) : (
         <Text style={[styles.uploadHint, { color: colors.mutedForeground }]}>
-          Prilozi (slika, kamera, fajl) se dodaju posle kreiranja beleške — u
-          njenom editoru.
+          Prilozi se dodaju posle čuvanja, u editoru beleške.
         </Text>
       )}
       <Row

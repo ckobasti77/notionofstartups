@@ -63,7 +63,7 @@ export default function IstorijaScreen() {
     haptics.warning();
     Alert.alert(
       'Očisti spisak?',
-      'Radnje se NE poništavaju, samo se sklanjaju sa spiska.',
+      'Radnje se ne poništavaju, samo se sklanjaju sa spiska.',
       [
         { text: 'Odustani', style: 'cancel' },
         {
@@ -95,7 +95,6 @@ export default function IstorijaScreen() {
         <EmptyState
           icon={<History size={40} color={colors.mutedForeground} />}
           title="Nema radnji za poništavanje."
-          description="Ovde stoje poslednje izmene napravljene na telefonu, dok mogu da se ponište."
         />
       ) : (
         <FlatList
@@ -175,8 +174,8 @@ function IstorijaErrorState({ message, onRetry }: { message: string; onRetry: ()
       <ScreenHeader title="Istorija radnji" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Istorija se ne može učitati"
-        description={message || 'Došlo je do greške.'}
+        title="Istorija nije učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

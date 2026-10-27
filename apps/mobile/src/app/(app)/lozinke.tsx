@@ -94,8 +94,7 @@ export default function LozinkeScreen() {
               showsVerticalScrollIndicator={false}
               refreshControl={refreshControl}>
               <Text style={[styles.note, { color: colors.mutedForeground }]}>
-                Postavi novu lozinku bilo kom članu. Član se odmah prijavljuje novom
-                lozinkom; sve njegove/njene ranije prijave se poništavaju.
+                Postavi novu lozinku članu. Sve njegove ranije prijave se poništavaju.
               </Text>
               <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <StaggerGroup>
@@ -171,8 +170,8 @@ function LozinkeError({ message, onRetry }: { message: string; onRetry: () => vo
       <ScreenHeader title="Lozinke" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Lista se ne može učitati"
-        description={message || 'Došlo je do greške.'}
+        title="Lista nije učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

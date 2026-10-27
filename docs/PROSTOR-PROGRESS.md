@@ -910,3 +910,65 @@ Polazno stanje: grana `prostor-run` pravi se iz `main` posle merge-a LICNO runa 
 - `home-view.tsx` i web `workload-strip.tsx` su obrisani; ako nešto van repoa ili stari link očekuje „Početnu", `?view=home` i dalje vodi na Komandni centar.
 
 **Dopuna K19 (završne provere):** backend nije menjan (`git status packages/backend/convex` prazan), ali je `npx convex codegen` ipak pušten (izlaz 0, `_generated` bez izmena). Sve komande iz definicije završenog koraka pušene su ponovo sa izlaznim kodom 0: tsc backend/web/telefon, eslint, `npx vitest run --no-file-parallelism` (146 fajlova, 1541 testova). `procesi.ps1` → „USLOV 4: OK".
+
+## K20 — Podešavanja startupa, tekst i jezik   (2026-10-27 07:50)
+**Fajlovi:**
+- Novi (shared): `packages/shared/src/settings.ts` + `settings.test.ts` (7); izvoz u `index.ts`.
+- Novi (web): `apps/web/components/workspace/settings/{settings-view, general-tab, areas-tab, team-tab, invites-tab, passwords-tab, settings-container}.tsx`; izlog `apps/web/app/izlog/ekrani/podesavanja-startupa.tsx` (+ red u `registry.tsx`); snimci `docs/prostor/snimci/K20-podesavanja-*.png` (21).
+- Menjani (web): `types.ts` (`settings` + `SettingsTab`), `workspace-route.ts` (+ test), `workspace-shell.tsx` (renderuje `SettingsContainer`, naslov „Podešavanja"), `workspace-sidebar.tsx` (dugme za sve članove, aktivna stavka), `admin-dialog.tsx` (sada samo „Novi startup"), `member-password-dialog.tsx`, `create-area-dialog.tsx`, `lib/workspace.ts`, izlog `ljuska-startup.tsx`, `pokret-primitivi.tsx`, `fixtures/moj-dan.ts`; ~10 fajlova teksta (`thoughts/*`, `notifications-panel.tsx`, `chat/*`, `search-dialog.tsx`, `create-page-dialog.tsx`, `detach-page-button.tsx`).
+- Novi (telefon): `components/podesavanja/settings-sections.tsx` (`GeneralSection`, `AreasSection`, `TeamSection`), `components/katalog/podesavanja-k20.tsx` (uključen u `dizajn-katalog.tsx`).
+- Menjani (telefon): `app/(app)/admin-startup.tsx` (prepisan: za sve članove), `(tabs)/vise.tsx` (red „Podešavanja startupa" bez `adminOnly`), `lib/task-meta.ts`, ~40 fajlova teksta (ekrani, `components/canvas/*`, `misli/*`, `stranica/*`, `ideja/*`, `lib/embed-url.ts`).
+- Backend: `startups.test.ts` (+4), `lib/notifications.ts` (samo labela „Neplanirano"). `AREA_DEFINITIONS` je već bio Razvoj · Marketing · Prodaja · Ostalo iz K06-9 — K20 dodaje test.
+
+**Šta je urađeno:** Podešavanja startupa su ruta `?view=settings[&tab=opste|oblasti|tim|pozivnice|lozinke]` (K07 E1) na webu i ekran Više › Tim › „Podešavanja startupa" na telefonu, za SVE članove. Opšte (naziv, opis, logo — samo admin; član vidi polja samo za čitanje + „Naziv, opis i logo menja admin."), Oblasti (preimenuj, redosled dugmadima gore/dole, nova — `updateArea`, `reorderAreas`, `createArea`, svaki član), Tim (članovi za sve; dodavanje i uklanjanje uz potvrdu samo admin), Pozivnice i Lozinke (samo admin; na webu kartice, na telefonu redovi ka postojećim `/pozivnice` i `/lozinke`). Auth i logika lozinki su netaknuti (menjan samo raspored i tekst poruka). `AdminDialog` je sada samo „Novi startup". Logika kartica, redosleda, naziva i pozivnica je u shared `settings.ts` (oba klijenta). Tekstualni prolaz: web ~20 izmena, telefon ~100, shared 3, plus Backlog → Neplanirano svuda (web, telefon, shared, backend labela) i Dev/Sales → Razvoj/Prodaja u `AREA_META`.
+
+**Lista izmena teksta (staro → novo, najvažnije):**
+- Backlog → Neplanirano (`lib/workspace.ts`, `task-sort.ts`, `notifications.ts`, `task-meta.ts`, `task-create.ts`, `choice-chips.tsx`); AREA_META Dev/Sales → Razvoj/Prodaja.
+- Canvas / kanvas → Mapa: telefon `canvas/[kind]/[id].tsx` („Mapa nije dostupna", „Mapa se predugo učitava."), `canvas/*-sheet*.tsx` („uklanja se sa mape", „Na mapi nema druge stavke."); web `thoughts-canvas-view.tsx` („Kontrole mape", „Pozicija mape nije sačuvana.").
+- Misao/misli → beleška/beleške (telefon: `canvas/thought-*`, `thought-conversion-sheet.tsx`, naslov Mape beleški u `embed-url.ts`); web „Prazna glava, čist početak" → „Još nema misli".
+- Parent / roditelj → nadređena stavka (`detach-page-button.tsx`, `page-actions-sheet.tsx`, `page-target-picker.tsx`, hintovi stranice i zadatka); „Ugnjezdi" → „Ugnezdi".
+- „Zatraži brisanje: X" → „Obriši: X" (`task-checkpoint-list.tsx`); „Glasanje o brisanju: „X”" → „Brisanje: „X”" (`inbox.ts`).
+- „Zapiši prvu misao gore." → „Zapiši prvu belešku gore." (`notes.ts`); „Rok bio" → „Rok je bio" (`dates.ts`).
+- Marketing i objašnjenja uklonjeni: „Budi prvi — napiši poruku da započneš razgovor." → „Napiši prvu poruku."; „Otvori kanal, diskusiju ili direktnu poruku iz liste sa leve strane da započneš razgovor." → „Otvori kanal ili poruku iz liste."; „Pronađi ono što ti treba" → „Pretraži startup"; „Ništa nije zapelo. Sve teče." → „Ništa nije zapelo."; obaveštenja: „Ovde stižu zadaci, glasovi i rokovi."
+- Engleski: „Rich Text Editor" (uklonjeno), „browser" → „pregledač", „sidebar" → „bočni meni", „Tap" → „dodirni", „Dev, Marketing, Sales, Other" → „Razvoj, Marketing, Prodaja i Ostalo", „Zatvori sheet" → „Zatvori radnje", „podzadataka" → „koraka".
+- Greške na telefonu (23 fajla): „X se ne može učitati" → „X nije/nisu učitan(o/a/i).", „Došlo je do greške pri učitavanju …" → „Proveri vezu i pokušaj ponovo.".
+- Podešavanja: „Upravljanje radnim prostorom" → „Podešavanja startupa"; „Članovi / Pozivi" → „Tim / Pozivnice"; „Poziv je kreiran…" → „Pozivnica je napravljena."; „Startup je ažuriran." → „Sačuvano."; „Postavi novu lozinku bilo kom članu iz svih startupova…" → „Važi za nalog u svim startupima.".
+- Još ~40 sitnih izmena istog tipa (pasivne prazne rečenice, padeži, „Excel-a" → „Excela").
+
+**ODLUKE:**
+- K20-1 `AREA_DEFINITIONS` je već nosio nove nazive (K06-9); K20 samo dodaje test (nov startup dobija Razvoj · Marketing · Prodaja · Ostalo sa ključevima dev/marketing/sales/other; pravljenje novog startupa ne dira oblasti postojećeg). Nazivi postojećih oblasti u bazi se ne diraju.
+- K20-2 Redosled oblasti u Podešavanjima je dugmadima „Pomeri gore/dole" (`aria-label`, tastatura i čitač); prevlačenje u meniju ostaje (K07 §5.11).
+- K20-3 Dodavanje i uklanjanje člana, pozivnice i lozinke su `requireAdmin` na serveru — član ih ne vidi (kartice Pozivnice i Lozinke se ne crtaju, `resolveSettingsTab` pada na Opšte), Tim mu je samo za čitanje. Telefon: Pozivnice, Lozinke i „Novi startup" su redovi samo za admina.
+- K20-4 `startups.update` se šalje samo kad se naziv ili opis stvarno menjaju (promena samog loga ne piše lažni „startup_updated" u Aktivnost).
+- K20-5 „Glavna misao" ostaje (nije engleski, već je u celom UI-ju Mape beleški). Imenica „misao/misli" za stavke na web Mapi beleški (~80 stringova u `thoughts/*`) NIJE zamenjena: „beleška" bi se mešala sa vrstom stranice Beleška — predlog za K21/K22 ili odluka vlasnika.
+- K20-6 Stari tok „Glasanje o brisanju veze je pokrenuto." (mobilni `canvas/*-node-sheet*.tsx`, poziv `requestDeletion`) NIJE menjan: to je logika starog modela (P4), van obima K20. Treba ga ukinuti u koraku koji čisti Mapu na telefonu (K22).
+- K20-7 Nisko iz recenzije, nije rađeno: sat pozivnica se ne osvežava dok je ekran otvoren; `take(50)` u `listMembers`/`listAll` ćuti o skraćenoj listi (backend, van obima); `updateArea` ne preimenuje chat kanal oblasti (backend, van obima); demo redosleda u izlogu (`onMove={noop}`).
+- K20-8 „Inbox" ostaje (K07 E8); „Prekoračeno" ostaje kao naziv grupe.
+
+**Novi paketi:** nema
+
+**Šema:** nema
+
+**Testovi:** shared `settings.test.ts` (7: kartice po ulozi, `resolveSettingsTab`, naziv oblasti, pomeranje, potvrda uklanjanja, stanje pozivnice); backend `startups.test.ts` +4 (novi startup dobija 4 oblasti sa ključevima, postojeće oblasti nisu dirane, svaki član preimenuje/dodaje/preuređuje a nečlan ne može i prazan naziv se odbija, ime i opis menja samo admin); web `workspace-route.test.ts` +3 (čitanje kartica i nepoznata kartica, povratni put i brisanje parametra, promena startupa).
+
+**Testovi menjani zbog novog pravila:**
+- `packages/shared/src/task-sort.test.ts › po roku, statusu i prioritetu, bez praznih grupa`: „Backlog" → „Neplanirano" (E9).
+- `packages/shared/src/inbox.test.ts › pendingTitle` i `apps/web/components/me/my-day/side-model.test.ts › Čeka tebe: tekst po vrsti`: „Glasanje o brisanju: „Stari logo“" → „Brisanje: „Stari logo“".
+- `packages/shared/src/notes.test.ts` (prazno stanje): „Zapiši prvu misao gore." → „Zapiši prvu belešku gore.".
+- Samo imena testova: `task-create.test.ts › Backlog, Srednji…` i `startup-tasks.test.ts › bez statusa = Backlog…` → „Neplanirano".
+
+**Paritet:** Podešavanja startupa postoje na oba klijenta nad istim funkcijama (`startups.get/update/generateLogoUploadUrl/setLogo/removeLogo`, `createArea/updateArea/reorderAreas`, `listMembers/addMember/removeMember`, `invites.*`, `profiles.listAll`, `adminAuth.adminSetPassword`) i istim shared modulom `settings.ts`. IZUZECI: logo na telefonu je iz galerije ili kamere, na webu se bira fajl; članovi, pozivnice i lozinke na telefonu su i dalje zasebni ekrani (`/clanovi`, `/pozivnice`, `/lozinke`), na webu kartice u istom ekranu; redosled oblasti je dugmadima gore/dole na oba (bez prevlačenja).
+
+**Rezultat provere:** tsc backend ✓, tsc web ✓, expo-rute + tsc mobile ✓, eslint ✓ (0), vitest ✓ (147 fajlova, 1555 testova). Snimci izloga (Playwright MCP, dev server ugašen, `USLOV 4: OK`): `docs/prostor/snimci/K20-podesavanja-{opste-admin,oblasti,tim}-{1440,390}-{tamna,svetla}.png`, `opste-clan`, `tim-clan`, `pozivnice`, `lozinke`, `ucitavanje`, `greska`; bez horizontalnog skrola na 390. Telefon: bez snimaka (pravilo runa), komponente su u `dizajn-katalog.tsx`. Recenzije: `web-review` (Sonnet): 0 visokih, 5 srednjih — svi ispravljeni (reset lozinke pri „Otkaži", ključ forme bez `updatedAt` + usklađivanje polja, `aria-disabled` umesto `disabled` na dugmadima sa fokusom, nazivi dugmadi po redu, kandidati za člana tek kad su oba upita učitana + poruke); od niskih urađeni: tekst greške kopiranja, `text-xs`, `aria-pressed`, 5 skeleton redova, napomena „Link se prikazuje samo sada.", opis dijaloga „Novi startup" bez objašnjenja. `rn-review` (Sonnet, nije viđeno na uređaju): 0 visokih, 8 srednjih — svi ispravljeni (dugmad gore/dole više nisu ugnežđena u red: dodir ne otvara izmenu, dostupna su VoiceOver-u; zaštita od dvostrukog unosa; prelistavanje polja „Nova oblast" iznad tastature; dugmad 16 px; najava „Sačuvano." kroz `announceForAccessibility`; greške 16 px, najavljene i brišu se pri kucanju; skelet čeka i profil; `try/catch` oko izbora loga + „Otvori podešavanja"); od niskih urađeni: trimovanje posle snimanja, „Sačuvaj" onemogućen bez izmene, isti naziv ne šalje upit, poruka „Nema oblasti.".
+
+**BLOKADA (K20, dopuna):** ništa od ovoga ne ulazi u Prihvatanje K20, ali nije urađeno i ovde je izričito zapisano:
+- BLOKADA: provera telefonskog ekrana Podešavanja startupa NA UREĐAJU. Razlog: pravilo runa zabranjuje Expo/Metro/emulator, a uređaj nije dostupan nenadziranom runu; provereno je samo kroz `tsc`, `rn-review` i `dizajn-katalog.tsx`. Jovan ga proverava ručno (vidi „Za Jovana ujutru").
+- Stari tok „Glasanje o brisanju veze je pokrenuto." (`apps/mobile/src/components/canvas/{checkpoint,idea,page}-node-sheet*.tsx`, poziv `requestDeletion`) nije menjan: logika starog modela, van obima teksta K20. Čisti ga K22.
+- Imenica „misao/misli" u web Mapi beleški (`apps/web/components/workspace/thoughts/*`, ~80 stringova) nije zamenjena: traži odluku vlasnika o imenici (K20-5).
+- Backend nalazi iz recenzije su van obima K20 („Ne radi": logika) i nisu rađeni: `startups.updateArea` ne preimenuje chat kanal oblasti; `startups.listMembers` i `profiles.listAll` rade `take(50)` pre filtera arhiviranih i klijent ne javlja skraćenje.
+- `npx convex codegen` je ispisao „Uploading functions to Convex". Ciljni deployment nisam mogao da potvrdim (`.env*` je zabranjeno čitati); komanda je izričito dozvoljena pravilima runa i nije menjala `_generated` (git status čist). Jovan neka proveri da dev deployment nije dobio neželjenu promenu.
+
+**Za Jovana ujutru:**
+- Web: Meni startupa › „Podešavanja startupa" otvara ekran za svakog člana; kao član proveri da nema Pozivnica i Lozinki i da je Opšte samo za čitanje. Kao admin: promeni naziv, dodaj/ukloni logo, preimenuj i pomeri oblast, dodaj člana, napravi pozivnicu (link se vidi samo odmah), „Nova lozinka".
+- Telefon (nije viđeno na uređaju): Više › Tim › Podešavanja startupa — proveri tastaturu na polju „Nova oblast" (pri dnu), dugmad za pomeranje i dodir na naziv oblasti (otvara izmenu).
+- Pogledaj web Mapu beleški (reči „misao/misli" su namerno ostale, K20-5) i mobilne Mape (stari tok „Glasanje o brisanju veze", K20-6).

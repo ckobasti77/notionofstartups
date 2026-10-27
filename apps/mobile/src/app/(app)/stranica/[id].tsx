@@ -159,7 +159,7 @@ export default function StranicaScreen() {
           haptics.tap();
           setPathOpen(true);
         }}
-        subtitleAccessibilityLabel="Putanja do korena — otvori za skok na roditelja"
+        subtitleAccessibilityLabel="Putanja do korena. Otvara nadređenu stavku"
         onBack={() => router.back()}
         actions={
           <>

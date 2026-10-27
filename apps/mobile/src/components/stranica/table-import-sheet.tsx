@@ -202,7 +202,7 @@ export function TableImportSheet({
             contentContainerStyle={styles.bodyContent}
             showsVerticalScrollIndicator={false}>
             <Text style={[styles.title, { color: colors.foreground }]}>
-              Uvoz iz Excel-a ili CSV-a
+              Uvoz iz Excela ili CSV-a
             </Text>
             <Text style={[styles.description, { color: colors.mutedForeground }]}>
               Podržani su .xlsx, .xls i .csv. Uvozi se prvi list. Najviše {MAX_TABLE_COLUMNS}{' '}

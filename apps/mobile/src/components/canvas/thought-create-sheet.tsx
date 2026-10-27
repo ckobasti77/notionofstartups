@@ -66,7 +66,7 @@ export function ThoughtCreateSheet({
     const cleanTitle = title.trim();
     if (!cleanTitle) {
       haptics.warning();
-      Alert.alert('Prazna misao', 'Unesi naslov misli.');
+      Alert.alert('Prazna beleška', 'Unesi naslov beleške.');
       return;
     }
     setBusy(true);
@@ -94,14 +94,14 @@ export function ThoughtCreateSheet({
           await archiveNodes({ nodeIds: [nodeId] });
           throw error;
         }
-        pushUndo({ label: 'Povezana misao je dodata.', action: { kind: 'thoughtCreate', nodeId } });
+        pushUndo({ label: 'Povezana beleška je dodata.', action: { kind: 'thoughtCreate', nodeId } });
       }
       haptics.success();
       reset();
       onClose();
     } catch (error) {
       haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Misao nije kreirana.'));
+      Alert.alert('Greška', accessErrorMessage(error, 'Beleška nije kreirana.'));
     } finally {
       setBusy(false);
     }
@@ -115,7 +115,7 @@ export function ThoughtCreateSheet({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
         <Text style={[styles.heading, { color: colors.foreground }]}>
-          {connectFrom ? 'Nova povezana misao' : 'Nova misao'}
+          {connectFrom ? 'Nova povezana beleška' : 'Nova beleška'}
         </Text>
         {connectFrom ? (
           <Text style={[styles.meta, { color: colors.mutedForeground }]}>

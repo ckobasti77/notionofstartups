@@ -336,8 +336,8 @@ function MisliError({ message, onRetry }: { message: string; onRetry: () => void
       <ScreenHeader title="Beleške" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={20} color={colors.destructive} />}
-        title="Beleške se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju beleški.'}
+        title="Beleške nisu učitane."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

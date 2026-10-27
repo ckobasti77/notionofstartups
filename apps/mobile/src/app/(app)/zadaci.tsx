@@ -577,7 +577,7 @@ function TasksSkeleton() {
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <ZadaciErrorState
-      message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju zadataka.')}
+      message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
       onRetry={retry}
     />
   );
@@ -592,7 +592,7 @@ function ZadaciErrorState({ message, onRetry }: { message: string; onRetry: () =
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Zadaci nisu učitani."
-        description={message || 'Došlo je do greške pri učitavanju zadataka.'}
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

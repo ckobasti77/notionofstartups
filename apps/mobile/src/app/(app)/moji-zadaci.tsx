@@ -27,7 +27,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
       <ScreenHeader title="Moji zadaci" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Zadaci se ne mogu učitati"
+        title="Zadaci nisu učitani."
         description={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
         actionLabel="Pokušaj ponovo"
         onAction={retry}

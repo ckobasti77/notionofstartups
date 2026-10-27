@@ -67,7 +67,7 @@ export function CommandCenter({
           {header}
           <View style={styles.fallbackError}>
             <CommandCenterErrorState
-              message={accessErrorMessage(error, 'Došlo je do greške pri učitavanju zadataka.')}
+              message={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
               onRetry={retry}
             />
           </View>
@@ -216,8 +216,8 @@ function CommandCenterErrorState({ message, onRetry }: { message: string; onRetr
   return (
     <EmptyState
       icon={<CalendarX2 size={40} color={colors.destructive} />}
-      title="Zadaci se ne mogu učitati"
-      description={message || 'Došlo je do greške pri učitavanju zadataka.'}
+      title="Zadaci nisu učitani."
+      description={message || 'Proveri vezu i pokušaj ponovo.'}
       actionLabel="Pokušaj ponovo"
       onAction={onRetry}
     />

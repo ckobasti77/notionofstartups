@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import type { StartupWithAreas } from "@/components/workspace/types";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 
 export function CreateAreaDialog({
   open,
@@ -44,16 +45,14 @@ export function CreateAreaDialog({
         startupId: startup._id,
         label: label.trim(),
       });
-      toast.success("Nova oblast je kreirana.");
+      toast.success("Oblast je dodata.");
       setLabel("");
       onOpenChange(false);
       if (onCreated) {
         onCreated(areaId);
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Greška pri kreiranju oblasti."
-      );
+      toast.error(accessErrorMessage(error, "Oblast nije dodata."));
     } finally {
       setSubmitting(false);
     }
@@ -71,7 +70,7 @@ export function CreateAreaDialog({
               Nova oblast
             </DialogTitle>
             <DialogDescription>
-              Kreiraj novu oblast u timskom prostoru startupa {startup.name}.
+              Nova oblast u startupu {startup.name}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-5 py-5 sm:px-6">
@@ -81,7 +80,7 @@ export function CreateAreaDialog({
                 id="new-area-label"
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                placeholder="npr. HR, Finansije, Logistika..."
+                placeholder="Na primer: Finansije"
                 maxLength={100}
                 autoFocus
               />
@@ -104,7 +103,7 @@ export function CreateAreaDialog({
               ) : (
                 <FolderPlus />
               )}
-              Kreiraj
+              Dodaj
             </Button>
           </DialogFooter>
         </form>

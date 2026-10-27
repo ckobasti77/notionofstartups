@@ -705,7 +705,7 @@ export function PageCreateSheet({
     TASK_PRIORITY_META[priority].label,
     assigneeIds.length > 0 ? `${assigneeIds.length} izvršilaca` : null,
     dueAt === null ? null : dueSummary(dueAt, now),
-    checkpoints.length > 0 ? `${checkpoints.length} podzadataka` : null,
+    checkpoints.length > 0 ? `${checkpoints.length} koraka` : null,
   ]
     .filter(Boolean)
     .join(' · ');

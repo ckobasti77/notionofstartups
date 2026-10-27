@@ -221,7 +221,7 @@ export function PageActionsSheet({
         targetParentPageId,
       });
       // Ugnežđuje se odmah (P4), uz traku „Poništi" koja vraća prethodno mesto.
-      pushPlaceUndo(`Ugnježdeno pod „${targetTitle}".`);
+      pushPlaceUndo(`Ugnežđeno pod „${targetTitle}".`);
       return null;
     });
 
@@ -273,7 +273,7 @@ export function PageActionsSheet({
       haptics.error();
       setRenameError(
         conflictFromError(error) !== null
-          ? 'Neko iz tima je u međuvremenu izmenio ovu stranicu. Zatvori sheet i pokušaj ponovo.'
+          ? 'Neko iz tima je u međuvremenu izmenio ovu stranicu. Zatvori radnje i pokušaj ponovo.'
           : accessErrorMessage(error, 'Stranica nije preimenovana.'),
       );
     } finally {
@@ -287,7 +287,7 @@ export function PageActionsSheet({
     haptics.warning();
     Alert.alert(
       'Odvojiti stranicu?',
-      `„${page.title || 'Stranica bez naslova'}" se odvaja od roditelja i vraća u koren oblasti.`,
+      `„${page.title || 'Stranica bez naslova'}" se odvaja od nadređene stavke i vraća u koren oblasti.`,
       [
         { text: 'Otkaži', style: 'cancel' },
         {
@@ -297,7 +297,7 @@ export function PageActionsSheet({
             void runAction('detach', async () => {
               const result = await detachPage({ startupId: page.startupId, pageId: page._id });
               if (result.status !== 'detached') {
-                throw new Error('Stranica više nije ugnježdena.');
+                throw new Error('Stranica više nije ugnežđena.');
               }
               return 'Stranica je vraćena u koren oblasti.';
             }),
@@ -429,7 +429,7 @@ export function PageActionsSheet({
               />
               <Row
                 title="Odvoji"
-                subtitle="Odvaja od roditelja i vraća u koren oblasti"
+                subtitle="Odvaja od nadređene stavke i vraća u koren oblasti"
                 onPress={detach}
                 disabled={!page.permissions.canDetach || busyId !== null}
                 showChevron={false}
@@ -606,7 +606,7 @@ export function PageActionsSheet({
                   excludePageId={page._id}
                   currentParentPageId={page.parentPageId}
                   busyId={busyId}
-                  rootEmpty="U ovoj oblasti nema druge stranice pod koju bi se ugnjezdila."
+                  rootEmpty="U ovoj oblasti nema druge stranice pod koju bi se ugnezdila."
                   onPick={nestInto}
                 />
               ) : null}

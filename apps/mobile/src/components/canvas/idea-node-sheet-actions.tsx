@@ -148,7 +148,7 @@ export function IdeaNodeActionsSheet({
   const breakEdge = (edge: NodeEdgeRow) => {
     if (busy !== null || !idea) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -249,8 +249,8 @@ export function IdeaNodeActionsSheet({
               !idea.canConnect
                 ? 'Vezu možete praviti samo sa svoje kartice.'
                 : idea.nodeCount < 2
-                  ? 'Na kanvasu nema druge ideje.'
-                  : 'Zatim tapni ideju sa kojom se povezuje'
+                  ? 'Na mapi nema druge ideje.'
+                  : 'Zatim dodirni ideju sa kojom se povezuje'
             }
             emptyNote="Nema veza sa ove ideje."
             busy={busy}
@@ -265,7 +265,7 @@ export function IdeaNodeActionsSheet({
             options={options}
             busy={busy}
             hint={
-              'Tekst, glasanje i brisanje ideje su na njenom detalju — kanvas služi za ' +
+              'Tekst, glasanje i brisanje ideje su na njenom detalju — mapa služi za ' +
               'razmeštaj, veličinu i veze.'
             }
           />

@@ -99,11 +99,8 @@ export type WorkspaceSidebarProps = {
   onCreate: (target?: CreatePageTarget) => void;
   onCreateArea: () => void;
   onSearch: () => void;
-  /**
-   * „Podešavanja startupa" (P11). Do K20 otvara postojeći dijalog upravljanja
-   * timom, koji postoji samo za admina — zato je `null` za ostale članove.
-   */
-  onOpenSettings: (() => void) | null;
+  /** „Podešavanja startupa" (P11, K20): ruta koju vide svi članovi. */
+  onOpenSettings: () => void;
   /** „Obaveštenja i zvuci" u meniju profila (mobilni meni; na desktopu traka). */
   onOpenNotificationSettings: () => void;
   onProfile: () => void;
@@ -678,15 +675,13 @@ function SidebarContent(
           collapsed={compact}
           onClick={() => props.onRouteChange({ kind: "trash" })}
         />
-        {props.onOpenSettings ? (
-          <SidebarButton
-            label="Podešavanja startupa"
-            icon={Settings}
-            active={false}
-            collapsed={compact}
-            onClick={props.onOpenSettings}
-          />
-        ) : null}
+        <SidebarButton
+          label="Podešavanja startupa"
+          icon={Settings}
+          active={route.kind === "settings"}
+          collapsed={compact}
+          onClick={props.onOpenSettings}
+        />
 
         {/* Na desktopu profil, tema i odjava žive u traci „Ja + startupi". */}
         {mobile ? (
@@ -922,7 +917,7 @@ export function MobileMenuPanel({ onClose, ...props }: MobileMenuPanelProps & { 
     onCreate: close(props.onCreate),
     onCreateArea: close(props.onCreateArea),
     onSearch: close(props.onSearch),
-    onOpenSettings: props.onOpenSettings ? close(props.onOpenSettings) : null,
+    onOpenSettings: close(props.onOpenSettings),
     onOpenNotificationSettings: close(props.onOpenNotificationSettings),
     onProfile: close(props.onProfile),
     onSignOut: () => {

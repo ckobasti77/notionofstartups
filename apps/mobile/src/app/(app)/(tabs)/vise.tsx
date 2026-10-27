@@ -44,13 +44,13 @@ type MenuItem = {
 };
 
 /**
- * Grupa „Tim" (PROSTOR P18, plan K07 §4.3). „Podešavanja startupa" je do K20
- * samo za admina: ekran (`admin-startup`) i njegove mutacije traže admina.
- * „Članovi tima" NIJE `adminOnly`: `startups.listMembers` je iza
- * `requireStartupMember`, a admin-RADNJE su gejtovane unutar ekrana (P7/D19).
+ * Grupa „Tim" (PROSTOR P18, plan K07 §4.3). „Podešavanja startupa" (K20) vide
+ * svi članovi: ekran sam pokazuje samo ono što član sme (oblasti), a naziv,
+ * opis i logo menja admin. „Članovi tima" NIJE `adminOnly`: `startups.listMembers`
+ * je iza `requireStartupMember`, a admin-RADNJE su gejtovane unutar ekrana.
  */
 const TEAM_MENU: MenuItem[] = [
-  { icon: Settings, label: 'Podešavanja startupa', route: '/admin-startup', adminOnly: true },
+  { icon: Settings, label: 'Podešavanja startupa', route: '/admin-startup' },
   { icon: Users, label: 'Članovi tima', route: '/clanovi' },
   { icon: Mail, label: 'Pozivnice', route: '/pozivnice', adminOnly: true },
   { icon: KeyRound, label: 'Lozinke', route: '/lozinke', adminOnly: true },
@@ -76,8 +76,7 @@ export default function ViseScreen() {
   const { signOut } = useAuthActions();
   const router = useRouter();
 
-  // Admin stavke (Podešavanja startupa, Pozivnice, Lozinke) se skrivaju ako
-  // korisnik nije admin.
+  // Admin stavke (Pozivnice, Lozinke) se skrivaju ako korisnik nije admin.
   const profile = useQuery(api.profiles.getCurrent, {});
   const isAdmin = profile?.role === 'admin';
   const teamItems = TEAM_MENU.filter((item) => !item.adminOnly || isAdmin);
@@ -249,8 +248,8 @@ function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => 
       <ScreenHeader title="Više" titleSize="display" />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Meni se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju menija.'}
+        title="Meni nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

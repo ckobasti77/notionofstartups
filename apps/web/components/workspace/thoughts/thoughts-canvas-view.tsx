@@ -131,7 +131,7 @@ const SERBIAN_ARIA_LABELS = {
     y: number;
   }) => `Misao je pomerena ${direction}. Nova pozicija je ${Math.round(x)}, ${Math.round(y)}.`,
   "edge.a11yDescription.default": "Pritisni Enter ili Space da izabereš vezu.",
-  "controls.ariaLabel": "Kontrole kanvasa",
+  "controls.ariaLabel": "Kontrole mape",
   "controls.zoomIn.ariaLabel": "Uvećaj prikaz",
   "controls.zoomOut.ariaLabel": "Umanji prikaz",
   "controls.fitView.ariaLabel": "Prikaži sve misli",
@@ -168,7 +168,7 @@ function toFlowNode(
     style: { width, height },
     width,
     height,
-    ariaLabel: `${doc.isParent ? "Roditeljska misao" : "Misao"}: ${doc.title ?? ""}. ${doc.text}`,
+    ariaLabel: `${doc.isParent ? "Glavna misao" : "Misao"}: ${doc.title ?? ""}. ${doc.text}`,
   };
 }
 
@@ -607,7 +607,7 @@ function ThoughtsCanvasBody({
       });
       toast.success(
         isParent
-          ? "Misao je postavljena kao glavna (Parent)."
+          ? "Misao je postavljena kao glavna."
           : "Status glavne misli je uklonjen.",
       );
     } catch {
@@ -751,7 +751,7 @@ function ThoughtsCanvasBody({
     const nodeIds = draggedNodes.map((node) => node.id as Id<"thoughtNodes">);
     if (nodeIds.length > 50) {
       restorePreDragPositions();
-      toast.error("U sidebar možeš odjednom da pošalješ najviše 50 misli.");
+      toast.error("U bočni meni možeš odjednom da pošalješ najviše 50 misli.");
       return;
     }
     sidebarDragStartedRef.current = true;
@@ -861,7 +861,7 @@ function ThoughtsCanvasBody({
             childNodeId: child.id as Id<"thoughtNodes">,
             parentNodeId: parent.id as Id<"thoughtNodes">,
           });
-          toast.success("Misao je ugnježđena u Parent.");
+          toast.success("Misao je ugnježđena u glavnu misao.");
         }
       }
       pushHistory({
@@ -1261,7 +1261,7 @@ function ThoughtsCanvasBody({
                   x: viewport.x,
                   y: viewport.y,
                   zoom: viewport.zoom,
-                }).catch(() => toast.error("Pozicija kanvasa nije sačuvana."));
+                }).catch(() => toast.error("Pozicija mape nije sačuvana."));
               }}
               colorMode={dark ? "dark" : "light"}
               minZoom={0.18}
@@ -1338,7 +1338,7 @@ function ThoughtsCanvasBody({
               <Controls
                 position="bottom-left"
                 showInteractive={false}
-                aria-label="Kontrole kanvasa"
+                aria-label="Kontrole mape"
               />
               <MiniMap
                 position="bottom-right"
@@ -1492,9 +1492,9 @@ function ThoughtsCanvasBody({
                   <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
                     <Sparkles className="size-5" />
                   </span>
-                  <h2 className="mt-4 text-lg font-bold tracking-[-0.03em]">Prazna glava, čist početak</h2>
+                  <h2 className="mt-4 text-lg font-bold tracking-[-0.03em]">Još nema misli</h2>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Zapiši prvu misao. Ovaj kanvas vidiš samo ti u startupu „{startup.name}”.
+                    Zapiši prvu misao. Vidiš je samo ti u startupu „{startup.name}”.
                   </p>
                   <Button type="button" className="mt-5" onClick={() => openNewThought()}>
                     <Plus /> Dodaj prvu misao
@@ -1513,7 +1513,7 @@ function ThoughtsCanvasBody({
                   <Edit3 className="size-4" /> Uredi
                 </ContextMenu.Item>
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => void toggleParent(contextTarget.nodeId)}>
-                  <Crown className="size-4" /> {nodeDocsById.get(contextTarget.nodeId)?.isParent ? "Ukloni status Parent misli" : "Postavi kao Parent misao"}
+                  <Crown className="size-4" /> {nodeDocsById.get(contextTarget.nodeId)?.isParent ? "Ukloni status glavne misli" : "Postavi kao glavnu misao"}
                 </ContextMenu.Item>
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => openRelatedThought(contextTarget.nodeId)}>
                   <Link2 className="size-4" /> Nova povezana misao

@@ -92,7 +92,7 @@ function VoteButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${label}, trenutno ${count}`}
-      accessibilityHint={active ? 'Ponovni tap poništava glas' : undefined}
+      accessibilityHint={active ? 'Ponovni dodir poništava glas' : undefined}
       accessibilityState={{ selected: active, disabled }}
       disabled={disabled}
       onPress={onPress}

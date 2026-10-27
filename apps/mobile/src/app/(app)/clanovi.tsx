@@ -89,7 +89,7 @@ export default function ClanoviScreen() {
     haptics.warning();
     Alert.alert(
       `Ukloniti ${displayName}?`,
-      'Odmah gubi pristup ovom startupu i skida se sa svih zadataka gde je izvršilac — zadaci ostaju, samo bez njega/nje.',
+      'Gubi pristup startupu i skida se sa svih zadataka. Zadaci ostaju.',
       [
         { text: 'Otkaži', style: 'cancel' },
         {
@@ -256,8 +256,8 @@ function ClanoviError({ message, onRetry }: { message: string; onRetry: () => vo
       <ScreenHeader title="Članovi tima" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Članovi se ne mogu učitati"
-        description={message || 'Došlo je do greške.'}
+        title="Članovi nisu učitani."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

@@ -130,8 +130,7 @@ export function RelationsSection({
             />
           ) : count === 0 ? (
             <Text style={[styles.empty, { color: colors.mutedForeground }]}>
-              Još nema povezanih stavki. Poveži stranicu da kontekst i izvršenje ostanu
-              zajedno.
+              Nema povezanih stavki.
             </Text>
           ) : (
             relations.map((relation) => {

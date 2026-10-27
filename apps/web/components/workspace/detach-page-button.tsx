@@ -30,7 +30,7 @@ export function DetachPageButton({
     if (busy) return;
     if (
       !window.confirm(
-        `Odvojiti „${title || "stavku bez naslova"}“ od roditelja i vratiti je u koren oblasti?`,
+        `Odvojiti „${title || "stavku bez naslova"}“ od nadređene stavke i vratiti je u koren oblasti?`,
       )
     ) {
       return;

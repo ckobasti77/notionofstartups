@@ -168,8 +168,8 @@ export default function PretragaScreen() {
         {trimmed.length < MIN_CHARS ? (
         <EmptyState
           icon={<Search size={40} color={colors.mutedForeground} />}
-          title="Pronađi ono što ti treba"
-          description="Unesi bar dva slova. Pretražujemo stranice, zadatke, ideje, beleške i poruke ovog startupa."
+          title="Unesi bar dva slova."
+          description="Pretražuju se stranice, zadaci, ideje, beleške i poruke ovog startupa."
         />
       ) : activeStartupId === null ? (
         // Bez izabranog startupa pretraga nema opseg — jasna poruka umesto
@@ -182,8 +182,8 @@ export default function PretragaScreen() {
       ) : !loading && total === 0 ? (
         <EmptyState
           icon={<Search size={40} color={colors.mutedForeground} />}
-          title="Nema rezultata"
-          description={`Ništa ne odgovara upitu „${trimmed}". Probaj kraći izraz.`}
+          title="Nema rezultata."
+          description={`Ništa za „${trimmed}”.`}
         />
       ) : (
         // Bez pull-to-refresh: rezultati zavise od upita u polju, ne od vremena —
@@ -425,7 +425,7 @@ function PretragaError({ message, onRetry }: { message: string; onRetry: () => v
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
         title="Pretraga ne radi"
-        description={message || 'Došlo je do greške pri pretrazi.'}
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

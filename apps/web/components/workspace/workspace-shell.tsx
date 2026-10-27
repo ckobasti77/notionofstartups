@@ -46,6 +46,7 @@ import {
 } from "@/components/workspace/notifications-panel";
 import { PulsView } from "@/components/workspace/puls-view";
 import { TasksView, type TasksFilterValue } from "@/components/workspace/tasks-view";
+import { SettingsContainer } from "@/components/workspace/settings/settings-container";
 import { TrashContainer } from "@/components/workspace/trash/trash-container";
 import { ThoughtDestinationPicker } from "@/components/workspace/thought-destination-picker";
 import { ThoughtSidebarDragLayer } from "@/components/workspace/thought-sidebar-drag";
@@ -174,6 +175,8 @@ function startupRouteTitle(route: StartupRoute): string {
       return "Poruke";
     case "trash":
       return "Korpa";
+    case "settings":
+      return "Podešavanja";
     case "activity":
       return "Aktivnost";
     case "puls":
@@ -271,7 +274,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   }>({ open: false, preset: null, kind: "task" });
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminMode, setAdminMode] = useState<"edit" | "create">("edit");
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageSaveState, setPageSaveState] =
     useState<PageEditorSaveState>("saved");
@@ -720,7 +722,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       });
       if (result.nestingStatus === "pending") {
         toast.info(
-          "Zahtev je poslat autoru roditeljske stranice. Stavka ostaje na trenutnom mestu do odobrenja.",
+          "Zahtev je poslat autoru nadređene stranice. Stavka ostaje na trenutnom mestu do odobrenja.",
         );
       } else {
         toast.success("Stranica je uspešno premeštena.");
@@ -925,11 +927,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     openInStartup(targetStartupId, { route });
   }
 
-  function openAdmin() {
-    setAdminMode("edit");
-    setAdminOpen(true);
-  }
-
   /** Brzi unos: iz startupa sa njim unapred izabranim, iz „Ja" bez preseta. */
   function openQuickAdd() {
     setQuickAdd({
@@ -941,7 +938,6 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   }
 
   function openCreateStartup() {
-    setAdminMode("create");
     setAdminOpen(true);
   }
 
@@ -966,8 +962,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     onCreate: openCreate,
     onCreateArea: () => setCreateAreaOpen(true),
     onSearch: () => setSearchOpen(true),
-    // Do K20 „Podešavanja startupa" otvaraju postojeći dijalog (samo admin).
-    onOpenSettings: profile.role === "admin" ? openAdmin : null,
+    onOpenSettings: () => navigateRoute({ kind: "settings" }),
     onOpenNotificationSettings: () => setNotificationSettingsOpen(true),
     onProfile: () => setProfileOpen(true),
     onSignOut,
@@ -1241,6 +1236,16 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 target.kind === "page" ? openPage(target.pageId) : navigateRoute({ kind: "ideas", ideaId: target.ideaId })
               }
             />
+          ) : route.kind === "settings" ? (
+            <SettingsContainer
+              key={`settings-${startup._id}`}
+              startup={startup}
+              profile={profile}
+              tab={route.tab}
+              onTabChange={(tab) =>
+                navigateRoute(tab === "opste" ? { kind: "settings" } : { kind: "settings", tab }, { replace: true })
+              }
+            />
           ) : route.kind === "chat" ? (
             <ChatView
               startup={startup}
@@ -1366,7 +1371,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
       }} />
       <ProfileDialog key={`${profileOpen}-${profile.updatedAt}`} open={profileOpen} onOpenChange={setProfileOpen} profile={profile} />
       {destinationRequest ? <ThoughtDestinationPicker key={`${startup._id}-${destinationRequest.nodeIds.join("-")}`} open startup={startup} selectedCount={destinationRequest.nodeIds.length} onOpenChange={(open) => { if (!open) cancelDestinationPicker(); }} onSelect={completeDestinationPicker} /> : null}
-      {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${adminMode}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} startup={adminMode === "create" ? undefined : startup} onStartupCreated={selectStartup} onCreateStartup={openCreateStartup} /> : null}
+      {profile.role === "admin" ? <AdminDialog key={`${adminOpen}-${startup._id}`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={selectStartup} /> : null}
     </div>
   );
 }

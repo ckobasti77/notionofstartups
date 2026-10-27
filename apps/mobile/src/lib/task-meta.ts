@@ -10,7 +10,7 @@
 import type { ColorTokens } from '@/theme/tokens';
 
 export const TASK_STATUS_META = {
-  backlog: { label: 'Backlog' },
+  backlog: { label: 'Neplanirano' },
   next: { label: 'Sledeće' },
   in_progress: { label: 'U toku' },
   blocked: { label: 'Čeka' },

@@ -4,7 +4,7 @@
  * ČISTO: skladište (poslednja oblast) čita klijent, ovde stižu vrednosti.
  *
  * - Naslov je prvi, Enter pravi zadatak.
- * - Status „Backlog", prioritet „Srednji", bez roka, izvršilac = ja.
+ * - Status „Neplanirano", prioritet „Srednji", bez roka, izvršilac = ja.
  * - Oblast: zadata (gde praviš) → poslednja u tom startupu → prva.
  * - Instrukcije i koraci su iza „Više opcija" i ne šalju se kad su prazni.
  */

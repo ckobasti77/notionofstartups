@@ -18,14 +18,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { accessErrorMessage } from "@/lib/errors";
 
 /** Isti tekst kao server `validatePasswordRequirements` (auth.ts) i mobilni klijent. */
 const PASSWORD_HINT =
   "Lozinka mora imati 12-128 znakova, veliko i malo slovo, broj i specijalni znak.";
 
 /**
- * Mali dijalog za postavljanje NOVE lozinke jednom članu. Otvara ga „Lozinke" tab
- * u `admin-dialog.tsx` (renderovan kao sibling — Radix podržava složene dijaloge).
+ * Mali dijalog za postavljanje NOVE lozinke jednom članu. Otvara ga kartica „Lozinke" u
+ * Podešavanjima startupa (`settings/settings-container.tsx`).
  * Naslov nosi ime člana (potvrda), a poziv ide na `adminAuth.adminSetPassword`
  * (prva `useAction` u web app). Lozinka se nigde ne pamti niti vraća.
  */
@@ -56,9 +57,7 @@ export function MemberPasswordDialog({
       reset();
       onOpenChange(false);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Lozinka nije promenjena.",
-      );
+      toast.error(accessErrorMessage(error, "Lozinka nije promenjena."));
     } finally {
       setBusy(false);
     }
@@ -79,7 +78,7 @@ export function MemberPasswordDialog({
           </DialogTitle>
           <DialogDescription>
             {target
-              ? `Postavljaš novu lozinku za ${target.displayName}. Sve njegove/njene ranije prijave se poništavaju.`
+              ? `Nova lozinka za ${target.displayName}. Ranije prijave tog člana se poništavaju.`
               : null}
           </DialogDescription>
         </DialogHeader>
@@ -101,12 +100,13 @@ export function MemberPasswordDialog({
                 type="button"
                 onClick={() => setShow((prev) => !prev)}
                 aria-label={show ? "Sakrij lozinku" : "Prikaži lozinku"}
-                className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground transition-colors hover:text-foreground"
+                aria-pressed={show}
+                className="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
-            <p className="text-[11px] leading-5 text-muted-foreground">
+            <p className="text-xs leading-5 text-muted-foreground">
               {PASSWORD_HINT}
             </p>
           </div>
@@ -115,7 +115,10 @@ export function MemberPasswordDialog({
               type="button"
               variant="ghost"
               disabled={busy}
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                reset();
+                onOpenChange(false);
+              }}
             >
               Otkaži
             </Button>

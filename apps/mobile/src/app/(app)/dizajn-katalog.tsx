@@ -97,6 +97,7 @@ import {
   TitleField,
 } from '@/components/me/task-panel-parts';
 import { KomandniCentarK19Katalog } from '@/components/katalog/komandni-centar-k19';
+import { PodesavanjaK20Katalog } from '@/components/katalog/podesavanja-k20';
 import { PokretK19Katalog } from '@/components/katalog/pokret-k19';
 import { ProstorK09Katalog } from '@/components/katalog/prostor-k09';
 import { ProstorK12Katalog } from '@/components/katalog/prostor-k12';
@@ -1062,6 +1063,9 @@ export default function DizajnKatalogScreen() {
 
         {/* PROSTOR K19: Komandni centar 2.0 — blokovi, greška bloka i „Sredi rokove“. */}
         <KomandniCentarK19Katalog />
+
+        {/* PROSTOR K20: Podešavanja startupa — Opšte, Oblasti, Tim (admin i član). */}
+        <PodesavanjaK20Katalog />
         </ScrollView>
       </KeyboardAvoidingView>
 

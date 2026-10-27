@@ -78,7 +78,7 @@ export function ThoughtNodeActionsSheet({
       onClose();
     } catch (error) {
       haptics.error();
-      Alert.alert('Greška', accessErrorMessage(error, 'Veličina misli nije promenjena.'));
+      Alert.alert('Greška', accessErrorMessage(error, 'Veličina beleške nije promenjena.'));
     } finally {
       setBusy(null);
     }
@@ -107,7 +107,7 @@ export function ThoughtNodeActionsSheet({
         height: size.height,
       });
       pushUndo({
-        label: `Veličina misli: ${size.width} × ${size.height}.`,
+        label: `Veličina beleške: ${size.width} × ${size.height}.`,
         action: { kind: 'thoughtResize', ...before },
       });
       onApplied?.(size.width, size.height);
@@ -120,7 +120,7 @@ export function ThoughtNodeActionsSheet({
     void run('reset', async () => {
       await resetNodeLayoutSize({ nodeId: thought._id });
       pushUndo({
-        label: 'Vraćena je automatska veličina misli.',
+        label: 'Vraćena je automatska veličina beleške.',
         action: { kind: 'thoughtResize', ...before },
       });
     });
@@ -129,7 +129,7 @@ export function ThoughtNodeActionsSheet({
   const breakEdge = (edge: NodeEdgeRow) => {
     if (busy !== null || !thought) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -140,7 +140,7 @@ export function ThoughtNodeActionsSheet({
             await archiveEdges({ edgeIds: [edge._id as Id<'thoughtEdges'>] });
             // Inverz arhiviranja je `restoreEdges` — postojeći član `thoughts`.
             pushUndo({
-              label: 'Veza misli je uklonjena.',
+              label: 'Veza beleške je uklonjena.',
               action: {
                 kind: 'thoughts',
                 nodeIds: [],
@@ -195,7 +195,7 @@ export function ThoughtNodeActionsSheet({
             accessibilityRole="header"
             numberOfLines={2}
             style={[styles.heading, { color: colors.foreground }]}>
-            {(thought.title ?? thought.text).trim() || 'Misao'}
+            {(thought.title ?? thought.text).trim() || 'Beleška'}
           </Text>
           <Text style={[styles.meta, { color: colors.mutedForeground }]}>
             {`Trenutno: ${thought.width} × ${thought.height}`}
@@ -206,10 +206,10 @@ export function ThoughtNodeActionsSheet({
             canConnect={thought.canConnect && thought.nodeCount >= 2}
             connectSubtitle={
               thought.nodeCount < 2
-                ? 'Na kanvasu nema druge misli.'
-                : 'Zatim tapni misao sa kojom se povezuje'
+                ? 'Na mapi nema druge beleške.'
+                : 'Zatim dodirni belešku sa kojom se povezuje'
             }
-            emptyNote="Nema veza sa ove misli."
+            emptyNote="Nema veza sa ove beleške."
             busy={busy}
             onConnect={() => onStartConnect(thought)}
             onBreak={breakEdge}
@@ -223,7 +223,7 @@ export function ThoughtNodeActionsSheet({
             options={options}
             busy={busy}
             hint={
-              'Tekst, boja i konverzija u ideju su na detalju misli — kanvas služi za ' +
+              'Tekst, boja i konverzija u ideju su na detalju beleške — mapa služi za ' +
               'razmeštaj, veličinu i veze.'
             }
           />

@@ -413,7 +413,7 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
     haptics.warning();
     Alert.alert(
       'Isključiti obaveštenja na ovom uređaju?',
-      'Ovaj telefon više neće zvoniti ni prikazivati obaveštenja — ni za dodeljen zadatak, ni za rok, ni za poruku u chatu. Obaveštenja i dalje stižu u tab „Obaveštenja" kad otvoriš aplikaciju, i na tvoje druge uređaje. Uključuje se ponovo dugmetom „Uključi na ovom uređaju" na ovom ekranu.',
+      'Ovaj telefon više neće zvoniti ni prikazivati obaveštenja — ni za dodeljen zadatak, ni za rok, ni za poruku u razgovoru. Obaveštenja i dalje stižu u Inbox kad otvoriš aplikaciju, i na tvoje druge uređaje. Uključuje se ponovo dugmetom „Uključi na ovom uređaju" na ovom ekranu.',
       [
         { text: 'Odustani', style: 'cancel' },
         { text: 'Isključi', style: 'destructive', onPress: () => void onDisable() },
@@ -793,8 +793,8 @@ function PodesavanjaErrorState({ message, onRetry }: { message: string; onRetry:
       <ScreenHeader title="Obaveštenja i zvuci" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Podešavanja se ne mogu učitati"
-        description={message || 'Došlo je do greške pri učitavanju podešavanja.'}
+        title="Podešavanja nisu učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

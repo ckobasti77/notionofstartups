@@ -89,7 +89,6 @@ function FixtureTree({ areaId }: { areaId: Id<"startupAreas"> }) {
 }
 
 function sidebarFixture(profile: ProfileWithAvatar, route: WorkspaceRoute): ComponentProps<typeof WorkspaceSidebar> {
-  const canOpenSettings = profile.role === "admin";
   return {
     profile,
     startup: IZLOG_MENU_STARTUP,
@@ -107,7 +106,7 @@ function sidebarFixture(profile: ProfileWithAvatar, route: WorkspaceRoute): Comp
     onCreate: noop,
     onCreateArea: noop,
     onSearch: noop,
-    onOpenSettings: canOpenSettings ? noop : null,
+    onOpenSettings: noop,
     onOpenNotificationSettings: noop,
     onProfile: noop,
     onSignOut: noop,

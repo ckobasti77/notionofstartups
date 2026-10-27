@@ -27,14 +27,14 @@ export const KATALOG_STARTUPS: readonly OverviewStartup[] = [
 
 /** Startupi sa oblastima za brzi unos (Nauči AI namerno bez oblasti). */
 export const KATALOG_QUICK_ADD_STARTUPS: readonly QuickAddStartupOption[] = KATALOG_STARTUPS.map(
-  (startup, index) => ({
+  (startup) => ({
     ...startup,
     areas:
       startup._id === 'katalog-na'
         ? []
         : [
             { _id: `${startup._id}-marketing`, label: 'Marketing' },
-            { _id: `${startup._id}-sales`, label: index % 2 === 0 ? 'Sales' : 'Prodaja' },
+            { _id: `${startup._id}-sales`, label: 'Prodaja' },
             { _id: `${startup._id}-ops`, label: 'Operativa' },
           ],
   }),
@@ -98,7 +98,7 @@ function row(input: {
 export function katalogRows(now: number): TaskRowModel[] {
   const [cr, , bm, , sm] = KATALOG_STARTUPS;
   return [
-    row({ id: 'katalog-1', title: 'Ugovor sa dobavljačem', status: 'next', priority: 'urgent', dueDate: noonIn(now, -2), startup: cr, areaLabel: 'Sales' }),
+    row({ id: 'katalog-1', title: 'Ugovor sa dobavljačem', status: 'next', priority: 'urgent', dueDate: noonIn(now, -2), startup: cr, areaLabel: 'Prodaja' }),
     row({ id: 'katalog-2', kind: 'personal', title: 'Faktura za oktobar', status: 'open', priority: null, dueDate: noonIn(now, 0), startup: null, areaLabel: null, planned: true }),
     row({
       id: 'katalog-3',
@@ -153,7 +153,7 @@ export function katalogOverview(now: number): MyDayOverviewData {
   });
   return {
     tasks: [
-      task('k-ugovor', { title: 'Ugovor sa dobavljačem', dueDate: noonIn(now, -2), taskPriority: 'urgent', area: { label: 'Sales' } }),
+      task('k-ugovor', { title: 'Ugovor sa dobavljačem', dueDate: noonIn(now, -2), taskPriority: 'urgent', area: { label: 'Prodaja' } }),
       task('k-promo', { title: 'Snimiti promo video', dueDate: noonIn(now, 0), taskPriority: 'high', startup: { _id: bm._id, name: bm.name } }),
       task('k-ponuda', { title: 'Ponuda za novi lokal', taskStatus: 'backlog', startup: { _id: sh._id, name: sh.name }, area: { label: 'Prodaja' } }),
       task('k-server', { title: 'Migracija servera', taskStatus: 'in_progress', startup: { _id: ei._id, name: ei.name }, area: { label: 'Operativa' } }),

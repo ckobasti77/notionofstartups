@@ -46,7 +46,7 @@ describe("desna kolona Moj dan", () => {
 
   test("„Čeka tebe“: tekst po vrsti, ključ po izvoru", () => {
     expect(pendingTitle({ kind: "deletion_vote", ballotId: "b1", title: "Stari logo", startup: SM })).toBe(
-      "Glasanje o brisanju: „Stari logo“",
+      "Brisanje: „Stari logo“",
     );
     const nesting = {
       kind: "page_nesting" as const,

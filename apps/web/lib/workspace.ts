@@ -1,14 +1,14 @@
 export const AREA_META = {
-  dev: { label: "Dev", description: "Proizvod, kod i tehničke odluke", accent: "indigo" },
+  dev: { label: "Razvoj", description: "Proizvod, kod i tehničke odluke", accent: "indigo" },
   marketing: { label: "Marketing", description: "Kampanje, sadržaj i pozicioniranje", accent: "violet" },
-  sales: { label: "Sales", description: "Leadovi, ponude i razgovori", accent: "emerald" },
+  sales: { label: "Prodaja", description: "Leadovi, ponude i razgovori", accent: "emerald" },
   other: { label: "Ostalo", description: "Sve što ne pripada drugim oblastima", accent: "amber" },
 } as const;
 
 export type AreaKey = keyof typeof AREA_META;
 
 export const TASK_STATUS_META = {
-  backlog: { label: "Backlog", shortLabel: "Backlog" },
+  backlog: { label: "Neplanirano", shortLabel: "Neplanirano" },
   next: { label: "Sledeće", shortLabel: "Sledeće" },
   in_progress: { label: "U toku", shortLabel: "U toku" },
   blocked: { label: "Čeka", shortLabel: "Čeka" },

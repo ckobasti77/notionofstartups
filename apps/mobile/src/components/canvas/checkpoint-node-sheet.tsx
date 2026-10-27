@@ -157,7 +157,7 @@ export function CheckpointNodeSheet({
   const breakEdge = (edge: NodeEdgeRow) => {
     if (busy !== null || !checkpoint) return;
     haptics.warning();
-    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa kanvasa.`, [
+    Alert.alert('Prekinuti vezu?', `Veza sa „${edge.otherTitle}" se uklanja sa mape.`, [
       { text: 'Otkaži', style: 'cancel' },
       {
         text: 'Prekini',
@@ -277,8 +277,8 @@ export function CheckpointNodeSheet({
               !checkpoint.canMove
                 ? 'Vezu možete praviti samo od ili ka svojoj stavci.'
                 : checkpoint.nodeCount < 2
-                  ? 'Na kanvasu nema druge stavke.'
-                  : 'Zatim tapni korak ili karticu sa kojom se povezuje'
+                  ? 'Na mapi nema druge stavke.'
+                  : 'Zatim dodirni korak ili karticu sa kojom se povezuje'
             }
             emptyNote="Nema veza sa ovog koraka."
             busy={busy}
@@ -294,7 +294,7 @@ export function CheckpointNodeSheet({
             busy={busy}
             hint={
               'Sam tekst koraka, kvačica i lančanje menjaju se na detalju zadatka — ' +
-              'kanvas služi za razmeštaj i veze.'
+              'mapa služi za razmeštaj i veze.'
             }
           />
         </ScrollView>

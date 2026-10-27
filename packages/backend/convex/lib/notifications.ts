@@ -38,7 +38,7 @@ export type NotificationTargetType =
 
 /** Srpske oznake statusa; Convex kod ne uvozi iz app `lib/`. */
 export const TASK_STATUS_LABELS = {
-  backlog: "Backlog",
+  backlog: "Neplanirano",
   next: "Sledeće",
   in_progress: "U toku",
   blocked: "Čeka",

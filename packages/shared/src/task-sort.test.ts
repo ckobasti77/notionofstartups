@@ -137,7 +137,7 @@ describe("grupisanje", () => {
     expect(groupTasks(items, "status", NOW, { zone: BG }).map((group) => group.title)).toEqual([
       "U toku",
       "Otvoreno",
-      "Backlog",
+      "Neplanirano",
       "Gotovo",
     ]);
     expect(groupTasks(items, "priority", NOW, { zone: BG }).map((group) => group.title)).toEqual([

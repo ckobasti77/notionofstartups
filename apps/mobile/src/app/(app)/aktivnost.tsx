@@ -55,8 +55,7 @@ export default function AktivnostScreen() {
       {!loadingFirst && results.length === 0 ? (
         <EmptyState
           icon={<Activity size={40} color={colors.mutedForeground} />}
-          title="Još nema aktivnosti"
-          description="Kreiranje stranice, zadatka ili poziva pojaviće se ovde."
+          title="Nema aktivnosti."
         />
       ) : (
         <LoadingSwap loading={loadingFirst} skeleton={<ActivitySkeleton />}>
@@ -140,8 +139,8 @@ function AktivnostErrorState({ message, onRetry }: { message: string; onRetry: (
       <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Aktivnost se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju aktivnosti.'}
+        title="Aktivnost nije učitana."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

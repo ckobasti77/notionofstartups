@@ -67,7 +67,7 @@ export function CreateAreaSheet({
         Nova oblast
       </Text>
       <Text style={[styles.description, { color: colors.mutedForeground }]}>
-        Oblast grupiše stranice tima i dobija svoj kanal u ćaskanju.
+        Oblast grupiše stranice tima i dobija svoj kanal.
       </Text>
       <TextInput
         value={label}

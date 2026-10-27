@@ -38,6 +38,9 @@ export type PageTab = "mapa";
 /** Kartica oblasti (PROSTOR P12): Pregled je podrazumevan (K07 E15). */
 export type AreaTab = "pregled" | "zadaci" | "dokumenti" | "mapa";
 
+/** Kartice Podešavanja startupa (PROSTOR K20); Opšte je podrazumevana. */
+export type SettingsTab = "opste" | "oblasti" | "tim" | "pozivnice" | "lozinke";
+
 /** Segment Korpe (PROSTOR P3) — isti ključevi kao `trash.list`. */
 export type TrashSegment = "page" | "idea" | "file" | "recovered";
 
@@ -59,6 +62,8 @@ export type StartupRoute =
       profileId?: Id<"profiles">;
     }
   | { kind: "trash"; segment?: TrashSegment }
+  /** Podešavanja startupa (K20); bez `tab` otvara se Opšte. */
+  | { kind: "settings"; tab?: SettingsTab }
   | { kind: "activity" }
   | { kind: "chat"; channelId?: Id<"chatChannels"> }
   | { kind: "puls"; weekStart?: number }

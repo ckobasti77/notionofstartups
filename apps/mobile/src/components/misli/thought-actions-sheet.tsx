@@ -41,7 +41,7 @@ export type ThoughtActionsView = 'menu' | 'connect' | 'nest' | 'size';
 
 const VIEW_TITLE: Record<Exclude<ThoughtActionsView, 'menu'>, string> = {
   connect: 'Poveži sa beleškom',
-  nest: 'Ugnjezdi u…',
+  nest: 'Ugnezdi u…',
   size: 'Veličina oblačića',
 };
 
@@ -223,7 +223,7 @@ export function ThoughtActionsSheet({
               icon={<Link2 size={20} color={colors.mutedForeground} />}
             />
             <Row
-              title="Ugnjezdi u…"
+              title="Ugnezdi u…"
               subtitle="Beleška postaje deo grupe i putuje sa njom"
               onPress={() => setView('nest')}
               disabled={busyId !== null}
@@ -346,7 +346,7 @@ export function ThoughtActionsSheet({
                   onNest={(targetId, targetTitle) =>
                     void runAction(targetId, async () => {
                       await nestNode({ childNodeId: target._id, parentNodeId: targetId });
-                      return `Beleška je ugnježdena u „${targetTitle}”.`;
+                      return `Beleška je ugnežđena u „${targetTitle}”.`;
                     })
                   }
                   onLoadMore={
@@ -451,7 +451,7 @@ function CandidateList({
       <Text style={[styles.empty, { color: colors.mutedForeground }]}>
         {view === 'connect'
           ? 'Nema druge beleške za povezivanje.'
-          : 'Nema druge beleške u koju bi se ova ugnjezdila.'}
+          : 'Nema druge beleške u koju bi se ova ugnezdila.'}
       </Text>
     );
   }
@@ -459,7 +459,7 @@ function CandidateList({
     <>
       {items.map((candidate) => {
         const candidateTitle = thoughtDisplayTitle(candidate);
-        // Već povezana / trenutni roditelj: red ostaje vidljiv ali prigušen — jasnije
+        // Već povezana / trenutna nadređena stavka: red ostaje vidljiv ali prigušen — jasnije
         // od tihog izostavljanja (ciklus svejedno čuva server, sa srpskom porukom).
         const alreadyConnected = view === 'connect' && connectedIds.has(candidate._id);
         const currentParent = view === 'nest' && node.parentThoughtId === candidate._id;
@@ -470,7 +470,7 @@ function CandidateList({
             title={candidateTitle}
             titleNumberOfLines={2}
             subtitle={
-              alreadyConnected ? 'Već povezana' : currentParent ? 'Trenutni roditelj' : undefined
+              alreadyConnected ? 'Već povezana' : currentParent ? 'Trenutna nadređena stavka' : undefined
             }
             // `Row` u label spaja samo string `value` — razlog prigušenosti mora
             // eksplicitno, inače čitač čuje samo „onemogućeno" bez objašnjenja.
@@ -478,7 +478,7 @@ function CandidateList({
               alreadyConnected
                 ? `${candidateTitle}, već povezana`
                 : currentParent
-                  ? `${candidateTitle}, trenutni roditelj`
+                  ? `${candidateTitle}, trenutna nadređena stavka`
                   : candidateTitle
             }
             onPress={() =>

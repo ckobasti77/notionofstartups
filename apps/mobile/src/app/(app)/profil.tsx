@@ -287,8 +287,7 @@ export default function ProfilScreen() {
             />
           </View>
           <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-            Email i uloga se ne menjaju odavde — email ide kroz prijavu, ulogu dodeljuje
-            administrator.
+            Email se menja kroz prijavu, a ulogu dodeljuje administrator.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -331,8 +330,8 @@ function ProfilError({ message, onRetry }: { message: string; onRetry: () => voi
       <ScreenHeader title="Moj profil" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Profil se ne može učitati"
-        description={message || 'Došlo je do greške pri učitavanju profila.'}
+        title="Profil nije učitan."
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

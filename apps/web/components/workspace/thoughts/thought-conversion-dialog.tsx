@@ -132,7 +132,7 @@ export function ThoughtConversionDialog({
                 <Lightbulb className="mx-auto size-4 text-amber-500" />
                 <p className="mt-1.5 text-xs font-bold">Ideje</p>
                 <p className="mt-0.5 text-[0.625rem] text-muted-foreground">
-                  timski kanvas
+                  timska mapa
                 </p>
               </div>
               <ArrowRight

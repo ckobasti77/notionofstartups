@@ -73,13 +73,13 @@ export function TidyNotesButton({
     const { targets, truncated } = tidyNoteTargets(notes);
     if (targets.length === 0) {
       haptics.warning();
-      Alert.alert('Nema šta da se sredi', 'Sve učitane beleške su ugnježdene u druge beleške.');
+      Alert.alert('Nema šta da se sredi', 'Sve učitane beleške su ugnežđene u druge beleške.');
       return;
     }
     haptics.warning();
     Alert.alert(
       'Srediti raspored?',
-      `${notesCountLabel(targets.length)} (bez ugnježdenih) se raspoređuje u urednu mrežu na Mapi. Ručni raspored tih beleški se gubi.`,
+      `${notesCountLabel(targets.length)} (bez ugnežđenih) se raspoređuje u urednu mrežu na Mapi. Ručni raspored tih beleški se gubi.`,
       [
         { text: 'Otkaži', style: 'cancel' },
         { text: 'Sredi', onPress: () => void run(targets, truncated) },

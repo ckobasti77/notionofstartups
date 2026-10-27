@@ -26,7 +26,7 @@ const draft = (overrides: Partial<TaskCreateDraft> = {}): TaskCreateDraft => ({
 });
 
 describe("podrazumevane vrednosti brzog pravljenja", () => {
-  test("Backlog, Srednji, bez roka, izvršilac sam ja, prazne dodatne opcije", () => {
+  test("Neplanirano, Srednji, bez roka, izvršilac sam ja, prazne dodatne opcije", () => {
     expect(defaultTaskDraft({ profileId: "me", areas: AREAS })).toEqual({
       status: "backlog",
       priority: "medium",

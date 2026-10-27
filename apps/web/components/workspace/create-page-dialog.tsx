@@ -733,7 +733,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
               </div>
             ) : kind === "note" ? (
               <div className="space-y-2">
-                <Label>Sadržaj beleške (Rich Text Editor)</Label>
+                <Label>Sadržaj beleške</Label>
                 <div className="min-h-[16rem] rounded-xl border border-border/70 bg-card p-3">
                   <RichTextEditor
                     content={noteContent}

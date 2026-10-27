@@ -186,7 +186,7 @@ export function notesEmptyText(
   if (filter.kind === "startup") {
     return { title: "Nema beležaka u ovom startupu.", description: options.startupName ?? null };
   }
-  return { title: "Još nema beležaka.", description: "Zapiši prvu misao gore." };
+  return { title: "Još nema beležaka.", description: "Zapiši prvu belešku gore." };
 }
 
 export type NoteTextCheck = { ok: true; text: string } | { ok: false; reason: string | null };

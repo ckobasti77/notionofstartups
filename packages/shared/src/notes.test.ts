@@ -191,7 +191,7 @@ describe("Beleške: prazna stanja i poruke", () => {
 
   test("tekst po filteru i pretrazi", () => {
     expect(notesEmptyText(ALL_NOTES, { searching: false }).title).toBe("Još nema beležaka.");
-    expect(notesEmptyText(ALL_NOTES, { searching: false }).description).toBe("Zapiši prvu misao gore.");
+    expect(notesEmptyText(ALL_NOTES, { searching: false }).description).toBe("Zapiši prvu belešku gore.");
     expect(notesEmptyText({ kind: "personal" }, { searching: false }).title).toBe("Nema ličnih beležaka.");
     expect(notesEmptyText({ kind: "startup", startupId: "s1" }, { searching: false }).title).toBe(
       "Nema beležaka u ovom startupu.",

@@ -147,8 +147,7 @@ export default function PozivniceScreen() {
       ) : invites && invites.length === 0 ? (
         <EmptyState
           icon={<Mail size={40} color={colors.mutedForeground} />}
-          title="Nema pozivnica"
-          description="Pozovi nekoga u tim — dobiće kod za pristup."
+          title="Nema pozivnica."
           actionLabel="Nova pozivnica"
           onAction={() => setCreateOpen(true)}
         />
@@ -367,7 +366,7 @@ function PozivniceError({ message, onRetry }: { message: string; onRetry: () => 
       <ScreenHeader title="Pozivnice" onBack={() => router.back()} />
       <EmptyState
         icon={<TriangleAlert size={40} color={colors.destructive} />}
-        title="Pozivnice se ne mogu učitati"
+        title="Pozivnice nisu učitane."
         description={message || 'Potreban je administratorski pristup.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}

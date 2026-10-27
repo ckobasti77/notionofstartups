@@ -402,7 +402,7 @@ function MisaoError({ message, onRetry }: { message: string; onRetry: () => void
       <EmptyState
         icon={<NotebookPen size={20} color={colors.destructive} />}
         title="Beleška nije učitana."
-        description={message || 'Došlo je do greške pri učitavanju beleške.'}
+        description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
         onAction={onRetry}
       />

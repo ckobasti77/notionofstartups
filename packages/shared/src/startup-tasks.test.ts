@@ -61,7 +61,7 @@ describe("red zadatka u startupu", () => {
     });
   });
 
-  test("bez statusa = Backlog, bez prioriteta = Srednji, nepoznata oblast = null, bez koraka = null", () => {
+  test("bez statusa = Neplanirano, bez prioriteta = Srednji, nepoznata oblast = null, bez koraka = null", () => {
     const row = rowFromStartupTask(
       task({ taskStatus: null, taskPriority: null, areaId: "a-x", checkpointTotal: 0 }),
       context(),
