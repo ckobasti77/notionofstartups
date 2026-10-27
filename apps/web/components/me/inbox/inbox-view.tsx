@@ -542,7 +542,7 @@ function PendingPanel({
       </ul>
       {state.truncated ? (
         <p className="px-1 text-xs text-muted-foreground">
-          Prikazan je samo deo. Ostalo je u Odobrenjima.
+          Prikazane su najnovije. Ostale ideje za glasanje su u Idejama svakog startupa.
         </p>
       ) : null}
     </div>
@@ -582,7 +582,7 @@ function PendingRow({
       <Button
         type="button"
         size="sm"
-        variant={vote ? "default" : "outline"}
+        variant="outline"
         data-inbox-row
         className="shrink-0"
         onClick={() => onOpen(item)}

@@ -132,7 +132,8 @@ export function Drawer({
     // Ako je korisnik tokom izlaza već kliknuo nešto drugo, fokus se ne otima.
     const lost = document.activeElement === null || document.activeElement === document.body;
     if (!lost) return;
-    const destination = target?.isConnected ? target : fallbackRef.current?.();
+    // `body` (fioka otvorena klikom na neizborni element) nije meta — tada ide rezerva.
+    const destination = target?.isConnected && target !== document.body ? target : fallbackRef.current?.();
     destination?.focus({ preventScroll: true });
   }, [present]);
 

@@ -222,7 +222,7 @@ function SearchResults({
               title={nodePrimary(node)}
               subtitle={nodeSubtitle(node)}
               onClick={() => {
-                onNavigate({ kind: "ideas" });
+                onNavigate({ kind: "ideas", ideaId: node._id });
                 onClose();
               }}
             />

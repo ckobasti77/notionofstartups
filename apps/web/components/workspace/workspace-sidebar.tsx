@@ -112,6 +112,8 @@ export type WorkspaceSidebarProps = {
   activeDropPageId: Id<"pages"> | null;
   activeDropAreaId: Id<"startupAreas"> | null;
   chatUnread: number;
+  /** Ideje u fazi „Razmatra se" koje čekaju moj glas u ovom startupu (bedž „Ideje", P22). */
+  ideasWaiting?: number;
   /**
    * Izlog: stablo oblasti iz fixture-a umesto `PageTree` (koji čita Convex).
    * Ljuska ga ne prosleđuje.
@@ -167,6 +169,7 @@ function SidebarButton({
   active,
   collapsed,
   badge,
+  badgeLabel = "nepročitano",
   shortcut,
   onClick,
 }: {
@@ -175,6 +178,8 @@ function SidebarButton({
   active: boolean;
   collapsed: boolean;
   badge?: number;
+  /** Šta broj znači za čitač ekrana (podrazumevano „nepročitano"). */
+  badgeLabel?: string;
   /** `aria-keyshortcuts` (npr. pretraga). */
   shortcut?: string;
   onClick: () => void;
@@ -191,7 +196,7 @@ function SidebarButton({
       )}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      aria-label={badge && badge > 0 ? `${label}, ${badge > 99 ? "99+" : badge} nepročitano` : label}
+      aria-label={badge && badge > 0 ? `${label}, ${badge > 99 ? "99+" : badge} ${badgeLabel}` : label}
       aria-keyshortcuts={shortcut}
     >
       {/* Aktivna stavka: statička traka (bez ukrasnog pokreta, PROSTOR P17). */}
@@ -389,7 +394,8 @@ function SidebarContent(
               key={item.kind}
               label={item.label}
               icon={item.icon}
-              badge={item.kind === "chat" ? props.chatUnread : undefined}
+              badge={item.kind === "chat" ? props.chatUnread : item.kind === "ideas" ? props.ideasWaiting : undefined}
+              badgeLabel={item.kind === "ideas" ? "na glasanju" : undefined}
               active={route.kind === item.kind}
               collapsed={compact}
               onClick={() => props.onRouteChange({ kind: item.kind })}

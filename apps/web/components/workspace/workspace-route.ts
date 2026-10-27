@@ -64,7 +64,11 @@ export function readWorkspaceRouteCandidate(
   if (view === "my-tasks") return { kind: "tasks", filter: "moji" };
   if (view === "approvals") return { kind: "trash" };
   if (view === "thoughts") return { kind: "thoughts" };
-  if (view === "ideas") return { kind: "ideas" };
+  if (view === "ideas") {
+    // Detalj ideje (K07 E13): nepoznat id prikaz svede na tablu sa porukom.
+    const ideaId = params.get("ideaId")?.trim();
+    return ideaId ? { kind: "ideas", ideaId: ideaId as Id<"ideaNodes"> } : { kind: "ideas" };
+  }
   if (view === "today") return { kind: "today" };
   if (view === "activity") return { kind: "activity" };
   if (view === "tasks") {
@@ -172,6 +176,7 @@ export function workspaceRouteHref(
   url.searchParams.delete("osoba");
   url.searchParams.delete("vrsta");
   url.searchParams.delete("tab");
+  url.searchParams.delete("ideaId");
   url.searchParams.delete("startupId");
   url.searchParams.set("view", route.kind);
 
@@ -191,6 +196,8 @@ export function workspaceRouteHref(
   } else if (route.kind === "tasks") {
     if (route.profileId) url.searchParams.set("osoba", route.profileId);
     else if (route.filter === "moji") url.searchParams.set("filter", "moji");
+  } else if (route.kind === "ideas" && route.ideaId) {
+    url.searchParams.set("ideaId", route.ideaId);
   } else if (route.kind === "trash" && route.segment && route.segment !== "page") {
     url.searchParams.set("vrsta", route.segment);
   }
@@ -230,8 +237,9 @@ export function workspaceRouteAfterStartupSwitch(
   if (currentRoute.kind === "tasks") {
     return currentRoute.filter === "moji" ? { kind: "tasks", filter: "moji" } : { kind: "tasks" };
   }
-  return currentRoute.kind === "ideas" ||
-    currentRoute.kind === "thoughts" ||
+  // Ideja pripada startupu: u drugom startupu se otvara tabla, bez detalja.
+  if (currentRoute.kind === "ideas") return { kind: "ideas" };
+  return currentRoute.kind === "thoughts" ||
     currentRoute.kind === "today" ||
     currentRoute.kind === "trash"
     ? currentRoute

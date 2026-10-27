@@ -452,4 +452,35 @@ describe("workspace URL route contract", () => {
       expect(workspaceRouteAfterStartupSwitch({ kind: "area", areaId: "area-1" as never, tab: "zadaci" })).toEqual({ kind: "today" });
     });
   });
+
+  describe("detalj ideje (PROSTOR P16, K16)", () => {
+    it("ideaId iz URL-a otvara detalj; bez njega (ili prazan) tabla", () => {
+      expect(readWorkspaceRouteCandidate("?view=ideas&ideaId=idea-1")).toEqual({ kind: "ideas", ideaId: "idea-1" });
+      expect(readWorkspaceRouteCandidate("?view=ideas&ideaId=")).toEqual({ kind: "ideas" });
+      expect(readWorkspaceRouteCandidate("?view=ideas")).toEqual({ kind: "ideas" });
+      // Inbox „Glasaj" i obaveštenje otvaraju ideju u njenom startupu.
+      expect(readWorkspaceLocation("?startupId=startup-2&view=ideas&ideaId=idea-9")).toEqual({
+        route: { kind: "ideas", ideaId: "idea-9" },
+        startupId: "startup-2",
+        hasExplicitView: true,
+      });
+    });
+
+    it("href nosi ideju, a zatvaranje detalja i prelaz na drugi prikaz je brišu", () => {
+      expect(workspaceRouteHref({ kind: "ideas", ideaId: "idea-1" as never }, "https://example.test/", "startup-1" as never)).toBe(
+        "/?view=ideas&ideaId=idea-1&startupId=startup-1",
+      );
+      expect(
+        workspaceRouteHref({ kind: "ideas" }, "https://example.test/?view=ideas&ideaId=idea-1&startupId=startup-1", "startup-1" as never),
+      ).toBe("/?view=ideas&startupId=startup-1");
+      expect(
+        workspaceRouteHref({ kind: "today" }, "https://example.test/?view=ideas&ideaId=idea-1", "startup-1" as never),
+      ).toBe("/?view=today&startupId=startup-1");
+    });
+
+    it("promena startupa ostaje u Idejama, ali bez ideje drugog startupa", () => {
+      expect(workspaceRouteAfterStartupSwitch({ kind: "ideas", ideaId: "idea-1" as never })).toEqual({ kind: "ideas" });
+      expect(workspaceRouteAfterStartupSwitch({ kind: "ideas" })).toEqual({ kind: "ideas" });
+    });
+  });
 });

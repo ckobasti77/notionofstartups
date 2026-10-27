@@ -91,7 +91,7 @@ describe("Korpa — red stavke (K08)", () => {
     expect(restoreTarget(page)).toEqual({ kind: "page", id: "pg1" });
     expect(restoreTarget(file)).toEqual({ kind: "file", id: "f1" });
     expect(restoreTarget(idea)).toEqual({ kind: "idea", id: "i1" });
-    expect(openTargetAfterRestore(idea)).toEqual({ kind: "ideas" });
+    expect(openTargetAfterRestore(idea)).toEqual({ kind: "ideas", ideaId: "i1" });
     expect(openTargetAfterRestore(file)).toEqual({ kind: "page", pageId: "pg2" });
     expect(openTargetAfterRestore(page)).toEqual({ kind: "page", pageId: "pg1" });
   });

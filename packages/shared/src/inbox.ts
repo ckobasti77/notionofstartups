@@ -248,6 +248,17 @@ export function pendingIsVote(item: Pick<PendingItemLike, "kind">): boolean {
   return item.kind === "idea_vote" || item.kind === "deletion_vote";
 }
 
+/**
+ * Stavke koje se crtaju (PROSTOR P22, K16): samo `idea_vote`. Stare vrste
+ * (glasanje o brisanju, zahtev za ugnežđavanje) se više ne prikazuju ni kad
+ * ih stari backend vrati.
+ */
+export function pendingIdeaVotes<T extends { kind: string }>(
+  items: ReadonlyArray<T>,
+): Array<Extract<T, { kind: "idea_vote" }>> {
+  return items.filter((item): item is Extract<T, { kind: "idea_vote" }> => item.kind === "idea_vote");
+}
+
 /** „Čeka tebe" u izabranom opsegu: lično nikad nema odobrenja, startup filtrira. */
 export function inboxPendingFor<T extends { startup: { _id: string } }>(
   items: ReadonlyArray<T>,

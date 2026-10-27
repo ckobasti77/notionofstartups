@@ -110,6 +110,8 @@ type IdeaNode = {
   } | null;
   /** Sačuvana faza (PROSTOR P6); bez nje „Predlog". */
   stage?: IdeaStage | null;
+  /** Dozvole iz `ideas.list` (PROSTOR P6): „Pretvori" samo u fazi „Odobreno" i samo odgovornom. */
+  permissions: { canConvert: boolean };
   canEdit: boolean;
   canMove: boolean;
   canResize: boolean;
@@ -131,6 +133,8 @@ type IdeasCanvasViewProps = {
   edges: IdeaEdge[];
   canvasState: { x: number; y: number; zoom: number };
   searchActive?: boolean;
+  /** „Poništi pretragu" iz praznog stanja Mape. */
+  onClearSearch?: () => void;
   onConvertIdea: (idea: IdeaNode) => void;
   onEditIdea: (idea: IdeaNode) => void;
   onNestIdea: (idea: IdeaNode) => void;
@@ -209,7 +213,7 @@ function toFlowNode(node: IdeaNode, now: number): IdeaFlowNode {
       canEdit: node.canEdit,
       canResize: node.canResize,
       canDetach: node.canDetach,
-      canConvert: node.isApproved && !node.convertedPageId,
+      canConvert: node.permissions.canConvert,
       nestingTarget: false,
     },
     parentId: node.parentIdeaId,
@@ -322,6 +326,7 @@ function IdeasCanvasBody({
   edges: edgeDocs,
   canvasState,
   searchActive = false,
+  onClearSearch,
   onConvertIdea,
   onEditIdea,
   onNestIdea,
@@ -1241,11 +1246,16 @@ function IdeasCanvasBody({
         {nodes.length === 0 ? (
           <MapEmptyState
             icon={searchActive ? SearchX : Lightbulb}
-            title={searchActive ? "Nema ideja za ovu pretragu." : "Još nema ideja."}
-            description={searchActive ? "Promeni pojam za pretragu." : undefined}
+            title={searchActive ? "Nijedna ideja ne odgovara pretrazi." : "Još nema ideja."}
             actions={
-              searchActive ? null : (
-                <Button onClick={() => onCreateIdea()}>
+              searchActive ? (
+                onClearSearch ? (
+                  <Button variant="outline" onClick={onClearSearch}>
+                    Poništi pretragu
+                  </Button>
+                ) : null
+              ) : (
+                <Button variant="outline" onClick={() => onCreateIdea()}>
                   <Plus className="size-4" aria-hidden="true" /> Nova ideja
                 </Button>
               )
@@ -1269,7 +1279,7 @@ function IdeasCanvasBody({
                       onSelect={() => edit(idea._id)}
                     >
                       <ArrowUpRight className="size-4" />
-                      Otvori i uredi
+                      Otvori
                     </ContextMenu.Item>
                     <ContextMenu.Item
                       className={styles.contextItem}
@@ -1306,12 +1316,12 @@ function IdeasCanvasBody({
                     >
                       <Copy className="size-4" /> Dupliraj
                     </ContextMenu.Item>
-                    {idea.isApproved && !idea.convertedPageId ? (
+                    {idea.permissions.canConvert ? (
                       <ContextMenu.Item
                         className={styles.contextItem}
                         onSelect={() => convert(idea._id)}
                       >
-                        <Maximize2 className="size-4" /> Pretvori
+                        <Maximize2 className="size-4" /> Pretvori u zadatak ili belešku
                       </ContextMenu.Item>
                     ) : null}
                     <ContextMenu.Separator className={styles.contextSeparator} />

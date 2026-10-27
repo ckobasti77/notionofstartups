@@ -102,11 +102,11 @@ export function restoreTarget(item: RestorableTrashItem): TrashRestoreTarget {
   return { kind: "file", id: item.fileId };
 }
 
-/** Kuda vodi „Otvori" u toastu posle vraćanja. */
-export type TrashOpenTarget = { kind: "page"; pageId: Id<"pages"> } | { kind: "ideas" };
+/** Kuda vodi „Otvori" u toastu posle vraćanja (ideja: njen detalj na tabli, K16). */
+export type TrashOpenTarget = { kind: "page"; pageId: Id<"pages"> } | { kind: "ideas"; ideaId: Id<"ideaNodes"> };
 
 export function openTargetAfterRestore(item: RestorableTrashItem): TrashOpenTarget {
-  if (item.kind === "idea") return { kind: "ideas" };
+  if (item.kind === "idea") return { kind: "ideas", ideaId: item.ideaId };
   return { kind: "page", pageId: item.pageId };
 }
 

@@ -280,6 +280,7 @@ export {
   inboxUnreadFor,
   inboxUnreadWord,
   startupsWithUnread,
+  pendingIdeaVotes,
   pendingIsVote,
   pendingKey,
   pendingTitle,

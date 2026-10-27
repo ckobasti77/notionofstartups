@@ -38,7 +38,8 @@ export type MyDayViewProps = {
   onPlanDay: () => void;
   /** „Moji zadaci" iz praznog stanja kad je sve završeno. */
   onOpenTasks: () => void;
-  onOpenApprovals?: () => void;
+  /** Čip „Čeka tebe" ispod xl: prva ideja koja čeka glas (bez nje Inbox). */
+  onOpenFirstPending?: () => void;
   /** Opseg za Flip (kontejner snima raspored pre promene). */
   listRef?: RefObject<HTMLDivElement | null>;
   /** Jedan `aria-live` region po prikazu („Završeno: …"). */
@@ -69,7 +70,7 @@ export function MyDayView({
   onQuickAdd,
   onPlanDay,
   onOpenTasks,
-  onOpenApprovals,
+  onOpenFirstPending,
   listRef,
   announcement = "",
   selectedKey = null,
@@ -132,7 +133,7 @@ export function MyDayView({
               pending={side.pending}
               onOpenInbox={side.onOpenInbox}
               onOpenChat={side.onOpenChat}
-              onOpenApprovals={onOpenApprovals ?? side.onOpenInbox}
+              onOpenFirstPending={onOpenFirstPending ?? side.onOpenInbox}
             />
           ) : null}
 

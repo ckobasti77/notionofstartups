@@ -46,7 +46,8 @@ export type TrashSegment = "page" | "idea" | "file" | "recovered";
  */
 export type StartupRoute =
   | { kind: "thoughts" }
-  | { kind: "ideas" }
+  /** `ideaId` = otvoren detalj ideje (fioka, PROSTOR P16, K16). */
+  | { kind: "ideas"; ideaId?: Id<"ideaNodes"> }
   | { kind: "today" }
   | {
       kind: "tasks";

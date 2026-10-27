@@ -23,6 +23,27 @@ describe("desna kolona Moj dan", () => {
     ).toEqual({ total: 6, personal: 3, byStartup: [{ startup: CR, unread: 2 }] });
   });
 
+  test("„Čeka tebe“ (K16): samo ideje za glasanje, sa ideaId; stare vrste ispadaju", () => {
+    const idea = {
+      kind: "idea_vote" as const,
+      ideaId: "i1",
+      title: "Novi meni",
+      authorName: "Ana Ilić",
+      upvotes: 2,
+      downvotes: 0,
+      startup: CR,
+    };
+    expect(
+      pendingSummary({
+        items: [{ kind: "deletion_vote", ballotId: "b1", title: "Stari logo", startup: SM }, idea],
+        truncated: false,
+      }),
+    ).toEqual({
+      items: [{ key: "idea_vote:i1", title: "Glasaj o ideji „Novi meni“", startup: CR, ideaId: "i1" }],
+      truncated: false,
+    });
+  });
+
   test("„Čeka tebe“: tekst po vrsti, ključ po izvoru", () => {
     expect(pendingTitle({ kind: "deletion_vote", ballotId: "b1", title: "Stari logo", startup: SM })).toBe(
       "Glasanje o brisanju: „Stari logo“",
@@ -39,18 +60,13 @@ describe("desna kolona Moj dan", () => {
     expect(pendingTitle({ ...nesting, kind: "idea_nesting", requesterName: null })).toBe(
       "Neko predlaže da „Cenovnik“ pređe pod „Prodaja“",
     );
+    // PROSTOR P22 (K16): stare vrste se više ne prikazuju u desnoj koloni.
     expect(
       pendingSummary({
         items: [{ kind: "deletion_vote", ballotId: "b1", title: "Stari logo", startup: SM }, nesting],
         truncated: true,
       }),
-    ).toEqual({
-      items: [
-        { key: "vote:b1", title: "Glasanje o brisanju: „Stari logo“", startup: SM },
-        { key: "page_nesting:r1", title: "Ana Ilić predlaže da „Cenovnik“ pređe pod „Prodaja“", startup: CR },
-      ],
-      truncated: true,
-    });
+    ).toEqual({ items: [], truncated: true });
   });
 
   test("broj za sažeti čip samo kad je blok spreman", () => {

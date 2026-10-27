@@ -5,6 +5,7 @@ import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { Building2, LoaderCircle, Sparkles } from "lucide-react";
+import { pendingIdeaVotes } from "@devotion/shared";
 
 import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
 import { MyDaySkeleton } from "@/components/me/my-day/my-day-skeleton";
@@ -33,7 +34,7 @@ import { ChatView } from "@/components/workspace/chat-view";
 import { CreatePageDialog } from "@/components/workspace/create-page-dialog";
 import { QuickAddContainer } from "@/components/me/quick-add/quick-add-container";
 import { CreateAreaDialog } from "@/components/workspace/create-area-dialog";
-import { IdeasView } from "@/components/workspace/ideas-view";
+import { IdeasView } from "@/components/workspace/ideas/ideas-view";
 import { ProfileDialog } from "@/components/workspace/profile-dialog";
 import { NotificationSettingsDialog } from "@/components/workspace/notification-settings-dialog";
 import { SearchDialog } from "@/components/workspace/search-dialog";
@@ -288,6 +289,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   const startupId = startup?._id;
   // Tolerantno kao ostali brojači: od K08 hrani i bedž „Ja" i meni.
   const chatUnread = useQueryTolerant(api.chat.unreadSummary, {});
+  // Bedž „Ideje" u meniju startupa (K07 §5.9): ideje u „Razmatra se" koje
+  // čekaju moj glas u ovom startupu (P22).
+  const ideaVotes = useQueryTolerant(
+    api.inbox.pending,
+    startupId === undefined ? "skip" : { startupId, include: ["idea_vote"] },
+  );
   // Lični nivo: tolerantno — greška brojača ne sme da obori ljusku; bedž se
   // tada samo ne prikazuje (plan K01 §5).
   const today = useToday();
@@ -780,7 +787,12 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         return;
       }
       if (item.targetType === "ideas") {
-        navigateRoute({ kind: "ideas" });
+        // Glas ili komentar na ideji nosi ideaId (K04-6): otvara se njen detalj.
+        navigateRoute(
+          item.targetId === null
+            ? { kind: "ideas" }
+            : { kind: "ideas", ideaId: item.targetId as Id<"ideaNodes"> },
+        );
         return;
       }
       if (item.targetType === "puls") {
@@ -885,7 +897,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         : screen === "area" && entityId !== null
           ? { kind: "area", areaId: entityId as Id<"startupAreas">, tab: "pregled" }
           : screen === "ideas"
-          ? { kind: "ideas" }
+          ? entityId === null
+            ? { kind: "ideas" }
+            : { kind: "ideas", ideaId: entityId as Id<"ideaNodes"> }
           : screen === "puls"
             ? weekStart === null
               ? { kind: "puls" }
@@ -948,6 +962,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
     chatUnread:
       chatUnread?.byStartup.find((entry) => entry.startupId === startup._id)
         ?.unreadCount ?? 0,
+    ideasWaiting: pendingIdeaVotes(ideaVotes?.items ?? []).length,
     onDragPageStart: handleDragPageStart,
     onDragPageEnd: handleDragPageEnd,
     onDragPageOver: handleDragPageOver,
@@ -1084,8 +1099,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
                 onQuickAdd={openQuickAdd}
                 onOpenInbox={() => goToMe({ kind: "me-inbox" })}
                 onOpenChat={() => goToMe({ kind: "me-chat" })}
-                onOpenApprovals={(approvalsStartupId) =>
-                  openInStartup(approvalsStartupId, { route: { kind: "trash" } })
+                onOpenIdea={(ideaStartupId, ideaId) =>
+                  openInStartup(ideaStartupId, { route: { kind: "ideas", ideaId } })
                 }
               />
             </WorkspaceErrorBoundary>
@@ -1123,13 +1138,20 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           ) : route.kind === "thoughts" ? (
             <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
           ) : route.kind === "ideas" ? (
+            <WorkspaceErrorBoundary key={`ideas-${startup._id}`} title="Ideje se ne mogu učitati" className="m-4 min-h-[20rem]">
             <IdeasView
               startup={startup}
-              onOpenPage={openPage}
-              onOpenChannel={(channelId) =>
-                navigateRoute({ kind: "chat", channelId })
+              profile={profile}
+              today={today}
+              ideaId={route.ideaId ?? null}
+              onOpenIdea={(nextIdeaId) =>
+                navigateRoute(nextIdeaId === null ? { kind: "ideas" } : { kind: "ideas", ideaId: nextIdeaId }, { replace: true })
               }
+              onOpenPage={openPage}
+              onOpenTrash={() => navigateRoute({ kind: "trash", segment: "idea" })}
+              onOpenChannel={(channelId) => navigateRoute({ kind: "chat", channelId })}
             />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "today" ? (
             <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar se ne može učitati" className="m-4 min-h-[20rem]">
               <CommandCenterView
@@ -1180,7 +1202,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               }
               now={today.now}
               onOpen={(target) =>
-                target.kind === "page" ? openPage(target.pageId) : navigateRoute({ kind: "ideas" })
+                target.kind === "page" ? openPage(target.pageId) : navigateRoute({ kind: "ideas", ideaId: target.ideaId })
               }
             />
           ) : route.kind === "chat" ? (

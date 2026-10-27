@@ -15,6 +15,7 @@ import {
   inboxTarget,
   inboxUnreadFor,
   inboxUnreadWord,
+  pendingIdeaVotes,
   pendingIsVote,
   pendingKey,
   pendingTitle,
@@ -286,6 +287,12 @@ describe("Čeka tebe", () => {
     expect(pendingIsVote(nesting)).toBe(false);
     expect(inboxPendingFor([idea, nesting], { kind: "startup", startupId: "s1" })).toEqual([idea]);
     expect(inboxPendingFor([idea], { kind: "personal" })).toEqual([]);
+  });
+
+  test("pendingIdeaVotes (K16): crtaju se samo ideje, stare vrste ispadaju", () => {
+    expect(pendingIdeaVotes([vote, idea, nesting])).toEqual([idea]);
+    expect(pendingIdeaVotes([vote, nesting])).toEqual([]);
+    expect(pendingIdeaVotes([])).toEqual([]);
   });
 
   test("naslovi i ključevi", () => {

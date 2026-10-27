@@ -3,7 +3,7 @@
  * „Čeka tebe". ČISTO (vitest). Svaki blok ima svoje stanje; blok čiji upit
  * padne ili ne postoji se tiho skriva (`hidden`).
  */
-import { pendingKey, pendingTitle, type StartupMini } from "@devotion/shared";
+import { pendingIdeaVotes, pendingKey, pendingTitle, type StartupMini } from "@devotion/shared";
 
 // Tekst i ključ stavke „Čeka tebe" žive u shared (`inbox.ts`) — dele ih Inbox i telefon.
 export { pendingTitle };
@@ -23,7 +23,8 @@ export type SideChat = {
 };
 
 export type SidePending = {
-  items: Array<{ key: string; title: string; startup: StartupMini }>;
+  /** Samo ideje koje čekaju moj glas (PROSTOR P22); „Glasaj" otvara ideju u njenom startupu. */
+  items: Array<{ key: string; title: string; startup: StartupMini; ideaId: string }>;
   truncated: boolean;
 };
 
@@ -70,12 +71,14 @@ export type PendingItemLike =
       startup: StartupMini;
     };
 
+/** Stare vrste (glasanje o brisanju, ugnežđavanje) se više ne prikazuju (K16). */
 export function pendingSummary(pending: { items: ReadonlyArray<PendingItemLike>; truncated: boolean }): SidePending {
   return {
-    items: pending.items.map((item) => ({
+    items: pendingIdeaVotes(pending.items).map((item) => ({
       key: pendingKey(item),
       title: pendingTitle(item),
       startup: item.startup,
+      ideaId: item.ideaId,
     })),
     truncated: pending.truncated,
   };
