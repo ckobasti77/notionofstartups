@@ -45,7 +45,7 @@ export function PageUnavailable({
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title={subject === 'task' ? 'Zadatak' : 'Stranica'} onBack={() => backOrProstor(router)} />
       <View accessibilityRole="alert" style={styles.body}>
-        <FileX2 size={40} color={colors.mutedForeground} />
+        <FileX2 size={20} color={colors.mutedForeground} />
         <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
         <Text style={[styles.detail, { color: colors.mutedForeground }]}>{detail}</Text>
         <View style={styles.actions}>

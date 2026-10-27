@@ -19,7 +19,6 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
-import { areaColor } from '@/lib/task-meta';
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
 
@@ -205,7 +204,6 @@ export function IdeaConvertSheet({
                       opacity: pressed ? 0.85 : 1,
                     },
                   ]}>
-                  <View style={[styles.chipDot, { backgroundColor: areaColor(colors, area.key) }]} />
                   <Text
                     style={[
                       styles.chipLabel,
@@ -239,8 +237,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginBottom: 6,
   },
   explain: {
@@ -290,11 +287,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  chipDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
   chipLabel: {
     fontSize: 16,

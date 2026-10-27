@@ -35,7 +35,7 @@ import {
 } from '@/lib/thought-layout';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 /** Čvor/ivica iz `ideas.list` — ista pretplata koju lista, detalj i kanvas drže. */
 export type IdeaListNode = FunctionReturnType<typeof api.ideas.list>['nodes'][number];
@@ -498,8 +498,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

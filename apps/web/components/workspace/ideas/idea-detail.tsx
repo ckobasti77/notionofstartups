@@ -135,7 +135,7 @@ export function IdeaDetail({
           aria-invalid={saveState === "invalid" && !draft.title.trim() ? true : undefined}
           onChange={(event) => onDraftChange({ title: event.target.value })}
           onBlur={onDraftBlur}
-          className="-mx-1 w-[calc(100%+0.5rem)] rounded-md bg-transparent px-1 py-0.5 text-lg font-semibold tracking-[-0.01em] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="-mx-1 w-[calc(100%+0.5rem)] rounded-md bg-transparent px-1 py-0.5 text-xl font-semibold tracking-[-0.02em] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
         />
         <label htmlFor={textId} className="sr-only">
           Tekst ideje

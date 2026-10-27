@@ -9,7 +9,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text } from '@/theme/tokens';
 
 /** Ogledalo `cleanRequiredText(..., "Naziv oblasti", 100)` iz `startups.createArea`. */
 const MAX_LABEL = 100;
@@ -100,8 +100,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   description: {
     fontSize: fontSize.base,

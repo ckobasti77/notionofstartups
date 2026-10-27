@@ -93,10 +93,7 @@ export function ThoughtEditorDialog({
       >
         <form className="flex h-full min-h-0 flex-col" onSubmit={submit}>
           <DialogHeader className="border-b border-border/70 px-5 py-5 sm:px-6">
-            <DialogTitle className="flex items-center gap-2">
-              <span className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary">
-                {connected ? <Link2 className="size-4" /> : <Sparkles className="size-4" />}
-              </span>
+            <DialogTitle>
               {mode === "edit" ? "Uredi misao" : connected ? "Nova povezana misao" : "Nova misao"}
             </DialogTitle>
             <DialogDescription>
@@ -139,7 +136,7 @@ export function ThoughtEditorDialog({
               />
             ) : null}
             <fieldset>
-              <legend className="mb-2 text-sm font-medium">Boja oblačića</legend>
+              <legend className="mb-2 text-sm font-medium">Boja</legend>
               <div className="flex flex-wrap gap-2">
                 {COLOR_OPTIONS.map((option) => (
                   <label

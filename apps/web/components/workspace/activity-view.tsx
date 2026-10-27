@@ -30,7 +30,7 @@ type ActivityViewProps = {
 /** Aktivnost — prezentacija (izlog `komandni-centar`): rečenice iz shared `formatActivity`. */
 export function ActivityScreen({ status, entries, canLoadMore, loadingMore, onLoadMore, onOpen }: ActivityViewProps) {
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-4 sm:px-6 lg:px-8 lg:pt-6">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-4 sm:px-6 lg:px-8 lg:pt-6">
       <ScreenHeader title="Aktivnost" />
       {status === "loading" ? (
         <div role="status" aria-label="Učitavanje aktivnosti" className="space-y-1">

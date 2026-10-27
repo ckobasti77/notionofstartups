@@ -4,7 +4,6 @@ import {
   Circle,
   Link2,
   Link2Off,
-  ListChecks,
   Lock,
   MessageSquareText,
   Pencil,
@@ -482,13 +481,12 @@ function SectionHeader({
 }) {
   return (
     <View style={styles.header}>
-      <ListChecks size={18} color={colors.primary} />
-      <Text style={[styles.headerLabel, { color: colors.foreground }]}>Koraci</Text>
-      <View style={[styles.countPill, { backgroundColor: colors.muted }]}>
-        <Text style={[styles.countText, { color: colors.mutedForeground }]}>
-          {completed}/{total}
-        </Text>
-      </View>
+      <Text accessibilityRole="header" style={[styles.headerLabel, { color: colors.foreground }]}>
+        Koraci
+      </Text>
+      <Text style={[styles.countText, { color: colors.mutedForeground }]}>
+        {completed}/{total}
+      </Text>
     </View>
   );
 }
@@ -517,16 +515,12 @@ const styles = StyleSheet.create({
   },
   headerLabel: {
     ...text.body,
-    fontWeight: fontWeight.bold,
-  },
-  countPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.full,
+    fontWeight: fontWeight.semibold,
   },
   countText: {
     ...text.meta,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.regular,
+    fontVariant: ['tabular-nums'],
   },
   track: {
     height: 6,

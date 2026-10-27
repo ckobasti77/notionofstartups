@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { MoreHorizontal, Plus, Table2, Upload } from "lucide-react";
+import { MoreHorizontal, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -114,10 +114,9 @@ export function PageTablePanel({
   return (
     <section className={cn("space-y-3", className)} aria-label="Tabela">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-sm font-bold">
-          <Table2 className="size-4 text-primary" aria-hidden="true" />
+        <h3 className="flex items-baseline gap-2 text-sm font-semibold">
           Tabela
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground">
+          <span className="font-normal tabular-nums text-muted-foreground">
             {/* Ukupan broj (denormalizovani rowCount), ne samo učitane strane. */}
             {Math.max(meta.rowCount, rows.length)} × {columns.length}
           </span>

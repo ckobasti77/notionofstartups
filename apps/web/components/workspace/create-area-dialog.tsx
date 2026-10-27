@@ -63,13 +63,8 @@ export function CreateAreaDialog({
       <DialogContent className="max-w-md gap-0 p-0">
         <form onSubmit={submit}>
           <DialogHeader className="border-b border-border/70 px-5 py-5 sm:px-6">
-            <DialogTitle className="flex items-center gap-2">
-              <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
-                <FolderPlus className="size-4" />
-              </span>
-              Nova oblast
-            </DialogTitle>
-            <DialogDescription>
+            <DialogTitle>Nova oblast</DialogTitle>
+            <DialogDescription className="sr-only">
               Nova oblast u startupu {startup.name}.
             </DialogDescription>
           </DialogHeader>

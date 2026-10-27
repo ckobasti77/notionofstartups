@@ -13,7 +13,7 @@ import { haptics } from '@/lib/haptics';
 import { type ThoughtColor } from '@/lib/thought-colors';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text } from '@/theme/tokens';
 
 /** Backend limiti (`thoughts.ts`): naslov ≤200, tekst ≤12000. */
 const MAX_TITLE = 200;
@@ -215,8 +215,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   input: {
     minHeight: 48,

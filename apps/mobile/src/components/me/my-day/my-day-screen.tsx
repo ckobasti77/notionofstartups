@@ -30,7 +30,7 @@ import { readMyDayGrouping, writeMyDayGrouping } from '@/lib/device-prefs';
 import { haptics } from '@/lib/haptics';
 import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
 import { readLastArea, readStoredDestination } from '@/lib/quick-add-memory';
-import { duration } from '@/theme/motion';
+import { DURATIONS } from '@/theme/motion';
 import { useThemeColors } from '@/theme/theme-provider';
 
 import { MeHeader } from '../me-header';
@@ -321,7 +321,7 @@ export function MyDayScreen() {
         onOpen={(row) => {
           setActionsKey(null);
           // Dva sestrinska `Modal`-a istovremeno iOS ne prikazuje: panel čeka kraj izlaza sheet-a radnji.
-          setTimeout(() => openRow(row), duration.exit + 60);
+          setTimeout(() => openRow(row), DURATIONS.quick + 60);
         }}
         onToggleDone={(row, done) => {
           setActionsKey(null);

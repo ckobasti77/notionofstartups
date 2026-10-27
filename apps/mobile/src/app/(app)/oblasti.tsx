@@ -107,7 +107,7 @@ export default function OblastiScreen() {
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
         {header}
         <EmptyState
-          icon={<FolderOpen size={40} color={colors.mutedForeground} />}
+          icon={<FolderOpen size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Dokumenti se prikazuju po startupu."
           actionLabel="Otvori Prostor"
@@ -122,7 +122,7 @@ export default function OblastiScreen() {
       {header}
       {!loading && startup.areas.length === 0 ? (
         <EmptyState
-          icon={<FolderOpen size={40} color={colors.mutedForeground} />}
+          icon={<FolderOpen size={20} color={colors.mutedForeground} />}
           title="Nema oblasti."
           actionLabel="Nova oblast"
           onAction={() => setCreateAreaOpen(true)}
@@ -292,7 +292,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Dokumenti" onBack={() => backOrProstor(router)} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Dokumenti nisu učitani."
         description={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
         actionLabel="Pokušaj ponovo"

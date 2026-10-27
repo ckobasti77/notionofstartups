@@ -16,23 +16,14 @@ import { Easing, ReduceMotion, type WithSpringConfig, type WithTimingConfig } fr
 /**
  * Motion tokeni — mali rečnik, jer je pokret u ovoj aplikaciji suzdržan.
  *
- * PRAVILA (docs/mobile/02-EKRANI.md §11 + zahtev „nikad dekorativno"):
+ * PRAVILA (docs/mobile/02-EKRANI.md §11, DIZAJN-SMIRENJE §8):
  *  - Nijedna animacija ne sme da odloži trenutak kad korisnik može da nastavi.
  *    Sve što ulazi kroz `opacity`/`transform` je od prvog frejma dodirljivo.
- *  - Ulaz liste traje UKUPNO najviše 300ms — `STAGGER_STEP × STAGGER_MAX_INDEX +
- *    duration.item` je tačno toliko.
- *  - Kad je uključeno „smanji pokret" (`useReducedMotion`), ne skraćujemo — gasimo.
+ *  - Brojevi dolaze ISKLJUČIVO iz `@devotion/shared` (`motion.ts`). Stari lokalni
+ *    brojevi (stagger 30 ms / ulaz 180 ms / zamena 200 ms) su uklonjeni u PROSTOR
+ *    K21 — ulaz liste je `enterFadeUp`/`useListEntering` (24 ms, ≤ 6 stavki).
+ *  - Smanjen pokret (`useReducedMotion`): samo neprozirnost, ≤ `REDUCED_FADE_MS`.
  */
-
-/** Trajanja (ms). */
-export const duration = {
-  /** Izlaz sheet-a, gašenje skeletona — mora biti kraće od ulaza. */
-  exit: 160,
-  /** Ulazak jedne stavke liste. */
-  item: 180,
-  /** Crossfade skeleton → sadržaj. */
-  swap: 200,
-} as const;
 
 /**
  * Spring za sheet = `smooth` iz rečnika (K19; ranije 280/26/0,9): isti spring
@@ -43,30 +34,14 @@ export const SHEET_SPRING = {
   overshootClamping: false,
 } as const;
 
-/** Korak zakašnjenja između susednih stavki liste (ms). */
-export const STAGGER_STEP = 30;
-/** Posle ove stavke se više ne kasni — inače bi dugačka lista trajala sekundama. */
-export const STAGGER_MAX_INDEX = 4;
-
-/** Zakašnjenje za `index`-tu stavku; ukupno ≤ 120 + 180 = 300ms. */
-export function staggerDelay(index: number): number {
-  return Math.min(Math.max(index, 0), STAGGER_MAX_INDEX) * STAGGER_STEP;
-}
-
-/** Koliko stavka „doputuje" nagore pri ulasku (px). Namerno malo. */
-export const STAGGER_TRAVEL = 8;
-
 /** Zatamnjenje backdrop-a ispod sheet-a na punom otvaranju. */
 export const BACKDROP_OPACITY = 0.5;
 
-/* ── Rečnik ličnog nivoa (K09) — brojevi ISKLJUČIVO iz `@devotion/shared` ──
+/* ── Rečnik (LICNO K09, PROSTOR K19/K21) — brojevi ISKLJUČIVO iz `@devotion/shared` ──
  *
  * Isti brojevi kao web GSAP (`apps/web/lib/motion/`), samo prevedeni u
  * Reanimated: spring zadat kao response/dampingRatio postaje
- * stiffness/damping/mass (`reanimatedSpring`). K19 je uskladio `SHEET_SPRING`
- * (= `smooth`); ostali exporti iznad (`duration`, `STAGGER_*`) i dalje hrane
- * `StaggerItem`/`LoadingSwap` na ekranima van obima K19 — novi kod koristi ovo
- * ispod (vidi ODLUKE K19 u `docs/LICNO-PROGRESS.md`).
+ * stiffness/damping/mass (`reanimatedSpring`).
  */
 
 function toSpring(name: SpringName): WithSpringConfig {

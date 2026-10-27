@@ -97,22 +97,12 @@ export function statusColor(colors: ColorTokens, status: TaskStatus | null): str
 }
 
 /**
- * Boja oblasti izvedena iz njenog `key` (web `AREA_META`: indigo/violet/emerald/
- * amber → primary/info/success/warning). Nepoznati („custom_…") ključevi su muted.
+ * Boja ikonice oblasti. Od PROSTOR K21 (DIZAJN-SMIRENJE U5, par web K08 —
+ * `getAreaTint` je neutralan) oblast nema svoju boju: ikonica je prigušena, a
+ * oblast se prepoznaje po ikonici i imenu. Potpis ostaje zbog pozivalaca.
  */
-export function areaColor(colors: ColorTokens, key: string): string {
-  switch (key) {
-    case 'dev':
-      return colors.primary;
-    case 'marketing':
-      return colors.info;
-    case 'sales':
-      return colors.success;
-    case 'other':
-      return colors.warning;
-    default:
-      return colors.mutedForeground;
-  }
+export function areaColor(colors: ColorTokens, _key: string): string {
+  return colors.mutedForeground;
 }
 
 /** „1 zadatak", „3 zadatka", „7 zadataka" — srpska pluralizacija. */

@@ -979,7 +979,7 @@ export default function CanvasScreen() {
         {failed ? (
           <View style={[styles.overlay, { backgroundColor: colors.background }]}>
             <EmptyState
-              icon={<TriangleAlert size={40} color={colors.destructive} />}
+              icon={<TriangleAlert size={20} color={colors.destructive} />}
               title="Mapa nije učitana"
               description={failed}
               actionLabel="Pokušaj ponovo"
@@ -1213,7 +1213,7 @@ function Fallback({
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Header title="Mapa" onBack={onBack} colors={colors} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.mutedForeground} />}
+        icon={<TriangleAlert size={20} color={colors.mutedForeground} />}
         title={title}
         description={message}
       />
@@ -1236,7 +1236,7 @@ function CanvasError({ message, onRetry }: { message: string; onRetry: () => voi
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Header title="Mapa" onBack={() => router.back()} colors={colors} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Mapa nije učitana"
         description={message || 'Mapa nije učitana.'}
         actionLabel="Pokušaj ponovo"

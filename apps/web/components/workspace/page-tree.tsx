@@ -268,7 +268,7 @@ function PageTreeNode({
         <button
           type="button"
           aria-current={selected ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-start gap-2 py-1.5 pr-1 text-left text-[0.8125rem]"
+          className="flex min-h-8 min-w-0 flex-1 items-start gap-2 py-1.5 pr-1 text-left text-sm"
           onClick={() => onOpenPage(page._id)}
         >
           <Icon className="mt-0.5 size-3.5 shrink-0 opacity-75" />

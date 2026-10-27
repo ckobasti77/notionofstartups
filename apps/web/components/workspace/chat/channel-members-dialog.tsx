@@ -164,7 +164,7 @@ export function ChannelMembersDialog({
                     {member.profile.displayName}
                   </span>
                   {isOwner ? (
-                    <span className="shrink-0 text-[0.625rem] text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       Tvorac kanala
                     </span>
                   ) : null}

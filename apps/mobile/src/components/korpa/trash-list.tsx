@@ -72,7 +72,7 @@ export function TrashList({
     const Icon = EMPTY_ICON[kind];
     return (
       <EmptyState
-        icon={<Icon size={40} color={colors.mutedForeground} />}
+        icon={<Icon size={20} color={colors.mutedForeground} />}
         title={copy.title}
         description={copy.description}
       />
@@ -140,7 +140,7 @@ export function TrashListError({ message, onRetry }: { message: string; onRetry:
   const colors = useThemeColors();
   return (
     <EmptyState
-      icon={<TriangleAlert size={40} color={colors.destructive} />}
+      icon={<TriangleAlert size={20} color={colors.destructive} />}
       title="Korpa nije učitana."
       description={message}
       actionLabel="Pokušaj ponovo"

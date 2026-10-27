@@ -5,7 +5,6 @@ import { useMutation, useQuery } from "convex/react";
 import {
   Eye,
   LoaderCircle,
-  Paperclip,
   Pencil,
   Table2,
   Trash2,
@@ -102,10 +101,9 @@ export function PageFilesPanel({
   return (
     <section className={cn("space-y-3", className)} aria-label="Fajlovi">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-sm font-bold">
-          <Paperclip className="size-4 text-primary" aria-hidden="true" />
+        <h3 className="flex items-baseline gap-2 text-sm font-semibold">
           Fajlovi
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground">
+          <span className="font-normal tabular-nums text-muted-foreground">
             {files?.length ?? 0}/{MAX_FILES}
           </span>
         </h3>
@@ -145,7 +143,7 @@ export function PageFilesPanel({
             aria-hidden="true"
           />
           <p className="text-sm text-muted-foreground">
-            Prevuci fajlove ovde ili ih izaberi. Najviše {MAX_FILES} po oblačiću,{" "}
+            Prevuci fajlove ovde ili ih izaberi. Najviše {MAX_FILES} po stranici,{" "}
             {Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB po fajlu (
             {Math.round(MAX_MEDIA_BYTES / (1024 * 1024))} MB za video).
           </p>
@@ -176,22 +174,17 @@ export function PageFilesPanel({
           <Skeleton className="h-14 rounded-xl" />
         </div>
       ) : files.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border/70 px-4 py-5 text-center text-xs text-muted-foreground">
-          Još nema fajlova u ovom oblačiću.
+        <p className="px-2 py-2 text-sm text-muted-foreground">
+          Još nema fajlova.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-0.5">
           {files.map((file) => (
             <li
               key={file._id}
-              className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card px-3 py-2"
+              className="flex min-h-10 flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60"
             >
-              <span
-                className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                aria-hidden="true"
-              >
-                <FileIcon className="size-4" />
-              </span>
+              <FileIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               {renamingId === file._id ? (
                 <Input
                   autoFocus

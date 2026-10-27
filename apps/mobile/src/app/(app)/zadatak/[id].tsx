@@ -179,7 +179,7 @@ export default function ZadatakScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title={page.title} titleNumberOfLines={2} onBack={() => router.back()} />
         <EmptyState
-          icon={<ClipboardX size={40} color={colors.mutedForeground} />}
+          icon={<ClipboardX size={20} color={colors.mutedForeground} />}
           title="Ovo nije zadatak"
           description="Ova stranica nije zadatak."
         />

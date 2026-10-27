@@ -141,9 +141,6 @@ const styles = StyleSheet.create({
   },
   label: {
     ...text.meta,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   passwordWrap: {
     position: 'relative',

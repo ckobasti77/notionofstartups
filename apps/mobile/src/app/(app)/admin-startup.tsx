@@ -233,7 +233,7 @@ export default function AdminStartupScreen() {
 
       {activeStartupId === null ? (
         <EmptyState
-          icon={<Building2 size={40} color={colors.mutedForeground} />}
+          icon={<Building2 size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Izaberi ga iz zaglavlja Prostora."
         />
@@ -345,7 +345,7 @@ function SettingsError({ message, onRetry }: { message: string; onRetry: () => v
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Podešavanja startupa" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Podešavanja nisu učitana"
         description={message}
         actionLabel="Pokušaj ponovo"

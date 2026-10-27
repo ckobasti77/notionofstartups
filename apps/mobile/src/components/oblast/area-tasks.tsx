@@ -216,14 +216,14 @@ export function AreaTasks({
         {loading || sections === undefined ? null : empty ? (
           statusFilter === 'all' ? (
             <EmptyState
-              icon={<ListTodo size={40} color={colors.mutedForeground} />}
+              icon={<ListTodo size={20} color={colors.mutedForeground} />}
               title="Oblast nema zadataka."
               actionLabel="Novi zadatak"
               onAction={onCreate}
             />
           ) : (
             <EmptyState
-              icon={<ListTodo size={40} color={colors.mutedForeground} />}
+              icon={<ListTodo size={20} color={colors.mutedForeground} />}
               title="Nema rezultata za ovaj filter."
               actionLabel="Prikaži sve"
               onAction={() => setStatusFilter('all')}

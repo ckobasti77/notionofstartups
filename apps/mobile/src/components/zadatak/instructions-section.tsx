@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
   },
   headerLabel: {
     ...text.body,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.semibold,
   },
   editButton: {
     width: 44,

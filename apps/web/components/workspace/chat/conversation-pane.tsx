@@ -221,7 +221,7 @@ export function ConversationPane({
         sendFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      <header className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border/70 bg-background/90 px-3 backdrop-blur-xl sm:px-4">
+      <header className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border/70 bg-background px-3 sm:px-4">
         <Button
           type="button"
           variant="ghost"
@@ -237,7 +237,7 @@ export function ConversationPane({
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{name}</p>
-          <p className="truncate text-[0.6875rem] text-muted-foreground">
+          <p className="truncate text-xs text-muted-foreground">
             {subtitle}
           </p>
         </div>
@@ -367,9 +367,6 @@ export function ConversationPane({
           <div className="flex flex-col items-center gap-2 text-primary">
             <Upload className="size-8" aria-hidden="true" />
             <p className="text-sm font-semibold">Pusti da pošalješ</p>
-            <p className="text-xs text-muted-foreground">
-              Više fajlova odjednom je u redu — idu kao zasebne poruke.
-            </p>
           </div>
         </div>
       ) : null}
@@ -416,8 +413,8 @@ function ConversationIcon({
   }
   const Icon = channel.kind === "thread" ? MessagesSquare : Hash;
   return (
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-      <Icon className="size-4" />
+    <span className="grid size-8 shrink-0 place-items-center text-muted-foreground">
+      <Icon className="size-4" aria-hidden="true" />
     </span>
   );
 }

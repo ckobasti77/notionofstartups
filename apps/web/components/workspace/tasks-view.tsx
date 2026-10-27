@@ -354,7 +354,7 @@ function TasksFilterBar({ filter }: { filter: TasksFilterProps }) {
               onKeyDown={(event) => onKeyDown(event, index)}
               className={cn(
                 "inline-flex min-h-7 items-center rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                checked && "bg-background text-foreground shadow-sm",
+                checked && "bg-background text-foreground",
               )}
             >
               {option.label}
@@ -439,8 +439,8 @@ export function TasksBody({
   onCreateTask,
   loadMore,
 }: TasksBodyProps) {
-  // Ulaz redova na prvo punjenje i na promenu prikaza ili filtera.
-  useEnter(scopeRef, { key: loading ? "loading" : `ready:${mode}:${filter.value}` });
+  // Ulaz redova samo na prvo punjenje; promena prikaza ili filtera je odmah (K07 §8).
+  useEnter(scopeRef, { key: loading ? "loading" : "ready" });
   const rowProps = { now, actions, selectedKey, activeKey, request };
 
   return (

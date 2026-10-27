@@ -170,7 +170,7 @@ function SideCard({
     >
       <div className="mb-1.5 flex min-h-8 items-center gap-2 px-1">
         <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <h2 id={headingId} className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        <h2 id={headingId} className="text-sm font-semibold">
           {title}
         </h2>
         {count !== null && count > 0 ? (

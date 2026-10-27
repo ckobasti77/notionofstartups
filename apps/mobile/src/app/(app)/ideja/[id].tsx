@@ -158,7 +158,7 @@ export default function IdejaScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Ideja" onBack={() => router.back()} />
         <EmptyState
-          icon={<Lightbulb size={40} color={colors.mutedForeground} />}
+          icon={<Lightbulb size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Ideje se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
@@ -180,7 +180,7 @@ export default function IdejaScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Ideja" onBack={() => router.back()} />
         <EmptyState
-          icon={<Lightbulb size={40} color={colors.mutedForeground} />}
+          icon={<Lightbulb size={20} color={colors.mutedForeground} />}
           title="Ideja nije pronađena."
           description="Možda je u Korpi ili pripada drugom startupu."
           actionLabel="Otvori Korpu"
@@ -488,7 +488,7 @@ function IdejaError({ message, onRetry }: { message: string; onRetry: () => void
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Ideja" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Ideja nije učitana."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"
@@ -504,8 +504,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   editHeading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   // Dugmad ostaju ispod; polja se skroluju kad ih tastatura stisne.
   editScroll: {

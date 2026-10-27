@@ -418,9 +418,6 @@ const styles = StyleSheet.create({
   },
   overline: {
     ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
   },
   input: {
     ...text.body,

@@ -33,7 +33,7 @@ export function NoStartupState() {
   const router = useRouter();
   return (
     <EmptyState
-      icon={<Building2 size={40} color={colors.mutedForeground} />}
+      icon={<Building2 size={20} color={colors.mutedForeground} />}
       title="Još nisi ni u jednom startupu"
       description="Kad te neko doda u tim, ovde ćeš videti njegov sadržaj. Moj dan radi i bez startupa."
       actionLabel="Otvori Moj dan"

@@ -13,7 +13,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SkeletonList } from '@/components/ui/skeletons';
-import { StaggerItem } from '@/components/ui/stagger';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import { useListRefresh } from '@/hooks/use-list-refresh';
@@ -54,50 +54,53 @@ export default function AktivnostScreen() {
 
       {!loadingFirst && results.length === 0 ? (
         <EmptyState
-          icon={<Activity size={40} color={colors.mutedForeground} />}
+          icon={<Activity size={20} color={colors.mutedForeground} />}
           title="Nema aktivnosti."
         />
       ) : (
         <LoadingSwap loading={loadingFirst} skeleton={<ActivitySkeleton />}>
           {loadingFirst ? null : (
-            <SectionList
-              sections={sections}
-              keyExtractor={(item) => item._id}
-              // `index` je po sekciji, pa je stagger po danu — što je i tačno:
-              // dan je vizuelna celina.
-              renderItem={({ item, index }) => (
-                <StaggerItem index={index}>
-                  <ActivityRow
-                    model={activityRowModel(item, now)}
-                    onOpen={(target) => openActivityTarget(router, target)}
-                    style={styles.row}
+            // Prvo punjenje animira, redovi koji stignu skrolom se samo pojave.
+            <StaggerGroup>
+              <SectionList
+                sections={sections}
+                keyExtractor={(item) => item._id}
+                // `index` je po sekciji, pa je stagger po danu — što je i tačno:
+                // dan je vizuelna celina.
+                renderItem={({ item, index }) => (
+                  <StaggerItem index={index}>
+                    <ActivityRow
+                      model={activityRowModel(item, now)}
+                      onOpen={(target) => openActivityTarget(router, target)}
+                      style={styles.row}
+                    />
+                  </StaggerItem>
+                )}
+                renderSectionHeader={({ section }) => (
+                  <SectionHeader
+                    title={section.title}
+                    style={[styles.dayHeader, { backgroundColor: colors.background }]}
                   />
-                </StaggerItem>
-              )}
-              renderSectionHeader={({ section }) => (
-                <SectionHeader
-                  title={section.title}
-                  style={[styles.dayHeader, { backgroundColor: colors.background }]}
-                />
-              )}
-              stickySectionHeadersEnabled
-              onEndReachedThreshold={0.5}
-              onEndReached={() => {
-                if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
-              }}
-              ListFooterComponent={
-                status === 'LoadingMore' ? (
-                  <View style={styles.footer}>
-                    <ActivityIndicator color={colors.primary} />
-                  </View>
-                ) : (
-                  <View style={styles.footerSpacer} />
-                )
-              }
-              contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + space[6] }]}
-              showsVerticalScrollIndicator={false}
-              refreshControl={refreshControl}
-            />
+                )}
+                stickySectionHeadersEnabled
+                onEndReachedThreshold={0.5}
+                onEndReached={() => {
+                  if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
+                }}
+                ListFooterComponent={
+                  status === 'LoadingMore' ? (
+                    <View style={styles.footer}>
+                      <ActivityIndicator color={colors.primary} />
+                    </View>
+                  ) : (
+                    <View style={styles.footerSpacer} />
+                  )
+                }
+                contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + space[6] }]}
+                showsVerticalScrollIndicator={false}
+                refreshControl={refreshControl}
+              />
+            </StaggerGroup>
           )}
         </LoadingSwap>
       )}
@@ -138,7 +141,7 @@ function AktivnostErrorState({ message, onRetry }: { message: string; onRetry: (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Aktivnost nije učitana."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"

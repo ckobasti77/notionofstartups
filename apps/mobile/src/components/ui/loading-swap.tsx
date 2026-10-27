@@ -8,7 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { duration } from '@/theme/motion';
+import { REDUCED_FADE, standardTiming } from '@/theme/motion';
 
 export type LoadingSwapProps = {
   /** `true` dok Convex upit vraća `undefined`. */
@@ -51,15 +51,10 @@ export function LoadingSwap({
   useEffect(() => {
     if (loading) {
       setShowSkeleton(true);
-      swap.value = reduced ? 0 : withTiming(0, { duration: duration.exit });
+      swap.value = withTiming(0, reduced ? REDUCED_FADE : standardTiming('quick'));
       return;
     }
-    if (reduced) {
-      swap.value = 1;
-      setShowSkeleton(false);
-      return;
-    }
-    swap.value = withTiming(1, { duration: duration.swap }, (finished) => {
+    swap.value = withTiming(1, reduced ? REDUCED_FADE : standardTiming('quick'), (finished) => {
       'worklet';
       if (finished) runOnJS(setShowSkeleton)(false);
     });

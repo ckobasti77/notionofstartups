@@ -212,7 +212,7 @@ export function WorkspaceRail({
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <span className="block font-medium">{startup.name}</span>
-                  {dot ? <span className="block text-[0.6875rem] text-background/70">Ima nepročitano</span> : null}
+                  {dot ? <span className="block text-xs text-background/70">Ima nepročitano</span> : null}
                 </TooltipContent>
               </Tooltip>
             </div>

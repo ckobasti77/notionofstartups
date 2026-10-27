@@ -14,7 +14,7 @@ import { TabScreen } from '@/components/tab-screen';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingSwap } from '@/components/ui/loading-swap';
 import { SkeletonList, SkeletonRow } from '@/components/ui/skeletons';
-import { StaggerItem } from '@/components/ui/stagger';
+import { StaggerGroup, StaggerItem } from '@/components/ui/stagger';
 import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -131,8 +131,8 @@ function ConversationList({
   if (channels !== undefined && channels.length === 0) {
     return (
       <EmptyState
-        icon={<MessageSquare size={40} color={colors.mutedForeground} />}
-        title="Još niko nije pisao. Budi prvi."
+        icon={<MessageSquare size={20} color={colors.mutedForeground} />}
+        title="Još nema poruka."
         description={EMPTY_DESCRIPTION[segment]}
       />
     );
@@ -150,26 +150,28 @@ function ConversationList({
         />
       }>
       {channels ? (
-        <FlatList
-          data={channels}
-          keyExtractor={(channel) => channel._id}
-          // `FlatList` montira redove lenjo, pa `StaggerItem` sam prestaje da
-          // animira posle prvog punjenja (vidi `ui/stagger.tsx`) — nema fade-a
-          // usred skrola.
-          renderItem={({ item, index }) => (
-            <StaggerItem index={index}>
-              <ConversationRow
-                channel={item}
-                area={findChannelArea(item, areas)}
-                onPress={() => onOpen(item._id)}
-              />
-            </StaggerItem>
-          )}
-          // Stack ekran (bez tab bara ispod): donji safe-area je na listi.
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 16 }]}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={refreshControl}
-        />
+        // `StaggerGroup` je ovde, gde podaci postoje: `FlatList` montira redove
+        // lenjo, a posle prvog punjenja `StaggerItem` više ne animira — nema
+        // fade-a usred skrola (vidi `ui/stagger.tsx`).
+        <StaggerGroup resetKey={segment}>
+          <FlatList
+            data={channels}
+            keyExtractor={(channel) => channel._id}
+            renderItem={({ item, index }) => (
+              <StaggerItem index={index}>
+                <ConversationRow
+                  channel={item}
+                  area={findChannelArea(item, areas)}
+                  onPress={() => onOpen(item._id)}
+                />
+              </StaggerItem>
+            )}
+            // Stack ekran (bez tab bara ispod): donji safe-area je na listi.
+            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 16 }]}
+            keyboardShouldPersistTaps="handled"
+            refreshControl={refreshControl}
+          />
+        </StaggerGroup>
       ) : null}
     </LoadingSwap>
   );

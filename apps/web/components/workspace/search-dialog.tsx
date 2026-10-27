@@ -108,9 +108,6 @@ export function SearchDialog({
             </SearchResultsBoundary>
           )}
         </div>
-        <p className="border-t bg-muted/25 px-4 py-2 text-[0.6875rem] text-muted-foreground">
-          Savet: pritisni <kbd className="rounded border bg-card px-1 py-0.5 font-mono">Ctrl K</kbd> da otvoriš pretragu.
-        </p>
       </DialogContent>
     </Dialog>
   );
@@ -278,7 +275,7 @@ function nodeSubtitle(node: { title: string | null; text: string }) {
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="pb-1">
-      <h3 className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">
         {title}
       </h3>
       <ul>{children}</ul>
@@ -301,17 +298,17 @@ function ResultRow({
     <li>
       <button
         type="button"
-        className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-accent/55"
+        className="flex min-h-14 w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted/60"
         onClick={onClick}
       >
         <span
           aria-hidden="true"
-          className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/9 text-primary"
+          className="grid size-8 shrink-0 place-items-center text-muted-foreground"
         >
           {icon}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{title}</span>
+          <span className="block truncate text-sm font-medium">{title}</span>
           {subtitle ? (
             <span className="block truncate text-xs text-muted-foreground">{subtitle}</span>
           ) : null}

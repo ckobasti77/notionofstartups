@@ -380,15 +380,15 @@ function ConversationIcon({
   if (channel.kind === 'area' && area !== null) {
     const tint = areaColor(colors, area.key);
     return (
-      <View style={[styles.iconBox, { backgroundColor: `${tint}22` }]}>
+      <View style={styles.iconBox}>
         <AreaIcon areaKey={area.key} size={18} color={tint} />
       </View>
     );
   }
   const Icon = channel.kind === 'thread' ? MessagesSquare : Hash;
   return (
-    <View style={[styles.iconBox, { backgroundColor: colors.accent }]}>
-      <Icon size={18} color={colors.primary} />
+    <View style={styles.iconBox}>
+      <Icon size={18} color={colors.mutedForeground} />
     </View>
   );
 }
@@ -430,9 +430,6 @@ const styles = StyleSheet.create({
   },
   menuTitle: {
     ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
     paddingHorizontal: 20,
     paddingBottom: 6,
   },

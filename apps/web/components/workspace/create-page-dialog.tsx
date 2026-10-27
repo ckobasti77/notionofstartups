@@ -52,7 +52,7 @@ import { readTableFile } from "@/lib/table-file";
 const TITLE_PLACEHOLDER: Record<PageKind, string> = {
   note: "Naslov beleške…",
   task: "Šta treba uraditi?",
-  file: "Naziv fajl oblačića…",
+  file: "Naziv stranice sa fajlovima…",
   table: "Naziv tabele…",
 };
 
@@ -204,7 +204,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
     setPickedFiles((current) => {
       const merged = [...current, ...accepted];
       if (merged.length > MAX_FILES) {
-        rejected.push(`Najviše ${MAX_FILES} fajlova po oblačiću.`);
+        rejected.push(`Najviše ${MAX_FILES} fajlova po stranici.`);
       }
       return merged.slice(0, MAX_FILES);
     });
@@ -323,7 +323,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
           return;
         }
         if (failures.length > 0) {
-          followUpWarning = `Nisu otpremljeni: ${failures.join(" · ")}. Dodaj ih ponovo iz detalja oblačića.`;
+          followUpWarning = `Nisu otpremljeni: ${failures.join(" · ")}. Dodaj ih ponovo sa stranice.`;
         }
       }
 
@@ -368,11 +368,11 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
           onSubmit={submit}
         >
           <DialogHeader className="border-b border-border/70 px-5 py-5 pr-14 sm:px-6 sm:pr-16">
-            <DialogTitle className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"><Plus className="size-4" /></span> Nova stranica</DialogTitle>
+            <DialogTitle>Nova stranica</DialogTitle>
             <DialogDescription>
               {target?.parentPageId
                 ? targetParent && !targetParent.permissions.canEdit
-                  ? "Stavka će biti kreirana u korenu oblasti, a autor ciljne stranice dobija zahtev za ugnježđavanje."
+                  ? "Stranica nastaje na vrhu oblasti."
                   : "Biće ugnježdena unutar izabrane stranice."
                 : `Dodaješ sadržaj u ${selectedArea?.label ?? "oblast"}.`}
             </DialogDescription>
@@ -474,7 +474,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
                   </Button>
                   <p className="mt-2 text-xs text-muted-foreground">
                     Više odjednom (najviše {MAX_FILES}); može i prevlačenjem ovde.
-                    Otpremaju se čim se oblačić kreira.
+                    Otpremaju se čim stranica nastane.
                   </p>
                 </div>
                 {pickedFiles.length > 0 ? (
@@ -503,7 +503,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
                   </ul>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Još nema izabranih fajlova — oblačić može da se kreira i prazan.
+                    Još nema izabranih fajlova — stranica može da nastane i prazna.
                   </p>
                 )}
               </div>
@@ -745,7 +745,7 @@ export function CreatePageDialog({ open, onOpenChange, startup, profileId, now, 
               </div>
             ) : null}
           </div>
-          <DialogFooter className="relative z-20 shrink-0 border-t border-border/70 bg-background/95 px-5 py-4 shadow-[0_-12px_28px_-22px_rgba(0,0,0,0.55)] backdrop-blur sm:px-6">
+          <DialogFooter className="relative z-20 shrink-0 border-t border-border/70 bg-background px-5 py-4 sm:px-6">
             {phase ? (
               <p
                 className="mr-auto self-center text-xs text-muted-foreground tabular-nums"

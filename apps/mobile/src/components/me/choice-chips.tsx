@@ -320,9 +320,6 @@ const styles = StyleSheet.create({
   },
   groupLabel: {
     ...text.meta,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
   },
   chips: {
     flexDirection: 'row',

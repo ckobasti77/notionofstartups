@@ -30,7 +30,7 @@ import { pageKindColor, pageKindLabel, pageKindMeta, type PageKind } from '@/lib
 import { areaColor } from '@/lib/task-meta';
 import { pushUndo, showUndoNotice } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 type PageDetails = FunctionReturnType<typeof api.pages.get>;
 
@@ -682,7 +682,7 @@ function TargetList({
             style={styles.row}
             accessibilityLabel={item.subtitle ? `${item.title}, ${item.subtitle}` : item.title}
             icon={
-              <View style={[styles.iconChip, { backgroundColor: `${item.tint}22` }]}>
+              <View style={styles.iconChip}>
                 {Icon ? <Icon size={16} color={item.tint} /> : null}
               </View>
             }
@@ -711,8 +711,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

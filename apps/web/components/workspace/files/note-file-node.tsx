@@ -144,12 +144,7 @@ function NoteFileView({ node, editor, deleteNode }: NodeViewProps) {
     const Icon = (category !== null ? CARD_ICONS[category] : null) ?? FileQuestion;
     body = (
       <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3 py-2.5">
-        <span
-          className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300"
-          aria-hidden="true"
-        >
-          <Icon className="size-4" />
-        </span>
+        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold">{name}</span>
           <span className="text-[0.6875rem] text-muted-foreground">

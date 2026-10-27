@@ -48,7 +48,7 @@ import { useToday } from '@/hooks/use-today';
 import { haptics } from '@/lib/haptics';
 import { openStartupEntity } from '@/lib/navigation/open-startup-entity';
 import { readLastArea, readStoredDestination } from '@/lib/quick-add-memory';
-import { duration } from '@/theme/motion';
+import { DURATIONS } from '@/theme/motion';
 import { useThemeColors } from '@/theme/theme-provider';
 import { space, text } from '@/theme/tokens';
 
@@ -225,7 +225,7 @@ function MyTasksContent({ retry }: { retry: () => void }) {
   if (loadError) {
     body = (
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Zadaci se ne mogu učitati"
         description="Proveri vezu i pokušaj ponovo."
         actionLabel="Pokušaj ponovo"
@@ -245,7 +245,7 @@ function MyTasksContent({ retry }: { retry: () => void }) {
   } else if (!model.hasAny) {
     body = (
       <EmptyState
-        icon={<CheckSquare2 size={40} color={colors.mutedForeground} />}
+        icon={<CheckSquare2 size={20} color={colors.mutedForeground} />}
         title="Nemaš otvorenih zadataka"
         description="Kad ti neko dodeli zadatak ili dodaš lični, biće ovde."
         actionLabel="Brzi unos"
@@ -256,7 +256,7 @@ function MyTasksContent({ retry }: { retry: () => void }) {
     body = (
       <>
         <EmptyState
-          icon={<SearchX size={40} color={colors.mutedForeground} />}
+          icon={<SearchX size={20} color={colors.mutedForeground} />}
           title="Nijedan zadatak ne odgovara filterima"
           description="Promeni ili očisti filtere."
           actionLabel={hasActiveFilters(filters) ? 'Očisti filtere' : undefined}
@@ -400,7 +400,7 @@ function MyTasksContent({ retry }: { retry: () => void }) {
         onOpen={(row) => {
           setActionsKey(null);
           // Dva sestrinska `Modal`-a istovremeno iOS ne prikazuje: panel čeka kraj izlaza sheet-a radnji.
-          setTimeout(() => openPanel(row), duration.exit + 60);
+          setTimeout(() => openPanel(row), DURATIONS.quick + 60);
         }}
         onToggleDone={(row, done) => {
           setActionsKey(null);

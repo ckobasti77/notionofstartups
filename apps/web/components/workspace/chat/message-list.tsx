@@ -357,7 +357,7 @@ function DaySeparator({ timestamp }: { timestamp: number }) {
   return (
     <div className="my-3 flex items-center gap-3" aria-hidden="true">
       <span className="h-px flex-1 bg-border/70" />
-      <span className="rounded-full bg-muted px-2.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+      <span className="px-1 text-xs font-medium text-muted-foreground">
         {formatDaySeparator(timestamp)}
       </span>
       <span className="h-px flex-1 bg-border/70" />

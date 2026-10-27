@@ -373,7 +373,7 @@ function UnexpectedKind({
   const Icon = pageKindMeta(kind).icon;
   return (
     <EmptyState
-      icon={<Icon size={40} color={colors.mutedForeground} />}
+      icon={<Icon size={20} color={colors.mutedForeground} />}
       title={pageKindLabel(kind)}
       description="Ova stavka se otvara na svom ekranu — vrati se i otvori je iz liste."
     />

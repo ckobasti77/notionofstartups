@@ -37,10 +37,8 @@ export function TaskPanelHeaderSkeleton() {
 /** Zadatak je obrisan, arhiviran ili više nemaš pristup. */
 export function TaskPanelGone({ onClose }: { onClose: () => void }) {
   return (
-    <div role="status" className="flex min-h-56 flex-col items-center justify-center px-4 text-center">
-      <span className="mb-4 grid size-11 place-items-center rounded-xl bg-muted text-muted-foreground">
-        <SearchX className="size-5" aria-hidden="true" />
-      </span>
+    <div role="status" className="flex min-h-40 flex-col items-center justify-center px-4 text-center">
+      <SearchX className="mb-3 size-5 text-muted-foreground" aria-hidden="true" />
       <p className="text-sm font-semibold">Zadatak više ne postoji</p>
       <p className="mt-1 max-w-xs text-sm leading-6 text-muted-foreground">Možda je obrisan ili više nemaš pristup.</p>
       <Button type="button" variant="outline" className="mt-5" onClick={onClose}>
@@ -57,11 +55,9 @@ export function TaskPanelGone({ onClose }: { onClose: () => void }) {
  */
 export function TaskPanelError({ retry, onClose }: { retry: () => void; onClose: () => void }) {
   return (
-    <div role="alert" className="flex min-h-56 flex-col items-center justify-center px-4 text-center">
-      <span className="mb-4 grid size-11 place-items-center rounded-xl bg-destructive/10 text-destructive">
-        <TriangleAlert className="size-5" aria-hidden="true" />
-      </span>
-      <p className="text-sm font-semibold">Zadatak se ne može učitati</p>
+    <div role="alert" className="flex min-h-40 flex-col items-center justify-center px-4 text-center">
+      <TriangleAlert className="mb-3 size-5 text-muted-foreground" aria-hidden="true" />
+      <p className="text-sm font-semibold">Zadatak nije učitan.</p>
       <p className="mt-1 max-w-xs text-sm leading-6 text-muted-foreground">
         Proveri vezu i pokušaj ponovo. Ako je zadatak obrisan ili više nemaš pristup, zatvori panel.
       </p>

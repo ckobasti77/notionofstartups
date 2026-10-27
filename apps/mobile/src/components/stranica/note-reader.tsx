@@ -54,7 +54,7 @@ export function NoteReader({
   if (isEmptyNoteHtml(html)) {
     return (
       <EmptyState
-        icon={<FileText size={40} color={colors.mutedForeground} />}
+        icon={<FileText size={20} color={colors.mutedForeground} />}
         title="Prazna beleška"
         description={emptyDescription}
       />

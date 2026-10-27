@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { BellRing, Info, Moon } from "lucide-react";
+import { Info, Moon } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -80,7 +80,7 @@ export function NotificationSettingsDialog({
       <DialogContent className="max-w-md gap-0 p-0">
         <DialogHeader className="border-b px-6 py-5">
           <DialogTitle className="flex items-center gap-2">
-            <BellRing className="size-5 text-primary" aria-hidden="true" /> Obaveštenja i zvuci
+            Obaveštenja i zvuci
           </DialogTitle>
           <DialogDescription>
             Šta te obaveštava. Isključen tip važi na svim tvojim uređajima.
@@ -175,7 +175,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
     <>
       {NOTIFICATION_SETTINGS_GROUPS.map((group) => (
         <section key={group.key} className="space-y-1">
-          <h3 className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          <h3 className="text-sm font-semibold">
             {group.label}
           </h3>
           <div className="divide-y divide-border/60 rounded-lg border">
@@ -207,7 +207,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
 
       {/* Tihi sati */}
       <section className="space-y-1">
-        <h3 className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        <h3 className="text-sm font-semibold">
           Tihi sati
         </h3>
         <div className="rounded-lg border">

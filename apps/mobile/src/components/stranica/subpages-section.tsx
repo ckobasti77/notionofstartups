@@ -122,7 +122,7 @@ export function SubpagesSection({
                   }
                   style={styles.row}
                   icon={
-                    <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+                    <View style={styles.iconChip}>
                       <Icon size={16} color={tint} />
                     </View>
                   }

@@ -102,12 +102,8 @@ export function DiscussionLink({
     <>
       {channel ? (
         <Row
-          style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-          icon={
-            <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}17` }]}>
-              <MessagesSquare size={18} color={colors.primary} />
-            </View>
-          }
+          style={styles.card}
+          icon={<MessagesSquare size={20} color={colors.mutedForeground} />}
           title="Diskusija"
           subtitle={`${channel.messageCount} ${porukaWord(channel.messageCount)}`}
           onPress={() => router.push({ pathname: '/razgovor/[id]', params: { id: channel._id } })}
@@ -115,12 +111,8 @@ export function DiscussionLink({
         />
       ) : (
         <Row
-          style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-          icon={
-            <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}17` }]}>
-              <MessagesSquare size={18} color={colors.primary} />
-            </View>
-          }
+          style={styles.card}
+          icon={<MessagesSquare size={20} color={colors.mutedForeground} />}
           title="Započni diskusiju"
           subtitle={subtitleFor(anchor)}
           onPress={() => setComposerOpen(true)}
@@ -198,22 +190,14 @@ function ComposerSheet({
 }
 
 const styles = StyleSheet.create({
+  // Red, ne kartica (DIZAJN-SMIRENJE §5.4, K12-14 → K21).
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
     minHeight: MIN_TOUCH_TARGET + 8,
-  },
-  iconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   sheet: {
     paddingHorizontal: 20,

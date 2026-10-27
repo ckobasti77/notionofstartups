@@ -167,7 +167,7 @@ export default function PretragaScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
         {trimmed.length < MIN_CHARS ? (
         <EmptyState
-          icon={<Search size={40} color={colors.mutedForeground} />}
+          icon={<Search size={20} color={colors.mutedForeground} />}
           title="Unesi bar dva slova."
           description="Pretražuju se stranice, zadaci, ideje, beleške i poruke ovog startupa."
         />
@@ -175,13 +175,13 @@ export default function PretragaScreen() {
         // Bez izabranog startupa pretraga nema opseg — jasna poruka umesto
         // večitog spinera (rn-review). Startup se bira iz headera.
         <EmptyState
-          icon={<Search size={40} color={colors.mutedForeground} />}
+          icon={<Search size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Pretraga radi u okviru jednog startupa. Izaberi ga iz zaglavlja pa pokušaj ponovo."
         />
       ) : !loading && total === 0 ? (
         <EmptyState
-          icon={<Search size={40} color={colors.mutedForeground} />}
+          icon={<Search size={20} color={colors.mutedForeground} />}
           title="Nema rezultata."
           description={`Ništa za „${trimmed}”.`}
         />
@@ -220,7 +220,7 @@ export default function PretragaScreen() {
                       <StaggerItem key={n._id} index={index}>
                         <NodeRow
                           node={n}
-                          tint={colors.warning}
+                          tint={colors.mutedForeground}
                           icon={Lightbulb}
                           openHint="otvori listu ideja"
                           colors={colors}
@@ -236,7 +236,7 @@ export default function PretragaScreen() {
                       <StaggerItem key={n._id} index={index}>
                         <NodeRow
                           node={n}
-                          tint={colors.primary}
+                          tint={colors.mutedForeground}
                           icon={Brain}
                           openHint="otvori belešku"
                           colors={colors}
@@ -332,7 +332,7 @@ function PageRow({
     <Row
       style={styles.row}
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+        <View style={styles.iconChip}>
           <Icon size={18} color={tint} />
         </View>
       }
@@ -358,8 +358,8 @@ function MessageRow({
     <Row
       style={styles.row}
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${colors.info}22` }]}>
-          <MessageSquareText size={18} color={colors.info} />
+        <View style={styles.iconChip}>
+          <MessageSquareText size={18} color={colors.mutedForeground} />
         </View>
       }
       title={message.body || 'Prilog'}
@@ -398,7 +398,7 @@ function NodeRow({
     <Row
       style={styles.row}
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+        <View style={styles.iconChip}>
           <Icon size={18} color={tint} />
         </View>
       }
@@ -423,7 +423,7 @@ function PretragaError({ message, onRetry }: { message: string; onRetry: () => v
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Pretraga" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Pretraga ne radi"
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"

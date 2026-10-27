@@ -146,7 +146,9 @@ export function TaskStatusBadge({ status }: { status: TaskStatus }) {
               ? "bg-destructive"
               : status === "in_progress"
                 ? "bg-warning"
-                : "bg-primary/65",
+                : status === "next"
+                  ? "bg-info"
+                  : "bg-muted-foreground",
         )}
       />
       {TASK_STATUS_META[status].label}

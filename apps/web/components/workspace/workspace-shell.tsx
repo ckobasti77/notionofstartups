@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
-import { Building2, LoaderCircle, Sparkles } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { pendingIdeaVotes, type QuickAddKind } from "@devotion/shared";
 
 import { ChatHubSkeleton } from "@/components/me/chat/chat-hub-skeleton";
@@ -106,7 +106,7 @@ const ThoughtsCanvasView = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
-        <LoaderCircle className="mr-2 size-4 animate-spin text-primary" /> Otvaram mapu beleški…
+        <span role="status">Otvaram mapu beleški…</span>
       </div>
     ),
   },
@@ -1159,7 +1159,9 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "thoughts" ? (
-            <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
+            <WorkspaceErrorBoundary key={`thoughts-${startup._id}`} title="Mapa beleški se ne može učitati" className="m-4 min-h-[20rem]">
+              <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "ideas" ? (
             <WorkspaceErrorBoundary key={`ideas-${startup._id}`} title="Ideje se ne mogu učitati" className="m-4 min-h-[20rem]">
             <IdeasView
@@ -1210,12 +1212,14 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "puls" ? (
-            <PulsView
-              startup={startup}
-              initialWeekStart={route.weekStart ?? null}
-              onOpenPage={openPage}
-              onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
-            />
+            <WorkspaceErrorBoundary key={`puls-${startup._id}`} title="Puls se ne može učitati" className="m-4 min-h-[20rem]">
+              <PulsView
+                startup={startup}
+                initialWeekStart={route.weekStart ?? null}
+                onOpenPage={openPage}
+                onOpenArea={(areaId) => navigateRoute({ kind: "area", areaId })}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "activity" ? (
             <ActivityView
               startup={startup}
@@ -1376,8 +1380,8 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
   );
 }
 
-function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-primary" /> Otvaram radni prostor…</div></main></div>; }
+function WorkspaceLoading() { return <div className="flex h-dvh overflow-hidden"><div className="hidden w-[18.5rem] shrink-0 border-r bg-sidebar p-4 lg:block"><Skeleton className="h-10 w-40" /><Skeleton className="mt-6 h-11 w-full" /><div className="mt-6 space-y-2">{[0,1,2,3,4].map((item) => <Skeleton key={item} className="h-10 w-full" />)}</div></div><main className="flex flex-1 items-center justify-center"><div className="text-center text-sm text-muted-foreground"><span role="status">Otvaram radni prostor…</span></div></main></div>; }
 
 function EmptyWorkspace({ profile, onAdmin, onSignOut, adminOpen, setAdminOpen, onStartupCreated }: { profile: ProfileWithAvatar; onAdmin: () => void; onSignOut: () => void; adminOpen: boolean; setAdminOpen: (open: boolean) => void; onStartupCreated: (startupId: Id<"startups">) => void }) {
-  return <div className="app-canvas flex h-dvh overflow-hidden"><StartupEmptyRail profile={profile} onAdmin={onAdmin} onSignOut={onSignOut} /><main className="flex flex-1 items-center justify-center p-5"><div className="max-w-md rounded-xl border bg-card p-7 text-center"><Building2 className="mx-auto size-5 text-muted-foreground" aria-hidden="true" /><h1 className="mt-4 text-xl font-semibold tracking-[-0.02em]">Još nema startupa</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{profile.role === "admin" ? "Napravi prvi startup. Dobija oblasti Razvoj, Marketing, Prodaja i Ostalo." : "Administrator ti još nije dodelio startup."}</p>{profile.role === "admin" ? <Button className="mt-5" onClick={onAdmin}><Sparkles /> Napravi startup</Button> : null}</div></main>{profile.role === "admin" ? <AdminDialog key={`${adminOpen}-empty`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={onStartupCreated} /> : null}</div>;
+  return <div className="app-canvas flex h-dvh overflow-hidden"><StartupEmptyRail profile={profile} onAdmin={onAdmin} onSignOut={onSignOut} /><main className="flex flex-1 items-center justify-center p-5"><div className="max-w-md rounded-xl border bg-card p-7 text-center"><Building2 className="mx-auto size-5 text-muted-foreground" aria-hidden="true" /><h1 className="mt-4 text-xl font-semibold tracking-[-0.02em]">Još nema startupa</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{profile.role === "admin" ? "Napravi prvi startup. Dobija oblasti Razvoj, Marketing, Prodaja i Ostalo." : "Administrator ti još nije dodelio startup."}</p>{profile.role === "admin" ? <Button className="mt-5" onClick={onAdmin}>Napravi startup</Button> : null}</div></main>{profile.role === "admin" ? <AdminDialog key={`${adminOpen}-empty`} open={adminOpen} onOpenChange={setAdminOpen} onStartupCreated={onStartupCreated} /> : null}</div>;
 }

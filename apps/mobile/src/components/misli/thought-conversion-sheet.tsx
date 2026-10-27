@@ -236,11 +236,6 @@ export function ThoughtConversionSheet(props: ThoughtConversionSheetProps) {
 
   return (
     <Sheet visible={open} onClose={onClose} maxHeight="85%" style={styles.sheet}>
-      <View style={styles.headRow}>
-        <View style={[styles.stepPill, { backgroundColor: colors.muted }]}>
-          <Text style={[styles.stepText, { color: colors.mutedForeground }]}>KORAK 1 OD 2</Text>
-        </View>
-      </View>
       <Text accessibilityRole="header" style={[styles.heading, { color: colors.foreground }]}>
         Pošalji u Ideje
       </Text>
@@ -303,22 +298,8 @@ const styles = StyleSheet.create({
   sheet: {
     paddingHorizontal: 20,
   },
-  headRow: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  stepPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-  },
-  stepText: {
-    ...text.meta,
-    letterSpacing: 0.4,
-  },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginBottom: 6,
   },
   explain: {

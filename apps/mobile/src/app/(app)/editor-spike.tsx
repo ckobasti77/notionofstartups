@@ -91,7 +91,7 @@ export default function EditorProbeScreen() {
       <View style={styles.webWrap}>
         {!webBase || !url ? (
           <EmptyState
-            icon={<TriangleAlert size={40} color={colors.mutedForeground} />}
+            icon={<TriangleAlert size={20} color={colors.mutedForeground} />}
             title="Proba nije dostupna"
             description="EXPO_PUBLIC_WEB_URL nije podešen — dodaj web adresu u .env.local (vidi .env.example)."
           />
@@ -123,7 +123,7 @@ export default function EditorProbeScreen() {
             {failed ? (
               <View style={[styles.overlay, { backgroundColor: colors.background }]}>
                 <EmptyState
-                  icon={<TriangleAlert size={40} color={colors.destructive} />}
+                  icon={<TriangleAlert size={20} color={colors.destructive} />}
                   title="Proba nije učitana."
                   description={failed}
                   actionLabel="Pokušaj ponovo"

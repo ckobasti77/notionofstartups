@@ -95,11 +95,11 @@ export function TaskCheckpointDraftList({
         </Button>
       </div>
       {items.length > 0 ? (
-        <div className="space-y-1.5 rounded-xl border border-border/60 bg-muted/20 p-2.5">
+        <div className="space-y-0.5">
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-center gap-2 rounded-lg border border-border/40 bg-card px-2.5 py-1.5"
+              className="flex items-center gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/60"
             >
               <button
                 type="button"
@@ -495,8 +495,8 @@ function TaskCheckpointListBody({
                       : ""
                   }`}
                   className={cn(
-                    "rounded-lg border px-2 py-1.5 transition-colors",
-                    checkpoint.locked ? "bg-muted/40" : "bg-card",
+                    "rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60",
+                    checkpoint.locked && "text-muted-foreground",
                   )}
                 >
                   <div className="flex items-center gap-1.5">

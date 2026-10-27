@@ -35,7 +35,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Kanali" onBack={() => goBack(router)} />
       <EmptyState
-        icon={<MessageSquareX size={40} color={colors.destructive} />}
+        icon={<MessageSquareX size={20} color={colors.destructive} />}
         title="Kanali nisu učitani."
         description={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
         actionLabel="Pokušaj ponovo"

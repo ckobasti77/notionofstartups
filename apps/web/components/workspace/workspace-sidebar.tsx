@@ -185,7 +185,7 @@ function SidebarButton({
     <button
       type="button"
       className={cn(
-        "relative flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors active:scale-[0.98] motion-reduce:active:scale-100",
+        "relative flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
         collapsed && "justify-center px-0",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"

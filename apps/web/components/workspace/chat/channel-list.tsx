@@ -45,10 +45,7 @@ export function ChannelList({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[0.6875rem] font-bold uppercase tracking-[0.16em] text-primary">
-            {startup.name}
-          </p>
-          <h1 className="truncate text-lg font-bold tracking-[-0.02em]">
+          <h1 className="truncate text-xl font-semibold tracking-[-0.02em]">
             Razgovori
           </h1>
         </div>
@@ -82,7 +79,7 @@ export function ChannelList({
             if (sectionChannels.length === 0) return null;
             return (
               <section key={section.id} className="space-y-0.5">
-                <p className="px-3 pb-1 text-[0.625rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">
                   {section.label}
                 </p>
                 {sectionChannels.map((channel) => (
@@ -178,8 +175,8 @@ function ChannelIcon({
   }
   const Icon = channel.kind === "thread" ? MessagesSquare : Hash;
   return (
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-      <Icon className="size-4" />
+    <span className="grid size-8 shrink-0 place-items-center text-muted-foreground">
+      <Icon className="size-4" aria-hidden="true" />
     </span>
   );
 }

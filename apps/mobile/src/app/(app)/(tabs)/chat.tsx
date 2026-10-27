@@ -39,7 +39,7 @@ function ChatErrorState({ message, onRetry }: { message: string; onRetry: () => 
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <MeHeader title={TAB_TITLES.chat} />
       <EmptyState
-        icon={<MessageSquareX size={40} color={colors.destructive} />}
+        icon={<MessageSquareX size={20} color={colors.destructive} />}
         title="Razgovori nisu učitani."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"

@@ -357,7 +357,7 @@ export default function ZadaciScreen() {
           <TasksSkeleton />
         ) : (
           <EmptyState
-            icon={<ListTodo size={40} color={colors.mutedForeground} />}
+            icon={<ListTodo size={20} color={colors.mutedForeground} />}
             title="Izaberi startup"
             description="Zadaci se prikazuju po startupu. Izaberi ga u Prostoru."
             actionLabel="Otvori Prostor"
@@ -518,7 +518,7 @@ function TasksEmpty({
   onCreate: () => void;
 }) {
   const colors = useThemeColors();
-  const icon = <ListTodo size={40} color={colors.mutedForeground} />;
+  const icon = <ListTodo size={20} color={colors.mutedForeground} />;
   if (otherFiltersActive) {
     return (
       <EmptyState
@@ -590,7 +590,7 @@ function ZadaciErrorState({ message, onRetry }: { message: string; onRetry: () =
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Zadaci" onBack={() => backOrProstor(router)} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Zadaci nisu učitani."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"

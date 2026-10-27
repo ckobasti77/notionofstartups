@@ -149,7 +149,7 @@ export default function OblastScreen() {
           <AreaSkeleton />
         ) : (
           <EmptyState
-            icon={<FolderOpen size={40} color={colors.mutedForeground} />}
+            icon={<FolderOpen size={20} color={colors.mutedForeground} />}
             title="Izaberi startup"
             description="Oblasti se prikazuju po startupu."
             actionLabel="Otvori Prostor"
@@ -165,7 +165,7 @@ export default function OblastScreen() {
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
         <ScreenHeader title="Oblast" onBack={back} />
         <EmptyState
-          icon={<FolderOpen size={40} color={colors.mutedForeground} />}
+          icon={<FolderOpen size={20} color={colors.mutedForeground} />}
           title="Oblast nije pronađena."
           description="Možda je uklonjena ili pripada drugom startupu."
           actionLabel="Otvori Dokumente"
@@ -322,7 +322,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Oblast" onBack={() => backOrProstor(router)} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Oblast nije učitana."
         description={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
         actionLabel="Pokušaj ponovo"

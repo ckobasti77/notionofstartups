@@ -574,8 +574,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   meta: {
     ...text.meta,

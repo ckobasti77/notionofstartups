@@ -358,8 +358,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   error: {
     ...text.body,

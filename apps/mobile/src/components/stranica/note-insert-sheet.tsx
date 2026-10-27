@@ -275,10 +275,9 @@ export function NoteInsertSheet({
 
 const styles = StyleSheet.create({
   heading: {
+    ...text.title,
     paddingHorizontal: space[4],
     paddingBottom: space[1],
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
   },
   busy: {
     flexDirection: 'row',

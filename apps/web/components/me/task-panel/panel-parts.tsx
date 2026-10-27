@@ -51,7 +51,7 @@ export function PanelTitle({
     if (!editing) setDraft(value);
   }
 
-  const className = "block w-full text-lg font-semibold leading-snug tracking-[-0.02em] text-foreground";
+  const className = "block w-full text-xl font-semibold leading-snug tracking-[-0.02em] text-foreground";
   if (!editable || !onCommit) {
     return (
       <p ref={titleRef as Ref<HTMLParagraphElement>} data-panel-title className={cn(className, "break-words")}>

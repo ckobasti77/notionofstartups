@@ -501,7 +501,7 @@ function PageRow({
         )
       }
       icon={
-        <View style={[styles.iconChip, { backgroundColor: `${tint}22` }]}>
+        <View style={styles.iconChip}>
           <Icon size={18} color={tint} />
         </View>
       }
@@ -561,7 +561,7 @@ function PageLevelEmpty({
     const Icon = pageKindMeta(kindFilter).icon;
     return (
       <EmptyState
-        icon={<Icon size={40} color={colors.mutedForeground} />}
+        icon={<Icon size={20} color={colors.mutedForeground} />}
         title="Nema rezultata za ovaj filter."
         description="Filter važi za koren oblasti — podstranice se ne filtriraju."
         actionLabel="Poništi filter"
@@ -571,7 +571,7 @@ function PageLevelEmpty({
   }
   return (
     <EmptyState
-      icon={<FolderOpen size={40} color={colors.mutedForeground} />}
+      icon={<FolderOpen size={20} color={colors.mutedForeground} />}
       title="Oblast još nema stranica."
       actionLabel="Nova stranica"
       onAction={onCreate}

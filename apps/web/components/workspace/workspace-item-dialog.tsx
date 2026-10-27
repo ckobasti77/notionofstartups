@@ -54,8 +54,8 @@ export function ItemSizePicker({
 }) {
   return (
     <fieldset className={cn("space-y-2", className)}>
-      <legend className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-muted-foreground">
-        Veličina oblačića
+      <legend className="text-sm font-medium">
+        Veličina
       </legend>
       <div className="grid grid-cols-3 gap-2">
         {(Object.keys(SIZE_META) as ItemSizePreset[]).map((preset) => {
@@ -67,7 +67,7 @@ export function ItemSizePicker({
               type="button"
               size="sm"
               variant={value === preset ? "default" : "outline"}
-              className="h-10 min-w-0 gap-1.5 rounded-xl px-2 text-[0.6875rem] sm:text-xs"
+              className="h-10 min-w-0 gap-1.5 rounded-xl px-2 text-xs"
               onClick={() => onChange(preset)}
             >
               <Icon className="size-3.5 shrink-0" />

@@ -32,7 +32,7 @@ import {
 } from '@/lib/thought-layout';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 /** Web ofset pri dupliranju (`thoughts-canvas-view.tsx`, `duplicateSelection`). */
 const DUPLICATE_OFFSET = 38;
@@ -519,8 +519,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

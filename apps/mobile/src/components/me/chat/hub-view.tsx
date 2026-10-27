@@ -148,7 +148,7 @@ export function ChatHubView<C extends HubChannel>({
   } else if (state.status === 'error') {
     body = (
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Razgovori se ne mogu učitati"
         description="Proveri vezu i pokušaj ponovo."
         actionLabel="Pokušaj ponovo"
@@ -158,7 +158,7 @@ export function ChatHubView<C extends HubChannel>({
   } else if (hubIsEmpty(state.input)) {
     body = (
       <EmptyState
-        icon={<MessagesSquare size={40} color={colors.mutedForeground} />}
+        icon={<MessagesSquare size={20} color={colors.mutedForeground} />}
         title="Još nemaš razgovora"
         description="Pošalji poruku nekome iz tima ili napravi grupu."
         actionLabel="Nova poruka"

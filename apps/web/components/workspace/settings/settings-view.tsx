@@ -57,7 +57,7 @@ export function SettingsListSkeleton({ label }: { label: string }) {
 
 export function SettingsListError({ what, onRetry }: { what: string; onRetry: () => void }) {
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-border px-4 py-6 text-sm">
+    <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 text-sm">
       <span className="text-muted-foreground">{what} nije učitano.</span>
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         Pokušaj ponovo

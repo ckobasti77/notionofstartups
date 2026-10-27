@@ -314,8 +314,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
   },
   meta: {

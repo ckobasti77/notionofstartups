@@ -74,7 +74,7 @@ export default function KorpaScreen() {
           <TrashListSkeleton />
         ) : (
           <EmptyState
-            icon={<Trash2 size={40} color={colors.mutedForeground} />}
+            icon={<Trash2 size={20} color={colors.mutedForeground} />}
             title="Izaberi startup"
             description="Korpa se prikazuje po startupu."
             actionLabel="Otvori Prostor"
@@ -223,7 +223,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Korpa" onBack={() => backOrProstor(router)} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Korpa nije učitana."
         description={accessErrorMessage(error, 'Proveri vezu i pokušaj ponovo.')}
         actionLabel="Pokušaj ponovo"

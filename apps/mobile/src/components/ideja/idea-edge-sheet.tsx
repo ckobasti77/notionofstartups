@@ -179,8 +179,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     marginBottom: 10,
   },
   input: {

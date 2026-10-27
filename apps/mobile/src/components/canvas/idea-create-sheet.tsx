@@ -12,7 +12,7 @@ import { haptics } from '@/lib/haptics';
 import type { NodeColor } from '@/lib/thought-colors';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text } from '@/theme/tokens';
 
 const MAX_TITLE = 120;
 // Isto ograničenje kao na serveru (`cleanRequiredText(..., 12000)`) i kao u
@@ -158,8 +158,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   meta: {
     fontSize: fontSize.xs,

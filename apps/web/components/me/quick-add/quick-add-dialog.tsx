@@ -382,7 +382,7 @@ function ChipGroup({
         className={
           hideLabel
             ? "sr-only"
-            : "w-14 shrink-0 pt-2 text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+            : "w-14 shrink-0 pt-2 text-xs font-medium text-muted-foreground"
         }
       >
         {label}

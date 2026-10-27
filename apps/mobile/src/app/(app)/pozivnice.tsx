@@ -140,13 +140,13 @@ export default function PozivniceScreen() {
       />
       {activeStartupId === null ? (
         <EmptyState
-          icon={<Mail size={40} color={colors.mutedForeground} />}
+          icon={<Mail size={20} color={colors.mutedForeground} />}
           title="Izaberi startup"
           description="Pozivnice se prikazuju po startupu. Izaberi ga iz zaglavlja."
         />
       ) : invites && invites.length === 0 ? (
         <EmptyState
-          icon={<Mail size={40} color={colors.mutedForeground} />}
+          icon={<Mail size={20} color={colors.mutedForeground} />}
           title="Nema pozivnica."
           actionLabel="Nova pozivnica"
           onAction={() => setCreateOpen(true)}
@@ -182,7 +182,7 @@ export default function PozivniceScreen() {
                           invite.claimedBy ? `, prihvatio ${invite.claimedBy.displayName}` : ''
                         }`}
                         showChevron={false}
-                        style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
+                        style={styles.row}
                         // Ko je prihvatio dobija inicijale, ne golo ime — isti jezik kao
                         // svugde gde se prikazuje osoba.
                         icon={<Avatar name={invite.claimedBy?.displayName ?? invite.email} size={36} />}
@@ -365,7 +365,7 @@ function PozivniceError({ message, onRetry }: { message: string; onRetry: () => 
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Pozivnice" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Pozivnice nisu učitane."
         description={message || 'Potreban je administratorski pristup.'}
         actionLabel="Pokušaj ponovo"
@@ -384,9 +384,7 @@ const styles = StyleSheet.create({
   },
   // Kartica pozivnice kao `Row` override (raspored dolazi iz Row.base).
   row: {
-    paddingHorizontal: 12,
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 4,
   },
   metaRow: {
     marginTop: 2,
@@ -415,8 +413,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sheetTitle: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   input: {
     minHeight: 48,

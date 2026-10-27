@@ -215,7 +215,7 @@ function CommandCenterErrorState({ message, onRetry }: { message: string; onRetr
   const colors = useThemeColors();
   return (
     <EmptyState
-      icon={<CalendarX2 size={40} color={colors.destructive} />}
+      icon={<CalendarX2 size={20} color={colors.destructive} />}
       title="Zadaci nisu učitani."
       description={message || 'Proveri vezu i pokušaj ponovo.'}
       actionLabel="Pokušaj ponovo"

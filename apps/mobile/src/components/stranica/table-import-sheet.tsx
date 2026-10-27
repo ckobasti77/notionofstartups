@@ -18,7 +18,7 @@ import {
 } from '@/lib/table-limits';
 import { chunkRows, parseSpreadsheet, SPREADSHEET_TYPES } from '@/lib/table-import';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const PREVIEW_ROWS = 6;
 
@@ -393,8 +393,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   title: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   description: {
     fontSize: 16,

@@ -1,5 +1,7 @@
 import { ThumbsDown, ThumbsUp } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+
+import { NumberRoll } from '@/components/motion/number-roll';
 
 import { useThemeColors } from '@/theme/theme-provider';
 import { fontWeight, MIN_TOUCH_TARGET, radius, text } from '@/theme/tokens';
@@ -106,7 +108,8 @@ function VoteButton({
         },
       ]}>
       <Icon size={size === 'md' ? 20 : 16} color={fg} />
-      <Text style={[styles.count, { color: fg }]}>{count}</Text>
+      {/* Glas (K07 §8): broj se kotrlja kao na webu; smanjen pokret = samo pretapanje. */}
+      <NumberRoll value={count} cap={9999} style={[styles.count, { color: fg }]} accessibilityLabel={String(count)} />
     </Pressable>
   );
 }

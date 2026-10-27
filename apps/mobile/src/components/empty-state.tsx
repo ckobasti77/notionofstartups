@@ -24,7 +24,9 @@ export function EmptyState({ icon, title, description, actionLabel, onAction }: 
   return (
     <View style={styles.container}>
       {icon ? <View style={styles.icon}>{icon}</View> : null}
-      <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
+      <Text accessibilityRole="header" style={[styles.title, { color: colors.foreground }]}>
+        {title}
+      </Text>
       {description ? (
         <Text style={[styles.description, { color: colors.mutedForeground }]}>{description}</Text>
       ) : null}
@@ -46,8 +48,10 @@ const styles = StyleSheet.create({
   icon: {
     marginBottom: 8,
   },
+  // DIZAJN-SMIRENJE §5.5 (K21): ikonica 20 bez pločice, naslov kao naslov sekcije.
   title: {
-    ...text.title,
+    ...text.body,
+    fontWeight: '600',
     textAlign: 'center',
   },
   description: {

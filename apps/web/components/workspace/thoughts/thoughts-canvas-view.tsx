@@ -32,6 +32,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  ExternalLink,
   Crown,
   Edit3,
   Expand,
@@ -52,6 +53,7 @@ import {
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { MapEmptyState } from "@/components/map/map-chrome";
 import { Button } from "@/components/ui/button";
 import { CanvasActionRail } from "@/components/workspace/canvases/canvas-action-rail";
 import { useCanvasNavigation } from "@/components/workspace/canvases/use-canvas-navigation";
@@ -1387,7 +1389,6 @@ function ThoughtsCanvasBody({
                     label: "Beleške",
                     icon: Sparkles,
                     count: nodes.length,
-                    className: "bg-primary/10 text-primary",
                   }}
                   sections={[
                     {
@@ -1470,7 +1471,7 @@ function ThoughtsCanvasBody({
               ) : null}
 
               <Panel position="bottom-center" className="!mb-4 hidden md:block">
-                <div className="flex items-center gap-3 rounded-full border border-border/70 bg-card/88 px-3 py-1.5 text-[0.6875rem] text-muted-foreground shadow-sm backdrop-blur-xl">
+                <div className="flex items-center gap-3 rounded-md border border-border bg-card px-2 py-0.5 text-xs leading-5 text-muted-foreground">
                   <span className="inline-flex items-center gap-1"><MousePointer2 className="size-3" /> Prevuci za izbor</span>
                   <span aria-hidden="true">·</span>
                   <span>dupli klik dodaje</span>
@@ -1482,25 +1483,21 @@ function ThoughtsCanvasBody({
 
             {loadingFirstPage ? (
               <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center" role="status">
-                <span className="flex items-center gap-2 rounded-xl border border-border/75 bg-card/90 px-4 py-3 text-sm font-medium shadow-lg backdrop-blur">
-                  <LoaderCircle className="size-4 animate-spin text-primary" /> Učitavam mapu beleški…
+                <span className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                  Učitavam mapu beleški…
                 </span>
               </div>
             ) : nodes.length === 0 ? (
-              <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center px-6">
-                <div className="pointer-events-auto max-w-sm rounded-3xl border border-dashed border-border bg-card/88 px-7 py-8 text-center shadow-[var(--shadow-desk)] backdrop-blur-xl">
-                  <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
-                    <Sparkles className="size-5" />
-                  </span>
-                  <h2 className="mt-4 text-lg font-bold tracking-[-0.03em]">Još nema misli</h2>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Zapiši prvu misao. Vidiš je samo ti u startupu „{startup.name}”.
-                  </p>
-                  <Button type="button" className="mt-5" onClick={() => openNewThought()}>
+              <MapEmptyState
+                icon={Sparkles}
+                title="Još nema misli."
+                description={`Vidiš ih samo ti u startupu „${startup.name}”.`}
+                actions={
+                  <Button type="button" onClick={() => openNewThought()}>
                     <Plus /> Dodaj prvu misao
                   </Button>
-                </div>
-              </div>
+                }
+              />
             ) : null}
           </div>
         </ContextMenu.Trigger>
@@ -1539,6 +1536,24 @@ function ThoughtsCanvasBody({
                 <ContextMenu.Item className={styles.contextItem} onSelect={() => void selectConnected(contextTarget.nodeId)}>
                   <Focus className="size-4" /> Izaberi povezane
                 </ContextMenu.Item>
+                {(() => {
+                  // Na kartici je samo status („Poslato u Ideje"); otvaranje je ovde i u traci (K21).
+                  const doc = nodeDocsById.get(contextTarget.nodeId);
+                  if (!doc || doc.conversionCount === 0) return null;
+                  if (doc.lastConvertedIdeaId) {
+                    return (
+                      <ContextMenu.Item className={styles.contextItem} onSelect={() => onOpenIdeas()}>
+                        <ExternalLink className="size-4" /> Otvori u Idejama
+                      </ContextMenu.Item>
+                    );
+                  }
+                  const pageId = doc.lastConvertedPageId;
+                  return pageId ? (
+                    <ContextMenu.Item className={styles.contextItem} onSelect={() => onOpenPage(pageId)}>
+                      <ExternalLink className="size-4" /> Otvori stranicu
+                    </ContextMenu.Item>
+                  ) : null;
+                })()}
                 <ContextMenu.Separator className={styles.contextSeparator} />
                 <ContextMenu.Item
                   className={styles.contextItem}

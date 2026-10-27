@@ -35,7 +35,7 @@ import {
   type ChatMessage,
 } from '@/lib/chat';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -331,9 +331,8 @@ export function MessageList({
   if (!loading && results.length === 0) {
     return (
       <EmptyState
-        icon={<MessageSquare size={40} color={colors.mutedForeground} />}
-        title="Još niko nije pisao. Budi prvi."
-        description="Napiši poruku ispod da započneš razgovor."
+        icon={<MessageSquare size={20} color={colors.mutedForeground} />}
+        title="Još nema poruka."
       />
     );
   }
@@ -442,7 +441,7 @@ function DaySeparator({ ts, colors }: { ts: number; colors: ColorTokens }) {
       <Text
         style={[
           styles.dayLabel,
-          { backgroundColor: colors.muted, color: colors.mutedForeground },
+          { color: colors.mutedForeground },
         ]}>
         {formatDaySeparator(ts)}
       </Text>
@@ -473,14 +472,8 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   dayLabel: {
-    fontSize: 11,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-    overflow: 'hidden',
+    ...text.meta,
+    paddingHorizontal: 4,
   },
   jump: {
     position: 'absolute',

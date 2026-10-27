@@ -490,7 +490,7 @@ function FeedBody({
     const more = feed.canLoadMore || feed.loadingMore;
     return (
       <EmptyState
-        icon={<Inbox size={40} color={colors.mutedForeground} />}
+        icon={<Inbox size={20} color={colors.mutedForeground} />}
         title={more ? 'Nema ništa na ovoj strani' : copy.title}
         description={more ? 'Ostalo može biti dalje u istoriji.' : copy.description}
         actionLabel={more ? (feed.loadingMore ? 'Učitavam…' : 'Učitaj još') : undefined}
@@ -675,7 +675,7 @@ function PendingBody({
     const copy = inboxEmptyCopy(segment, scope);
     return (
       <EmptyState
-        icon={<Hourglass size={40} color={colors.mutedForeground} />}
+        icon={<Hourglass size={20} color={colors.mutedForeground} />}
         title={copy.title}
         description={copy.description}
       />
@@ -781,7 +781,7 @@ function InboxError({ title, retry }: { title: string; retry: () => void }) {
   const colors = useThemeColors();
   return (
     <EmptyState
-      icon={<TriangleAlert size={40} color={colors.destructive} />}
+      icon={<TriangleAlert size={20} color={colors.destructive} />}
       title={title}
       description="Proveri vezu i pokušaj ponovo."
       actionLabel="Pokušaj ponovo"

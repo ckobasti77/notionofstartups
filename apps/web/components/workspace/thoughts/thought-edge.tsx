@@ -63,7 +63,7 @@ export function ThoughtEdge({
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             pointerEvents: "all",
           }}
-          className="nodrag nopan group z-10 flex items-center gap-1 rounded-full border border-border/80 bg-card/95 px-2.5 py-1 text-[0.6875rem] font-semibold shadow-md backdrop-blur transition-all hover:scale-105"
+          className="nodrag nopan group z-10 flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted"
           onDoubleClick={(e) => {
             e.stopPropagation();
             actions?.editLabel(id);

@@ -3,6 +3,7 @@ import { useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { LayoutGrid, Lightbulb, Plus, Search, TriangleAlert } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ScrollView, SectionList, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IdeaCreateSheet } from '@/components/canvas/idea-create-sheet';
@@ -11,6 +12,7 @@ import { IdeaActionsSheet, type IdeaListNode } from '@/components/ideja/idea-act
 import { IdeaConvertSheet } from '@/components/ideja/idea-convert-sheet';
 import { IdeaListRow } from '@/components/ideja/idea-list-row';
 import { IdeaStageSheet } from '@/components/ideja/idea-stage-sheet';
+import { useListEntering } from '@/components/motion/layout';
 import {
   buildSections,
   chipLabel,
@@ -35,6 +37,7 @@ import { useActiveStartup } from '@/context/active-startup';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { useListRefresh } from '@/hooks/use-list-refresh';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { absoluteNodePosition } from '@/lib/canvas-position';
 import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
@@ -69,6 +72,9 @@ export default function IdejeScreen() {
   const { cast, busyId } = useIdeaVote(activeStartupId);
 
   const [filter, setFilter] = useState<IdeaStageFilter>('sve');
+  const reduced = useReducedMotion();
+  // Ulaz liste samo na prvo punjenje (K07 §8); promena filtera je odmah.
+  const entering = useListEntering(reduced, ideas === undefined ? 'ucitava' : 'spremno');
   const [expandedRejected, setExpandedRejected] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionNode, setActionNode] = useState<IdeaListNode | null>(null);
@@ -161,7 +167,7 @@ export default function IdejeScreen() {
           />
         ) : (
           <EmptyState
-            icon={<Lightbulb size={40} color={colors.mutedForeground} />}
+            icon={<Lightbulb size={20} color={colors.mutedForeground} />}
             title="Izaberi startup"
             description="Ideje se prikazuju po startupu. Izaberi ga u Prostoru."
             actionLabel="Otvori Prostor"
@@ -181,14 +187,14 @@ export default function IdejeScreen() {
           }>
           {ideas && total === 0 ? (
             <EmptyState
-              icon={<Lightbulb size={40} color={colors.mutedForeground} />}
+              icon={<Lightbulb size={20} color={colors.mutedForeground} />}
               title={empty.title}
               actionLabel="Nova ideja"
               onAction={() => setCreateOpen(true)}
             />
           ) : ideas && sections.length === 0 ? (
             <EmptyState
-              icon={<Search size={40} color={colors.mutedForeground} />}
+              icon={<Search size={20} color={colors.mutedForeground} />}
               title={empty.title}
               actionLabel={searchActive ? 'Obriši pretragu' : 'Prikaži sve'}
               onAction={() => {
@@ -218,21 +224,23 @@ export default function IdejeScreen() {
                   />
                 );
               }}
-              renderItem={({ item }) => (
-                <IdeaListRow
-                  idea={item}
-                  now={now}
-                  voteBusy={busyId === item._id}
-                  onOpen={() => {
-                    haptics.tap();
-                    router.push({ pathname: '/ideja/[id]', params: { id: item._id } });
-                  }}
-                  onLongPress={() => {
-                    haptics.select();
-                    setActionNode(item);
-                  }}
-                  onVote={(vote) => void cast(item._id, item.userVote, vote)}
-                />
+              renderItem={({ item, index }) => (
+                <Animated.View entering={entering(index)}>
+                  <IdeaListRow
+                    idea={item}
+                    now={now}
+                    voteBusy={busyId === item._id}
+                    onOpen={() => {
+                      haptics.tap();
+                      router.push({ pathname: '/ideja/[id]', params: { id: item._id } });
+                    }}
+                    onLongPress={() => {
+                      haptics.select();
+                      setActionNode(item);
+                    }}
+                    onVote={(vote) => void cast(item._id, item.userVote, vote)}
+                  />
+                </Animated.View>
               )}
             />
           ) : null}
@@ -313,7 +321,7 @@ function IdejeError({ message, onRetry }: { message: string; onRetry: () => void
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Ideje" onBack={() => router.back()} />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Ideje nisu učitane."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"

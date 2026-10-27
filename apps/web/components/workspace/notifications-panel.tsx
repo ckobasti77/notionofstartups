@@ -231,7 +231,7 @@ function NotificationGroup({
 }) {
   return (
     <section>
-      <h3 className="mb-2 text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+      <h3 className="mb-2 text-sm font-semibold">
         {label}
       </h3>
       <ul className="space-y-1.5">
@@ -261,8 +261,8 @@ function NotificationRow({
       type="button"
       onClick={() => onOpen(item)}
       className={cn(
-        "flex w-full items-start gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left transition-colors hover:bg-accent/35",
-        unread && "border-border/60 bg-card",
+        "flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60",
+        unread && "bg-accent/40",
       )}
     >
       <span
@@ -270,7 +270,7 @@ function NotificationRow({
           "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg",
           loud
             ? "bg-destructive/12 text-destructive"
-            : "bg-primary/8 text-primary",
+            : "bg-muted text-muted-foreground",
         )}
       >
         {item.actor === null ? (
@@ -298,10 +298,9 @@ function NotificationRow({
         </span>
       </span>
       {unread ? (
-        <span
-          aria-label="Nepročitano"
-          className="mt-2 size-2 shrink-0 rounded-full bg-primary"
-        />
+        <span className="mt-2 size-2 shrink-0 rounded-full bg-primary">
+          <span className="sr-only">Nepročitano</span>
+        </span>
       ) : null}
     </button>
   );

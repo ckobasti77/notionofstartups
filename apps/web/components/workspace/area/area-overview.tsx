@@ -27,7 +27,7 @@ export function AreaOverviewLayout({
   comments: ReactNode;
 }) {
   return (
-    <div className="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,46rem)_15rem] lg:grid-rows-[auto_1fr]">
+    <div className="grid gap-x-10 gap-y-6 lg:grid-cols-[minmax(0,46rem)_15rem] lg:grid-rows-[auto_1fr]">
       <div className="min-w-0 lg:col-start-1 lg:row-start-1">{description}</div>
       <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">{recent}</div>
       <div className="min-w-0 lg:col-start-1 lg:row-start-2">{comments}</div>

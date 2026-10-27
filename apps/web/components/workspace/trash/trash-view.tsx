@@ -1,9 +1,10 @@
 "use client";
 
-import type { ReactNode, RefObject } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import { History, Lightbulb, LoaderCircle, Paperclip, Trash2 } from "lucide-react";
 import { TRASH_SEGMENTS, type TrashKind } from "@devotion/shared";
 
+import { FLIP_MAX_ITEMS, FlipGroup } from "@/components/motion";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -96,6 +97,8 @@ export function TrashList({
   listRef,
   announcement = "",
 }: TrashListProps) {
+  const ownRef = useRef<HTMLUListElement>(null);
+  const scope = listRef ?? ownRef;
   return (
     <>
       {state.status === "loading" ? (
@@ -107,7 +110,7 @@ export function TrashList({
       ) : state.status === "error" ? (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-border px-4 py-6 text-sm"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 text-sm"
         >
           <p>Korpa nije učitana.</p>
           <Button variant="outline" size="sm" onClick={state.onRetry}>
@@ -124,19 +127,28 @@ export function TrashList({
       ) : (
         <>
           {/* Strana posle filtera servera ume da bude prazna dok ih ima još (K07 R6). */}
-          <ul ref={listRef} className="space-y-0.5" aria-label="Obrisane stavke">
-            {state.items.map((item, index) => (
-              <TrashRow
-                key={trashItemKey(item)}
-                item={item}
-                index={index}
-                now={now}
-                busy={busyKey === trashItemKey(item)}
-                onRestore={onRestore}
-                onDismiss={onDismiss}
-              />
-            ))}
-          </ul>
+          {/* Vraćanje iz Korpe (K07 §8): kad server skine red, susedi zatvaraju
+              prazninu kroz Flip (`snappy`); nov segment je nov skup, bez Flip-a. */}
+          <FlipGroup
+            scope={scope}
+            layoutKey={state.items.map(trashItemKey).join("|")}
+            resetKey={segment}
+            disabled={state.items.length > FLIP_MAX_ITEMS}
+          >
+            <ul ref={scope} className="space-y-0.5" aria-label="Obrisane stavke">
+              {state.items.map((item, index) => (
+                <TrashRow
+                  key={trashItemKey(item)}
+                  item={item}
+                  index={index}
+                  now={now}
+                  busy={busyKey === trashItemKey(item)}
+                  onRestore={onRestore}
+                  onDismiss={onDismiss}
+                />
+              ))}
+            </ul>
+          </FlipGroup>
           {state.loadMore ? (
             <div className="mt-4 flex justify-center">
               <Button variant="outline" disabled={state.loadMore.busy} onClick={state.loadMore.onLoad}>
@@ -186,7 +198,10 @@ function TrashRow({
   const blocked = item.kind === "recovered" ? null : restoreBlockReason(item);
 
   return (
-    <li data-trash-key={trashItemKey(item)} className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60">
+    <li
+      data-trash-key={trashItemKey(item)}
+      data-flip-id={trashItemKey(item)}
+      className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60">
       <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">

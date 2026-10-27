@@ -6,7 +6,7 @@ import { Sheet } from '@/components/ui/sheet';
 import { haptics } from '@/lib/haptics';
 import { MAX_TABLE_CELL_LENGTH, MAX_TABLE_LABEL_LENGTH } from '@/lib/table-limits';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text } from '@/theme/tokens';
 
 /**
  * Bottom sheet za izmenu jedne ćelije (spec §9.4: „tap na ćeliju → sheet za
@@ -221,10 +221,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   label: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    ...text.meta,
   },
   input: {
     minHeight: 96,

@@ -13,7 +13,7 @@ import { accessErrorMessage } from '@/lib/errors';
 import { haptics } from '@/lib/haptics';
 import { pushUndo } from '@/lib/undo';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontWeight, radius } from '@/theme/tokens';
+import { fontWeight, radius, text } from '@/theme/tokens';
 
 /** Opis faze uz red — jedna kratka rečenica, bez marketinga. */
 const STAGE_HINT: Record<IdeaStoredStage, string> = {
@@ -116,8 +116,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
     paddingHorizontal: 8,
     marginBottom: 4,
   },

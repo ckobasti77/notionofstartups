@@ -247,7 +247,7 @@ function ViseErrorState({ message, onRetry }: { message: string; onRetry: () => 
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Više" titleSize="display" />
       <EmptyState
-        icon={<TriangleAlert size={40} color={colors.destructive} />}
+        icon={<TriangleAlert size={20} color={colors.destructive} />}
         title="Meni nije učitan."
         description={message || 'Proveri vezu i pokušaj ponovo.'}
         actionLabel="Pokušaj ponovo"

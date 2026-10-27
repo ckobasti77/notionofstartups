@@ -105,7 +105,7 @@ import {
 import { pushUndo } from '@/lib/undo';
 import { postUploadBlob, readUploadBlob } from '@/lib/upload';
 import { useThemeColors } from '@/theme/theme-provider';
-import { fontSize, fontWeight, radius, type ColorTokens } from '@/theme/tokens';
+import { fontSize, fontWeight, radius, text, type ColorTokens } from '@/theme/tokens';
 
 const MAX_TITLE = 200;
 /** Ručni unos je za male tabele; masovni sadržaj ide kroz uvoz fajla. */
@@ -1330,8 +1330,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   heading: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
+    ...text.title,
   },
   areaLine: {
     fontSize: fontSize.base,
@@ -1404,10 +1403,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionLabel: {
-    fontSize: 12,
+    ...text.body,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   chips: {
     flexDirection: 'row',
