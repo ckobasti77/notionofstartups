@@ -96,7 +96,7 @@
   padding-inline: 0.3rem;
   background: color-mix(in oklab, currentColor 11%, transparent);
   font-size: 0.625rem;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -108,7 +108,7 @@
   height: 0.45rem;
   border: 2px solid var(--card);
   border-radius: 999px;
-  background: var(--warning, #f59e0b);
+  background: var(--warning);
 }
 
 .separator {
@@ -168,23 +168,14 @@
   inset: 0;
   border: 1px solid color-mix(in oklab, var(--primary) 38%, transparent);
   border-radius: inherit;
-  background: color-mix(in oklab, var(--primary) 16%, var(--card));
-  box-shadow: 0 5px 14px
-    color-mix(in oklab, var(--primary) 16%, transparent);
+  background: color-mix(in oklab, var(--primary) 12%, var(--card));
 }
 
-.switchIndicatorNote {
-  border-color: color-mix(in oklab, oklch(0.64 0.13 232) 48%, transparent);
-  background: color-mix(in oklab, oklch(0.64 0.13 232) 18%, var(--card));
-  box-shadow: 0 5px 14px
-    color-mix(in oklab, oklch(0.64 0.13 232) 18%, transparent);
-}
-
+/* Ton po vrsti je ugašen (PROSTOR K15, DIZAJN-SMIRENJE U3/U5): izbor je uvek
+   indigo, bez obojene senke. Klase ostaju zbog `tone` u API-ju trake. */
+.switchIndicatorNote,
 .switchIndicatorTask {
-  border-color: color-mix(in oklab, oklch(0.63 0.14 155) 48%, transparent);
-  background: color-mix(in oklab, oklch(0.63 0.14 155) 18%, var(--card));
-  box-shadow: 0 5px 14px
-    color-mix(in oklab, oklch(0.63 0.14 155) 18%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 38%, transparent);
 }
 
 .switchIcon {

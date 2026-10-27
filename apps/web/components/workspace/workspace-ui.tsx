@@ -103,12 +103,6 @@ export function PageKindBadge({
   );
 }
 
-/** Ikona vrste za kartice koje čekaju odobrenje; boju nosi okvir oko nje. */
-export function GhostKindIcon({ kind }: { kind: PageKind }) {
-  const Icon = pageKindMeta(kind).icon;
-  return <Icon className="size-4" aria-hidden="true" />;
-}
-
 export function StartupLogo({
   startup,
   className,

@@ -9,6 +9,7 @@ import IsplanirajEkran from "./ekrani/isplaniraj";
 import KorpaEkran from "./ekrani/korpa";
 import LjuskaEkran from "./ekrani/ljuska";
 import LjuskaStartupEkran from "./ekrani/ljuska-startup";
+import MapaEkran from "./ekrani/mapa";
 import MojDanEkran from "./ekrani/moj-dan";
 import MojiZadaciEkran from "./ekrani/moji-zadaci";
 import OblastEkran from "./ekrani/oblast";
@@ -117,4 +118,5 @@ export const IZLOG_EKRANI: Record<string, IzlogEkran> = {
     varijante: ["pregled", "istorija", "opis-konflikt", "zadaci", "zadaci-tabla", "dokumenti", "prazna", "ucitavanje", "greska"],
     Komponenta: OblastEkran,
   },
+  mapa: { naslov: "Mapa — kartice, točkić, ugnežđavanje", korak: "K15", varijante: ["oblast-12", "ugnezdavanje", "neaktivna", "prazna", "pregled-fioka"], Komponenta: MapaEkran },
 };

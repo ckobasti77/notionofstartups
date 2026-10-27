@@ -8,7 +8,11 @@ import { toast } from "sonner";
 
 import type { MentionMember } from "@/components/collab/comment-composer";
 import { useLiveNow } from "@/components/collab/use-live-now";
-import type { TaskPanelProps } from "@/components/me/task-panel/task-panel";
+import {
+  TaskPanel,
+  type TaskPanelProps,
+  type TaskPanelRequest,
+} from "@/components/me/task-panel/task-panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import type { AreaCanvasViewProps } from "@/components/workspace/area-canvas-view";
@@ -49,8 +53,8 @@ const AreaCanvasView = dynamic(
   () => import("@/components/workspace/area-canvas-view").then((module) => module.AreaCanvasView),
   {
     loading: () => (
-      <div role="status" aria-label="Učitavanje mape">
-        <Skeleton className="h-[min(72vh,52rem)] min-h-[32rem] rounded-xl" />
+      <div role="status" aria-label="Učitavam mapu">
+        <Skeleton className="h-[min(72vh,52rem)] min-h-[32rem] rounded-lg" />
       </div>
     ),
   },
@@ -117,6 +121,8 @@ export function AreaView({
     rememberAreaTab(tabStorage(), areaId, tab);
   }, [areaId, tab]);
   const [mapFilter, setMapFilter] = useState<AreaCanvasViewProps["filter"]>("all");
+  // „Pregled" zadatka na Mapi otvara panel zadatka (LICNO, K07 §7).
+  const [mapTask, setMapTask] = useState<TaskPanelRequest | null>(null);
 
   const updateArea = useMutation(api.startups.updateArea);
   const membersResult = useQueryTolerant(api.startups.listMembers, { startupId: startup._id, limit: 50 });
@@ -249,8 +255,25 @@ export function AreaView({
               onOpenCanvas={onOpenPage}
               onOpenDetails={onOpenPage}
               onCreatePage={create}
+              onOpenTask={(pageId, title) =>
+                setMapTask({
+                  target: { kind: "task", pageId },
+                  title,
+                  origin: null,
+                  openedAt: performance.now(),
+                })
+              }
             />
           </WorkspaceErrorBoundary>
+          <TaskPanel
+            request={mapTask}
+            onClose={() => setMapTask(null)}
+            today={today}
+            profileId={profile._id}
+            startups={startups}
+            onOpenInStartup={(_taskStartupId, pageId) => onOpenPage(pageId)}
+            onOpenFull={onOpenFull}
+          />
         </TabsContent>
       </Tabs>
     </div>

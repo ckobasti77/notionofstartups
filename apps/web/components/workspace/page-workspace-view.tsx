@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { AreaCanvasView } from "@/components/workspace/area-canvas-view";
+import { WorkspaceErrorBoundary } from "@/components/workspace/workspace-error-boundary";
 import { isEditableTarget } from "@/components/workspace/workspace-history";
 import type { CreatePageTarget, StartupWithAreas } from "@/components/workspace/types";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -16,7 +17,7 @@ type CanvasFilter = "all" | PageKind;
  * Mapa stranice (`?view=page&pageId=…&tab=mapa`, PROSTOR P13, plan K07 §3):
  * postojeći kanvas podstranica kao opcioni prikaz. Dokument (editor, lista
  * podstranica) je sada `page/page-document-view.tsx`; ovde ostaje samo Mapa,
- * zaglavlje „Mapa · <naslov>" i „Nazad na stranicu". Izgled kartica menja K15.
+ * zaglavlje „Mapa · <naslov>" i „Nazad na stranicu". Kartice su `MapCard` (K15).
  */
 export function PageMapView({
   startup,
@@ -75,6 +76,7 @@ export function PageMapView({
           Mapa · {title}
         </h1>
       </header>
+      <WorkspaceErrorBoundary title="Mapa stranice nije učitana." className="min-h-[16rem]">
       <AreaCanvasView
         startupId={startup._id}
         areaId={page.areaId}
@@ -91,6 +93,7 @@ export function PageMapView({
         }
         layout="standard"
       />
+      </WorkspaceErrorBoundary>
     </div>
   );
 }

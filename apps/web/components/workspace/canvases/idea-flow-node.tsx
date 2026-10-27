@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, memo, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import {
   Handle,
   NodeToolbar,
@@ -11,28 +17,20 @@ import {
 } from "@xyflow/react";
 import {
   ArrowRight,
-  CalendarDays,
-  Check,
   FolderInput,
   GitBranchPlus,
-  Lightbulb,
   Pencil,
   RotateCcw,
   Trash2,
-  ThumbsDown,
-  ThumbsUp,
   Ungroup,
 } from "lucide-react";
 
+import { MapCard } from "@/components/map/map-card";
+import type { MapCardContent } from "@/components/map/map-model";
 import { Button } from "@/components/ui/button";
-import { IdeaInlineThread } from "@/components/workspace/idea-discussion-dialog";
-import { ProfileAvatar } from "@/components/workspace/workspace-ui";
 import type { Id } from "@/convex/_generated/dataModel";
-import { cn } from "@/lib/utils";
 
-import { CircularTextFlow } from "./circular-text-flow";
 import styles from "./connected-canvas.module.css";
-import orbital from "./orbital-node.module.css";
 import { PerimeterResizeControl } from "./perimeter-resize-control";
 
 export type IdeaCanvasColor =
@@ -44,25 +42,15 @@ export type IdeaCanvasColor =
   | "rose";
 
 export type IdeaCanvasNodeData = {
-  title: string | null;
-  text: string;
-  color: IdeaCanvasColor;
-  authorName: string;
-  authorAvatarUrl: string | null;
-  createdAt: number;
-  upvotes: number;
-  downvotes: number;
-  userVote: "up" | "down" | null;
-  isApproved: boolean;
-  convertedPageId: Id<"pages"> | null;
-  pendingDeletion: boolean;
+  /** Gotov sadržaj kartice (`mapIdeaCard`). */
+  card: MapCardContent;
   canEdit: boolean;
   canResize: boolean;
-  canDeleteDirectly: boolean;
-  canRequestDeletion: boolean;
   canDetach: boolean;
-  nestingModerationStatus: "pending" | "rejected" | null;
-  canModerateNesting: boolean;
+  /** Ideja u fazi „Odobreno" koja još nije pretvorena. */
+  canConvert: boolean;
+  /** Druga ideja se upravo prevlači preko ove (K15). */
+  nestingTarget: boolean;
 };
 
 export type IdeaFlowNode = Node<IdeaCanvasNodeData, "idea">;
@@ -95,41 +83,35 @@ export function IdeaNodeActionsProvider({
   );
 }
 
+const TOOLBAR_BUTTON = "h-8 gap-1.5 rounded-md px-2.5 text-xs";
+
+function stopToolbarEvent(event: SyntheticEvent) {
+  event.stopPropagation();
+}
+
+/**
+ * Ideja na Mapi ideja (PROSTOR K15, K07 §7): ista pravougaona `MapCard` kao
+ * stranice, sa fazom i Za/Protiv. Bez statusa zahteva i glasanja o brisanju —
+ * „Obriši" šalje ideju u Korpu.
+ */
 export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
   id,
   data,
-  parentId,
   selected,
   width,
   height,
 }: NodeProps<IdeaFlowNode>) {
   const actions = useContext(IdeaNodeActionsContext);
   const ideaId = id as Id<"ideaNodes">;
-  const status = data.nestingModerationStatus === "pending"
-    ? "Čeka odobrenje"
-    : data.nestingModerationStatus === "rejected"
-      ? "Odbijeno ugnježdenje"
-      : data.pendingDeletion
-    ? "Glasanje o brisanju"
-    : data.convertedPageId
-      ? "Pretvoreno"
-      : data.isApproved
-        ? "Odobreno"
-        : "Ideja";
 
   return (
-    <article
-      data-circular-text-shell
-      data-circular-text-node-id={id}
-      data-circular-text-parent-id={parentId}
-      className={cn(
-        orbital.shell,
-        styles[data.color],
-        selected && orbital.selected,
-      )}
-      aria-label={`Ideja: ${data.title ?? "Bez naslova"}. ${data.text}`}
-    >
-      <div className={orbital.surface} aria-hidden="true" />
+    <div className="relative h-full w-full">
+      <MapCard
+        {...data.card}
+        selected={selected}
+        nestingTarget={data.nestingTarget}
+        onVote={actions ? (vote) => actions.vote(ideaId, vote) : undefined}
+      />
 
       <PerimeterResizeControl<IdeaFlowNode>
         nodeId={id}
@@ -137,56 +119,68 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
         height={height ?? 196}
         selected={selected}
         disabled={!data.canResize}
-        shape="organic"
+        shape="rounded"
+        cornerRadius={10}
         minWidth={264}
         minHeight={196}
         maxWidth={720}
         maxHeight={1000}
-        ariaLabel={`Promeni veličinu ideje ${data.title ?? "Bez naslova"} povlačenjem oboda`}
+        ariaLabel={`Promeni veličinu ideje ${data.card.title} povlačenjem ivice`}
         onResizeEnd={(layout) => actions?.resize(ideaId, layout)}
       />
 
-      <NodeToolbar isVisible={selected} position={Position.Top} offset={24}>
-        <div className={cn(orbital.toolbar, "nodrag flex items-center gap-1 rounded-xl border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur")}>
+      <NodeToolbar
+        isVisible={selected}
+        position={Position.Top}
+        offset={12}
+        className="nodrag nokey nopan nowheel max-w-[calc(100vw-2rem)]"
+        onPointerDown={stopToolbarEvent}
+        onMouseDown={stopToolbarEvent}
+        onTouchStart={stopToolbarEvent}
+        onKeyDown={stopToolbarEvent}
+        onClick={stopToolbarEvent}
+        onDoubleClick={stopToolbarEvent}
+      >
+        <div className="desk-surface nodrag flex flex-wrap items-center gap-0.5 rounded-lg border border-border bg-popover p-1">
           {data.canEdit ? (
             <>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+                className={TOOLBAR_BUTTON}
                 onClick={() => actions?.edit(ideaId)}
               >
-                <Pencil className="size-3.5" /> Uredi
+                <Pencil className="size-3.5" aria-hidden="true" /> Uredi
               </Button>
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="size-8 rounded-lg"
+                className="size-8"
                 aria-label="Vrati početnu veličinu ideje"
                 title="Vrati početnu veličinu"
                 onClick={() => actions?.resetSize(ideaId)}
               >
-                <RotateCcw className="size-3.5" />
+                <RotateCcw className="size-3.5" aria-hidden="true" />
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+                className={TOOLBAR_BUTTON}
                 onClick={() => actions?.branch(ideaId)}
               >
-                <GitBranchPlus className="size-3.5" /> Grana
+                <GitBranchPlus className="size-3.5" aria-hidden="true" /> Grana
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+                className={TOOLBAR_BUTTON}
                 onClick={() => actions?.nest(ideaId)}
               >
-                <FolderInput className="size-3.5" /> Ubaci u…
+                <FolderInput className="size-3.5" aria-hidden="true" /> Ugnezdi u…
               </Button>
             </>
           ) : null}
@@ -195,152 +189,48 @@ export const IdeaFlowNodeCard = memo(function IdeaFlowNodeCard({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+              className={TOOLBAR_BUTTON}
               onClick={() => actions?.detach(ideaId)}
             >
-              <Ungroup className="size-3.5" /> Izvuci
+              <Ungroup className="size-3.5" aria-hidden="true" /> Odvoji
             </Button>
           ) : null}
           <Button
             type="button"
             size="sm"
             variant="ghost"
-            className="h-8 gap-1.5 rounded-lg px-2.5 text-xs text-rose-600"
+            className={`${TOOLBAR_BUTTON} text-destructive hover:text-destructive`}
             onClick={() => actions?.remove(ideaId)}
           >
-            <Trash2 className="size-3.5" />
-            {data.canDeleteDirectly ? "Obriši" : "Zatraži brisanje"}
+            <Trash2 className="size-3.5" aria-hidden="true" /> Obriši
           </Button>
-          {data.isApproved && !data.convertedPageId ? (
+          {data.canConvert ? (
             <Button
               type="button"
               size="sm"
-              className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+              className={TOOLBAR_BUTTON}
               onClick={() => actions?.convert(ideaId)}
             >
-              Pretvori <ArrowRight className="size-3.5" />
+              Pretvori <ArrowRight className="size-3.5" aria-hidden="true" />
             </Button>
           ) : null}
         </div>
       </NodeToolbar>
 
-      <div
-        data-circular-text-obstacle
-        className={cn(orbital.orbit, orbital.titleOrbit)}
-        title={data.title ?? "Bez naslova"}
-      >
-        {data.title ?? "Bez naslova"}
-      </div>
-
-      <div
-        data-circular-text-obstacle
-        className={cn(orbital.orbit, orbital.founderOrbit)}
-      >
-        <ProfileAvatar
-          profile={{
-            displayName: data.authorName,
-            avatarUrl: data.authorAvatarUrl,
-          }}
-          className="size-7 shrink-0 ring-2 ring-background"
-        />
-        <span className={orbital.founderLabel}>
-          <span className={orbital.founderEyebrow}>Osnivač</span>
-          <span className={orbital.founderName}>{data.authorName}</span>
-        </span>
-      </div>
-
-      <div
-        data-circular-text-obstacle
-        className={cn(
-          orbital.orbit,
-          orbital.statusOrbit,
-          data.nestingModerationStatus === "rejected" || data.pendingDeletion
-            ? "text-rose-700 dark:text-rose-300"
-            : data.nestingModerationStatus === "pending"
-              ? "text-amber-700 dark:text-amber-300"
-            : data.isApproved || data.convertedPageId
-              ? "text-emerald-700 dark:text-emerald-300"
-              : "text-muted-foreground",
-        )}
-      >
-        {data.isApproved || data.convertedPageId ? (
-          <Check className="size-3.5" />
-        ) : (
-          <Lightbulb className="size-3.5" />
-        )}
-        <span className="text-[0.625rem] font-extrabold">{status}</span>
-      </div>
-
-      <div
-        data-circular-text-obstacle
-        className={cn(orbital.orbit, orbital.actionOrbit)}
-      >
-        <button
-          type="button"
-          className={cn(
-            "inline-flex min-h-8 items-center gap-1.5 rounded-full px-2 text-xs font-bold transition-colors",
-            data.userVote === "up"
-              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-          aria-label={`Glasaj za. Trenutno ${data.upvotes}`}
-          onClick={() => actions?.vote(ideaId, "up")}
-        >
-          <ThumbsUp className="size-3.5" /> {data.upvotes}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "inline-flex min-h-8 items-center gap-1.5 rounded-full px-2 text-xs font-bold transition-colors",
-            data.userVote === "down"
-              ? "bg-rose-500/15 text-rose-700 dark:text-rose-300"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-          aria-label={`Glasaj protiv. Trenutno ${data.downvotes}`}
-          onClick={() => actions?.vote(ideaId, "down")}
-        >
-          <ThumbsDown className="size-3.5" /> {data.downvotes}
-        </button>
-      </div>
-
-      <time
-        data-circular-text-obstacle
-        className={cn(orbital.orbit, orbital.dateOrbit)}
-        dateTime={new Date(data.createdAt).toISOString()}
-      >
-        <CalendarDays className="size-3.5" />
-        {new Intl.DateTimeFormat("sr-Latn-RS", {
-          day: "2-digit",
-          month: "short",
-        }).format(data.createdAt)}
-      </time>
-
-      <CircularTextFlow
-        text={data.text}
-        nodeId={id}
-        ariaLabel={`Tekst ideje ${data.title ?? "Bez naslova"}`}
-      >
-        <IdeaInlineThread
-          ideaId={ideaId}
-          canAdd={!data.canEdit}
-          compact
-        />
-      </CircularTextFlow>
-
       <Handle
         id="left"
         type="source"
         position={Position.Left}
-        className={cn(styles.handle, orbital.handle)}
+        className={styles.handle}
         aria-label="Leva tačka za povezivanje ideje"
       />
       <Handle
         id="right"
         type="source"
         position={Position.Right}
-        className={cn(styles.handle, orbital.handle)}
+        className={styles.handle}
         aria-label="Desna tačka za povezivanje ideje"
       />
-    </article>
+    </div>
   );
 });

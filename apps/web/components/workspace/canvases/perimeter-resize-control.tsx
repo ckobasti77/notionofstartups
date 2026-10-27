@@ -29,7 +29,8 @@ import {
 import styles from "./perimeter-resize-control.module.css";
 import { isCanvasSpacePanActive } from "./use-canvas-navigation";
 
-export type PerimeterResizeShape = "organic" | "rounded" | "checkpoint";
+/** `organic` još koristi Mapa beleški (`thoughts/`); Mapa oblasti i ideja je `rounded`. */
+export type PerimeterResizeShape = "organic" | "rounded";
 
 type ActiveResize = {
   pointerId: number;
@@ -43,11 +44,8 @@ type ActiveResize = {
 
 const ORGANIC_PATH =
   "M 42 0 A 58 44 0 0 1 100 44 A 52 56 0 0 1 48 100 A 48 54 0 0 1 0 46 A 42 46 0 0 1 42 0 Z";
-const CHECKPOINT_PATH =
-  "M 47 0 A 53 45 0 0 1 100 45 A 45 55 0 0 1 55 100 A 55 46 0 0 1 0 54 A 47 54 0 0 1 47 0 Z";
 
-function roundedPath(width: number, height: number) {
-  const radius = 20;
+function roundedPath(width: number, height: number, radius = 20) {
   const rx = Math.min(49, (radius / Math.max(width, 1)) * 100);
   const ry = Math.min(49, (radius / Math.max(height, 1)) * 100);
   return [
@@ -68,9 +66,10 @@ function shapePath(
   shape: PerimeterResizeShape,
   width: number,
   height: number,
+  cornerRadius?: number,
 ) {
-  if (shape === "rounded") return roundedPath(width, height);
-  return shape === "checkpoint" ? CHECKPOINT_PATH : ORGANIC_PATH;
+  if (shape === "rounded") return roundedPath(width, height, cornerRadius);
+  return ORGANIC_PATH;
 }
 
 export function PerimeterResizeControl<NodeType extends Node>({
@@ -80,6 +79,7 @@ export function PerimeterResizeControl<NodeType extends Node>({
   selected,
   disabled = false,
   shape,
+  cornerRadius,
   minWidth,
   minHeight,
   maxWidth,
@@ -94,6 +94,8 @@ export function PerimeterResizeControl<NodeType extends Node>({
   selected: boolean;
   disabled?: boolean;
   shape: PerimeterResizeShape;
+  /** Poluprečnik ugla za `rounded` u px (kartica Mape `rounded-lg` = 10). */
+  cornerRadius?: number;
   minWidth: number;
   minHeight: number;
   maxWidth: number;
@@ -326,7 +328,7 @@ export function PerimeterResizeControl<NodeType extends Node>({
     if (next) onResizeEnd(next);
   };
 
-  const path = shapePath(shape, width, height);
+  const path = shapePath(shape, width, height, cornerRadius);
 
   return (
     <svg
@@ -348,7 +350,8 @@ export function PerimeterResizeControl<NodeType extends Node>({
         d={path}
         pathLength={100}
         role="slider"
-        tabIndex={disabled ? -1 : 0}
+        // Tab stanica samo na izabranoj kartici (inače svaka kartica ima dve).
+        tabIndex={disabled || !selected ? -1 : 0}
         aria-label={ariaLabel}
         aria-valuemin={minWidth}
         aria-valuemax={maxWidth}

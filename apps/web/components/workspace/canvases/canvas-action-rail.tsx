@@ -1,7 +1,6 @@
 "use client";
 
-import { useId, type ComponentType, type KeyboardEvent } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import type { ComponentType, KeyboardEvent } from "react";
 
 import {
   Tooltip,
@@ -33,6 +32,15 @@ export type CanvasActionRailSection = {
   ariaLabel?: string;
 };
 
+/** „1 stavka", „3 stavke", „12 stavki". */
+function itemsLabel(count: number) {
+  const lastDigit = count % 10;
+  const lastTwo = count % 100;
+  if (lastDigit === 1 && lastTwo !== 11) return `${count} stavka`;
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14)) return `${count} stavke`;
+  return `${count} stavki`;
+}
+
 export function CanvasActionRail({
   ariaLabel,
   identity,
@@ -50,13 +58,11 @@ export function CanvasActionRail({
   sections: CanvasActionRailSection[];
   className?: string;
 }) {
-  const shouldReduceMotion = useReducedMotion();
-  const railId = useId();
   const IdentityIcon = identity.icon;
   const visibleSections = sections.filter((section) => section.items.length > 0);
   const identityDescription = [
     identity.label,
-    identity.count === undefined ? null : `${identity.count} stavki`,
+    identity.count === undefined ? null : itemsLabel(identity.count),
     identity.pendingCount ? `${identity.pendingCount} na čekanju` : null,
   ]
     .filter(Boolean)
@@ -89,7 +95,7 @@ export function CanvasActionRail({
               tabIndex={0}
             >
               <span className={styles.label} aria-hidden="true">
-                <span className={cn(styles.labelText, "text-xs font-bold")}>
+                <span className={cn(styles.labelText, "text-xs font-semibold")}>
                   {identity.label}
                 </span>
                 {identity.count === undefined ? null : (
@@ -186,7 +192,7 @@ export function CanvasActionRail({
                   return (
                     <Tooltip key={item.id}>
                       <TooltipTrigger asChild>
-                        <motion.button
+                        <button
                           type="button"
                           role="radio"
                           data-switch-index={index}
@@ -206,18 +212,9 @@ export function CanvasActionRail({
                           disabled={item.disabled}
                           onClick={item.onSelect}
                           onKeyDown={moveSelection}
-                          whileTap={
-                            shouldReduceMotion || item.disabled
-                              ? undefined
-                              : { scale: 0.94 }
-                          }
-                          transition={{
-                            duration: shouldReduceMotion ? 0 : 0.12,
-                          }}
                         >
                           {item.active ? (
-                            <motion.span
-                              layoutId={`${railId}-${section.id}-active`}
+                            <span
                               className={cn(
                                 styles.switchIndicator,
                                 item.tone === "note" &&
@@ -225,22 +222,13 @@ export function CanvasActionRail({
                                 item.tone === "task" &&
                                   styles.switchIndicatorTask,
                               )}
-                              transition={
-                                shouldReduceMotion
-                                  ? { duration: 0 }
-                                  : {
-                                      type: "spring",
-                                      stiffness: 520,
-                                      damping: 38,
-                                    }
-                              }
                               aria-hidden="true"
                             />
                           ) : null}
                           <Icon
                             className={cn(styles.switchIcon, "size-4")}
                           />
-                        </motion.button>
+                        </button>
                       </TooltipTrigger>
                       <TooltipContent side="left">
                         {item.label}
@@ -255,7 +243,7 @@ export function CanvasActionRail({
                 return (
                   <Tooltip key={item.id}>
                     <TooltipTrigger asChild>
-                      <motion.button
+                      <button
                         type="button"
                         className={cn(
                           styles.item,
@@ -275,14 +263,6 @@ export function CanvasActionRail({
                         }
                         disabled={item.disabled}
                         onClick={item.onSelect}
-                        whileTap={
-                          shouldReduceMotion || item.disabled
-                            ? undefined
-                            : { scale: 0.97 }
-                        }
-                        transition={{
-                          duration: shouldReduceMotion ? 0 : 0.12,
-                        }}
                       >
                         <span className={styles.label} aria-hidden="true">
                           <span
@@ -300,7 +280,7 @@ export function CanvasActionRail({
                         >
                           <Icon className="size-4" />
                         </span>
-                      </motion.button>
+                      </button>
                     </TooltipTrigger>
                     <TooltipContent side="left">
                       {item.label}
