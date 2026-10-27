@@ -291,7 +291,7 @@ function PageTreeNode({
           variant="ghost"
           size="icon"
           data-compact="true"
-          className="mr-0.5 mt-0.5 size-7 shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 focus:opacity-100"
+          className="mr-0.5 mt-0.5 size-7 shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100"
           aria-label={`Dodaj podstranicu u ${page.title}`}
           onClick={() => onCreate({ areaId, parentPageId: page._id })}
         >

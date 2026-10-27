@@ -580,7 +580,7 @@ function SidebarContent(
                     )}
 
                     {editingAreaId !== area._id ? (
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100">
                         <Button
                           type="button"
                           variant="ghost"

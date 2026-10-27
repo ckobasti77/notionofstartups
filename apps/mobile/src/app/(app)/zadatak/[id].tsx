@@ -51,6 +51,7 @@ import { useRowMutations } from '@/components/me/use-row-mutations';
 import { PageActionsSheet, type SheetView } from '@/components/stranica/page-actions-sheet';
 import { RelationsSection } from '@/components/stranica/relations-section';
 import { AssigneePickerSheet } from '@/components/zadatak/assignee-picker';
+import { BlockBoundary } from '@/components/collab/block-boundary';
 import { TaskMetaSheet, type TaskMetaView } from '@/components/zadatak/task-meta-sheet';
 import { DiscussionLink } from '@/components/chat/discussion-link';
 import { InstructionsSection } from '@/components/zadatak/instructions-section';
@@ -409,21 +410,25 @@ export default function ZadatakScreen() {
             </View>
 
             <View style={[styles.section, { borderTopColor: colors.border }]}>
-              <TaskCheckpointList
-                taskPageId={pageId}
-                startupId={page.startupId}
-                canCreate={permissions.checkpoints.allowed}
-              />
+              <BlockBoundary title="Koraci nisu učitani.">
+                <TaskCheckpointList
+                  taskPageId={pageId}
+                  startupId={page.startupId}
+                  canCreate={permissions.checkpoints.allowed}
+                />
+              </BlockBoundary>
             </View>
 
             <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>
-              <RelationsSection
-                pageId={pageId}
-                startupId={page.startupId}
-                areaId={page.areaId}
-                onConnect={() => setActionsView('relate')}
-                showDivider={false}
-              />
+              <BlockBoundary title="Povezano nije učitano.">
+                <RelationsSection
+                  pageId={pageId}
+                  startupId={page.startupId}
+                  areaId={page.areaId}
+                  onConnect={() => setActionsView('relate')}
+                  showDivider={false}
+                />
+              </BlockBoundary>
             </View>
 
             <View style={[styles.section, styles.flush, { borderTopColor: colors.border }]}>

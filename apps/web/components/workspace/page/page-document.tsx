@@ -252,8 +252,8 @@ export function PageDocument({
         </DropdownMenu>
       </div>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,46rem)_15rem] lg:gap-x-10">
-        <div ref={regionRef} className="min-w-0 lg:col-start-1 lg:row-start-1">
+      <div className="xl:grid xl:grid-cols-[minmax(0,46rem)_15rem] xl:gap-x-10">
+        <div ref={regionRef} className="min-w-0 xl:col-start-1 xl:row-start-1">
           <h1 className="text-xl font-semibold tracking-[-0.02em] lg:text-2xl">
             {editable ? (
               <input
@@ -272,7 +272,7 @@ export function PageDocument({
             )}
           </h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <p className="text-xs leading-5 text-muted-foreground lg:hidden">
+            <p className="text-xs leading-5 text-muted-foreground xl:hidden">
               {documentMetaLine({ ...meta, now })}
             </p>
             {lock.view === "locked-editable" ? (
@@ -308,15 +308,15 @@ export function PageDocument({
 
         <aside
           aria-label={subject === "task" ? "Podaci o zadatku" : "Podaci o stranici"}
-          className="mt-8 min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-1"
+          className="mt-8 min-w-0 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:mt-1"
         >
-          <div className="space-y-6 lg:sticky lg:top-6">
+          <div className="space-y-6 xl:sticky xl:top-6">
             {sideFacts}
             {relations}
           </div>
         </aside>
 
-        <div className="mt-8 min-w-0 lg:col-start-1 lg:row-start-2">{comments}</div>
+        <div className="mt-8 min-w-0 xl:col-start-1 xl:row-start-2">{comments}</div>
       </div>
     </div>
   );
@@ -327,13 +327,13 @@ export function PageDocumentSkeleton() {
   return (
     <div role="status" aria-label="Učitavanje stranice" className="mx-auto w-full max-w-6xl px-4 pb-16 pt-4 sm:px-6 lg:px-8 lg:pt-6">
       <Skeleton className="mb-3 h-9 w-48 rounded-md" />
-      <div className="lg:grid lg:grid-cols-[minmax(0,46rem)_15rem] lg:gap-x-10">
+      <div className="xl:grid xl:grid-cols-[minmax(0,46rem)_15rem] xl:gap-x-10">
         <div className="space-y-3">
           <Skeleton className="h-8 w-3/4 rounded-md" />
           <Skeleton className="h-4 w-1/3 rounded-md" />
           <Skeleton className="mt-6 h-[40vh] rounded-lg" />
         </div>
-        <div className="mt-8 hidden space-y-3 lg:mt-1 lg:block">
+        <div className="mt-8 hidden space-y-3 xl:mt-1 xl:block">
           {[0, 1, 2].map((item) => (
             <Skeleton key={item} className="h-10 rounded-md" />
           ))}

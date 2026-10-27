@@ -151,7 +151,7 @@ export default function IdejeScreen() {
                   haptics.tap();
                   setCreateOpen(true);
                 }}>
-                <Plus size={22} color={colors.primary} />
+                <Plus size={22} color={colors.primaryText} />
               </IconButton>
             </>
           ) : undefined

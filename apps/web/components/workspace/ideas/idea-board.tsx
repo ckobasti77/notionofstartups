@@ -124,7 +124,7 @@ export function IdeaBoard({
       onKeyDown={onKeyDown}
       // Visina = najviša kolona (ili ceo prostor): pozadina kolone uvek prati kartice,
       // a vertikalno skroluje kartica prikaza (TabsContent).
-      className="flex flex-[1_0_auto] items-stretch gap-3 overflow-x-auto pb-4"
+      className="relative flex flex-[1_0_auto] items-stretch gap-3 overflow-x-auto pb-4"
       aria-label="Tabla ideja po fazama"
       role="region"
     >

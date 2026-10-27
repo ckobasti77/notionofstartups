@@ -193,7 +193,7 @@ export function ChannelMembersSheet({
                       ? 'Administrator'
                       : undefined
                 }
-                value={checked ? <Check size={18} color={colors.primary} /> : undefined}
+                value={checked ? <Check size={18} color={colors.primaryText} /> : undefined}
                 showChevron={false}
                 disabled={isOwner || saving}
                 onPress={() => toggle(member.profile._id)}

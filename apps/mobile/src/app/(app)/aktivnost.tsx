@@ -35,7 +35,7 @@ export default function AktivnostScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { activeStartupId } = useActiveStartup();
+  const { activeStartupId, restoring } = useActiveStartup();
   const now = useLiveNow();
 
   const { results, status, loadMore } = usePaginatedQuery(
@@ -44,7 +44,9 @@ export default function AktivnostScreen() {
     { initialNumItems: PAGE_SIZE },
   );
 
-  const loadingFirst = activeStartupId === null || status === 'LoadingFirstPage';
+  // Bez aktivnog startupa (i bez obnavljanja izbora) nema šta da se čeka — „Izaberi startup".
+  const noStartup = activeStartupId === null && !restoring;
+  const loadingFirst = !noStartup && (activeStartupId === null || status === 'LoadingFirstPage');
   const sections = groupActivitiesByDay(results, now);
   const refreshControl = useListRefresh();
 
@@ -52,7 +54,13 @@ export default function AktivnostScreen() {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Aktivnost" onBack={() => router.back()} />
 
-      {!loadingFirst && results.length === 0 ? (
+      {noStartup ? (
+        <EmptyState
+          icon={<Activity size={20} color={colors.mutedForeground} />}
+          title="Izaberi startup"
+          description="Aktivnost se prikazuje po startupu."
+        />
+      ) : !loadingFirst && results.length === 0 ? (
         <EmptyState
           icon={<Activity size={20} color={colors.mutedForeground} />}
           title="Nema aktivnosti."

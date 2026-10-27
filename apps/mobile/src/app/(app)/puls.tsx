@@ -72,7 +72,7 @@ export default function PulsScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { activeStartupId } = useActiveStartup();
+  const { activeStartupId, restoring } = useActiveStartup();
 
   // Deep link iz obaveštenja `puls_ready` nosi početak nedelje na koju se izveštaj
   // odnosi. Bez ovoga bi tap na obaveštenje uvek otvarao TEKUĆU nedelju, pa bi
@@ -113,7 +113,9 @@ export default function PulsScreen() {
   const currentWeek = isCurrentWeek(weekStart, now);
   const isFirstWeek = data !== undefined && weekStart <= data.startupCreatedAt;
   const canGoBack = data === undefined || weekEnd > data.startupCreatedAt;
-  const loading = activeStartupId === null || data === undefined;
+  // Bez aktivnog startupa (i bez obnavljanja izbora) nema šta da se čeka.
+  const noStartup = activeStartupId === null && !restoring;
+  const loading = !noStartup && (activeStartupId === null || data === undefined);
   const refreshControl = useListRefresh();
 
   // „Sastav nedelje" — doslovno isti segmenti kao web (`puls-view.tsx:99-117`):
@@ -171,7 +173,15 @@ export default function PulsScreen() {
         {/* `fill={false}`: zamena stoji USRED skrola (ispod navigacije nedelje), pa
             mora da bude visoka koliko sam sadržaj, ne koliko ekran. */}
         <LoadingSwap loading={loading} fill={false} skeleton={<PulsSkeleton />}>
-          {data === undefined ? null : (
+          {data === undefined ? (
+            noStartup ? (
+              <EmptyState
+                icon={<Flame size={20} color={colors.mutedForeground} />}
+                title="Izaberi startup"
+                description="Puls se prikazuje po startupu."
+              />
+            ) : null
+          ) : (
             <View style={styles.sections}>
               <SummaryGrid data={data} colors={colors} hideTrend={isFirstWeek} />
               <StuckSection tasks={data.stuckTasks} now={now} colors={colors} />
@@ -825,6 +835,7 @@ const styles = StyleSheet.create({
   weekBadges: {
     flex: 1,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     gap: space[2],

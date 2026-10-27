@@ -51,7 +51,7 @@ export function IdeaList({
 
   return (
     <>
-      <table className="w-full border-separate border-spacing-0 text-left text-sm max-md:hidden">
+      <table className="w-full border-separate border-spacing-0 text-left text-sm max-xl:hidden">
         <caption className="sr-only">Ideje</caption>
         <thead className="sticky top-0 z-10 bg-background text-xs font-medium text-muted-foreground [&_th]:border-b [&_th]:border-border">
           <tr>
@@ -128,7 +128,7 @@ export function IdeaList({
       </table>
 
       {/* Ispod `md`: red sa naslovom, meta redom i glasovima. */}
-      <ul ref={listRef} className="space-y-0.5 md:hidden" aria-label="Ideje">
+      <ul ref={listRef} className="space-y-0.5 xl:hidden" aria-label="Ideje">
         <FlipGroup scope={listRef} layoutKey={layoutKey} resetKey={`${resetKey}|${sort.key}:${sort.direction}`} disabled={flipOff}>
           {rows.map((idea) => (
             <li

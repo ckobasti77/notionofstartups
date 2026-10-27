@@ -33,7 +33,7 @@ export function ConnectionBanner() {
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[95] flex justify-center px-3 pt-2">
       <span
         role="status"
-        className="pointer-events-auto flex items-center gap-2 rounded-full border border-amber-500/30 bg-card/95 px-4 py-2 text-xs font-medium text-amber-700 shadow-[var(--shadow-desk)] backdrop-blur dark:text-amber-300"
+        className="pointer-events-auto flex items-center gap-2 rounded-full border border-warning/30 bg-card/95 px-4 py-2 text-xs font-medium text-warning-foreground shadow-[var(--shadow-desk)] backdrop-blur dark:text-warning"
       >
         <WifiOff className="size-3.5" aria-hidden="true" />
         Veza sa serverom je prekinuta — pokušavam ponovo…

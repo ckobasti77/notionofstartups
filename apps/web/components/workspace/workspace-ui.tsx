@@ -243,7 +243,7 @@ export function ScreenHeader({
             <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{meta}</span>
           ) : null}
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
       {below ? <div className="mt-4">{below}</div> : null}
     </header>

@@ -545,7 +545,7 @@ export function TaskSectionsView({
           <div>
             <div
               aria-hidden="true"
-              className="hidden items-center gap-2 border-b border-border px-2 pb-1.5 text-xs font-medium text-muted-foreground lg:flex"
+              className="hidden items-center gap-2 border-b border-border px-2 pb-1.5 text-xs font-medium text-muted-foreground xl:flex"
             >
               {/* Iste širine kao red: kvačica 32 · naslov · oblast 120 · status 96 · rok 104 · prioritet 88 · radnje 100. */}
               <span className="w-8 shrink-0" />

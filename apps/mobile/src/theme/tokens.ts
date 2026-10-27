@@ -140,7 +140,7 @@ export const darkColors: ColorTokens = {
   warningForeground: '#3A2A05',
   info: '#60A5FA',
   infoForeground: '#06122A',
-  input: '#303036',
+  input: '#6E6E78', // ivica kontrole ≥ 3:1 na background i surface (K22); `border` ostaje dekor
   ring: '#818CF8',
   sidebar: '#0F0F11',
   sidebarForeground: '#F5F5F6',
@@ -165,8 +165,8 @@ export const lightColors: ColorTokens = {
   subtle: '#6B6B72',
   // Semantičke boje u svetloj temi nose i tekst NA 13% tintu iste boje (pilule,
   // čipovi). Stare vrednosti su tu davale 2.69 (warning) i 3.13 (success).
-  success: '#047857',
-  warning: '#B45309',
+  success: '#036B4A',
+  warning: '#92400E',
   danger: '#B91C1C',
 
   // Legacy aliasi → nova paleta
@@ -187,9 +187,9 @@ export const lightColors: ColorTokens = {
   destructiveForeground: '#FFFFFF',
   successForeground: '#FFFFFF',
   warningForeground: '#FFFFFF',
-  info: '#2563EB',
+  info: '#1D4ED8',
   infoForeground: '#FFFFFF',
-  input: '#D4D4D8',
+  input: '#7C7C85', // ivica kontrole ≥ 3:1 na background i surface (K22); `border` ostaje dekor
   ring: '#6366F1',
   sidebar: '#EDEDEF',
   sidebarForeground: '#18181B',
@@ -312,6 +312,6 @@ export const themes: Record<ThemeName, ColorTokens> = {
  * Namerno van `ColorTokens`: to je skala po indeksu, ne uloga.
  */
 export const startupTones: Record<ThemeName, readonly string[]> = {
-  light: ['#0C60A3', '#7241A0', '#A42C71', '#A14206', '#7A5B01', '#286F2F', '#116C63', '#17687D'],
+  light: ['#0C60A3', '#7241A0', '#A42C71', '#A14206', '#7A5B01', '#246829', '#116C63', '#17687D'],
   dark: ['#80BDFB', '#C9A3F5', '#F197C2', '#F79E75', '#DEB866', '#85CC87', '#6FCABF', '#65C6E4'],
 };

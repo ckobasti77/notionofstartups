@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Lightbulb, Network, Plus, RefreshCw, Rows3, Search, SearchX, SquareKanban, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,18 @@ export function IdeasScreen({
   const ready = state.status === "ready";
   const all = ready ? state.ideas : [];
   const shown = filterIdeas(all, query);
+  // Broj rezultata pretrage se najavljuje (sa zadrškom, da kucanje ne zatrpa čitač).
+  const [searchAnnouncement, setSearchAnnouncement] = useState("");
+  const trimmedQuery = query.trim();
+  const shownCount = shown.length;
+  useEffect(() => {
+    if (!ready || trimmedQuery === "") return;
+    const timer = window.setTimeout(
+      () => setSearchAnnouncement(shownCount === 0 ? "Nijedna ideja ne odgovara pretrazi." : `Rezultata: ${shownCount}.`),
+      400,
+    );
+    return () => window.clearTimeout(timer);
+  }, [ready, trimmedQuery, shownCount]);
   // Ulaz kartica samo na prvo punjenje i na promenu prikaza (ne na glas ili pretragu).
   useEnter(bodyRef, { key: `${mode}:${state.status}` });
 
@@ -221,7 +233,7 @@ export function IdeasScreen({
         </TabsContent>
       </div>
       <p role="status" aria-live="polite" className="sr-only">
-        {announcement}
+        {announcement || (trimmedQuery === "" ? "" : searchAnnouncement)}
       </p>
     </Tabs>
   );

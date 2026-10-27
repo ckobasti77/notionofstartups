@@ -94,7 +94,7 @@ export function AssigneePickerList({
               <Avatar name={member.profile.displayName} uri={member.profile.avatarUrl} size={32} />
             }
             title={member.profile.displayName}
-            value={active ? <Check size={18} color={colors.primary} /> : undefined}
+            value={active ? <Check size={18} color={colors.primaryText} /> : undefined}
             onPress={() => toggle(member.profile._id)}
             disabled={disabled || (!active && atLimit)}
             showChevron={false}

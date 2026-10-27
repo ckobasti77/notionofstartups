@@ -1098,7 +1098,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
         />
         <MotionStage key={routeKey} viewKey={routeKey} contained={route.kind === "thoughts" || route.kind === "ideas" || route.kind === "chat" || route.kind === "me-chat"}>
           {route.kind === "me-today" ? (
-            <WorkspaceErrorBoundary key="me-today" title="Moj dan se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-today" title="Moj dan nije učitan." className="m-4 min-h-[20rem]">
               <MyDayContainer
                 today={today}
                 firstName={firstNameOf(profile.displayName)}
@@ -1117,7 +1117,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-tasks" ? (
-            <WorkspaceErrorBoundary key="me-tasks" title="Moji zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-tasks" title="Moji zadaci nisu učitani." className="m-4 min-h-[20rem]">
               <MyTasksContainer
                 today={today}
                 profileId={profile._id}
@@ -1127,7 +1127,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-inbox" ? (
-            <WorkspaceErrorBoundary key="me-inbox" title="Inbox se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-inbox" title="Inbox nije učitan." className="m-4 min-h-[20rem]">
               <InboxContainer
                 today={today}
                 startups={startups}
@@ -1136,7 +1136,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-chat" ? (
-            <WorkspaceErrorBoundary key="me-chat" title="Poruke se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-chat" title="Poruke nisu učitane." className="m-4 min-h-[20rem]">
               <ChatHubContainer
                 today={today}
                 profile={profile}
@@ -1148,7 +1148,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "me-notes" ? (
-            <WorkspaceErrorBoundary key="me-notes" title="Beleške se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key="me-notes" title="Beleške nisu učitane." className="m-4 min-h-[20rem]">
               <NotesContainer
                 today={today}
                 startups={startups}
@@ -1159,11 +1159,11 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "thoughts" ? (
-            <WorkspaceErrorBoundary key={`thoughts-${startup._id}`} title="Mapa beleški se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key={`thoughts-${startup._id}`} title="Mapa beleški nije učitana." className="m-4 min-h-[20rem]">
               <ThoughtsCanvasView startup={startup} profile={profile} onOpenPage={openPage} onOpenIdeas={() => navigateRoute({ kind: "ideas" })} />
             </WorkspaceErrorBoundary>
           ) : route.kind === "ideas" ? (
-            <WorkspaceErrorBoundary key={`ideas-${startup._id}`} title="Ideje se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key={`ideas-${startup._id}`} title="Ideje nisu učitane." className="m-4 min-h-[20rem]">
             <IdeasView
               startup={startup}
               profile={profile}
@@ -1178,7 +1178,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
             />
             </WorkspaceErrorBoundary>
           ) : route.kind === "today" ? (
-            <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key={`today-${startup._id}`} title="Komandni centar nije učitan." className="m-4 min-h-[20rem]">
               <CommandCenterView
                 startup={startup}
                 profile={profile}
@@ -1198,7 +1198,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "tasks" ? (
-            <WorkspaceErrorBoundary key={`tasks-${startup._id}`} title="Zadaci se ne mogu učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key={`tasks-${startup._id}`} title="Zadaci nisu učitani." className="m-4 min-h-[20rem]">
               <TasksView
                 startup={startup}
                 profile={profile}
@@ -1212,7 +1212,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               />
             </WorkspaceErrorBoundary>
           ) : route.kind === "puls" ? (
-            <WorkspaceErrorBoundary key={`puls-${startup._id}`} title="Puls se ne može učitati" className="m-4 min-h-[20rem]">
+            <WorkspaceErrorBoundary key={`puls-${startup._id}`} title="Puls nije učitan." className="m-4 min-h-[20rem]">
               <PulsView
                 startup={startup}
                 initialWeekStart={route.weekStart ?? null}
@@ -1251,16 +1251,18 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
               }
             />
           ) : route.kind === "chat" ? (
-            <ChatView
-              startup={startup}
-              profile={profile}
-              channelId={route.channelId}
-              onSelectChannel={(channelId) =>
-                navigateRoute({ kind: "chat", channelId })
-              }
-              onOpenList={() => navigateRoute({ kind: "chat" })}
-              onOpenPage={openPage}
-            />
+            <WorkspaceErrorBoundary key={`chat-${startup._id}`} title="Poruke nisu učitane." className="m-4 min-h-[20rem]">
+              <ChatView
+                startup={startup}
+                profile={profile}
+                channelId={route.channelId}
+                onSelectChannel={(channelId) =>
+                  navigateRoute({ kind: "chat", channelId })
+                }
+                onOpenList={() => navigateRoute({ kind: "chat" })}
+                onOpenPage={openPage}
+              />
+            </WorkspaceErrorBoundary>
           ) : route.kind === "area" ? (
             <AreaView
               startup={startup}
@@ -1278,7 +1280,7 @@ function WorkspaceShellContent({ profile, onSignOut }: { profile: ProfileWithAva
           ) : (
             <WorkspaceErrorBoundary
               key={route.pageId}
-              title="Stranica se ne može učitati"
+              title="Stranica nije učitana."
               className="min-h-[24rem]"
             >
               <PageRouteView

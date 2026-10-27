@@ -28,6 +28,7 @@ import { RelationsSection } from '@/components/stranica/relations-section';
 import { SubpagesSection } from '@/components/stranica/subpages-section';
 import { TablePanel } from '@/components/stranica/table-panel';
 import { DiscussionLink } from '@/components/chat/discussion-link';
+import { BlockBoundary } from '@/components/collab/block-boundary';
 import { UndoBar } from '@/components/undo-bar';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
@@ -273,19 +274,25 @@ function PageContent({
     <>
       {/* „Podstranice" su sekcija unutar stranice (tap u Prostoru otvara stranicu, ne
           roni u podstranice), skupljena podrazumevano. Ispod nje „Povezane stavke". */}
-      <SubpagesSection pageId={page._id} startupId={page.startupId} areaId={page.areaId} />
-      <RelationsSection
-        pageId={page._id}
-        startupId={page.startupId}
-        areaId={page.areaId}
-        onConnect={onConnect}
-      />
+      <BlockBoundary title="Podstranice nisu učitane.">
+        <SubpagesSection pageId={page._id} startupId={page.startupId} areaId={page.areaId} />
+      </BlockBoundary>
+      <BlockBoundary title="Povezano nije učitano.">
+        <RelationsSection
+          pageId={page._id}
+          startupId={page.startupId}
+          areaId={page.areaId}
+          onConnect={onConnect}
+        />
+      </BlockBoundary>
       {/* Diskusija uz stranicu — isti `chat.channelForAnchor`/`sendToAnchor` koji web
           `EntityDiscussionPanel` koristi za SVE tipove stranica. */}
-      <DiscussionLink
-        anchor={{ type: 'page', id: page._id, pageKind: page.kind }}
-        startupId={page.startupId}
-      />
+      <BlockBoundary title="Diskusija nije učitana.">
+        <DiscussionLink
+          anchor={{ type: 'page', id: page._id, pageKind: page.kind }}
+          startupId={page.startupId}
+        />
+      </BlockBoundary>
     </>
   );
 
@@ -319,9 +326,13 @@ function PageContent({
             onRemountRequest={onRemountRequest}
           />
         ) : page.kind === 'table' ? (
-          <TablePanel pageId={page._id} />
+          <BlockBoundary title="Tabela nije učitana.">
+            <TablePanel pageId={page._id} />
+          </BlockBoundary>
         ) : page.kind === 'file' ? (
-          <FilesPanel pageId={page._id} canManage={page.permissions.canEdit} />
+          <BlockBoundary title="Prilozi nisu učitani.">
+            <FilesPanel pageId={page._id} canManage={page.permissions.canEdit} />
+          </BlockBoundary>
         ) : (
           <UnexpectedKind kind={page.kind} colors={colors} />
         )}

@@ -258,7 +258,7 @@ export function ConversationHeader({
               key={level}
               icon={<Icon size={20} color={colors.foreground} />}
               title={label}
-              value={active ? <Check size={18} color={colors.primary} /> : undefined}
+              value={active ? <Check size={18} color={colors.primaryText} /> : undefined}
               onPress={() => {
                 haptics.select();
                 void changeLevel(level);

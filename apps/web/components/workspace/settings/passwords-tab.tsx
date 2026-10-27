@@ -36,9 +36,9 @@ export function PasswordsTab({ profiles, currentProfileId, onPick }: PasswordsTa
       ) : (
         <ul className="space-y-0.5" aria-label="Članovi">
           {profiles.items.map((profile) => (
-            <li key={profile.profileId} className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-1 hover:bg-muted/60">
+            <li key={profile.profileId} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-1 hover:bg-muted/60">
               <ProfileAvatar profile={profile} />
-              <span className="min-w-0 flex-1">
+              <span className="min-w-40 flex-1">
                 <span className="block truncate text-sm font-medium">{profile.displayName}</span>
                 <span className="block truncate text-xs text-muted-foreground">{profile.email}</span>
               </span>

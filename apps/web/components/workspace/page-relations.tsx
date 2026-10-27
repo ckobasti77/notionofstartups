@@ -370,7 +370,7 @@ export function PageRelationsPanel<
                         "size-11 self-center rounded-lg text-muted-foreground",
                         relation.canDelete
                           ? "hover:bg-destructive/10 hover:text-destructive"
-                          : "hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300",
+                          : "hover:bg-warning/10 hover:text-warning-foreground dark:hover:text-warning",
                       )}
                       disabled={isBusy}
                       onClick={() =>

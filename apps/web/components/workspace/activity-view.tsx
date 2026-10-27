@@ -122,7 +122,7 @@ export function ActivityView({
   onOpenArea: (areaId: Id<"startupAreas">) => void;
 }) {
   return (
-    <WorkspaceErrorBoundary key={`activity-${startup._id}`} title="Aktivnost se ne može učitati" className="m-4 min-h-[20rem]">
+    <WorkspaceErrorBoundary key={`activity-${startup._id}`} title="Aktivnost nije učitana." className="m-4 min-h-[20rem]">
       <ActivityLoader startupId={startup._id} onOpenPage={onOpenPage} onOpenIdea={onOpenIdea} onOpenArea={onOpenArea} />
     </WorkspaceErrorBoundary>
   );

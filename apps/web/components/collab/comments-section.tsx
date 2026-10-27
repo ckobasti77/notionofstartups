@@ -64,6 +64,8 @@ export function CommentsSection({
   const [count, setCount] = useState<CommentsCount | null>(null);
   // Uvećava se posle slanja: lista učita do kraja i pokaže nov komentar.
   const [revealSignal, setRevealSignal] = useState(0);
+  // Najava uspešnog slanja za čitač ekrana (greška se najavljuje u polju).
+  const [announcement, setAnnouncement] = useState("");
   const targetKey = `${target.kind}:${target.id}`;
 
   useEffect(() => {
@@ -78,6 +80,9 @@ export function CommentsSection({
       mentionProfileIds: payload.mentionProfileIds as Array<Id<"profiles">>,
     });
     setRevealSignal((value) => value + 1);
+    // Prvo prazno pa tekst, da se ista poruka najavi i drugi put zaredom.
+    setAnnouncement("");
+    window.setTimeout(() => setAnnouncement("Komentar je poslat."), 50);
   }
 
   return (
@@ -86,7 +91,14 @@ export function CommentsSection({
       headingAs={compact ? "h3" : "h2"}
       className={className}
       count={count === null ? null : `${count.count}${count.capped ? "+" : ""}`}
-      composer={<CommentComposer members={members} selfProfileId={selfProfileId} onSubmit={submit} />}
+      composer={
+        <>
+          <CommentComposer members={members} selfProfileId={selfProfileId} onSubmit={submit} />
+          <p role="status" className="sr-only">
+            {announcement}
+          </p>
+        </>
+      }
     >
       <CommentsBoundary
         key={`${targetKey}:${attempt}`}

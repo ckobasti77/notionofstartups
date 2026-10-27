@@ -1,11 +1,18 @@
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
+// ConvexError (ne obična greška): produkcija tekst obične greške krije iza „Server Error",
+// pa klijent ne bi razlikovao „obrisano" od prekida veze (K22).
+function pageNotFound() {
+  return new ConvexError({ code: "NEMA_DOZVOLU", message: "Stranica nije pronađena." });
+}
+
 export async function requireVisiblePage(ctx: ReadCtx, pageId: Id<"pages">) {
   const page = await ctx.db.get("pages", pageId);
-  if (page === null || page.archivedAt !== null) throw new Error("Stranica nije pronađena.");
+  if (page === null || page.archivedAt !== null) throw pageNotFound();
 
   let parentPageId = page.parentPageId;
   for (let depth = 0; parentPageId !== null && depth < 64; depth += 1) {
@@ -16,7 +23,7 @@ export async function requireVisiblePage(ctx: ReadCtx, pageId: Id<"pages">) {
       parent.startupId !== page.startupId ||
       parent.areaId !== page.areaId
     ) {
-      throw new Error("Stranica nije pronađena.");
+      throw pageNotFound();
     }
     parentPageId = parent.parentPageId;
     if (depth === 63 && parentPageId !== null) {

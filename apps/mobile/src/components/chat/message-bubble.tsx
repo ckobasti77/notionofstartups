@@ -111,7 +111,7 @@ export function MessageBubble({
       <View style={[styles.row, { marginTop: grouped ? 2 : 10 }]}>
         <Animated.View style={[styles.reveal, revealStyle]} pointerEvents="none">
           <View style={[styles.revealCircle, { backgroundColor: colors.accent }]}>
-            <Reply size={16} color={colors.primary} />
+            <Reply size={16} color={colors.primaryText} />
           </View>
         </Animated.View>
 

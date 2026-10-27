@@ -70,7 +70,7 @@ export function CommandCenterFrame({
           </Button>
         }
       />
-      <div ref={listRef} onFocus={onListFocus} className="grid gap-x-10 gap-y-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div ref={listRef} onFocus={onListFocus} className="grid gap-x-10 gap-y-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-6">{main}</div>
         <div className="min-w-0 space-y-6">{side}</div>
       </div>

@@ -156,6 +156,7 @@ export function PageTablePanel({
                       {renamingColumnId === column.id ? (
                         <Input
                           autoFocus
+                          aria-label={`Naziv kolone ${column.label}`}
                           value={columnDraft}
                           className="h-8 min-w-0 flex-1"
                           onChange={(event) => setColumnDraft(event.target.value)}

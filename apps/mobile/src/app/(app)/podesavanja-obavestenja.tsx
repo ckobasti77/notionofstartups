@@ -429,7 +429,7 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
         <View style={styles.pushStatus}>
           <View style={styles.pushStatusHead}>
             {ok ? (
-              <CircleCheck size={18} color={colors.primary} />
+              <CircleCheck size={18} color={colors.primaryText} />
             ) : failed ? (
               <CircleAlert size={18} color={colors.destructive} />
             ) : off ? (
@@ -529,7 +529,7 @@ function PushDeviceCard({ colors }: { colors: ColorTokens }) {
             { borderTopColor: colors.border },
             pressed && { backgroundColor: colors.muted },
           ]}>
-          <Text style={[styles.channelCheckLabel, { color: colors.primary }]}>
+          <Text style={[styles.channelCheckLabel, { color: colors.primaryText }]}>
             Provera kanala obaveštenja
           </Text>
         </Pressable>
@@ -606,7 +606,7 @@ function ToggleRow({
               !previewReady && styles.previewBtnDisabled,
               pressed && previewReady && { backgroundColor: colors.muted },
             ]}>
-            <Play size={16} color={colors.primary} fill={colors.primary} />
+            <Play size={16} color={colors.primaryText} fill={colors.primaryText} />
           </Pressable>
         ) : undefined
       }

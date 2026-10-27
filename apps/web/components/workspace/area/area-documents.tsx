@@ -87,7 +87,7 @@ export function AreaDocumentsBody({
       {state.status === "loading" ? (
         <div role="status" aria-label="Učitavanje dokumenata" className="space-y-1">
           {[0, 1, 2, 3, 4].map((item) => (
-            <Skeleton key={item} className="h-14 w-full rounded-lg md:h-10" />
+            <Skeleton key={item} className="h-14 w-full rounded-lg xl:h-10" />
           ))}
         </div>
       ) : state.status === "error" ? (
@@ -122,19 +122,19 @@ export function AreaDocumentsBody({
         )
       ) : (
         <div role="table" aria-label="Dokumenti oblasti">
-          <div role="rowgroup" className="max-md:sr-only">
+          <div role="rowgroup" className="max-xl:sr-only">
             <div
               role="row"
-              className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-3 border-b border-border px-2 pb-1.5 text-xs font-medium text-muted-foreground md:grid-cols-[minmax(0,1fr)_6.5rem_8.5rem_9rem_2.5rem]"
+              className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-3 border-b border-border px-2 pb-1.5 text-xs font-medium text-muted-foreground xl:grid-cols-[minmax(0,1fr)_6.5rem_8.5rem_9rem_2.5rem]"
             >
               <span role="columnheader">Naslov</span>
-              <span role="columnheader" className="max-md:hidden">
+              <span role="columnheader" className="max-xl:hidden">
                 Vrsta
               </span>
-              <span role="columnheader" className="max-md:hidden">
+              <span role="columnheader" className="max-xl:hidden">
                 Poslednja izmena
               </span>
-              <span role="columnheader" className="max-md:hidden">
+              <span role="columnheader" className="max-xl:hidden">
                 Ko
               </span>
               <span role="columnheader">
@@ -278,7 +278,7 @@ function DocumentRow({
       onDragEnd={draggable ? () => drag?.onDragEnd() : undefined}
       {...dropHandlers}
       className={cn(
-        "group/row relative grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-3 rounded-lg px-2 transition-colors hover:bg-muted/60 md:grid-cols-[minmax(0,1fr)_6.5rem_8.5rem_9rem_2.5rem]",
+        "group/row relative grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-3 rounded-lg px-2 transition-colors hover:bg-muted/60 xl:grid-cols-[minmax(0,1fr)_6.5rem_8.5rem_9rem_2.5rem]",
         isDropTarget && "bg-primary/5 outline-dashed outline-1 outline-primary hover:bg-primary/5",
         isDragged && "opacity-50",
       )}
@@ -307,7 +307,7 @@ function DocumentRow({
           aria-keyshortcuts={expandable ? "ArrowRight ArrowLeft ArrowUp ArrowDown" : "ArrowUp ArrowDown"}
           onClick={() => onOpen(page._id)}
           onKeyDown={onTitleKeyDown}
-          className="flex min-h-10 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md py-1.5 pl-1 pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring md:flex-row md:items-center md:justify-start md:gap-2"
+          className="flex min-h-10 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md py-1.5 pl-1 pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring xl:flex-row xl:items-center xl:justify-start xl:gap-2"
         >
           <span className="flex min-w-0 items-center gap-2">
             <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -315,7 +315,7 @@ function DocumentRow({
             {locked ? <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label="Zaključano" /> : null}
           </span>
           {/* Ispod `md` kolone postaju meta red. */}
-          <span className="truncate pl-6 text-xs text-muted-foreground md:hidden">
+          <span className="truncate pl-6 text-xs text-muted-foreground xl:hidden">
             {meta.label} · {editor} · {edited}
           </span>
         </button>
@@ -325,13 +325,13 @@ function DocumentRow({
           </span>
         ) : null}
       </div>
-      <div role="cell" className="truncate text-xs text-muted-foreground max-md:hidden">
+      <div role="cell" className="truncate text-xs text-muted-foreground max-xl:hidden">
         {meta.label}
       </div>
-      <div role="cell" className="truncate text-xs tabular-nums text-muted-foreground max-md:hidden">
+      <div role="cell" className="truncate text-xs tabular-nums text-muted-foreground max-xl:hidden">
         {edited}
       </div>
-      <div role="cell" className="truncate text-xs text-muted-foreground max-md:hidden">
+      <div role="cell" className="truncate text-xs text-muted-foreground max-xl:hidden">
         {editor}
       </div>
       <div role="cell" className="flex justify-end">

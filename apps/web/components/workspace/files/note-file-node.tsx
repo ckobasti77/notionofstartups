@@ -184,14 +184,14 @@ function NoteFileView({ node, editor, deleteNode }: NodeViewProps) {
     >
       {editor.isEditable ? (
         <div
-          className="absolute -right-1 -top-2.5 z-10 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute -right-1 -top-2.5 z-10 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
           contentEditable={false}
         >
           <span
             data-drag-handle
             className="inline-flex size-7 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Prevuci prilog"
-            aria-label="Prevuci prilog"
+            aria-hidden="true"
           >
             <GripVertical className="size-3.5" />
           </span>

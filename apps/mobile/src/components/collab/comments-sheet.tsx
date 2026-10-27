@@ -2,7 +2,7 @@ import type { FunctionArgs } from 'convex/server';
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import { MessageSquare } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { BlockBoundary } from '@/components/collab/block-boundary';
 import { CommentComposer, type MentionMember } from '@/components/collab/comment-composer';
@@ -199,6 +199,7 @@ function CommentsBody({
         mentionProfileIds: payload.mentionProfileIds as Id<'profiles'>[],
       });
       haptics.success();
+      AccessibilityInfo.announceForAccessibility('Komentar je poslat.');
       return true;
     } catch (cause) {
       haptics.error();
@@ -220,6 +221,7 @@ function CommentsBody({
         mentionProfileIds: payload.mentionProfileIds as Id<'profiles'>[],
       });
       haptics.success();
+      AccessibilityInfo.announceForAccessibility('Izmena je sačuvana.');
       setEditing(null);
       return true;
     } catch (cause) {

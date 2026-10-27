@@ -330,6 +330,7 @@ const styles = StyleSheet.create({
   },
   selectionBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,

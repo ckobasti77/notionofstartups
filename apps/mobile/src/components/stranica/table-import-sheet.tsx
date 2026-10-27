@@ -222,7 +222,7 @@ export function TableImportSheet({
             ) : (
               <>
                 <View style={styles.fileRow}>
-                  <FileSpreadsheet size={16} color={colors.primary} />
+                  <FileSpreadsheet size={16} color={colors.primaryText} />
                   <Text numberOfLines={1} style={[styles.fileName, { color: colors.foreground }]}>
                     {fileName}
                   </Text>

@@ -162,6 +162,11 @@ export function CommentComposer({
     <div className={cn("space-y-2", className)}>
       <div className="relative">
         {menuOpen ? (
+          <span role="status" className="sr-only">
+            {suggestions.length} članova za pominjanje
+          </span>
+        ) : null}
+        {menuOpen ? (
           <ul
             role="listbox"
             id={listId}
@@ -199,8 +204,11 @@ export function CommentComposer({
           autoFocus={autoFocus}
           aria-label={label}
           placeholder={placeholder}
+          role="combobox"
+          aria-expanded={menuOpen}
           aria-autocomplete="list"
           aria-haspopup="listbox"
+          data-escape-local={menuOpen || onCancel ? "true" : undefined}
           aria-controls={menuOpen ? listId : undefined}
           aria-activedescendant={menuOpen ? optionId(suggestions[Math.min(activeIndex, suggestions.length - 1)].profileId) : undefined}
           aria-describedby={failed ? errorId : undefined}

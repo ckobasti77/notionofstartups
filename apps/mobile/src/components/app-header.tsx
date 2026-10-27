@@ -83,6 +83,13 @@ export function AppHeader({ title, startupAsTitle = false, actions, onBack, belo
     if (status === 'CanLoadMore') loadMore(20);
   }, [activeStartupId, active, status, loadMore]);
 
+  // (3) Aktivan startup više nije na listi (uklonjen si iz tima dok je aplikacija otvorena):
+  // kad se lista iscrpi, pređi na prvi dostupan umesto večitog skeletona.
+  useEffect(() => {
+    if (restoring || activeStartupId === null || active !== undefined) return;
+    if (status === 'Exhausted' && startups.length > 0) setActiveStartupId(startups[0]._id);
+  }, [restoring, activeStartupId, active, status, startups, setActiveStartupId]);
+
   // Dok je izabran startup a stranica sa njim još nije stigla, meta linija
   // pokazuje skeleton — NE ime prvog startupa (`?? startups[0]` je za NEIZABRAN
   // startup).
